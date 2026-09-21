@@ -6,6 +6,7 @@ import os
 import subprocess
 import sys
 import re
+import socket
 import time
 import ipaddress
 import unicodedata
@@ -563,7 +564,18 @@ def _persist_ip_change(old_ip: str, new_ip: str) -> None:
     if not old_ip or not new_ip or old_ip == new_ip:
         return
 
-    rows = load_inventory_json() or []
+    # Todos os modos, nao so o "olt" (que era o padrao da funcao). A tela de
+    # Cameras IP tem tres visoes -- Basico, OLT e Switch -- e cada uma tem seu
+    # proprio inventario. Trocando o IP pelo Basico, a linha continuava com o
+    # IP velho na tela: a gravacao tinha ido para a visao OLT, que nem estava
+    # aberta. Quem chama aqui nao sabe de que visao veio, entao corrige onde
+    # o IP antigo existir.
+    for _modo in ("olt", "basic", "switch"):
+        _persist_ip_change_modo(old_ip, new_ip, _modo)
+
+
+def _persist_ip_change_modo(old_ip: str, new_ip: str, modo: str) -> None:
+    rows = load_inventory_json(mode=modo) or []
     changed = False
     for r in rows:
         ip = _as_str(r.get("ip") or r.get("IP"))
@@ -578,7 +590,7 @@ def _persist_ip_change(old_ip: str, new_ip: str) -> None:
             break
 
     if changed:
-        save_inventory_json(rows)
+        save_inventory_json(rows, mode=modo)
 
 
 def _valid_ipv4(value: str) -> bool:
@@ -610,6 +622,46 @@ def _camera_network_guard(new_ip: str, mask: str, gateway: str) -> str:
     if addr in cameras_net and (mask != "255.255.252.0" or gateway != "10.10.10.1"):
         return "rede 10.10.8.0/22 exige mascara 255.255.252.0 e gateway 10.10.10.1"
     return ""
+
+
+def _ip_responde(ip: str, portas=(80, 8000, 554), timeout: float = 2.0) -> bool:
+    """O equipamento atende neste IP agora? Passa pelo conector (vnat)."""
+    alvo = _reach(ip)
+    for porta in portas:
+        s = socket.socket()
+        s.settimeout(timeout)
+        try:
+            if s.connect_ex((alvo, int(porta))) == 0:
+                return True
+        except Exception:
+            pass
+        finally:
+            try:
+                s.close()
+            except Exception:
+                pass
+    return False
+
+
+def _esperar_ip(ip: str, segundos: float = 25.0, intervalo: float = 3.0) -> bool:
+    fim = time.time() + segundos
+    while time.time() < fim:
+        if _ip_responde(ip):
+            return True
+        time.sleep(intervalo)
+    return False
+
+
+def _hik_reiniciar(ip: str, user: str, password: str) -> bool:
+    """Reinicia por ISAPI. Este firmware GUARDA o IP novo e so assume depois
+    de reiniciar -- sem isto a troca "da certo" e nada muda."""
+    try:
+        from app.api.endpoints.deployments import _hik_request
+        r = _hik_request("PUT", f"http://{_reach(ip)}/ISAPI/System/reboot", user, password, timeout=8)
+        return 200 <= int(r.status_code) < 300
+    except Exception:
+        # derrubar a conexao ao reiniciar e o comportamento normal
+        return True
 
 
 def _camera_fala_isapi(ip: str, timeout: float = 5.0) -> bool:
@@ -714,10 +766,29 @@ def _change_ip_one(
     if _camera_fala_isapi(ip):
         ok, err = _hik_trocar_ip(ip, new_ip, _as_str(mask), _as_str(gateway),
                                  _as_str(dns1), _as_str(dns2), user, password)
-        if ok:
+        if not ok:
+            return {"ok": False, "ip": ip, "new_ip": new_ip, "via": "isapi", "error": err}
+
+        # A camera aceitar o PUT nao quer dizer que ela trocou. Este firmware
+        # GRAVA o IP novo e continua atendendo no antigo ate reiniciar -- foi
+        # exatamente isso que fez a tela dizer "trocado" com a camera parada
+        # no IP velho. Quem decide e o IP NOVO responder.
+        if _esperar_ip(new_ip, segundos=20):
             _persist_ip_change(ip, new_ip)
-            return {"ok": True, "ip": ip, "new_ip": new_ip, "via": "isapi", "detail": err}
-        return {"ok": False, "ip": ip, "new_ip": new_ip, "via": "isapi", "error": err}
+            return {"ok": True, "ip": ip, "new_ip": new_ip, "via": "isapi"}
+
+        _hik_reiniciar(ip, user, password)
+        if _esperar_ip(new_ip, segundos=75, intervalo=5.0):
+            _persist_ip_change(ip, new_ip)
+            return {"ok": True, "ip": ip, "new_ip": new_ip, "via": "isapi",
+                    "detail": "a camera precisou reiniciar para assumir o IP novo"}
+
+        return {
+            "ok": False, "ip": ip, "new_ip": new_ip, "via": "isapi",
+            "error": f"a camera gravou o IP {new_ip} mas nao assumiu, nem apos reiniciar. "
+                     f"Confira se {new_ip} ja esta em uso por outro equipamento, "
+                     f"e se mascara e gateway batem com a rede real.",
+        }
 
     params = [f"Network.eth0.IPAddress={quote(new_ip)}"]
     params.append(f"Network.eth0.SubnetMask={quote(_as_str(mask))}")
