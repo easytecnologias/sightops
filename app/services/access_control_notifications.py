@@ -196,7 +196,7 @@ def _evolution_platform_cfg() -> Dict[str, str]:
     sem autenticacao.
     """
     return {
-        "base_url": _text(os.getenv("SIGHTOPS_EVOLUTION_URL") or "http://10.10.12.7:8090", 500).rstrip("/"),
+        "base_url": _text(os.getenv("SIGHTOPS_EVOLUTION_URL") or "", 500).rstrip("/"),
         "api_key": _text(os.getenv("SIGHTOPS_EVOLUTION_API_KEY"), 300),
     }
 

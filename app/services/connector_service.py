@@ -25,7 +25,10 @@ from app.cli.tools.ruijie_reyee import RuijieAuthError, lan_inventory as ruijie_
 
 CONNECTORS_PATH = DATA_DIR / "connectors.json"
 CONNECTOR_JOBS_PATH = DATA_DIR / "connector-jobs.json"
-DEFAULT_WG_ENDPOINT = "201.182.184.84:51820"
+# Endereco publico onde os roteadores dos clientes fecham o tunel. Sai de
+# variavel de ambiente: e infraestrutura, nao codigo -- e um repositorio nao
+# deve dizer a um desconhecido onde fica a ponta da VPN.
+DEFAULT_WG_ENDPOINT = str(os.getenv("SIGHTOPS_WG_ENDPOINT") or "").strip()
 DEFAULT_WG_NETWORK_PREFIX = "10.250.0"
 DEFAULT_WG_SERVER_PUBLIC_KEY = "yR9WCTtf6Yp9ZqWLffqdQmWuBeqEB4WSLrzcztP1xQQ="
 CGNAT_LAN_NETWORK = ipaddress.ip_network("100.64.0.0/10")

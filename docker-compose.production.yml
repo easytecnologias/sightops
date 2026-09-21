@@ -5,7 +5,11 @@ services:
     env_file:
       - .env.v3
     environment:
-      APP_ENV: homologation
+      # production desliga o admin de bootstrap automatico. Com qualquer
+      # outro valor, subir a stack com o banco vazio CRIA o usuario
+      # admin_teste/admin_teste como owner + admin de plataforma -- e essa
+      # senha esta no codigo, publicado. Override so consciente, via .env.
+      APP_ENV: ${APP_ENV:-production}
       APP_HOST: 0.0.0.0
       APP_PORT: 8000
       ENABLE_DOCS: ${ENABLE_DOCS:-0}
