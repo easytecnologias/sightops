@@ -796,22 +796,22 @@ def _change_ip_one(
             _persist_ip_change(ip, new_ip)
             return {"ok": True, "ip": ip, "new_ip": new_ip, "via": "isapi"}
 
-        # Nao assumiu sozinha: este firmware guarda o IP e so troca ao
-        # reiniciar. Reiniciar faz parte de trocar o IP nesses modelos.
-        _hik_reiniciar(ip, user, password)
-        if _esperar_ip(new_ip, segundos=18, intervalo=3.0):
-            _persist_ip_change(ip, new_ip)
-            return {"ok": True, "ip": ip, "new_ip": new_ip, "via": "isapi",
-                    "detail": "a camera precisou reiniciar para assumir o IP novo"}
-
-        # Ainda subindo. NAO e erro, e tambem nao da pra jurar que deu certo:
-        # o inventario so muda quando o IP novo responder de fato.
+        # NAO reinicia por conta propria.
+        #
+        # A versao anterior reiniciava pra forcar a troca. Numa camera de
+        # producao isso e grave: em 21/09 a camera .2 da TELHA foi reiniciada
+        # assim, assumiu o IP novo e sumiu -- passou a responder ping mas nem
+        # o MikroTik da propria rede conseguiu abrir a porta web dela. Sem
+        # conseguir falar com o equipamento, nao ha como desfazer remotamente:
+        # vira visita ao local. Reiniciar e decisao do operador, que sabe se
+        # aquela camera pode cair, nao do sistema.
         return {
             "ok": False, "ip": ip, "new_ip": new_ip, "via": "isapi", "pendente": True,
-            "error": f"A camera gravou o IP {new_ip} e foi reiniciada para assumi-lo. "
-                     f"Ela costuma voltar em cerca de 1 minuto -- atualize a lista depois "
-                     f"disso. Se nao voltar, confira se {new_ip} ja esta em uso e se "
-                     f"mascara e gateway batem com a rede real.",
+            "error": f"A camera GRAVOU o IP {new_ip}, mas continua atendendo em {ip}: "
+                     f"este modelo so assume o endereco novo ao reiniciar. Confira antes "
+                     f"se {new_ip} esta livre e se mascara e gateway conferem com a rede "
+                     f"real -- depois reinicie a camera pelo botao Reboot. Enquanto nao "
+                     f"reiniciar, ela segue funcionando normalmente em {ip}.",
         }
 
     params = [f"Network.eth0.IPAddress={quote(new_ip)}"]
