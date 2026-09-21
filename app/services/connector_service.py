@@ -29,6 +29,53 @@ CONNECTOR_JOBS_PATH = DATA_DIR / "connector-jobs.json"
 # variavel de ambiente: e infraestrutura, nao codigo -- e um repositorio nao
 # deve dizer a um desconhecido onde fica a ponta da VPN.
 DEFAULT_WG_ENDPOINT = str(os.getenv("SIGHTOPS_WG_ENDPOINT") or "").strip()
+
+# Host publico onde os roteadores fecham o tunel. Prefira DOMINIO a IP: o
+# endereco entra no script de cada cliente, e trocar o IP do servidor
+# obrigaria a recolar o script em todos eles. O RouterOS 7 resolve nome em
+# endpoint-address. O subdominio precisa apontar direto pro servidor (sem
+# proxy de CDN -- WireGuard e UDP e CDN nao encaminha).
+WG_PUBLIC_HOST = str(os.getenv("SIGHTOPS_WG_HOST") or "").strip()
+
+# Cada conector isolado tem porta propria: 52000 + indice. A 51820 e da rede
+# COMPARTILHADA antiga -- um conector que caia nela enxerga a LAN dos outros.
+ISO_PORT_BASE = 52000
+ISO_INDEX_MIN = 1
+ISO_INDEX_MAX = 99
+
+
+def _next_iso_index(rows: List[Dict[str, Any]]) -> int:
+    """Menor indice de isolamento livre.
+
+    Reaproveita buraco deixado por conector excluido -- e o que mantem o
+    numero pequeno e previsivel. O indice e detalhe INTERNO: quem cadastra o
+    conector nao precisa saber que ele existe."""
+    usados = set()
+    for r in rows:
+        try:
+            n = int(r.get("iso_index") or 0)
+        except (TypeError, ValueError):
+            continue
+        if n > 0:
+            usados.add(n)
+    for n in range(ISO_INDEX_MIN, ISO_INDEX_MAX + 1):
+        if n not in usados:
+            return n
+    raise ValueError(f"limite de {ISO_INDEX_MAX} conectores isolados atingido")
+
+
+def iso_endpoint_for(index: Any) -> str:
+    """Endpoint WireGuard deste conector: <host publico>:<52000+indice>."""
+    try:
+        n = int(index or 0)
+    except (TypeError, ValueError):
+        return ""
+    if n <= 0:
+        return ""
+    host = WG_PUBLIC_HOST or DEFAULT_WG_ENDPOINT.split(":")[0]
+    if not host:
+        return ""
+    return f"{host}:{ISO_PORT_BASE + n}"
 DEFAULT_WG_NETWORK_PREFIX = "10.250.0"
 DEFAULT_WG_SERVER_PUBLIC_KEY = "yR9WCTtf6Yp9ZqWLffqdQmWuBeqEB4WSLrzcztP1xQQ="
 CGNAT_LAN_NETWORK = ipaddress.ip_network("100.64.0.0/10")
@@ -308,6 +355,10 @@ def _public_connector(row: Dict[str, Any], include_token: bool = False) -> Dict[
         tunnel = dict(tunnel)
         tunnel.pop("client_private_key", None)
         out["tunnel"] = tunnel
+    # Endpoint que ESTE conector deve usar, ja com a porta do indice dele. A
+    # tela nao tem como calcular isso (nem deve): sem o valor pronto, sobrava
+    # digitar a porta a mao, e errar significa cair na rede compartilhada.
+    out["wg_endpoint"] = iso_endpoint_for(out.get("iso_index"))
     return out
 
 
@@ -349,6 +400,13 @@ def create_connector(payload: Dict[str, Any]) -> Dict[str, Any]:
         "remote_ip": "",
         "public_base_url": public_base_url,
     }
+    if connector_type == "routeros":
+        # Isolamento e o padrao, nao uma opcao: sem indice o conector cai na
+        # rede COMPARTILHADA e passa a enxergar a LAN dos outros clientes.
+        # Alocado aqui porque ninguem de fora tem como saber qual esta livre.
+        with _lock:
+            row["iso_index"] = _next_iso_index(_load_connectors())
+        row["tunnel"] = {"listen_port": ISO_PORT_BASE + int(row["iso_index"])}
     if connector_type == "ruijie":
         # O Reyee tem IP publico e nao roda agente -- o SightOps fala direto
         # com ele (login+API) sempre que precisar, guardando so o necessario
@@ -1072,7 +1130,7 @@ def ensure_wireguard_tunnel(connector_id: str, payload: Dict[str, Any] | None = 
     la deve continuar False."""
     cid = _text(connector_id)
     data = payload if isinstance(payload, dict) else {}
-    endpoint = _text(data.get("endpoint") or data.get("server_endpoint") or DEFAULT_WG_ENDPOINT)
+    endpoint = _text(data.get("endpoint") or data.get("server_endpoint"))
     lan_mode = _text(data.get("lan_mode") or data.get("client_lans_mode") or "manual").lower()
     client_lans_raw = data.get("client_lans")
     allow_empty_lans = bool(data.get("allow_empty_lans") or data.get("bootstrap"))
@@ -1104,11 +1162,23 @@ def ensure_wireguard_tunnel(connector_id: str, payload: Dict[str, Any] | None = 
             tunnel["client_public_key"] = client["public_key"]
         requested_client_address = _text(data.get("client_address"))
         saved_client_address = _text(tunnel.get("client_address"))
+        # Sem endpoint informado, monta o deste conector: <host publico>:<porta
+        # do indice>. E o que permite criar conector sem ninguem digitar porta
+        # -- e sem chance de digitar a errada.
+        if not endpoint:
+            endpoint = iso_endpoint_for(row.get("iso_index")) or DEFAULT_WG_ENDPOINT
         tunnel.update({
             "enabled": True,
             "type": "wireguard",
             "endpoint": endpoint,
-            "listen_port": int(_text(data.get("listen_port")) or "51820"),
+            # Porta do PROPRIO conector (52000+indice). O 51820 so vale pra
+            # quem nunca teve indice -- conector isolado que caisse nele
+            # entraria na rede compartilhada e enxergaria a LAN dos outros.
+            "listen_port": int(
+                _text(data.get("listen_port"))
+                or (ISO_PORT_BASE + int(row.get("iso_index")) if row.get("iso_index") else 0)
+                or 51820
+            ),
             "server_address": _text(data.get("server_address")) or f"{DEFAULT_WG_NETWORK_PREFIX}.1/24",
             "client_address": requested_client_address
             or saved_client_address

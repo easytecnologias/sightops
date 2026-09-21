@@ -128,7 +128,7 @@ function downloadConnectorAgent(connectorId) {
   const row = connectorById(connectorId);
   const fallbackType = String(connectorId) === String(_lastCreatedConnectorId) ? _lastCreatedConnectorType : '';
   const isRouter = String(row?.type || fallbackType).toLowerCase() === 'routeros';
-  const publicUrl = document.getElementById('connPublicUrl')?.value.trim() || 'http://201.182.184.84:18080';
+  const publicUrl = document.getElementById('connPublicUrl')?.value.trim() || API_BASE;
   const params = new URLSearchParams();
   if (_token) params.set('auth_token', _token);
   if (publicUrl) params.set('base_url', publicUrl.replace(/\/+$/, ''));
@@ -139,7 +139,11 @@ function downloadConnectorAgent(connectorId) {
 
 async function downloadConnectorVpn(connectorId) {
   if (!connectorId) return;
-  openConnectorVpnModal(connectorId, '201.182.184.84:51820');
+  // Endpoint vem PRONTO do backend, com a porta do indice deste conector
+  // (52000+indice). A 51820 que ficava aqui e da rede COMPARTILHADA: usar
+  // ela faz o cliente enxergar a LAN dos outros.
+  const row = connectorById(connectorId) || {};
+  openConnectorVpnModal(connectorId, row.wg_endpoint || '');
 }
 
 function looksLikeValidOvpnConfig(text) {
@@ -210,6 +214,12 @@ function openConnectorCreateModal() {
   const card = document.getElementById('connectorCreateCard');
   if (!modal || !body || !card) return;
   resetConnectorCreateForm();
+  // O endereco que o MikroTik usa pra falar com o SightOps e o mesmo pelo
+  // qual voce esta acessando agora. Antes vinha um IP:porta fixo no HTML: nao
+  // servia em outra instalacao e era http://, com o token do conector
+  // trafegando em claro no header.
+  const campoUrl = document.getElementById('connPublicUrl');
+  if (campoUrl && !campoUrl.value.trim()) campoUrl.value = API_BASE;
   body.appendChild(card);
   modal.classList.remove('hidden');
   document.body.classList.add('modal-open');
@@ -408,7 +418,7 @@ function downloadPcAgent() {
   }
 }
 
-function openConnectorVpnModal(connectorId, endpointDefault = '201.182.184.84:51820') {
+function openConnectorVpnModal(connectorId, endpointDefault = '') {
   const modal = document.getElementById('modalConnectorVpn');
   if (!modal) {
     prepareConnectorVpn(connectorId, endpointDefault, '__auto__', 'auto');
