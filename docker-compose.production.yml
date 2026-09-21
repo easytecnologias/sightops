@@ -28,6 +28,13 @@ services:
       TRUSTED_PROXIES: ${TRUSTED_PROXIES:-127.0.0.1}
       SIGHTOPS_SECRET_KEY: ${SIGHTOPS_SECRET_KEY:?set SIGHTOPS_SECRET_KEY in .env.v3}
       IMGBB_API_KEY: ${IMGBB_API_KEY:-}
+      # Tunel dos clientes. WG_HOST e o DOMINIO que aponta direto pro servidor
+      # (DNS only -- CDN nao encaminha UDP). WG_ENDPOINT e so o fallback dos
+      # conectores antigos, sem indice de isolamento.
+      SIGHTOPS_WG_HOST: ${SIGHTOPS_WG_HOST:-}
+      SIGHTOPS_WG_ENDPOINT: ${SIGHTOPS_WG_ENDPOINT:-}
+      # Evolution API (WhatsApp). Vazio = notificacao por WhatsApp desligada.
+      SIGHTOPS_EVOLUTION_URL: ${SIGHTOPS_EVOLUTION_URL:-}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       GEMINI_VIDEO_MODEL: ${GEMINI_VIDEO_MODEL:-gemini-2.5-flash}
       SIGHTOPS_ACCESS_CONTROL_SYNC_INTERVAL: ${SIGHTOPS_ACCESS_CONTROL_SYNC_INTERVAL:-15}
