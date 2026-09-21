@@ -612,6 +612,80 @@ def _camera_network_guard(new_ip: str, mask: str, gateway: str) -> str:
     return ""
 
 
+def _camera_fala_isapi(ip: str, timeout: float = 5.0) -> bool:
+    """Camera Hikvision (ISAPI) ou Dahua/Intelbras (configManager.cgi)?
+
+    Basta a resposta SEM senha: a ISAPI devolve 401 quando existe e 404
+    quando nao existe. Descobrir antes evita o diagnostico enganoso que
+    esta rotina dava -- ela tentava o CGI (404 na Hikvision), repetia em
+    https (porta 443 fechada na camera) e mostrava ao operador o erro do
+    https, que nao tem nada a ver com a causa.
+    """
+    try:
+        r = requests.get(f"http://{_reach(ip)}/ISAPI/System/deviceInfo", timeout=timeout, verify=False)
+        return int(r.status_code) in (200, 401, 403)
+    except Exception:
+        return False
+
+
+def _hik_trocar_ip(ip: str, new_ip: str, mask: str, gateway: str, dns1: str, dns2: str,
+                   user: str, password: str) -> tuple[bool, str]:
+    """Troca o IP por ISAPI preservando o resto da configuracao de rede.
+
+    LE a configuracao atual e altera so os campos necessarios, em vez de
+    montar um XML do zero: cada firmware traz campos proprios ali dentro, e
+    um PUT com XML incompleto e recusado ou apaga o que nao foi enviado.
+    """
+    import xml.etree.ElementTree as ET
+
+    from app.api.endpoints.deployments import _hik_request, _hik_response_ok
+
+    NS = "http://www.hikvision.com/ver20/XMLSchema"
+    url = f"http://{_reach(ip)}/ISAPI/System/Network/interfaces/1/ipAddress"
+
+    try:
+        atual = _hik_request("GET", url, user, password, timeout=8)
+    except Exception as exc:
+        return False, f"nao consegui ler a rede atual da camera: {exc}"
+    if int(atual.status_code) in (401, 403):
+        return False, "usuario ou senha recusados pela camera"
+    if not (200 <= int(atual.status_code) < 300):
+        return False, f"a camera respondeu HTTP {atual.status_code} ao ler a rede"
+
+    try:
+        ET.register_namespace("", NS)
+        raiz = ET.fromstring((atual.text or "").encode("utf-8"))
+    except Exception as exc:
+        return False, f"resposta da camera nao e XML valido: {exc}"
+
+    def _definir(caminho: str, valor: str) -> None:
+        if not valor:
+            return
+        no = raiz.find(caminho.replace("{}", "{%s}" % NS))
+        if no is not None:
+            no.text = valor
+
+    _definir("{}addressingType", "static")
+    _definir("{}ipAddress", new_ip)
+    _definir("{}subnetMask", mask)
+    _definir("{}DefaultGateway/{}ipAddress", gateway)
+    _definir("{}PrimaryDNS/{}ipAddress", dns1)
+    _definir("{}SecondaryDNS/{}ipAddress", dns2)
+
+    corpo = ET.tostring(raiz, encoding="unicode")
+    try:
+        resp = _hik_request("PUT", url, user, password, body=corpo, timeout=10)
+    except Exception as exc:
+        # A camera troca o IP e derruba a conexao ANTES de responder: isso e
+        # sucesso, nao falha. Quem confirma e o ping no IP novo.
+        return True, f"a camera assumiu o IP novo sem responder ({exc})"
+    if int(resp.status_code) in (401, 403):
+        return False, "usuario ou senha recusados pela camera"
+    if _hik_response_ok(resp):
+        return True, ""
+    return False, f"a camera recusou a troca (HTTP {resp.status_code}): {(resp.text or '')[:160]}"
+
+
 def _change_ip_one(
     ip: str,
     new_ip: str,
@@ -637,6 +711,14 @@ def _change_ip_one(
     if guard:
         return {"ok": False, "ip": ip, "new_ip": new_ip, "error": guard}
 
+    if _camera_fala_isapi(ip):
+        ok, err = _hik_trocar_ip(ip, new_ip, _as_str(mask), _as_str(gateway),
+                                 _as_str(dns1), _as_str(dns2), user, password)
+        if ok:
+            _persist_ip_change(ip, new_ip)
+            return {"ok": True, "ip": ip, "new_ip": new_ip, "via": "isapi", "detail": err}
+        return {"ok": False, "ip": ip, "new_ip": new_ip, "via": "isapi", "error": err}
+
     params = [f"Network.eth0.IPAddress={quote(new_ip)}"]
     params.append(f"Network.eth0.SubnetMask={quote(_as_str(mask))}")
     params.append(f"Network.eth0.DefaultGateway={quote(_as_str(gateway))}")
@@ -659,7 +741,14 @@ def _change_ip_one(
             return {"ok": True, "ip": ip, "new_ip": new_ip, "url": url}
         last_err = err or "falha"
 
-    return {"ok": False, "ip": ip, "new_ip": new_ip, "error": last_err or "falha ao trocar IP"}
+    return {
+        "ok": False,
+        "ip": ip,
+        "new_ip": new_ip,
+        "via": "cgi",
+        "error": (last_err or "falha ao trocar IP")
+        + " -- a camera nao respondeu nem na API Hikvision (ISAPI) nem na Dahua/Intelbras (configManager.cgi)",
+    }
 
 
 def _set_ntp_one(ip: str, user: str, password: str, address: str, port: int, timezone: int, update_period: int) -> Dict[str, Any]:
