@@ -261,6 +261,22 @@ def _wireguard_server_public_key() -> str:
     return _text(os.getenv("WIREGUARD_SERVER_PUBLIC_KEY") or DEFAULT_WG_SERVER_PUBLIC_KEY)
 
 
+def iso_client_address(index: Any) -> str:
+    """Endereco do roteador dentro do tunel isolado: 10.201.0.(2*indice+1)/31.
+
+    O par /31 e fixo: servidor em 2*indice, cliente em 2*indice+1 -- e a mesma
+    conta que o provisioner usa pra montar a wgc<N> no host. Derivar dos dois
+    lados evita o cadastro dizer um endereco e a interface outro, caso em que
+    o script sai com IP que o servidor nao espera e o tunel nunca fecha."""
+    try:
+        n = int(index or 0)
+    except (TypeError, ValueError):
+        return ""
+    if n <= 0:
+        return ""
+    return f"10.201.0.{2 * n + 1}/31"
+
+
 def _next_wireguard_client_address(rows: List[Dict[str, Any]], connector_id: str) -> str:
     used: set[int] = set()
     for item in rows:
@@ -1165,8 +1181,36 @@ def ensure_wireguard_tunnel(connector_id: str, payload: Dict[str, Any] | None = 
         # Sem endpoint informado, monta o deste conector: <host publico>:<porta
         # do indice>. E o que permite criar conector sem ninguem digitar porta
         # -- e sem chance de digitar a errada.
+        # --- auto-conserto: o conector se ajeita sozinho aqui -------------
+        # Preparar a VPN e o momento em que tudo precisa estar coerente, e e o
+        # unico ponto por onde todo conector passa. Conector criado antes do
+        # isolamento automatico (ou com endereco da faixa compartilhada) era
+        # corrigido a mao no servidor -- o que nao existe quando quem opera e
+        # o cliente. Entao o conserto acontece aqui, sem ninguem pedir.
+        if not row.get("iso_index"):
+            row["iso_index"] = _next_iso_index(rows)
+        # NAO reaproveitar o nome `idx`: ali em cima ele e a POSICAO deste
+        # conector em `rows`, usada no fim (rows[idx] = row). Sobrescrever
+        # gravaria este conector por cima de outro.
+        iso_n = row.get("iso_index")
+
+        # Endereco e porta TEM de bater com a interface que o host monta
+        # (servidor em 10.201.0.(2N), cliente em 2N+1). Divergir aqui gera o
+        # pior tipo de falha: script aceito, tunel que nunca fecha e nenhuma
+        # mensagem de erro.
+        esperado = iso_client_address(iso_n)
+        atual_cli = _text(tunnel.get("client_address"))
+        if esperado and atual_cli != esperado:
+            tunnel["client_address"] = esperado
+            requested_client_address = esperado
+        porta_esperada = ISO_PORT_BASE + int(iso_n)
+        if int(tunnel.get("listen_port") or 0) != porta_esperada:
+            tunnel["listen_port"] = porta_esperada
+            data = dict(data)
+            data["listen_port"] = porta_esperada
+
         if not endpoint:
-            endpoint = iso_endpoint_for(row.get("iso_index")) or DEFAULT_WG_ENDPOINT
+            endpoint = iso_endpoint_for(iso_n) or DEFAULT_WG_ENDPOINT
         tunnel.update({
             "enabled": True,
             "type": "wireguard",
@@ -1180,7 +1224,10 @@ def ensure_wireguard_tunnel(connector_id: str, payload: Dict[str, Any] | None = 
                 or 51820
             ),
             "server_address": _text(data.get("server_address")) or f"{DEFAULT_WG_NETWORK_PREFIX}.1/24",
+            # Conector isolado tem endereco derivado do indice; a faixa
+            # 10.250.0.x e so pra quem nunca teve indice.
             "client_address": requested_client_address
+            or iso_client_address(row.get("iso_index"))
             or saved_client_address
             or _next_wireguard_client_address(rows, cid),
             "client_lans": client_lans,
