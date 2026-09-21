@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import ipaddress
+import logging
 import time
 from typing import Any, Dict
 
@@ -15,9 +16,50 @@ from app.services.inventory_json import inventory_row_key, load_inventory_json, 
 from app.services.scan_service import run_http_scan
 from app.services import connector_routing_vnat as _vnat
 
+# mesmo logger do resto da aplicacao -- cai no docker logs junto com o restante
+logger = logging.getLogger("cam-snapshot")
+
 
 async def _ws_send(ws: WebSocket, obj: Dict[str, Any]) -> None:
     await ws.send_text(json.dumps(obj, ensure_ascii=False))
+
+
+def _devirtualizar_foto(row, ip_virtual: str, ip_real: str) -> None:
+    """Renomeia o arquivo da foto e conserta os caminhos na linha.
+
+    A varredura de um site com conector roda contra o IP VIRTUAL do vnat, e o
+    nome do arquivo sai desse IP: "snapshot/10_210_1_11.jpg". A linha e
+    desvirtualizada depois -- o campo `ip` vira o real -- mas o caminho da foto
+    ficava para tras, apontando para um nome que ninguem mais procura. Medido
+    na INFORBR: 25 fotos gravadas com o IP virtual e 27 com o real, no mesmo
+    cliente; a miniatura aparece ou some conforme a linha tenha sido gravada
+    por um caminho ou pelo outro.
+
+    Renomeia de fato o arquivo: so trocar o caminho na linha deixaria o
+    registro apontando para arquivo que nao existe.
+    """
+    velho = ip_virtual.replace(".", "_")
+    novo = ip_real.replace(".", "_")
+    if not velho or velho == novo:
+        return
+
+    try:
+        from app.core.paths import DATA_DIR
+        from app.core.tenant_context import get_current_tenant_slug, tenant_snapshot_dir
+        base = tenant_snapshot_dir("ip") if get_current_tenant_slug() else (DATA_DIR / "snapshot")
+        for sufixo in (".jpg", ".jpeg", ".png"):
+            de = base / (velho + sufixo)
+            para = base / (novo + sufixo)
+            if de.exists() and not para.exists():
+                de.rename(para)
+    except Exception:
+        # renomear e melhoria; nunca deve derrubar a varredura
+        pass
+
+    for campo in ("snapshot_path", "snapshot_url", "thumb_url", "foto", "foto_url"):
+        valor = row.get(campo)
+        if isinstance(valor, str) and velho in valor:
+            row[campo] = valor.replace(velho, novo)
 
 
 def _devirtualize_inventory(connector_id, inventory_mode):
@@ -44,6 +86,7 @@ def _devirtualize_inventory(connector_id, inventory_mode):
         real = _vnat.real_ip_for(connector_id, ip)
         if real and real != ip:
             r[key] = real
+            _devirtualizar_foto(r, ip, real)
             r.setdefault("remote_connector_id", connector_id)
             changed += 1
     if changed:
@@ -531,6 +574,26 @@ async def run_ws_scan(ws: WebSocket, payload: Dict[str, Any], tenant_slug: str =
     # ambiguidade real: se responde, caminho local direto -- rapido, com
     # snapshot, igual funcionou pra Incoforte; se nao, caminho MikroTik --
     # mais lento, so descoberta, mas nunca marca tudo como offline por engano.
+    # Registro do que foi PEDIDO, antes de executar. A varredura reescreve o
+    # inventario do cliente e roda por WebSocket, entao nao aparece no log de
+    # acesso HTTP: sem esta linha nao havia como responder "o que essa
+    # varredura mandou fazer?" depois que o inventario mudou. Quantos alvos a
+    # faixa gera e o numero que separa "rodei um IP" de "rodei a rede toda".
+    try:
+        _alvos = _expand_remote_targets(str(payload.get("alvo") or ""))
+        logger.info(
+            "scan pedido: tenant=%s alvo=%r alvos=%d modo=%s conector=%s origem=%s remoto=%s",
+            str(tenant_slug or "-"),
+            str(payload.get("alvo") or ""),
+            len(_alvos),
+            str(payload.get("inventory_mode") or "olt"),
+            connector_id or "-",
+            scan_origin or "-",
+            bool(payload.get("remote_only")),
+        )
+    except Exception:
+        pass
+
     probe_targets = _pick_probe_targets(direct_alvo)
     if connector_id and connector_has_tunnel and probe_targets:
         await _ws_send(ws, {"type": "status", "message": "Testando se a rede do cliente responde direto..."})
