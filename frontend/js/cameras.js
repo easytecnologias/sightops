@@ -2568,6 +2568,8 @@ async function camAction(action) {
     document.getElementById('trocarIpNovo').value  = '';
     document.getElementById('trocarIpMask').value  = '';
     document.getElementById('trocarIpGw').value    = '';
+    // pergunta a rede pra propria camera em vez de chutar a partir do IP novo
+    _fillTrocarIpNetworkDaCamera(cam.ip);
     document.getElementById('trocarIpUser').value  = 'admin';
     document.getElementById('trocarIpPass').value  = '';
     document.getElementById('trocarIpErro').hidden = true;

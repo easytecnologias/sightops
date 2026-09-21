@@ -511,8 +511,21 @@ def _connector_for(ip: str, hint: str = "") -> str:
         return hint
     row = _camera_row_for_ip(str(ip or "").strip()) or {}
     cid = str(row.get("remote_connector_id") or row.get("connector_id") or "").strip()
+    if cid:
+        return cid
     # Nao e camera: pode ser o proprio MikroTik do conector (IP do tunel).
-    return cid or _connector_tunnel_ip_owner(ip)
+    dono = _connector_tunnel_ip_owner(ip)
+    if dono:
+        return dono
+    # Ultimo recurso: a FAIXA do vnat. Cobre o IP que ainda nao esta no
+    # inventario -- o caso classico e logo depois de trocar o IP de uma
+    # camera: a linha antiga tinha o conector, o IP novo nao tem linha
+    # nenhuma, e o sistema perdia o caminho ate o equipamento que ele mesmo
+    # acabou de reconfigurar. So responde quando UMA unica faixa casa.
+    try:
+        return _vnat.connector_da_faixa(ip)
+    except Exception:
+        return ""
 
 
 def _reach(ip: str, connector_id: str = "") -> str:
@@ -696,6 +709,38 @@ def _camera_fala_isapi(ip: str, timeout: float = 5.0) -> bool:
         return False
 
 
+def _hik_rede_atual(ip: str, user: str, password: str) -> Dict[str, str]:
+    """Mascara e gateway que a camera USA HOJE, lidos dela.
+
+    Sao a unica fonte confiavel: a camera esta funcionando com eles. Chutar
+    "gateway = primeiros tres octetos + .1" foi o que tirou a camera .2 da
+    TELHA do ar em 21/09 -- a rede dela e /23 com gateway 10.50.10.1, e o
+    palpite gravou 10.50.11.1. Com gateway inexistente ela continua
+    respondendo quem esta na mesma rede (ping do MikroTik) e fica muda para
+    todo o resto, inclusive para o SightOps.
+    """
+    import re as _re
+
+    from app.api.endpoints.deployments import _hik_request
+
+    try:
+        r = _hik_request("GET", f"http://{_reach(ip)}/ISAPI/System/Network/interfaces/1/ipAddress",
+                         user, password, timeout=8)
+    except Exception:
+        return {}
+    if not (200 <= int(r.status_code) < 300):
+        return {}
+    texto = r.text or ""
+    mascara = _re.search(r"<subnetMask>([^<]+)</subnetMask>", texto)
+    # o gateway e o <ipAddress> DENTRO de <DefaultGateway>, nao o da raiz
+    bloco = _re.search(r"<DefaultGateway>(.*?)</DefaultGateway>", texto, _re.S)
+    gateway = _re.search(r"<ipAddress>([^<]+)</ipAddress>", bloco.group(1)) if bloco else None
+    return {
+        "mask": _as_str(mascara.group(1)) if mascara else "",
+        "gateway": _as_str(gateway.group(1)) if gateway else "",
+    }
+
+
 def _hik_trocar_ip(ip: str, new_ip: str, mask: str, gateway: str, dns1: str, dns2: str,
                    user: str, password: str) -> tuple[bool, str]:
     """Troca o IP por ISAPI preservando o resto da configuracao de rede.
@@ -763,6 +808,7 @@ def _change_ip_one(
     dns2: str,
     user: str,
     password: str,
+    forcar_rede: bool = False,
 ) -> Dict[str, Any]:
     ip = _as_str(ip)
     new_ip = _as_str(new_ip)
@@ -780,6 +826,26 @@ def _change_ip_one(
         return {"ok": False, "ip": ip, "new_ip": new_ip, "error": guard}
 
     if _camera_fala_isapi(ip):
+        # Trocar o IP nao pode trocar a rede junto. Se o operador mandou uma
+        # mascara ou um gateway diferentes dos que a camera ja usa, o mais
+        # provavel e que venham de um palpite -- e um gateway errado deixa a
+        # camera inalcancavel sem dar erro nenhum na hora.
+        atual = _hik_rede_atual(ip, user, password)
+        divergentes = []
+        if atual.get("mask") and _as_str(mask) != atual["mask"]:
+            divergentes.append(f"mascara {_as_str(mask)} (a camera usa {atual['mask']})")
+        if atual.get("gateway") and _as_str(gateway) != atual["gateway"]:
+            divergentes.append(f"gateway {_as_str(gateway)} (a camera usa {atual['gateway']})")
+        if divergentes and not bool(forcar_rede):
+            return {
+                "ok": False, "ip": ip, "new_ip": new_ip, "via": "isapi",
+                "rede_atual": atual,
+                "error": "Nao troquei: voce pediu " + " e ".join(divergentes)
+                         + ". A camera funciona hoje com os valores dela; mudar isso "
+                           "junto com o IP costuma deixa-la inalcancavel. Corrija os "
+                           "campos, ou confirme que a rede mudou de verdade.",
+            }
+
         ok, err = _hik_trocar_ip(ip, new_ip, _as_str(mask), _as_str(gateway),
                                  _as_str(dns1), _as_str(dns2), user, password)
         if not ok:
@@ -1226,7 +1292,55 @@ def maintenance_change_ip(payload: Dict[str, Any]) -> Dict[str, Any]:
         dns2=_as_str(payload.get("dns2")),
         user=_as_str(payload.get("user")),
         password=_as_str(payload.get("pass")),
+        forcar_rede=bool(payload.get("forcar_rede")),
     )
+
+
+@router.get("/maintenance/camera-network/{ip}")
+def maintenance_camera_network(ip: str) -> Dict[str, Any]:
+    """Mascara e gateway que a camera usa HOJE.
+
+    Serve pra tela de Trocar IP parar de CHUTAR esses valores. O palpite
+    antigo era "mascara /24 e gateway <tres primeiros octetos>.1"; na TELHA a
+    rede e /23 com gateway 10.50.10.1, entao o chute gravou 10.50.11.1 e a
+    camera ficou inalcancavel -- respondendo ping de quem estava na mesma
+    rede e muda para todo o resto.
+
+    A credencial sai do proprio cadastro (MAC + site), entao a tela nao
+    precisa da senha so pra preencher os campos.
+    """
+    alvo = _as_str(ip)
+    if not _valid_ipv4(alvo):
+        return {"ok": False, "error": "IP invalido"}
+
+    mac, site = "", ""
+    for modo in ("olt", "basic", "switch"):
+        for row in (load_inventory_json(mode=modo) or []):
+            if _as_str(row.get("ip") or row.get("IP")) == alvo:
+                mac = _as_str(row.get("mac"))
+                site = _as_str(row.get("site") or row.get("site_name") or row.get("local"))
+                break
+        if mac:
+            break
+
+    user = password = ""
+    try:
+        from app.services.camera_credentials import resolve_camera_credential
+        cred = resolve_camera_credential(mac, site) or {}
+        user = _as_str(cred.get("username"))
+        password = _as_str(cred.get("password"))
+    except Exception:
+        pass
+    if not user:
+        return {"ok": False, "error": "sem credencial guardada para esta camera"}
+
+    if not _camera_fala_isapi(alvo):
+        return {"ok": False, "error": "camera nao responde na API de leitura de rede"}
+
+    rede = _hik_rede_atual(alvo, user, password)
+    if not rede.get("mask") and not rede.get("gateway"):
+        return {"ok": False, "error": "nao consegui ler a rede da camera"}
+    return {"ok": True, "ip": alvo, "mask": rede.get("mask", ""), "gateway": rede.get("gateway", "")}
 
 
 @router.post("/maintenance/batch/ip")

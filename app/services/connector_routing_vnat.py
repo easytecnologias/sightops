@@ -114,6 +114,34 @@ def real_ip_for(connector_id: Optional[str], virtual_ip: Optional[str]) -> Optio
     return virtual_ip
 
 
+def connector_da_faixa(real_ip: Optional[str]) -> str:
+    """Qual conector atende este IP real, olhando so o mapa de faixas.
+
+    Serve de rede de seguranca pra quando o INVENTARIO nao sabe responder --
+    tipicamente logo depois de trocar o IP de uma camera: a linha antiga
+    guardava o conector, e o IP novo ainda nao foi visto por varredura
+    nenhuma. O mapa de faixas nao depende de inventario, so da rede.
+
+    Devolve "" quando nenhuma faixa casa, ou quando MAIS DE UMA casa: dois
+    clientes podem usar o mesmo IP privado, e chutar qual deles seria pior
+    que nao responder -- daria acesso a rede do cliente errado.
+    """
+    try:
+        alvo = ipaddress.ip_address(str(real_ip or "").strip())
+    except Exception:
+        return ""
+    achados = []
+    for cid, regras in (_load_map() or {}).items():
+        for regra in (regras or []):
+            try:
+                if alvo in ipaddress.ip_network(str(regra.get("real_cidr") or ""), strict=False):
+                    achados.append(str(cid))
+                    break
+            except Exception:
+                continue
+    return achados[0] if len(achados) == 1 else ""
+
+
 def has_mapping(connector_id: Optional[str]) -> bool:
     """True se o conector tem alocacao virtual (ou seja, esta isolado)."""
     return bool(_load_map().get(str(connector_id or "").strip()))

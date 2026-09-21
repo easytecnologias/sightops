@@ -289,6 +289,21 @@ function _suggestNetworkForIp(ip) {
   return { mask: '', gateway: '', label: 'Informe novo IP, mascara e gateway reais da camera.', locked: false };
 }
 
+// Le mascara e gateway DA PROPRIA CAMERA.
+//
+// O palpite de `_suggestNetworkForIp` ("/24 e gateway <3 octetos>.1") e um
+// chute: na TELHA a rede e /23 com gateway 10.50.10.1, e o chute preencheu
+// 10.50.11.1. Aplicado junto com o IP novo, deixou a camera inalcancavel --
+// respondendo ping de quem esta na mesma rede e muda para todo o resto.
+// A camera funciona hoje: os valores dela sao a verdade.
+async function _redeRealDaCamera(ip) {
+  try {
+    const r = await api(`/api/maintenance/camera-network/${encodeURIComponent(ip)}`);
+    const d = await r?.json().catch(() => null);
+    return (d && d.ok) ? d : null;
+  } catch { return null; }
+}
+
 function _fillTrocarIpNetwork(ip, force = false) {
   const hint = document.getElementById('trocarIpNetworkHint');
   const maskEl = document.getElementById('trocarIpMask');
@@ -299,6 +314,24 @@ function _fillTrocarIpNetwork(ip, force = false) {
   if (hint) hint.textContent = s.locked
     ? `${s.label}: use mascara ${s.mask} e gateway ${s.gateway}.`
     : `${s.label}. Ajuste se a rede real for diferente.`;
+}
+
+// Chamada ao ABRIR o modal, com o IP ATUAL da camera -- sobrepoe o palpite
+// assim que a leitura chega. Se a camera nao responder, fica o palpite e o
+// aviso de conferir, que e o comportamento antigo.
+async function _fillTrocarIpNetworkDaCamera(ipAtual) {
+  const hint = document.getElementById('trocarIpNetworkHint');
+  const maskEl = document.getElementById('trocarIpMask');
+  const gwEl = document.getElementById('trocarIpGw');
+  if (hint) hint.textContent = 'Lendo mascara e gateway da camera...';
+  const rede = await _redeRealDaCamera(ipAtual);
+  if (!rede) {
+    if (hint) hint.textContent = 'Nao consegui ler a rede da camera -- confira mascara e gateway ANTES de aplicar.';
+    return;
+  }
+  if (rede.mask) maskEl.value = rede.mask;
+  if (rede.gateway) gwEl.value = rede.gateway;
+  if (hint) hint.textContent = `Mascara e gateway lidos da camera (${rede.mask} / ${rede.gateway}). Mude so se a rede tiver mudado de verdade.`;
 }
 
 // Retorna true/false se ip bate com term como range/CIDR, ou null se term n\u00e3o \u00e9 padr\u00e3o de IP.
