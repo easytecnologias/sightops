@@ -590,6 +590,22 @@ def _persist_ip_change_modo(old_ip: str, new_ip: str, modo: str) -> None:
             break
 
     if changed:
+        # A camera nao "aparece" no IP novo: ela SAI do antigo e passa a
+        # ocupar o novo. Se o IP de destino ja tinha uma linha -- tipico
+        # quando a varredura registrou o endereco vago, sem MAC e offline --
+        # ficariam duas linhas no mesmo IP. Fica a que tem identidade (MAC);
+        # no empate, a que tem mais campos preenchidos.
+        def _peso(linha: Dict[str, Any]) -> tuple:
+            tem_mac = 1 if _as_str(linha.get("mac")) else 0
+            preenchidos = sum(1 for v in linha.values() if _as_str(v))
+            return (tem_mac, preenchidos)
+
+        no_novo = [r for r in rows if _as_str(r.get("ip") or r.get("IP")) == new_ip]
+        if len(no_novo) > 1:
+            fica = max(no_novo, key=_peso)
+            rows = [r for r in rows
+                    if _as_str(r.get("ip") or r.get("IP")) != new_ip or r is fica]
+
         save_inventory_json(rows, mode=modo)
 
 
@@ -773,21 +789,29 @@ def _change_ip_one(
         # GRAVA o IP novo e continua atendendo no antigo ate reiniciar -- foi
         # exatamente isso que fez a tela dizer "trocado" com a camera parada
         # no IP velho. Quem decide e o IP NOVO responder.
-        if _esperar_ip(new_ip, segundos=20):
+        # Orcamento de tempo curto DE PROPOSITO. A primeira versao esperava ate
+        # 95s; o nginx corta em 60s e a requisicao morria pendurada -- pra quem
+        # clicava, "o botao nao faz nada". Aqui tudo cabe em ~30s.
+        if _esperar_ip(new_ip, segundos=8, intervalo=2.0):
             _persist_ip_change(ip, new_ip)
             return {"ok": True, "ip": ip, "new_ip": new_ip, "via": "isapi"}
 
+        # Nao assumiu sozinha: este firmware guarda o IP e so troca ao
+        # reiniciar. Reiniciar faz parte de trocar o IP nesses modelos.
         _hik_reiniciar(ip, user, password)
-        if _esperar_ip(new_ip, segundos=75, intervalo=5.0):
+        if _esperar_ip(new_ip, segundos=18, intervalo=3.0):
             _persist_ip_change(ip, new_ip)
             return {"ok": True, "ip": ip, "new_ip": new_ip, "via": "isapi",
                     "detail": "a camera precisou reiniciar para assumir o IP novo"}
 
+        # Ainda subindo. NAO e erro, e tambem nao da pra jurar que deu certo:
+        # o inventario so muda quando o IP novo responder de fato.
         return {
-            "ok": False, "ip": ip, "new_ip": new_ip, "via": "isapi",
-            "error": f"a camera gravou o IP {new_ip} mas nao assumiu, nem apos reiniciar. "
-                     f"Confira se {new_ip} ja esta em uso por outro equipamento, "
-                     f"e se mascara e gateway batem com a rede real.",
+            "ok": False, "ip": ip, "new_ip": new_ip, "via": "isapi", "pendente": True,
+            "error": f"A camera gravou o IP {new_ip} e foi reiniciada para assumi-lo. "
+                     f"Ela costuma voltar em cerca de 1 minuto -- atualize a lista depois "
+                     f"disso. Se nao voltar, confira se {new_ip} ja esta em uso e se "
+                     f"mascara e gateway batem com a rede real.",
         }
 
     params = [f"Network.eth0.IPAddress={quote(new_ip)}"]

@@ -748,16 +748,50 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     if (!pass) { erro.textContent = 'Informe a senha atual da camera.'; erro.hidden = false; return; }
     const payload = { ip, new_ip: novo, user, pass, mask, gateway: gw };
-    const res = await api('/api/maintenance/change_ip', { method: 'POST', body: JSON.stringify(payload) });
-    const data = await res?.json().catch(() => ({}));
+
+    // A troca demora: o servidor espera a camera ASSUMIR o IP novo (e reinicia
+    // ela se preciso), o que leva dezenas de segundos. Sem retorno na tela o
+    // botao parecia morto e dava pra clicar de novo -- duas trocas em voo ao
+    // mesmo tempo. Trava o botao e diz o que esta acontecendo.
+    const btn = document.getElementById('btnConfirmarTrocarIp');
+    const rotulo = btn ? btn.innerHTML : '';
+    if (window.trocarIpEmAndamento) return;
+    window.trocarIpEmAndamento = true;
+    erro.hidden = true;
+    if (btn) {
+      btn.disabled = true;
+      btn.innerHTML = '<i data-lucide="loader"></i> Aplicando e conferindo na camera...';
+      try { lucide.createIcons(); } catch {}
+    }
+
+    let res = null, data = {};
+    try {
+      res = await api('/api/maintenance/change_ip', { method: 'POST', body: JSON.stringify(payload) });
+      data = await res?.json().catch(() => ({}));
+    } catch (e) {
+      data = { error: 'A troca nao terminou a tempo. Confira a lista em instantes antes de tentar de novo.' };
+    } finally {
+      window.trocarIpEmAndamento = false;
+      if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = rotulo;
+        try { lucide.createIcons(); } catch {}
+      }
+    }
+
     if (!res?.ok || !data?.ok) {
       const detail = data?.detail || data?.error || data?.msg || data?.message || 'Erro ao trocar IP.';
       erro.textContent = detail;
       erro.hidden = false;
+      // Camera reiniciando: ja avisou o que fazer, entao recarrega a lista
+      // pra ela aparecer no IP novo assim que voltar.
+      if (data?.pendente) loadInvOlt();
       return;
     }
     document.getElementById('modalTrocarIp').classList.add('hidden');
-    showToast(`IP alterado para ${novo}. Aguarde a camera reconectar.`);
+    showToast(data?.detail
+      ? `IP alterado para ${novo} (${data.detail}).`
+      : `IP alterado para ${novo}.`);
     loadInvOlt();
   });
 
