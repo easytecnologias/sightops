@@ -1,0 +1,1 @@
+ALTER TABLE onu_action_log ADD COLUMN vlan TEXT NOT NULL DEFAULT '';

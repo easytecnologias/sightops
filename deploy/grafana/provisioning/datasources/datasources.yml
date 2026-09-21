@@ -1,0 +1,15 @@
+apiVersion: 1
+
+datasources:
+  - name: SightOps PostgreSQL
+    type: postgres
+    access: proxy
+    url: sightops-postgres:5432
+    database: ${SIGHTOPS_DB}
+    user: ${SIGHTOPS_DB_USER}
+    secureJsonData:
+      password: ${SIGHTOPS_DB_PASSWORD}
+    jsonData:
+      sslmode: disable
+      postgresVersion: 1600
+    editable: true

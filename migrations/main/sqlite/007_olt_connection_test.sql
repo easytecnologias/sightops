@@ -1,0 +1,3 @@
+ALTER TABLE olts ADD COLUMN last_test_status TEXT NOT NULL DEFAULT '';
+ALTER TABLE olts ADD COLUMN last_tested_at TEXT;
+ALTER TABLE olts ADD COLUMN last_test_detail TEXT NOT NULL DEFAULT '';

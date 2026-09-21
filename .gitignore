@@ -1,0 +1,40 @@
+# Segredos -- nunca versionar
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+
+# Dados de cliente e estado de execucao.
+# data/ guarda connectors.json (token e chave privada de WireGuard de CADA
+# cliente), inventario, fotos e banco. Nada disso pode ir para o repositorio.
+data/
+app/data/
+*.db
+*.sqlite3
+
+# Lixo de patch manual em producao -- o repo e a fonte, nao o servidor
+*.bak
+*.bak-*
+*.orig
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Node / build
+node_modules/
+dist/
+*.exe
+
+# Midia e modelos pesados
+tmp/
+*.mp4
+*.hevc
+*.pt
+*.onnx
+*.engine
+
+.DS_Store
