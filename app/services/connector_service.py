@@ -550,6 +550,24 @@ def ruijie_collect_lan_inventory(connector_id: str) -> Dict[str, Any]:
     return result
 
 
+def _raw_connector(connector_id: str, enforce_tenant: bool = False) -> Dict[str, Any] | None:
+    """Registro CRU, COM os segredos.
+
+    get_connector() devolve a versao publica, que desde 20/09/2026 remove a
+    client_private_key (ela vazava na listagem). Quem monta o script do
+    RouterOS precisa dessa chave de verdade -- sem ela o script sai com
+    private-key="" e o RouterOS gera uma chave propria, que o servidor nao
+    conhece: o tunel nunca fecha handshake e nada indica o porque."""
+    cid = _text(connector_id)
+    with _lock:
+        for row in _load_connectors():
+            if _text(row.get("id")) == cid:
+                if enforce_tenant and not _visible_to_current_tenant(row):
+                    return None
+                return dict(row)
+    return None
+
+
 def get_connector(connector_id: str, include_token: bool = False, enforce_tenant: bool = False) -> Dict[str, Any] | None:
     """enforce_tenant=True deve ser usado por toda rota chamada por usuario logado
     (nao pelas rotas /agent/*, que autenticam por connector_id+token e nao tem
@@ -963,14 +981,15 @@ def _routeros_job_script_template(base_url: str, connector_id: str, token: str, 
     job_id = _text(job.get("id"))
     job_type = _text(job.get("type"))
     if job_type == "wireguard_install":
-        row = get_connector(connector_id, include_token=True) or {}
+        # CRU: o job instala o tunel e leva a chave privada do cliente.
+        row = _raw_connector(connector_id) or {}
         tunnel = row.get("tunnel") if isinstance(row.get("tunnel"), dict) else {}
         if not tunnel.get("client_private_key"):
             ensure_wireguard_tunnel(
                 connector_id,
                 {"lan_mode": "auto", "client_lans": "__auto__", "allow_empty_lans": True},
             )
-            row = get_connector(connector_id, include_token=True) or {}
+            row = _raw_connector(connector_id) or {}
             tunnel = row.get("tunnel") if isinstance(row.get("tunnel"), dict) else {}
         endpoint = _text(tunnel.get("endpoint") or DEFAULT_WG_ENDPOINT)
         endpoint_host, _, endpoint_port = endpoint.partition(":")
@@ -1245,7 +1264,8 @@ def ensure_wireguard_tunnel(connector_id: str, payload: Dict[str, Any] | None = 
 
 
 def build_routeros_wireguard_script(connector_id: str) -> str:
-    row = get_connector(connector_id, include_token=True, enforce_tenant=True)
+    # CRU de proposito: precisa da client_private_key (ver _raw_connector).
+    row = _raw_connector(connector_id, enforce_tenant=True)
     if not row:
         raise ValueError("conector nao encontrado")
     tunnel = row.get("tunnel") if isinstance(row.get("tunnel"), dict) else {}
@@ -1255,7 +1275,7 @@ def build_routeros_wireguard_script(connector_id: str) -> str:
             {"lan_mode": "auto", "client_lans": "__auto__", "allow_empty_lans": True},
             enforce_tenant=True,
         )
-        row = get_connector(connector_id, include_token=True) or row
+        row = _raw_connector(connector_id) or row
         tunnel = row.get("tunnel") if isinstance(row.get("tunnel"), dict) else tunnel
     endpoint = _text(tunnel.get("endpoint") or DEFAULT_WG_ENDPOINT)
     endpoint_host, _, endpoint_port = endpoint.partition(":")
