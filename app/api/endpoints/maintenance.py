@@ -372,6 +372,36 @@ def _zabbix_default_pass() -> str:
     )
 
 
+def _zabbix_e_interno(url: str) -> bool:
+    """O Zabbix que sobe junto com a stack, e nao um Zabbix do cliente.
+
+    Importa porque a credencial dele pertence ao AMBIENTE (as variaveis do
+    compose), nao ao cadastro do tenant: quem troca a senha do container nao
+    tem como sair reescrevendo o settings.json de cada cliente.
+    """
+    alvo = _normalize_zabbix_url(url)
+    return bool(alvo) and alvo in _zabbix_default_url_candidates()
+
+
+def _zabbix_causa_da_falha(texto: str) -> str:
+    """Traduz o erro cru do Zabbix pra uma frase que o operador entende.
+
+    Sem isto a tela dizia so "Falha ao garantir hosts" -- mesma mensagem para
+    senha recusada, Zabbix fora do ar e template inexistente, que exigem
+    providencias completamente diferentes.
+    """
+    t = (texto or "").lower()
+    if "temporarily blocked" in t:
+        return "Conta do Zabbix bloqueada por tentativas seguidas; ela se libera sozinha em instantes."
+    if "incorrect user name or password" in t or "login name or password" in t:
+        return "Usuario ou senha do Zabbix recusados."
+    if "connection" in t and ("refused" in t or "timed out" in t):
+        return "Zabbix nao respondeu."
+    if "no permissions" in t or "not authorized" in t:
+        return "O usuario do Zabbix nao tem permissao para criar hosts."
+    return ""
+
+
 def _zabbix_effective_sync_config(cfg: Dict[str, Any] | None = None) -> Dict[str, Any]:
     base = dict(cfg or {})
     url = _normalize_zabbix_url(base.get("url"))
@@ -379,6 +409,14 @@ def _zabbix_effective_sync_config(cfg: Dict[str, Any] | None = None) -> Dict[str
         url = (_zabbix_default_url_candidates() or [""])[0]
     user = _as_str(base.get("user")) or _zabbix_default_user()
     password = _as_str(base.get("pass") or base.get("password")) or _zabbix_default_pass()
+    if _zabbix_e_interno(url):
+        # Credencial salva do Zabbix interno envelhece: ela foi gravada no
+        # cadastro do cliente e continua valendo mesmo depois que a senha do
+        # container mudou -- e entao vence a do ambiente, que esta certa.
+        # Foi o que quebrou INFORBR e SAN MARINE (guardavam o "zabbix" padrao
+        # de fabrica) enquanto os outros tenants seguiam funcionando.
+        user = _zabbix_default_user()
+        password = _zabbix_default_pass()
     return {
         **base,
         "enabled": True,
@@ -2559,10 +2597,12 @@ def scripts_zabbix_status_sync(payload: Dict[str, Any]) -> Dict[str, Any]:
             }
         )
         if not bootstrap.get("ok"):
+            bruto = _as_str(bootstrap.get("error") or bootstrap.get("stderr") or bootstrap.get("stdout"))
+            causa = _zabbix_causa_da_falha(bruto)
             return {
                 "ok": False,
-                "error": "Falha ao garantir hosts das Cameras IP no Zabbix.",
-                "bootstrap_error": bootstrap.get("error") or bootstrap.get("stderr") or bootstrap.get("stdout"),
+                "error": "Falha ao garantir hosts das Cameras IP no Zabbix." + (f" {causa}" if causa else ""),
+                "bootstrap_error": bruto,
             }
         bootstrapped = True
         bootstrap_rows = int(bootstrap.get("rows_used") or 0)
@@ -2676,9 +2716,19 @@ def scripts_zabbix_status_sync(payload: Dict[str, Any]) -> Dict[str, Any]:
 
         probe_by_ip: Dict[str, Dict[str, Any]] = {}
         if offline_probe_ips:
+            # Equipamento atras de conector so atende pelo IP virtual do vnat.
+            # Sondar o IP real a partir do container nunca chega, entao o
+            # Zabbix dizia "offline" (ele tambem nao alcanca) e a validacao,
+            # que existe justamente para desmentir o Zabbix, confirmava o erro
+            # -- marcando o parque inteiro do cliente como offline de uma vez.
+            # A traducao e feita AQUI, e nao dentro do pool: a thread do pool
+            # nao herda o contexto do tenant e devolveria o IP real de volta.
+            alvo_por_ip = {ip: _reach(ip) for ip in offline_probe_ips}
+
             def _probe_offline_ip(target: str) -> tuple[str, Dict[str, Any]]:
+                alvo = alvo_por_ip.get(target) or target
                 try:
-                    return target, _do_ping_sync(target, 3, "auto", [80, 554, 8000, 8080, 37777, 8554])
+                    return target, _do_ping_sync(alvo, 3, "auto", [80, 554, 8000, 8080, 37777, 8554])
                 except Exception:
                     return target, {"online": False, "method": "auto", "error": "validacao falhou"}
 
