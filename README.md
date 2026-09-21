@@ -26,14 +26,14 @@ antigo.
 
 ## Subir em um servidor novo
 
-Requisitos: Docker com Compose v2, e portas livres conforme o `.env`.
+Requisitos: Docker com Compose v2, e portas livres conforme o `.env.v3`.
 
 ```bash
 git clone <este-repositorio> sightops-v3 && cd sightops-v3
-cp .env.example .env
+cp .env.example .env.v3
 openssl rand -hex 32   # gere um valor para SIGHTOPS_SECRET_KEY
 nano .env              # preencha os campos obrigatorios
-docker compose -f docker-compose.production.yml --env-file .env up -d
+docker compose -f docker-compose.production.yml --env-file .env.v3 up -d
 ```
 
 Detalhes de producao -- build da imagem, atualizacao sem downtime, isolamento de

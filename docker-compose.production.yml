@@ -1,6 +1,13 @@
 services:
   cam-snapshot-api:
-    image: ${CAM_SNAPSHOT_IMAGE:-ghcr.io/easytecnologias/cam-snapshot-web:prod}
+    # Em producao usamos tag local versionada (ver docs/DEPLOY.md). O build fica
+    # aqui para instalacao NOVA: sem ele, `docker compose up` numa maquina que
+    # nao tenha a imagem falha, porque nada no repositorio a constroi.
+    #   docker compose --env-file .env up -d --build
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ${CAM_SNAPSHOT_IMAGE:-sightops-api:local}
     container_name: sightops-v3-api
     env_file:
       - .env.v3

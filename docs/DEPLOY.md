@@ -3,8 +3,8 @@
 ## O modelo de deploy (ler antes de mexer)
 
 Producao **nao roda `git pull`**. A API e uma imagem Docker com **tag versionada**,
-construida localmente; o compose aponta para a tag pelo `.env`. Atualizar e:
-construir a tag nova, apontar o `.env` e recriar o container.
+construida localmente; o compose aponta para a tag pelo `.env.v3`. Atualizar e:
+construir a tag nova, apontar o `.env.v3` e recriar o container.
 
 Duas consequencias praticas:
 
@@ -18,16 +18,16 @@ Duas consequencias praticas:
 ## Instalacao limpa
 
 ```bash
-cp .env.example .env
+cp .env.example .env.v3
 openssl rand -hex 32          # SIGHTOPS_SECRET_KEY
 openssl rand -hex 16          # SIGHTOPS_DB_PASSWORD
-nano .env
+nano .env.v3
 
 docker build -t sightops-api:$(date +%Y%m%d)-inicial .
 # aponte CAM_SNAPSHOT_IMAGE no .env para essa tag
 
-docker compose -f docker-compose.production.yml --env-file .env up -d
-docker compose -f docker-compose.production.yml --env-file .env ps
+docker compose -f docker-compose.production.yml --env-file .env.v3 up -d
+docker compose -f docker-compose.production.yml --env-file .env.v3 ps
 ```
 
 Primeiro acesso: `POST /api/auth/bootstrap-admin` cria o primeiro administrador.
@@ -38,17 +38,17 @@ So funciona enquanto **nao existir nenhum usuario** -- depois disso fica travado
 ```bash
 TAG=sightops-api:$(date +%Y%m%d)-<assunto>
 docker build -t $TAG .
-sed -i "s|^CAM_SNAPSHOT_IMAGE=.*|CAM_SNAPSHOT_IMAGE=$TAG|" .env
-docker compose -f docker-compose.production.yml --env-file .env up -d --no-deps --force-recreate cam-snapshot-api
+sed -i "s|^CAM_SNAPSHOT_IMAGE=.*|CAM_SNAPSHOT_IMAGE=$TAG|" .env.v3
+docker compose -f docker-compose.production.yml --env-file .env.v3 up -d --no-deps --force-recreate cam-snapshot-api
 ```
 
 Use tag com data e assunto (`20260920-hikvision`), nunca `latest`: e o que permite
-voltar atras apontando o `.env` para a tag anterior.
+voltar atras apontando o `.env.v3` para a tag anterior.
 
 Depois de subir, confira de verdade:
 
 ```bash
-docker compose -f docker-compose.production.yml --env-file .env ps
+docker compose -f docker-compose.production.yml --env-file .env.v3 ps
 docker logs --since 5m sightops-v3-api 2>&1 | grep -iE "traceback|exception"
 curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8087/api/system/health/live
 ```
@@ -87,7 +87,7 @@ Tres coisas, e as tres juntas -- cada uma sozinha nao restaura nada:
 1. **Banco** (`docker compose exec postgres pg_dump ...`)
 2. **Volume `data/`** -- inventario, fotos e `connectors.json` (token e chave
    privada de WireGuard de cada cliente)
-3. **`.env`** -- sem a `SIGHTOPS_SECRET_KEY` as senhas do banco ficam ilegiveis
+3. **`.env.v3`** -- sem a `SIGHTOPS_SECRET_KEY` as senhas do banco ficam ilegiveis
 
 ## Verificacao de seguranca
 
