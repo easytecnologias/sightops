@@ -1,22 +1,11 @@
 services:
   cam-snapshot-api:
-    # Em producao usamos tag local versionada (ver docs/DEPLOY.md). O build fica
-    # aqui para instalacao NOVA: sem ele, `docker compose up` numa maquina que
-    # nao tenha a imagem falha, porque nada no repositorio a constroi.
-    #   docker compose --env-file .env up -d --build
-    build:
-      context: .
-      dockerfile: Dockerfile
-    image: ${CAM_SNAPSHOT_IMAGE:-sightops-api:local}
+    image: ${CAM_SNAPSHOT_IMAGE:-ghcr.io/easytecnologias/cam-snapshot-web:prod}
     container_name: sightops-v3-api
     env_file:
       - .env.v3
     environment:
-      # production desliga o admin de bootstrap automatico. Com qualquer
-      # outro valor, subir a stack com o banco vazio CRIA o usuario
-      # admin_teste/admin_teste como owner + admin de plataforma -- e essa
-      # senha esta no codigo, publicado. Override so consciente, via .env.
-      APP_ENV: ${APP_ENV:-production}
+      APP_ENV: homologation
       APP_HOST: 0.0.0.0
       APP_PORT: 8000
       ENABLE_DOCS: ${ENABLE_DOCS:-0}
@@ -35,12 +24,8 @@ services:
       TRUSTED_PROXIES: ${TRUSTED_PROXIES:-127.0.0.1}
       SIGHTOPS_SECRET_KEY: ${SIGHTOPS_SECRET_KEY:?set SIGHTOPS_SECRET_KEY in .env.v3}
       IMGBB_API_KEY: ${IMGBB_API_KEY:-}
-      # Tunel dos clientes. WG_HOST e o DOMINIO que aponta direto pro servidor
-      # (DNS only -- CDN nao encaminha UDP). WG_ENDPOINT e so o fallback dos
-      # conectores antigos, sem indice de isolamento.
       SIGHTOPS_WG_HOST: ${SIGHTOPS_WG_HOST:-}
       SIGHTOPS_WG_ENDPOINT: ${SIGHTOPS_WG_ENDPOINT:-}
-      # Evolution API (WhatsApp). Vazio = notificacao por WhatsApp desligada.
       SIGHTOPS_EVOLUTION_URL: ${SIGHTOPS_EVOLUTION_URL:-}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       GEMINI_VIDEO_MODEL: ${GEMINI_VIDEO_MODEL:-gemini-2.5-flash}
@@ -185,6 +170,13 @@ services:
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?set GRAFANA_ADMIN_PASSWORD in .env.v3}
       GF_USERS_ALLOW_SIGN_UP: "false"
       GF_INSTALL_PLUGINS: ${GRAFANA_INSTALL_PLUGINS:-alexanderzobnin-zabbix-app}
+      # O Grafana monta URL ABSOLUTA (redirect de login, assets, links de
+      # painel). Servido em /grafana/ sem saber disso, ele manda o navegador
+      # para a raiz -- que aqui e o SightOps. Estas duas fazem ele montar as
+      # URLs ja com o subcaminho. SIGHTOPS_PUBLIC_URL e o endereco pelo qual
+      # o cliente abre o sistema; sem ela, cai no proprio /grafana/ relativo.
+      GF_SERVER_ROOT_URL: ${SIGHTOPS_PUBLIC_URL:-}/grafana/
+      GF_SERVER_SERVE_FROM_SUB_PATH: "true"
     ports:
       - "${GRAFANA_PORT:-3003}:3000"
     volumes:
