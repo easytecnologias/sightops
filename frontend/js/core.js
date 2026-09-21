@@ -89,6 +89,19 @@ let _shellMode = 'client'; // 'owner' (painel do dono) ou 'client' (painel opera
 const SIGHTOPS_CLIENT_BUILD = 'production-zabbix-access-20260811a';
 const DISABLED_VIEWS = new Set(['access-whatsapp-triage']);
 
+// Telas de infraestrutura da Easy, nao do cliente. Zabbix e Grafana tem UMA
+// conta cada (Admin / admin), de super-usuario, que enxerga os hosts de TODOS
+// os clientes -- nao existe login por cliente. Deixar o botao a vista so
+// convida a bater numa porta trancada, e entregar a senha significaria
+// entregar junto o parque dos outros clientes.
+// Quem opera como cliente (acting_as) continua vendo: is_platform_admin
+// permanece verdadeiro, e e justamente quando o suporte precisa da tela.
+const STAFF_ONLY_VIEWS = new Set(['script-zabbix', 'script-grafana']);
+
+function isStaffOnlyView(view) {
+  return STAFF_ONLY_VIEWS.has(String(view)) && !_currentUser?.is_platform_admin;
+}
+
 function resetStaleClientState() {
   const key = 'sightops.client.build';
   let current = '';
@@ -276,7 +289,7 @@ function applyModuleVisibility() {
     const key = btn.dataset.view;
     const restricted = Array.isArray(enabled);
     const accessAddon = restricted && key === 'access-live' && enabled.includes('access-control');
-    const visible = !DISABLED_VIEWS.has(key) && (!restricted || enabled.includes(key) || accessAddon);
+    const visible = !DISABLED_VIEWS.has(key) && !isStaffOnlyView(key) && (!restricted || enabled.includes(key) || accessAddon);
     btn.classList.toggle('nav-item-hidden', !visible);
   });
   // Grupo "Snapshots": some por completo se as duas telas dele estiverem escondidas.
@@ -457,7 +470,7 @@ function navigateTo(view) {
   // Painel do Dono e reservado a admin de plataforma -- se alguem tentar
   // (ex: digitando no console) sem ser, cai no Dashboard normal.
   if (String(view).startsWith('owner-') && !_currentUser?.is_platform_admin) view = 'dashboard';
-  if (DISABLED_VIEWS.has(view)) view = 'dashboard';
+  if (DISABLED_VIEWS.has(view) || isStaffOnlyView(view)) view = 'dashboard';
 
   // Esconde todas as views
   document.querySelectorAll('[id^="view"]').forEach(el => el.classList.add('hidden'));
