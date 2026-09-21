@@ -709,6 +709,43 @@ def _camera_fala_isapi(ip: str, timeout: float = 5.0) -> bool:
         return False
 
 
+_HIK_MOTIVOS = {
+    "deviceipconflict": "o IP novo JA ESTA EM USO por outro equipamento na rede",
+    "ipconflict": "o IP novo JA ESTA EM USO por outro equipamento na rede",
+    "invalidcontent": "a camera considerou os dados invalidos (confira mascara e gateway)",
+    "invalidformat": "a camera nao entendeu o formato enviado",
+    "notsupport": "esta camera nao permite mudar isso por aqui",
+    "rebootrequired": "a camera exige reiniciar antes de aceitar a mudanca",
+    "badparameters": "algum valor enviado nao e aceito pela camera",
+    "nomemory": "a camera esta sem memoria para gravar a configuracao",
+}
+
+
+def _hik_motivo(texto: str) -> str:
+    """Le statusCode/subStatusCode/statusString do XML de resposta.
+
+    A ISAPI responde HTTP 200 mesmo recusando; o motivo vem SO no corpo. A
+    mensagem antiga mostrava os primeiros 160 caracteres do XML -- que sao o
+    cabecalho e a URL, nunca o motivo. Na pratica o operador via um monte de
+    XML e nenhuma informacao.
+    """
+    import re as _re
+
+    bruto = texto or ""
+    sub = _re.search(r"<subStatusCode>([^<]+)</subStatusCode>", bruto, _re.I)
+    st = _re.search(r"<statusString>([^<]+)</statusString>", bruto, _re.I)
+    code = _re.search(r"<statusCode>([^<]+)</statusCode>", bruto, _re.I)
+
+    sub_txt = _as_str(sub.group(1)) if sub else ""
+    conhecido = _HIK_MOTIVOS.get(sub_txt.lower().replace(" ", ""))
+    if conhecido:
+        return conhecido
+    partes = [p for p in (sub_txt, _as_str(st.group(1)) if st else "") if p]
+    if partes:
+        return " / ".join(dict.fromkeys(partes))
+    return f"codigo {_as_str(code.group(1))}" if code else "motivo nao informado"
+
+
 def _hik_rede_atual(ip: str, user: str, password: str) -> Dict[str, str]:
     """Mascara e gateway que a camera USA HOJE, lidos dela.
 
@@ -796,7 +833,7 @@ def _hik_trocar_ip(ip: str, new_ip: str, mask: str, gateway: str, dns1: str, dns
         return False, "usuario ou senha recusados pela camera"
     if _hik_response_ok(resp):
         return True, ""
-    return False, f"a camera recusou a troca (HTTP {resp.status_code}): {(resp.text or '')[:160]}"
+    return False, f"A camera recusou a troca: {_hik_motivo(resp.text or '')}."
 
 
 def _change_ip_one(
