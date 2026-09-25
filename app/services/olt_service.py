@@ -1,7 +1,8 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 from contextlib import redirect_stderr
 from datetime import datetime, timezone
@@ -36,6 +37,7 @@ from app.cli.tools.olt_4840e_add_onu import (
     onu_signal_4840e,
     reboot_onu_4840e,
 )
+from app.cli.tools.olt_4840e_snmp import collect_onu_telemetry_4840e_snmp
 from app.cli.tools.olt_vsol_epon import (
     add_onu_vsol,
     collect_macs_vsol,
@@ -736,6 +738,9 @@ def collect_macs(req: OltCollectMacsRequest) -> Dict[str, Any]:
                 site = str(getattr(req, "site", "") or "").strip()
                 if connector and not site:
                     site = str(connector.get("site") or connector.get("client") or "").strip()
+                if not site:
+                    # Sem isso a linha ficava sem site e escapava do "apagar por site".
+                    site = site_da_olt(req.olt_ip)
                 mac_ip_index = _known_mac_ip_index(connector_id=connector_id, site=site)
                 new_cpes: list[dict[str, Any]] = []
                 old_by_mac = {
@@ -841,6 +846,17 @@ def collect_macs(req: OltCollectMacsRequest) -> Dict[str, Any]:
         }
 
 
+def _olt_snmp_community() -> str:
+    """Community SNMP usada nas OLTs. Uma so para todas, por ambiente.
+
+    Nao fica no cadastro da OLT de proposito: hoje e a mesma em todas, e um
+    campo por OLT viraria mais um lugar para esquecer de preencher. Se um dia
+    precisar variar por cliente, promover para o registro (e cifrar, como a
+    senha) em vez de espalhar env var.
+    """
+    return str(os.getenv("OLT_SNMP_COMMUNITY") or "public").strip() or "public"
+
+
 def collect_onu_telemetry(req: OltCollectMacsRequest) -> Dict[str, Any]:
     """Atualiza status/sinal das ONUs preservando MACs e demais dados do inventario."""
     require_olt_capability(req, "telemetry", "coletar telemetria")
@@ -859,18 +875,43 @@ def collect_onu_telemetry(req: OltCollectMacsRequest) -> Dict[str, Any]:
             logger.exception("Erro ao coletar telemetria VSOL da OLT %s", req.olt_ip)
             raise HTTPException(500, f"Erro ao coletar telemetria VSOL: {exc}") from exc
     elif _is_intelbras_4840e(req):
+        # SNMP primeiro: e a UNICA forma de obter sinal optico das ONUs desta
+        # OLT em lote. A telemetria por CLI devolve rx_onu vazio para todas --
+        # `show onu-status` nao tem potencia, e o diagnostico optico por CLI
+        # custa uma sessao SSH por ONU. Cai para o CLI quando a OLT nao tem SNMP
+        # (agente desligado, sem community ou sem rota de volta ate aqui), para
+        # nao perder estado e distancia, que o CLI da.
+        telemetry = None
         try:
-            telemetry = collect_onu_telemetry_4840e(
+            telemetry = collect_onu_telemetry_4840e_snmp(
                 olt_ip=req.olt_ip,
-                user=req.user,
-                password=req.password,
-                pon=req.pon or "all",
-                port=22,
-                timeout=12.0,
+                community=_olt_snmp_community(),
+            )
+            logger.info(
+                "telemetria 4840E por SNMP na OLT %s: %s ONUs, %s com sinal",
+                req.olt_ip,
+                len(telemetry),
+                sum(1 for item in telemetry if item.get("rx_onu")),
             )
         except Exception as exc:
-            logger.exception("Erro ao coletar telemetria 4840E da OLT %s", req.olt_ip)
-            raise HTTPException(500, f"Erro ao coletar telemetria 4840E: {exc}") from exc
+            logger.warning(
+                "SNMP indisponivel na OLT 4840E %s (%s) -- caindo para CLI, sem sinal optico",
+                req.olt_ip,
+                exc,
+            )
+        if not telemetry:
+            try:
+                telemetry = collect_onu_telemetry_4840e(
+                    olt_ip=req.olt_ip,
+                    user=req.user,
+                    password=req.password,
+                    pon=req.pon or "all",
+                    port=22,
+                    timeout=12.0,
+                )
+            except Exception as exc:
+                logger.exception("Erro ao coletar telemetria 4840E da OLT %s", req.olt_ip)
+                raise HTTPException(500, f"Erro ao coletar telemetria 4840E: {exc}") from exc
     elif model not in {"8820i", "intelbras_8820i"}:
         raise HTTPException(422, "Telemetria leve disponivel para Intelbras 8820i.")
     else:
@@ -913,6 +954,12 @@ def collect_onu_telemetry(req: OltCollectMacsRequest) -> Dict[str, Any]:
             "olt_rx": _norm_text(item.get("rx_olt")),
             "onu_rx": _norm_text(item.get("rx_onu")),
             "distance_km": _norm_text(item.get("distance_km")),
+            # Vindos do SNMP (4840E). A coleta por CLI nao tem nenhum destes, e
+            # quem nao mandar deixa o campo vazio -- nao some o valor anterior,
+            # pela mesma regra de preservacao dos sinais logo abaixo.
+            "onu_tx": _norm_text(item.get("onu_tx")),
+            "onu_temperature": _norm_text(item.get("temperatura")),
+            "onu_offline_reason": _norm_text(item.get("offline_reason")),
             # A telemetria periodica nao e uma acao recente do tecnico. Manter
             # esse horario separado evita reordenar o historico de implantacao.
             "telemetry_updated_at": now,
@@ -925,7 +972,7 @@ def collect_onu_telemetry(req: OltCollectMacsRequest) -> Dict[str, Any]:
                 current_serial = _norm_text(row.get("onu_serial") or row.get("serial"))
                 if len(current_serial) > len(row_values["onu_serial"]):
                     row_values["onu_serial"] = current_serial
-                for signal_key in ("olt_rx", "onu_rx", "distance_km"):
+                for signal_key in ("olt_rx", "onu_rx", "distance_km", "onu_tx", "onu_temperature"):
                     if not row_values[signal_key]:
                         row_values[signal_key] = _norm_text(row.get(signal_key))
                 row.update(row_values)
@@ -1050,6 +1097,49 @@ def _podar_onus_sumidas(
     }
 
 
+def _olt_hosts_do_site(site_norm: str) -> set[str]:
+    """IPs das OLTs cadastradas nesse site.
+
+    Necessario porque a coleta antiga gravava as linhas SEM o campo `site`:
+    apagar "por site" olhava so esse campo e deixava as linhas orfas para tras,
+    que continuavam enriquecendo as cameras na tela de Cameras IP como se a ONU
+    ainda existisse.
+    """
+    if not site_norm:
+        return set()
+    hosts: set[str] = set()
+    try:
+        from app.services.olt_registry import list_olts
+
+        for olt in list_olts() or []:
+            nome_site = str(olt.get("site") or olt.get("site_name") or "").strip().lower()
+            if nome_site != site_norm:
+                continue
+            for chave in ("ip", "host", "olt_ip"):
+                valor = str(olt.get(chave) or "").strip()
+                if valor:
+                    hosts.add(valor)
+    except Exception:
+        logger.exception("nao consegui listar as OLTs do site %s", site_norm)
+    return hosts
+
+
+def site_da_olt(olt_ip: str) -> str:
+    """Site cadastrado para a OLT desse IP (vazio se nao houver)."""
+    alvo = str(olt_ip or "").strip()
+    if not alvo:
+        return ""
+    try:
+        from app.services.olt_registry import list_olts
+
+        for olt in list_olts() or []:
+            if alvo in {str(olt.get(k) or "").strip() for k in ("ip", "host", "olt_ip")}:
+                return str(olt.get("site") or olt.get("site_name") or "").strip()
+    except Exception:
+        logger.exception("nao consegui resolver o site da OLT %s", alvo)
+    return ""
+
+
 def clear_macs(site: str = "") -> Dict[str, Any]:
     """Apaga dados OLT persistidos (DB-first) e fallback JSON legado."""
     # Acao destrutiva e irreversivel -- a unica confirmacao antes disso e um
@@ -1073,13 +1163,18 @@ def clear_macs(site: str = "") -> Dict[str, Any]:
             rows = list(obj.get("cpes") or obj.get("rows") or [])
             before = len(rows)
             if site_norm:
+                hosts_do_site = _olt_hosts_do_site(site_norm)
+
                 def _matches(r: dict[str, Any]) -> bool:
                     vals = [
                         str(r.get("site") or "").strip(),
                         str(r.get("SITE") or "").strip(),
                         str(r.get("local") or "").strip(),
                     ]
-                    return any(v.lower() == site_norm for v in vals if v)
+                    if any(v.lower() == site_norm for v in vals if v):
+                        return True
+                    # Linha antiga, sem site: identifica pela OLT de onde veio.
+                    return str(r.get("olt_ip") or "").strip() in hosts_do_site
                 kept_rows = [r for r in rows if not (isinstance(r, dict) and _matches(r))]
                 removed_rows = max(0, len(rows) - len(kept_rows))
     except Exception:

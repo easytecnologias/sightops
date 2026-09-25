@@ -61,6 +61,14 @@ def _extract_switch_rows(obj: Any) -> List[Dict[str, Any]]:
     return []
 
 
+# Campos que vem da OLT. Fora deles nada e tocado: titulo, local, foto,
+# coordenada, IP, MAC e VLAN sao da camera, nao da ONU.
+_OLT_LINK_FIELDS = (
+    "pon", "onu_id", "onu_name", "onu_serial", "onu_model", "olt_ip", "olt_name",
+    "onu_oper_status", "onu_omci_status", "onu_rx", "olt_rx", "onu_telemetry_updated_at",
+)
+
+
 def _enrich_inventory_with_olt(rows: List[Dict[str, Any]], olt_json_path: Path) -> tuple[List[Dict[str, Any]], int]:
     if not rows:
         return rows, 0
@@ -73,22 +81,29 @@ def _enrich_inventory_with_olt(rows: List[Dict[str, Any]], olt_json_path: Path) 
         olt_obj = {}
     # fallback JSON
     if not isinstance(olt_obj, dict) or not olt_obj:
-        if not olt_json_path.exists():
-            return rows, 0
-        try:
-            olt_obj = json.loads(olt_json_path.read_text(encoding="utf-8"))
-        except Exception:
-            return rows, 0
+        # Sem coleta nenhuma nao ha o que confirmar -- segue com a lista vazia
+        # (as colunas de ONU sao limpas abaixo) em vez de sair e deixar o dado
+        # velho na tela.
+        olt_obj = {}
+        if olt_json_path.exists():
+            try:
+                olt_obj = json.loads(olt_json_path.read_text(encoding="utf-8"))
+            except Exception:
+                olt_obj = {}
+
 
     olt_rows = _extract_olt_rows(olt_obj)
-    if not olt_rows:
-        return rows, 0
 
     olt_by_mac: dict[str, dict[str, Any]] = {}
+    olt_by_serial: dict[str, dict[str, Any]] = {}
     for r in olt_rows:
         mac = _norm_mac(r.get("cpe_mac") or r.get("mac") or r.get("MAC"))
         if mac:
             olt_by_mac[mac] = r
+        serial = _norm_mac(r.get("onu_serial") or r.get("serial") or r.get("ONU_SERIAL"))
+        if serial:
+            olt_by_serial[serial] = r
+
 
     def pick(src: dict[str, Any], *keys: str) -> str:
         for k in keys:
@@ -102,10 +117,21 @@ def _enrich_inventory_with_olt(rows: List[Dict[str, Any]], olt_json_path: Path) 
         if not isinstance(cam, dict):
             continue
         mac = _norm_mac(cam.get("mac") or cam.get("MAC"))
-        if not mac:
-            continue
-        g = olt_by_mac.get(mac)
+        g = olt_by_mac.get(mac) if mac else None
         if not g:
+            # Camera offline nao tem o MAC aprendido agora, e ONU reautorizada
+            # muda de numero: o serial ainda diz a verdade se a ONU existe.
+            serial = _norm_mac(cam.get("onu_serial"))
+            g = olt_by_serial.get(serial) if serial else None
+        if not g:
+            # Nao existe na coleta atual: a tela NAO pode mostrar PON/ONU de uma
+            # coleta antiga como se fosse de agora (ONU apagada/renumerada
+            # continuava aparecendo). Informacao falsa e pior do que ausente.
+            if any(str(cam.get(k) or "").strip() for k in _OLT_LINK_FIELDS):
+                for k in _OLT_LINK_FIELDS:
+                    if k in cam:
+                        cam[k] = ""
+                changed += 1
             continue
 
         updates = {

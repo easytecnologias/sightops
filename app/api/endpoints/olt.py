@@ -320,8 +320,15 @@ def api_olt_collect_macs(req: OltCollectMacsRequest) -> Dict[str, Any]:
 
 
 @router.post("/olt/clear")
-def api_olt_clear(site: str = "") -> Dict[str, Any]:
-    return clear_macs(site=site)
+def api_olt_clear(site: str = "", clear_camera_link: bool = False) -> Dict[str, Any]:
+    """Apaga a coleta de MACs da OLT. Com clear_camera_link=1, apaga tambem o
+    vinculo PON/ONU/serial das cameras do site -- as cameras continuam."""
+    out = clear_macs(site=site)
+    if clear_camera_link:
+        from app.services.inventory_json import clear_olt_link
+
+        out["camera_link"] = clear_olt_link(site=site)
+    return out
 
 
 @router.get("/olt/rows")
@@ -337,6 +344,10 @@ def api_olt_rows(site: str = "", compact: bool = False) -> Dict[str, Any]:
         "onu_name", "onu_serial", "serial", "SERIAL", "site", "local",
         "olt_ip", "olt_name", "remote_connector_id", "connector_id",
         "oper_status", "omci_status", "onu_rx", "olt_rx",
+        # So a coleta por SNMP (4840E) enche estes. Sem eles aqui, o modo
+        # compact os descartava e a tela nunca via TX, temperatura nem o
+        # motivo da ONU ter caido.
+        "onu_tx", "onu_temperature", "onu_offline_reason",
         "telemetry_updated_at",
     )
     rows = [

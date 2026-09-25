@@ -289,8 +289,10 @@ function connectorRouterIp(connectorId) {
   return addr.split('/')[0].trim();
 }
 
-// A porta do Winbox varia por roteador (o padrao 8291 quase sempre e trocado),
-// entao ela e perguntada uma vez por conector e fica lembrada neste navegador.
+// Portas do roteador: ficam SALVAS NO CONECTOR (servidor), nao no navegador.
+// A porta do Winbox quase nunca e a de fabrica e varia por roteador; guardar no
+// localStorage fazia ela sumir ao trocar de PC ou de usuario. O localStorage
+// segue lido uma unica vez, so pra migrar o que ja estava salvo aqui.
 const WINBOX_PORT_KEY = 'sightops.winboxPort';
 
 function winboxPortMap() {
@@ -298,8 +300,15 @@ function winboxPortMap() {
   catch (err) { return {}; }
 }
 
-// Ordem: o que o proprio MikroTik reportou no heartbeat (agente 0.7+), senao
-// o que foi escolhido a mao neste navegador, senao o padrao de fabrica.
+// Lista salva no conector. Cada item: { id, label, port }.
+function connectorSavedPorts(connectorId) {
+  const rows = connectorById(connectorId)?.service_ports;
+  return Array.isArray(rows) ? rows.filter(r => Number(r?.port) > 0) : [];
+}
+
+// A porta que o proprio MikroTik reportou no heartbeat (agente 0.7+). Serve so
+// como SUGESTAO inicial: o que foi salvo a mao ganha dela, senao nao haveria
+// como corrigir um roteador que reporta errado ou nao reporta nada.
 function connectorWinboxPortFromRouter(connectorId) {
   const inv = connectorById(connectorId)?.inventory || {};
   const desabilitado = String(inv.winbox_disabled || '').trim().toLowerCase() === 'true';
@@ -307,86 +316,167 @@ function connectorWinboxPortFromRouter(connectorId) {
   return (porta && !desabilitado) ? porta : '';
 }
 
-function connectorWinboxPort(connectorId) {
+// Sugestao pro campo "Porta" quando ainda nao ha nada salvo: o que o roteador
+// reportou, senao o que sobrou do localStorage antigo, senao o padrao.
+function connectorWinboxPortSuggestion(connectorId) {
   return connectorWinboxPortFromRouter(connectorId)
     || String(winboxPortMap()[connectorId] || '').trim()
     || '8291';
 }
 
-function rememberWinboxPort(connectorId, porta) {
-  try {
-    const mapa = winboxPortMap();
-    mapa[connectorId] = String(porta);
-    localStorage.setItem(WINBOX_PORT_KEY, JSON.stringify(mapa));
-  } catch (err) { /* navegador sem storage: segue sem lembrar */ }
-}
-
-// Modal no padrao da pagina (o prompt do navegador destoava da UI).
-// Resolve com a porta escolhida, ou com 0 se cancelar.
-function askWinboxPort(nome, padrao) {
-  return new Promise(resolve => {
-    const back = document.getElementById('modalWinboxPort');
-    const input = document.getElementById('winboxPortInput');
-    const quem = document.getElementById('winboxPortWho');
-    const btnOk = document.getElementById('btnWinboxPortOk');
-    const btnCancel = document.getElementById('btnWinboxPortCancel');
-    const btnClose = document.getElementById('btnWinboxPortClose');
-    if (!back || !input || !btnOk) { resolve(Number(padrao) || 0); return; }
-
-    if (quem) quem.textContent = nome;
-    input.value = padrao || '8291';
-    back.classList.remove('hidden');
-    lucide.createIcons();
-    setTimeout(() => { input.focus(); input.select(); }, 30);
-
-    const fechar = (valor) => {
-      back.classList.add('hidden');
-      btnOk.removeEventListener('click', onOk);
-      btnCancel?.removeEventListener('click', onCancel);
-      btnClose?.removeEventListener('click', onCancel);
-      back.removeEventListener('mousedown', onFundo);
-      document.removeEventListener('keydown', onTecla);
-      resolve(valor);
-    };
-    const onOk = () => {
-      const n = Number(String(input.value || '').trim());
-      if (!Number.isInteger(n) || n < 1 || n > 65535) {
-        showToast('Porta invalida. Use um numero de 1 a 65535.', true);
-        input.focus();
-        return;
-      }
-      fechar(n);
-    };
-    const onCancel = () => fechar(0);
-    const onFundo = (ev) => { if (ev.target === back) fechar(0); };
-    const onTecla = (ev) => {
-      if (ev.key === 'Escape') fechar(0);
-      if (ev.key === 'Enter' && !back.classList.contains('hidden')) { ev.preventDefault(); onOk(); }
-    };
-    btnOk.addEventListener('click', onOk);
-    btnCancel?.addEventListener('click', onCancel);
-    btnClose?.addEventListener('click', onCancel);
-    back.addEventListener('mousedown', onFundo);
-    document.addEventListener('keydown', onTecla);
+async function saveConnectorPorts(connectorId, ports) {
+  const res = await api(`/api/connectors/${encodeURIComponent(connectorId)}/ports`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ports }),
   });
+  const data = await jsonOrReadableError(res, 'Nao foi possivel salvar as portas.');
+  // Recarrega sem cache pra lista da tela refletir o que o servidor gravou.
+  await loadConnectors(true);
+  return Array.isArray(data?.ports) ? data.ports : [];
 }
 
-// Winbox nao e web: abre o tunel ate a porta do Winbox e entrega o endereco
+// Modal unico: lista as portas salvas (abrir / editar / excluir) e cadastra
+// novas. Abrir o tunel e uma acao de dentro da propria lista.
+function openConnectorPortsModal(connectorId) {
+  const back = document.getElementById('modalWinboxPort');
+  const lista = document.getElementById('winboxPortList');
+  const inputLabel = document.getElementById('winboxPortLabel');
+  const inputPort = document.getElementById('winboxPortInput');
+  const quem = document.getElementById('winboxPortWho');
+  const btnAdd = document.getElementById('btnWinboxPortAdd');
+  const btnCancel = document.getElementById('btnWinboxPortCancel');
+  const btnClose = document.getElementById('btnWinboxPortClose');
+  if (!back || !lista || !inputPort || !btnAdd) return;
+
+  const nome = connectorById(connectorId)?.name || 'este conector';
+  if (quem) quem.textContent = nome;
+  let editandoId = '';
+
+  const limparCampos = () => {
+    editandoId = '';
+    inputLabel.value = '';
+    inputPort.value = connectorSavedPorts(connectorId).length ? '' : connectorWinboxPortSuggestion(connectorId);
+    btnAdd.innerHTML = '<i data-lucide="plus"></i> Salvar porta';
+    lucide.createIcons();
+  };
+
+  const desenhar = () => {
+    const portas = connectorSavedPorts(connectorId);
+    if (!portas.length) {
+      lista.innerHTML = '<p class="inline-help">Nenhuma porta salva ainda. Cadastre abaixo -- a do Winbox costuma nao ser a 8291 de fabrica.</p>';
+    } else {
+      lista.innerHTML = portas.map(p => `
+        <div class="winbox-port-row" data-port-id="${p.id}">
+          <button type="button" class="winbox-port-open" data-port-action="open">
+            <i data-lucide="terminal"></i><span>${p.label}</span><strong>${p.port}</strong>
+          </button>
+          <button type="button" class="icon-button" data-port-action="edit" aria-label="Editar"><i data-lucide="pencil"></i></button>
+          <button type="button" class="icon-button danger" data-port-action="delete" aria-label="Excluir"><i data-lucide="trash-2"></i></button>
+        </div>`).join('');
+    }
+    lucide.createIcons();
+  };
+
+  const onLista = async (ev) => {
+    const btn = ev.target.closest('button[data-port-action]');
+    if (!btn) return;
+    const linha = btn.closest('[data-port-id]');
+    const id = linha?.dataset.portId || '';
+    const item = connectorSavedPorts(connectorId).find(p => String(p.id) === id);
+    if (!item) return;
+    const acao = btn.dataset.portAction;
+    if (acao === 'open') {
+      fechar();
+      abrirTunelWinbox(connectorId, Number(item.port));
+      return;
+    }
+    if (acao === 'edit') {
+      editandoId = id;
+      inputLabel.value = item.label || '';
+      inputPort.value = String(item.port);
+      btnAdd.innerHTML = '<i data-lucide="check"></i> Salvar alteracao';
+      lucide.createIcons();
+      inputPort.focus();
+      return;
+    }
+    if (acao === 'delete') {
+      const restantes = connectorSavedPorts(connectorId).filter(p => String(p.id) !== id);
+      try {
+        await saveConnectorPorts(connectorId, restantes);
+        limparCampos();
+        desenhar();
+        showToast('Porta excluida.');
+      } catch (err) {
+        showToast(err.message || 'Nao foi possivel excluir a porta.', true);
+      }
+    }
+  };
+
+  const onAdd = async () => {
+    const n = Number(String(inputPort.value || '').trim());
+    if (!Number.isInteger(n) || n < 1 || n > 65535) {
+      showToast('Porta invalida. Use um numero de 1 a 65535.', true);
+      inputPort.focus();
+      return;
+    }
+    const label = String(inputLabel.value || '').trim() || 'Winbox';
+    const atuais = connectorSavedPorts(connectorId);
+    const proximas = editandoId
+      ? atuais.map(p => (String(p.id) === editandoId ? { ...p, label, port: n } : p))
+      : [...atuais, { label, port: n }];
+    try {
+      await saveConnectorPorts(connectorId, proximas);
+      limparCampos();
+      desenhar();
+      showToast('Porta salva.');
+    } catch (err) {
+      showToast(err.message || 'Nao foi possivel salvar a porta.', true);
+    }
+  };
+
+  function fechar() {
+    back.classList.add('hidden');
+    lista.removeEventListener('click', onLista);
+    btnAdd.removeEventListener('click', onAdd);
+    btnCancel?.removeEventListener('click', fechar);
+    btnClose?.removeEventListener('click', fechar);
+    back.removeEventListener('mousedown', onFundo);
+    document.removeEventListener('keydown', onTecla);
+  }
+  const onFundo = (ev) => { if (ev.target === back) fechar(); };
+  const onTecla = (ev) => {
+    if (ev.key === 'Escape') fechar();
+    if (ev.key === 'Enter' && !back.classList.contains('hidden')
+        && (ev.target === inputPort || ev.target === inputLabel)) {
+      ev.preventDefault();
+      onAdd();
+    }
+  };
+
+  limparCampos();
+  desenhar();
+  back.classList.remove('hidden');
+  lucide.createIcons();
+  setTimeout(() => { (connectorSavedPorts(connectorId).length ? inputLabel : inputPort).focus(); }, 30);
+  lista.addEventListener('click', onLista);
+  btnAdd.addEventListener('click', onAdd);
+  btnCancel?.addEventListener('click', fechar);
+  btnClose?.addEventListener('click', fechar);
+  back.addEventListener('mousedown', onFundo);
+  document.addEventListener('keydown', onTecla);
+}
+
+// Winbox nao e web: abre o tunel ate a porta do roteador e entrega o endereco
 // local pra colar (o mesmo 127.0.0.1:porta que antes exigia um ssh -L na mao).
-async function openConnectorWinbox(connectorId) {
+// ATENCAO: o agente cacheia o forward por (ip, porta de destino), entao trocar
+// a porta gera um endereco local NOVO -- o antigo continua apontando pra porta
+// velha. Por isso o endereco e copiado e mostrado a cada abertura.
+async function abrirTunelWinbox(connectorId, porta) {
   const ip = connectorRouterIp(connectorId);
   if (!ip) {
     showToast('Este conector nao tem IP de tunel (VPN) configurado.', true);
     return;
-  }
-  const nome = connectorById(connectorId)?.name || 'este conector';
-  // Se o roteador ja informou a porta no heartbeat, nao pergunta nada.
-  const doRouter = connectorWinboxPortFromRouter(connectorId);
-  let porta = Number(doRouter);
-  if (!doRouter) {
-    porta = await askWinboxPort(nome, connectorWinboxPort(connectorId));
-    if (!porta) return;
-    rememberWinboxPort(connectorId, porta);
   }
   let aberto = null;
   try {
@@ -401,6 +491,22 @@ async function openConnectorWinbox(connectorId) {
   const endereco = `127.0.0.1:${aberto.port}`;
   try { await navigator.clipboard.writeText(endereco); } catch (err) { /* sem clipboard: so mostra */ }
   showToast(`Winbox: conecte em ${endereco} (copiado) -- porta ${porta} do roteador`);
+}
+
+// Uma porta salva -> abre direto. Nenhuma ou varias -> abre a lista pra
+// escolher/cadastrar, que e tambem onde se edita e exclui.
+async function openConnectorWinbox(connectorId) {
+  const ip = connectorRouterIp(connectorId);
+  if (!ip) {
+    showToast('Este conector nao tem IP de tunel (VPN) configurado.', true);
+    return;
+  }
+  const salvas = connectorSavedPorts(connectorId);
+  if (salvas.length === 1) {
+    await abrirTunelWinbox(connectorId, Number(salvas[0].port));
+    return;
+  }
+  openConnectorPortsModal(connectorId);
 }
 
 function downloadPcAgent() {

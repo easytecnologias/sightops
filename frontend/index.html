@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=1789810800">
+  <link rel="stylesheet" href="styles.css?v=1790181300">
 </head>
 <body>
 
@@ -63,6 +63,7 @@
         <button class="nav-item" data-view="deploy-onu"><i data-lucide="wifi"></i><span>ONU</span></button>
         <button class="nav-item" data-view="deploy-recorder"><i data-lucide="hard-drive-upload"></i><span>Gravadores</span></button>
         <button class="nav-item" data-view="deploy-new"><i data-lucide="clipboard-check"></i><span>CFTV</span></button>
+        <button class="nav-item" data-view="deploy-activation"><i data-lucide="key-round"></i><span>Ativacao de Cameras</span></button>
 
         <!-- Inventario -->
         <div class="nav-section-label">Inventario</div>
@@ -1691,19 +1692,26 @@
       <div id="modalWinboxPort" class="modal-backdrop hidden">
         <div class="modal">
           <div class="modal-header">
-            <div><h2>Acessar via Winbox</h2><p id="winboxPortWho">Conector</p></div>
+            <div><h2>Portas do roteador</h2><p id="winboxPortWho">Conector</p></div>
             <button class="icon-button" id="btnWinboxPortClose" type="button" aria-label="Fechar"><i data-lucide="x"></i></button>
           </div>
           <div class="modal-body">
-            <div class="form-group">
-              <label for="winboxPortInput">Porta do Winbox no roteador</label>
-              <input id="winboxPortInput" type="number" min="1" max="65535" inputmode="numeric" placeholder="8291">
+            <div id="winboxPortList" class="winbox-port-list"></div>
+            <div class="form-row winbox-port-add">
+              <div class="form-group">
+                <label for="winboxPortLabel">Nome</label>
+                <input id="winboxPortLabel" type="text" maxlength="40" placeholder="Winbox">
+              </div>
+              <div class="form-group">
+                <label for="winboxPortInput">Porta</label>
+                <input id="winboxPortInput" type="number" min="1" max="65535" inputmode="numeric" placeholder="8291">
+              </div>
+              <button class="secondary-action" id="btnWinboxPortAdd" type="button"><i data-lucide="plus"></i> Salvar porta</button>
             </div>
-            <p class="inline-help" id="winboxPortHelp">O padrao de fabrica e 8291. Informe a porta configurada neste MikroTik -- ela fica salva para as proximas vezes.</p>
+            <p class="inline-help" id="winboxPortHelp">As portas ficam salvas no conector, no servidor -- valem em qualquer PC e para todos do seu cliente. Clique numa porta da lista para abrir o tunel.</p>
           </div>
           <div class="modal-actions">
-            <button class="secondary-action" id="btnWinboxPortCancel" type="button"><i data-lucide="x"></i> Cancelar</button>
-            <button class="primary-action" id="btnWinboxPortOk" type="button"><i data-lucide="terminal"></i> Abrir tunel</button>
+            <button class="secondary-action" id="btnWinboxPortCancel" type="button"><i data-lucide="x"></i> Fechar</button>
           </div>
         </div>
       </div>
@@ -4605,6 +4613,143 @@
         </aside>
       </section>
 
+      <!-- --- VIEW: IMPLANTACAO - ATIVACAO DE CAMERAS --- -->
+      <section class="workspace hidden" id="viewDeployActivation">
+        <div class="page-heading">
+          <div>
+            <p class="eyebrow">Implantacao</p>
+            <h1>Ativacao de Cameras</h1>
+            <p>Camera Intelbras nova sai de fabrica sem senha. Aqui o sistema varre o site pelo conector, mostra quais ainda nao foram ativadas e cria a senha nelas -- uma ou todas de uma vez.</p>
+          </div>
+          <div class="page-heading-actions">
+            <button class="primary-action" id="btnActivationScan" type="button"><i data-lucide="radar"></i> Varrer site</button>
+          </div>
+        </div>
+
+        <div class="panel" id="activationSdkWarning" style="display:none">
+          <div class="activation-body">
+            <strong>NetSDK indisponivel no servidor.</strong>
+            <p class="activation-hint" id="activationSdkWarningText">Sem a biblioteca do NetSDK nao e possivel ativar camera de fabrica.</p>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-header">
+            <div>
+              <h2>Onde procurar</h2>
+              <p>O sistema le a tabela ARP e os leases DHCP que o conector ja coletou do MikroTik e sonda apenas esses enderecos.</p>
+            </div>
+          </div>
+          <div class="activation-body">
+            <div class="activation-filters">
+              <div>
+                <label for="activationConnector">Conector (site)</label>
+                <select id="activationConnector"><option value="">Escolha o site</option></select>
+              </div>
+              <div>
+                <label for="activationSite">Site no inventario (opcional)</label>
+                <input id="activationSite" placeholder="Onde a senha fica guardada">
+              </div>
+              <div>
+                <label for="activationRange">Faixa manual (opcional)</label>
+                <input id="activationRange" placeholder="Ex.: 172.28.1.200-172.28.1.254">
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-header">
+            <div>
+              <h2>Cameras do site</h2>
+              <p id="activationSummary">Escolha o site e clique em Varrer site.</p>
+            </div>
+            <div class="panel-actions">
+              <button class="secondary-action" id="btnActivationRescan" type="button"><i data-lucide="refresh-cw"></i> Varrer de novo</button>
+            </div>
+          </div>
+
+          <div class="activation-toolbar">
+            <div class="activation-chips">
+              <button class="activation-chip active" data-activation-filter="todas" type="button">Todas <span class="activation-chip-count" id="activationCountAll">0</span></button>
+              <button class="activation-chip" data-activation-filter="fabrica" type="button">De fabrica <span class="activation-chip-count" id="activationCountPending">0</span></button>
+              <button class="activation-chip" data-activation-filter="ativas" type="button">Ja ativadas <span class="activation-chip-count" id="activationCountDone">0</span></button>
+            </div>
+            <div class="activation-actions">
+              <button class="secondary-action" id="btnActivationSelectPending" type="button"><i data-lucide="check-square"></i> Selecionar de fabrica</button>
+              <button class="secondary-action" id="btnActivationCopyIps" type="button"><i data-lucide="copy"></i> Copiar IPs</button>
+              <button class="primary-action" id="btnActivationRunBatch" type="button" disabled><i data-lucide="key-round"></i> Ativar selecionadas</button>
+            </div>
+          </div>
+
+          <div class="table-wrap activation-table-wrap">
+            <table class="data-table activation-table">
+              <thead>
+                <tr>
+                  <th style="width:38px"><input type="checkbox" id="activationCheckAll" aria-label="Selecionar todas"></th>
+                  <th style="width:120px">Estado</th>
+                  <th style="width:130px">IP</th>
+                  <th style="width:150px">MAC</th>
+                  <th>Modelo</th>
+                  <th>Firmware</th>
+                  <th style="width:110px">Recuperacao</th>
+                  <th style="width:100px">Acao</th>
+                </tr>
+              </thead>
+              <tbody id="activationTableBody"></tbody>
+            </table>
+            <div class="activation-empty" id="activationEmpty">
+              <i data-lucide="radar"></i>
+              <strong>Nenhuma camera varrida ainda</strong>
+              Escolha o site acima e clique em <b>Varrer site</b>.
+            </div>
+          </div>
+        </div>
+
+        <div class="panel" id="activationLogPanel" style="display:none">
+          <div class="panel-header"><div><h2>Resultado da ultima ativacao</h2><p>O que aconteceu com cada camera.</p></div></div>
+          <div class="activation-body" id="activationLog"></div>
+        </div>
+
+        <div id="modalActivationCredentials" class="modal-backdrop hidden" onclick="if(event.target===this)closeActivationModal()">
+          <div class="modal">
+            <div class="modal-header">
+              <div>
+                <p class="eyebrow">Implantacao</p>
+                <h2 id="activationModalTitle">Ativar cameras</h2>
+                <p id="activationModalSubtitle">Esta senha sera criada nas cameras selecionadas e guardada no cofre do site.</p>
+              </div>
+              <button class="icon-button" id="btnActivationCloseModal" type="button" aria-label="Fechar"><i data-lucide="x"></i></button>
+            </div>
+            <div class="modal-body">
+              <div class="activation-filters" style="grid-template-columns:1fr 1fr">
+                <div>
+                  <label for="activationUser">Usuario</label>
+                  <input id="activationUser" value="admin" autocomplete="off">
+                </div>
+                <div>
+                  <label for="activationEmail">E-mail de recuperacao</label>
+                  <input id="activationEmail" type="email" autocomplete="off">
+                </div>
+                <div>
+                  <label for="activationPassword">Senha nova</label>
+                  <input id="activationPassword" type="password" autocomplete="new-password">
+                </div>
+                <div>
+                  <label for="activationPassword2">Repetir a senha</label>
+                  <input id="activationPassword2" type="password" autocomplete="new-password">
+                </div>
+              </div>
+              <p class="activation-hint" id="activationTargetsHint">-</p>
+            </div>
+            <div class="activation-modal-footer">
+              <button class="secondary-action" id="btnActivationCancel" type="button">Cancelar</button>
+              <button class="primary-action" id="btnActivationConfirm" type="button"><i data-lucide="key-round"></i> Ativar</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
       <!-- --- VIEW: IMPLANTACAO --- -->
       <section class="workspace hidden" id="viewDeployNew">
         <div class="page-heading">
@@ -6542,17 +6687,18 @@
   <script src="js/core.js?v=1790013585"></script>
   <script src="js/dashboard.js?v=266"></script>
   <script src="js/liveStream.js?v=1789810300"></script>
-  <script src="js/cameras.js?v=1790019880"></script>
-  <script src="js/recorders.js?v=1789780100"></script>
+  <script src="js/cameras.js?v=1790357244"></script>
+  <script src="js/recorders.js?v=1790172000"></script>
   <script src="js/windows.js?v=142"></script>
   <script src="js/snapshots.js?v=1790019880"></script>
   <script src="js/maintenance.js?v=146"></script>
   <script src="js/analysis.js?v=147"></script>
   <script src="js/network.js?v=158"></script>
-  <script src="js/deploy.js?v=1789800200"></script>
+  <script src="js/deploy.js?v=1790357244"></script>
+  <script src="js/cameraActivation.js?v=1790048800"></script>
   <script src="js/deployOlt.js?v=160"></script>
-  <script src="js/connectors.js?v=1789901200"></script>
-  <script src="js/monitoring.js?v=9"></script>
+  <script src="js/connectors.js?v=1790180000"></script>
+  <script src="js/monitoring.js?v=1790357244"></script>
   <script src="js/planning.js?v=69"></script>
   <script src="js/helpers.js?v=144"></script>
   <script src="js/accessControl.js?v=89"></script>
@@ -6560,6 +6706,6 @@
   <script src="js/accessWhatsappTriage.js?v=3"></script>
   <script src="js/messenger.js?v=5"></script>
   <script src="js/alert.js?v=1789901000"></script>
-  <script src="js/bootstrap.js?v=1790016912"></script>
+  <script src="js/bootstrap.js?v=1790100200"></script>
 </body>
 </html>

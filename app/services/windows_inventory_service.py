@@ -832,7 +832,7 @@ function Get-SightOpsServerHost {{
     $uri = [Uri]$SightOpsUrl
     if ($uri.Host) {{ return $uri.Host }}
   }} catch {{}}
-  return ""   # sem host na URL, nao chuta IP: o servidor varia por instalacao
+  return "10.10.12.7"
 }}
 
 function Get-ZabbixAgentInventory {{

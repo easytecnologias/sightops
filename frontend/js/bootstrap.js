@@ -260,6 +260,9 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
+  // Implantacao - Ativacao de Cameras
+  bindCameraActivation();
+
   // Implantacao
   document.getElementById('btnDeployClear')?.addEventListener('click', deployClear);
   document.getElementById('deployForm')?.addEventListener('submit', deployCommitCamera);
@@ -1722,11 +1725,29 @@ document.addEventListener('DOMContentLoaded', () => {
       label: 'Apagar',
     });
     if (!ok) return;
-    await api(`/api/olt/clear${site ? `?site=${encodeURIComponent(site)}` : ''}`, { method: 'POST', body: '{}' });
+    // As colunas PON/ONU/serial ficam gravadas DENTRO de cada camera (copiadas
+    // na coleta), entao apagar a tabela da OLT nao as limpa -- continuavam
+    // aparecendo em Cameras IP como se a ONU ainda existisse.
+    const limparColunas = await showConfirm({
+      eyebrow: 'Cameras IP',
+      title: 'Limpar as colunas da OLT nas cameras?',
+      msg: site
+        ? `As cameras do site "${site}" continuam no inventario (titulo, local, foto e coordenada). Limpar so as colunas que vieram da OLT: PON, ONU, serial e sinal?`
+        : 'As cameras continuam no inventario (titulo, local, foto e coordenada). Limpar so as colunas que vieram da OLT: PON, ONU, serial e sinal?',
+      label: 'Limpar colunas',
+      danger: false,
+    });
+    const params = new URLSearchParams();
+    if (site) params.set('site', site);
+    if (limparColunas) params.set('clear_camera_link', '1');
+    const qs = params.toString();
+    const res = await api(`/api/olt/clear${qs ? `?${qs}` : ''}`, { method: 'POST', body: '{}' });
+    const body = await res?.json().catch(() => ({}));
     _oltRows = site ? _oltRows.filter(r => r.site !== site) : [];
     renderOltTable(_oltRows);
     populateOltMacSiteFilter();
-    showToast(site ? `Site "${site}" apagado.` : 'Tabela OLT apagada.');
+    const n = body?.camera_link?.cleared;
+    showToast(`${site ? `Site "${site}" apagado` : 'Tabela OLT apagada'}${n ? `. Colunas da OLT limpas em ${n} camera(s)` : ''}.`);
   });
 
   // Filtros OLT

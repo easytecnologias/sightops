@@ -2600,6 +2600,21 @@ async function onuRetryBridge() {
   onuAccordionOpen('onuStepQuery');
 }
 
+// Junta so os campos que a OLT entregou. OLT EPON (4840E/VSOL) nao tem OMCI
+// nem RX por ONU medido na OLT -- mostrar "OMCI -" e "OLT RX -" fixos fazia
+// parecer defeito onde o modelo simplesmente nao tem a medida.
+function onuLinhaTelemetria(data) {
+  const partes = [];
+  if (data.oper_status) partes.push(`Status: ${esc(data.oper_status)}`);
+  if (data.omci_status) partes.push(`OMCI ${esc(data.omci_status)}`);
+  if (data.olt_rx) partes.push(`OLT RX ${esc(data.olt_rx)} dBm`);
+  if (data.onu_rx) partes.push(`ONU RX ${esc(data.onu_rx)} dBm`);
+  if (data.onu_tx) partes.push(`TX ${esc(data.onu_tx)} dBm`);
+  if (data.temperatura) partes.push(`${esc(data.temperatura)} C`);
+  if (data.distance_km) partes.push(`${esc(data.distance_km)} km`);
+  return partes.join(' &nbsp;&middot;&nbsp; ') || 'sem telemetria';
+}
+
 async function onuQueryEpon(olt) {
   const pon = Number(document.getElementById('onuQueryPonEpon')?.value || '0');
   const onuNum = Number(document.getElementById('onuQueryOnuNumEpon')?.value || '0');
@@ -2720,8 +2735,7 @@ async function onuQuery() {
 
   onuSetResult('onuQueryResult', `
     <div><b>PON ${esc(data.pon)} / ONU ${esc(data.onu)}</b> - ${esc(data.serial)} (${esc(data.model)})</div>
-    <div style="margin-top:4px">Status: ${esc(data.oper_status || '-')} / OMCI ${esc(data.omci_status || '-')}</div>
-    <div>OLT RX: ${esc(data.olt_rx || '-')} &nbsp; ONU RX: ${esc(data.onu_rx || '-')} &nbsp; Distancia: ${esc(data.distance_km || '-')} km</div>
+    <div style="margin-top:4px">${onuLinhaTelemetria(data)}</div>
     <div style="margin-top:6px"><b>MACs aprendidos:</b>${macsHtml}</div>
     ${invSync}
   `);
@@ -2952,7 +2966,7 @@ async function onuDelete() {
     <p>Voce esta prestes a excluir:</p>
     <div style="margin:8px 0;padding:10px 12px;border:1px solid var(--border);border-radius:8px;background:var(--surface-soft)">
       <div><b>PON ${esc(data.pon)} / ONU ${esc(data.onu)}</b> - ${esc(data.serial)} (${esc(data.model)})</div>
-      <div style="margin-top:4px">Status: ${esc(data.oper_status || '-')} / OMCI ${esc(data.omci_status || '-')}</div>
+      <div style="margin-top:4px">${onuLinhaTelemetria(data)}</div>
       <div style="margin-top:6px"><b>${(data.macs || []).length} MAC(s) que vao perder conexao:</b>${macsHtml}</div>
     </div>
     <p style="color:var(--danger);font-size:13px;margin:0">Isso remove o cadastro e desliga o servico dela AGORA na OLT.</p>

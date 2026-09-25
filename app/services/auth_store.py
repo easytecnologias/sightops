@@ -411,6 +411,20 @@ def _ensure_tenant(c: Any, slug: str, name: str) -> int:
     return int(row["id"]) if row else 0
 
 
+def existing_tenant_slugs() -> set[str]:
+    """Slugs dos clientes que existem no cadastro. Sem ator, sem dados sensiveis.
+
+    Serve para o resto do sistema nao tratar lixo como cliente: sobrou uma
+    linha com um slug antigo numa tabela qualquer (migracao que gravou o NOME
+    do cliente em vez do slug, por exemplo) e os loops de fundo passavam a
+    processar esse "cliente fantasma" para sempre.
+    """
+    _ensure_schema()
+    with _conn() as c:
+        rows = _fetchall(c, "SELECT slug FROM tenants", ())
+    return {str(dict(r).get("slug") or "").strip().lower() for r in rows if dict(r).get("slug")}
+
+
 def list_tenants(actor: Dict[str, Any]) -> List[Dict[str, Any]]:
     """Lista clientes SaaS.
 

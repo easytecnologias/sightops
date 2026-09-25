@@ -14,9 +14,18 @@ function monitoringDetail(row) {
   try {
     const detail = JSON.parse(row.detail_json || '{}');
     if (row.entity_type === 'onu') {
-      const onuRx = detail.onu_rx ? `ONU ${detail.onu_rx}` : 'ONU RX --';
-      const oltRx = detail.olt_rx ? `OLT ${detail.olt_rx}` : 'OLT RX --';
-      return `${onuRx} | ${oltRx}`;
+      // Mostra so o que a OLT entrega de verdade. Antes vinha "OLT RX --" fixo
+      // em toda ONU EPON (4840E/VSOL), que nao tem RX por ONU -- parecia dado
+      // faltando quando na verdade aquele modelo nunca teve essa medida.
+      const partes = [];
+      if (detail.onu_rx) partes.push(`ONU ${detail.onu_rx} dBm`);
+      if (detail.olt_rx) partes.push(`OLT ${detail.olt_rx} dBm`);
+      if (detail.onu_tx) partes.push(`TX ${detail.onu_tx} dBm`);
+      if (detail.temperatura) partes.push(`${detail.temperatura} C`);
+      if (detail.distance_km) partes.push(`${detail.distance_km} km`);
+      if (detail.omci_status) partes.push(`OMCI ${detail.omci_status}`);
+      if (detail.offline_reason) partes.push(detail.offline_reason);
+      return partes.join(' · ') || 'sem telemetria';
     }
     return detail.host || detail.ip || detail.model || detail.serial || '';
   } catch (_) { return ''; }

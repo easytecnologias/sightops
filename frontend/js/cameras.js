@@ -384,14 +384,23 @@ function mapLayerOverlapsImported(layer, importedPointSets) {
 
 async function mapLoadCameraIndex() {
   const mode = mapInventoryMode();
-  const camData = await apiJson(`/api/cameras?mode=${encodeURIComponent(mode)}&_=${Date.now()}`);
-  const cams = camData?.cameras || [];
+  // O modo escolhido tem prioridade, mas os outros completam o que falta: cada
+  // site vive num modo so (Demerval esta em "switch", por exemplo), e antes o
+  // mapa com o seletor em "Basico" dizia "sem inventario neste modo" e nao
+  // casava ponto nenhum -- mesmo com a camera cadastrada em outro modo.
+  const modes = [mode, ...['basico', 'switch', 'olt'].filter(m => m !== mode)];
   const byName = {};
   const byIp = {};
-  cams.forEach(c => {
-    if (c.titulo) byName[String(c.titulo).toLowerCase()] = c;
-    if (c.ip) byIp[String(c.ip)] = c;
-  });
+  for (const m of modes) {
+    const camData = await apiJson(`/api/cameras?mode=${encodeURIComponent(m)}&_=${Date.now()}`)
+      .catch(() => null);
+    (camData?.cameras || []).forEach(c => {
+      const name = String(c.titulo || '').toLowerCase();
+      if (name && !byName[name]) byName[name] = c;       // primeiro modo ganha
+      const ip = String(c.ip || '');
+      if (ip && !byIp[ip]) byIp[ip] = c;
+    });
+  }
   _mapCameraIndex = { byName, byIp };
   return _mapCameraIndex;
 }
@@ -1704,6 +1713,11 @@ async function _loadCamForMode(mode) {
         onu_omci_status: olt.omci_status || c.onu_omci_status || '',
         onu_rx: olt.onu_rx || c.onu_rx || '',
         olt_rx: olt.olt_rx || c.olt_rx || '',
+        // So a coleta por SNMP (OLT 4840E) enche estes tres; em OLT sem SNMP
+        // ficam vazios e nada e exibido.
+        onu_tx: olt.onu_tx || c.onu_tx || '',
+        onu_temperature: olt.onu_temperature || c.onu_temperature || '',
+        onu_offline_reason: olt.onu_offline_reason || c.onu_offline_reason || '',
         onu_telemetry_updated_at: olt.telemetry_updated_at || c.onu_telemetry_updated_at || '',
       };
     });
@@ -1979,9 +1993,14 @@ function cameraOnuHealth(cam = {}) {
   const omci = String(cam.onu_omci_status || '').trim().toLowerCase();
   const up = ['active', 'online', 'up'].includes(oper);
   const down = ['inactive', 'offline', 'down', 'los', 'dying-gasp', 'dying_gasp'].includes(oper);
-  const signal = cam.onu_rx ? `ONU RX ${cam.onu_rx}` : '';
-  if (up) return { state: 'up', label: 'ONU online', detail: [cam.onu_oper_status, omci ? `OMCI ${cam.onu_omci_status}` : '', signal].filter(Boolean).join(' - ') };
-  if (down) return { state: 'down', label: 'ONU offline', detail: [cam.onu_oper_status, signal].filter(Boolean).join(' - ') };
+  const signal = cam.onu_rx ? `ONU RX ${cam.onu_rx} dBm` : '';
+  const tx = cam.onu_tx ? `TX ${cam.onu_tx} dBm` : '';
+  const temp = cam.onu_temperature ? `${cam.onu_temperature} C` : '';
+  // Motivo vem da OLT (eponOnuOfflineReason, so por SNMP). Dizer POR QUE a ONU
+  // caiu poupa o tecnico de ir ate a OLT so para descobrir isso.
+  const motivo = cam.onu_offline_reason || '';
+  if (up) return { state: 'up', label: 'ONU online', detail: [cam.onu_oper_status, omci ? `OMCI ${cam.onu_omci_status}` : '', signal, tx, temp].filter(Boolean).join(' - ') };
+  if (down) return { state: 'down', label: 'ONU offline', detail: [cam.onu_oper_status, motivo, signal].filter(Boolean).join(' - ') };
   return { state: 'unknown', label: 'ONU nao verificada', detail: 'Atualize os estados no Monitoramento' };
 }
 

@@ -16,7 +16,11 @@ import paramiko
 _MAC_RE = re.compile(r"\b(?:[0-9a-f]{2}[:\-\.]){5}[0-9a-f]{2}\b", re.I)
 
 # ---- Intelbras 4840E helpers (EPON) ----
-_PON_LINE_RE = re.compile(r"^(?P<onu>\d+/\d+/\d+)\s+(?P<onu_mac>(?:[0-9a-f]{2}[:\-\.]){5}[0-9a-f]{2})\s+(?P<llid>\S+)\s+(?P<type>\S+)\s+(?P<cfg>\S+)\s+(?P<desc>.+)$", re.I)
+# A descricao e OPCIONAL: `.+` exigia um caractere e fazia a linha inteira
+# nao casar, descartando a ONU sem nome em silencio -- na Barra de Sao Miguel
+# isso escondeu a ONU 0/1/32 (Escola Medea) e seus 21 CPEs de toda coleta.
+# ONU perde o nome sempre que re-registra com autenticacao desligada.
+_PON_LINE_RE = re.compile(r"^(?P<onu>\d+/\d+/\d+)\s+(?P<onu_mac>(?:[0-9a-f]{2}[:\-\.]){5}[0-9a-f]{2})\s+(?P<llid>\S+)\s+(?P<type>\S+)\s+(?P<cfg>\S+)\s*(?P<desc>.*)$", re.I)
 _MAC_ONU_TABLE_RE = re.compile(
     r"^(?P<mac>(?:[0-9a-f]{2}[:\-\.]){5}[0-9a-f]{2})\s+(?P<vlan>\d+)\s+(?P<onu>\d+/\d+/\d+)\s+(?P<status>\S+)",
     re.I

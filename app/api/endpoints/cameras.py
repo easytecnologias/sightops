@@ -268,9 +268,29 @@ def api_cameras(
         key = make_key(r)
         snapshot_url = r.get("snapshot_url") or r.get("thumb_url") or ""
         if not snapshot_url:
+            # O arquivo de snapshot tem o IP no nome, entao o fallback "procura
+            # no disco pelo IP" devolvia a foto da camera que ANTES tinha aquele
+            # IP -- inclusive depois de apagar a camera, ja que apagar nunca
+            # removeu o JPG. Era assim que uma linha offline, sem MAC, sem
+            # modelo e sem titulo aparecia com foto (10.50.11.2 do InforBr
+            # mostrava um JPG de 16/08 de uma camera que nao existe mais).
+            #
+            # Mas o fallback NAO pode simplesmente sumir: a recaptura em lote da
+            # migracao para o v3 gravou o JPG sem carimbar snapshot_path, e 48
+            # linhas legitimas (39 delas no San Marine) dependem dele.
+            #
+            # O que separa os dois casos e a IDENTIDADE da linha: camera de
+            # verdade tem MAC, modelo ou titulo; a casca deixada por uma
+            # varredura de faixa nao tem nenhum dos tres. Só a casca perde a
+            # foto herdada.
+            hint = str(r.get("snapshot_path") or r.get("snapshot_file") or "")
+            tem_identidade = any(
+                str(r.get(campo) or "").strip()
+                for campo in ("mac", "modelo", "model", "titulo", "nome")
+            )
             snap_file = resolve_snapshot_file(
-                path_hint=str(r.get("snapshot_path") or r.get("snapshot_file") or ""),
-                ip=str(r.get("ip") or ""),
+                path_hint=hint,
+                ip=str(r.get("ip") or "") if tem_identidade else "",
             )
             if snap_file is not None:
                 snapshot_url = f"/data/snapshot/{snap_file.name}"

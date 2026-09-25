@@ -30,9 +30,14 @@ services:
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       GEMINI_VIDEO_MODEL: ${GEMINI_VIDEO_MODEL:-gemini-2.5-flash}
       SIGHTOPS_ACCESS_CONTROL_SYNC_INTERVAL: ${SIGHTOPS_ACCESS_CONTROL_SYNC_INTERVAL:-15}
+      # NetSDK da Intelbras: ativa camera de fabrica (ver docs/NETSDK_INTELBRAS.md).
+      NETSDK_LIB_DIR: ${NETSDK_LIB_DIR:-/opt/netsdk/lib}
     volumes:
       - sightops_v3_data:/app/data
       - sightops_v3_output:/app/output
+      # A imagem atual ja carrega as .so; este bind mantem elas de pe tambem
+      # quando a imagem for reconstruida do git (o binario nao vai no repo).
+      - ${NETSDK_HOST_DIR:-/home/central/netsdk-lib}:/opt/netsdk/lib:ro
     depends_on:
       sightops-v3-postgres:
         condition: service_healthy

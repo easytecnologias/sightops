@@ -379,3 +379,42 @@ def dedup_cam_inventory(mode: str = "olt") -> List[Dict[str, Any]]:
     rows2 = _normalize_inventory_rows(rows)
     save_inventory_json(rows2, mode=mode)
     return rows2
+
+
+# Campos que a coleta da OLT carimba em cada camera. Sao a IDENTIDADE vinda da
+# OLT -- titulo, local, foto, coordenada, VLAN e Zabbix NAO entram aqui.
+OLT_LINK_FIELDS = (
+    "olt_ip", "olt_name", "pon", "onu_id", "onu_name", "onu_serial",
+    "onu_oper_status", "onu_omci_status", "onu_rx", "olt_rx",
+    "onu_telemetry_updated_at",
+)
+
+
+def clear_olt_link(site: str = "", mode: str = "olt") -> dict[str, Any]:
+    """Apaga o vinculo PON/ONU/serial das cameras (as cameras ficam).
+
+    Existe porque apagar a tabela de MACs da OLT nao mexia no inventario de
+    cameras: o vinculo e copiado pra dentro de cada camera na coleta, entao ele
+    sobrevivia a exclusao e continuava aparecendo como se a ONU existisse.
+    """
+    wanted = str(site or "").strip().lower()
+    rows = load_inventory_json(mode=mode) or []
+    cleared = 0
+    for row in rows:
+        if wanted and str(row.get("site") or "").strip().lower() != wanted:
+            continue
+        if not any(row.get(field) not in (None, "") for field in OLT_LINK_FIELDS):
+            continue
+        for field in OLT_LINK_FIELDS:
+            if field in row:
+                row[field] = ""
+        cleared += 1
+    if cleared:
+        save_inventory_json(rows, mode=mode)
+    logger.warning(
+        "clear_olt_link: tenant=%s escopo=%s cameras=%s",
+        get_current_tenant_slug() or "default",
+        wanted or "todos os sites",
+        cleared,
+    )
+    return {"ok": True, "site": str(site or "").strip(), "cleared": cleared, "total": len(rows)}

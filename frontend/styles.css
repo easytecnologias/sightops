@@ -9729,3 +9729,146 @@ body.shell-owner .nav-item.active { box-shadow: inset 3px 0 #c9962c; }
   .alert-live-list-panel { max-height: 360px; }
   .alert-detail-grid { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* ── IMPLANTACAO: ATIVACAO DE CAMERAS ── */
+/* O corpo de .panel nao tem padding proprio (so o .panel-header tem), entao
+   cada painel desta tela declara o seu, alinhado aos mesmos 20px do header. */
+.activation-body { padding: 16px 20px; }
+
+.activation-filters {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) minmax(0, 1fr);
+  gap: 12px;
+  align-items: end;
+}
+.activation-filters label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+.activation-filters select,
+.activation-filters input {
+  width: 100%;
+  padding: 9px 11px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+}
+
+/* Barra de acoes rapidas acima da tabela: filtros a esquerda, acoes a direita. */
+.activation-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-soft);
+}
+.activation-chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.activation-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+.activation-chip:hover { border-color: var(--primary); color: var(--primary); }
+.activation-chip.active {
+  background: var(--primary-soft);
+  border-color: var(--primary);
+  color: var(--primary);
+}
+.activation-chip-count {
+  min-width: 20px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--bg);
+  font-variant-numeric: tabular-nums;
+}
+.activation-chip.active .activation-chip-count { background: var(--surface); }
+.activation-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.activation-actions button:disabled { opacity: .5; cursor: not-allowed; }
+
+.activation-table-wrap { max-height: calc(100vh - 430px); overflow: auto; }
+/* A tabela tem colunas de larguras bem diferentes (MAC e largo, acao e
+   estreita), entao aqui NAO vale o table-layout: fixed padrao. */
+.activation-table { table-layout: auto; }
+.activation-table td { vertical-align: middle; }
+.activation-mono { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; }
+.activation-row-done td { color: var(--muted); }
+
+.activation-empty {
+  padding: 44px 20px;
+  text-align: center;
+  color: var(--muted);
+}
+.activation-empty svg { width: 30px; height: 30px; margin-bottom: 10px; opacity: .45; }
+.activation-empty strong { display: block; color: var(--text); margin-bottom: 4px; font-size: 14px; }
+
+.activation-hint { margin: 12px 0 0; font-size: 12px; color: var(--muted); }
+.activation-log-item {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+.activation-log-item:last-child { border-bottom: 0; }
+.activation-log-item svg { width: 16px; height: 16px; margin-top: 2px; }
+.activation-log-ok svg { color: var(--primary); }
+.activation-log-fail svg { color: var(--danger); }
+
+.activation-modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 14px 20px;
+  border-top: 1px solid var(--border);
+}
+
+@media (max-width: 900px) {
+  .activation-filters { grid-template-columns: minmax(0, 1fr); }
+  .activation-toolbar { align-items: stretch; }
+  .activation-table-wrap { max-height: none; }
+}
+/* Portas salvas do roteador (modal "Portas do roteador" do conector) */
+.winbox-port-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px; }
+.winbox-port-row { display: flex; align-items: center; gap: 6px; }
+.winbox-port-open {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+  min-width: 0;
+}
+.winbox-port-open:hover { background: var(--surface-soft); }
+.winbox-port-open svg { width: 16px; flex: none; }
+.winbox-port-open span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.winbox-port-open strong { font-variant-numeric: tabular-nums; opacity: 0.75; }
+.winbox-port-add { grid-template-columns: 1fr 120px auto; align-items: end; gap: 10px; }
+/* .form-group traz margin-bottom: 14px -- com align-items: end essa margem
+   entra na altura da coluna e joga o botao 14px abaixo da base dos campos. */
+.winbox-port-add .form-group { margin-bottom: 0; }
+.winbox-port-add .secondary-action { white-space: nowrap; height: 38px; }
+@media (max-width: 640px) {
+  .winbox-port-add { grid-template-columns: minmax(0, 1fr); }
+}

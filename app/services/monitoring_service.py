@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import json
 import logging
@@ -216,6 +216,10 @@ def refresh_from_inventory() -> Dict[str, Any]:
             "onu_rx": r.get("onu_rx") or r.get("rx_onu") or r.get("onu_rx_power"),
             "olt_rx": r.get("olt_rx") or r.get("rx_olt"), "distance_km": r.get("distance_km"),
             "omci_status": r.get("omci_status"), "serial": r.get("onu_serial"), "pon": r.get("pon"),
+            # So a coleta por SNMP (4840E) enche estes. Em OLT sem SNMP ficam
+            # vazios e a tela simplesmente nao os mostra.
+            "onu_tx": r.get("onu_tx"), "temperatura": r.get("onu_temperature"),
+            "offline_reason": r.get("onu_offline_reason"),
         },
     } for r in onus), prune_entity_type="onu")
     signal_rows = []
@@ -323,7 +327,14 @@ def monitoring_summary() -> Dict[str, Any]:
 
 
 def list_monitoring_tenants() -> List[str]:
-    """Tenants com inventario no banco; nunca retorna dados das linhas."""
+    """Clientes com inventario no banco QUE EXISTEM no cadastro.
+
+    O filtro pelo cadastro existe porque um slug orfao numa tabela qualquer
+    (ex.: migracao que gravou "easy-tecnologias" em vez de "default") fazia os
+    loops de fundo monitorarem um cliente fantasma indefinidamente: entidades
+    duplicadas, grupos duplicados no Zabbix e o dobro de trabalho sobre o mesmo
+    inventario. Nunca retorna dados das linhas.
+    """
     found = {"default"}
     with _conn() as c:
         for table in ("sites", "ip_cameras", "recorders", "olts", "monitoring_profiles", "access_devices"):
@@ -332,7 +343,21 @@ def list_monitoring_tenants() -> List[str]:
                 found.update(_text(dict(row).get("tenant_slug")).lower() for row in rows)
             except Exception:
                 continue
-    return sorted(value for value in found if value)
+    encontrados = sorted(value for value in found if value)
+    try:
+        from app.services.auth_store import existing_tenant_slugs
+
+        cadastrados = existing_tenant_slugs()
+    except Exception:
+        logger.exception("monitoramento: nao consegui ler os clientes cadastrados")
+        return encontrados  # sem o cadastro, nao inventa filtro
+    if not cadastrados:
+        return encontrados
+    reais = [slug for slug in encontrados if slug in cadastrados]
+    fantasmas = [slug for slug in encontrados if slug not in cadastrados]
+    if fantasmas:
+        logger.warning("monitoramento: ignorando slug sem cliente cadastrado: %s", ", ".join(fantasmas))
+    return reais or ["default"]
 
 
 def list_onu_signal_history(entity_key: str, limit: int = 720) -> List[Dict[str, Any]]:
