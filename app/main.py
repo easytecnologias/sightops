@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import asyncio
 import contextlib
@@ -163,7 +163,41 @@ def _zabbix_status_tenant_slugs() -> list[str]:
 def _run_zabbix_status_sync_for_mode(mode: str, tenant_slug: str) -> dict:
     token = set_current_tenant_slug(tenant_slug)
     try:
-        return scripts_zabbix_status_sync({"source": "ip", "mode": mode, "site": "", "ensure_hosts": False})
+        # ensure_hosts=False de proposito: o loop LE o Zabbix, nao fica criando
+        # host a cada ciclo (isso e caro e mexe no Zabbix sem o operador pedir).
+        result = scripts_zabbix_status_sync(
+            {"source": "ip", "mode": mode, "site": "", "ensure_hosts": False}
+        )
+        # ... MAS ler nao adianta quando nao existe nenhum host para ler. O
+        # cliente com inventario e ZERO host no Zabbix caia num buraco mudo: o
+        # sync devolvia ok=True com total=N e matched=0, sem erro nenhum, e o
+        # status das cameras ficava congelado com a data da ultima vez que
+        # alguem rodou na mao. Aconteceu de verdade com a Easy Tecnologias
+        # (tenant `default`): 387 cameras paradas em 17/09/2026, 8 dias
+        # mostrando o retrato antigo -- camera no ar aparecendo offline e
+        # camera morta aparecendo online.
+        #
+        # Aqui o caso e detectado e resolvido uma vez: cria os hosts que faltam
+        # e refaz a leitura. Nos ciclos seguintes os hosts ja existem e o
+        # caminho volta a ser o barato (ensure_hosts=False).
+        try:
+            total = int(result.get("total") or 0)
+            matched = int(result.get("matched") or 0)
+        except (TypeError, ValueError):
+            return result
+        if result.get("ok") and total > 0 and matched == 0:
+            logger.warning(
+                "zabbix status sync: %s/%s tem %s equipamento(s) no inventario e NENHUM host "
+                "no Zabbix -- criando os hosts agora (sem isso o status congela em silencio)",
+                tenant_slug,
+                mode,
+                total,
+            )
+            result = scripts_zabbix_status_sync(
+                {"source": "ip", "mode": mode, "site": "", "ensure_hosts": True}
+            )
+            result["host_bootstrap_forcado"] = True
+        return result
     finally:
         reset_current_tenant_slug(token)
 
