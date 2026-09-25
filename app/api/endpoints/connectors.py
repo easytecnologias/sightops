@@ -24,6 +24,7 @@ from app.services.connector_service import (
     poll_job,
     ruijie_collect_lan_inventory,
     ruijie_update_vpn,
+    save_connector_ports,
 )
 
 router = APIRouter(prefix="/api/connectors", tags=["connectors"])
@@ -77,6 +78,18 @@ def api_connectors_get(connector_id: str) -> Dict[str, Any]:
     if not row:
         raise HTTPException(status_code=404, detail="conector nao encontrado")
     return {"ok": True, "connector": row}
+
+
+@router.put("/{connector_id}/ports")
+def api_connector_ports_save(connector_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Substitui a lista de portas salvas do conector. A UI manda a lista
+    inteira, entao este unico endpoint cobre adicionar, editar e excluir."""
+    data = payload if isinstance(payload, dict) else {}
+    try:
+        return save_connector_ports(connector_id, data.get("ports"))
+    except ValueError as exc:
+        detail = str(exc)
+        raise HTTPException(status_code=404 if "nao encontrado" in detail else 400, detail=detail)
 
 
 @router.get("/{connector_id}/agent-script")

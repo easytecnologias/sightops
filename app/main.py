@@ -51,6 +51,7 @@ from app.api.endpoints import (
     connectors_router,
     network_tools_router,
     deployments_router,
+    camera_activation_router,
     monitoring_router,
     planning_router,
     access_control_router,
@@ -119,6 +120,7 @@ app.include_router(playback_router)
 app.include_router(connectors_router)
 app.include_router(network_tools_router)
 app.include_router(deployments_router)
+app.include_router(camera_activation_router)
 app.include_router(monitoring_router)
 app.include_router(planning_router)
 app.include_router(access_control_router)

@@ -83,6 +83,7 @@ class ApiAuthMiddleware(BaseHTTPMiddleware):
             (("POST",), "/api/windows/", "operator"),
             (("GET",), "/api/connectors", "operator"),
             (("POST",), "/api/connectors", "operator"),
+            (("PUT",), "/api/connectors", "operator"),
             (("DELETE",), "/api/connectors", "operator"),
             (("GET", "POST"), "/api/deployments", "operator"),
             (("POST",), "/api/tools/scan-ip", "operator"),

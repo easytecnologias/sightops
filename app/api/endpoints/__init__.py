@@ -20,6 +20,7 @@ from .playback import router as playback_router
 from .connectors import router as connectors_router
 from .network_tools import router as network_tools_router
 from .deployments import router as deployments_router
+from .camera_activation import router as camera_activation_router
 from .monitoring import router as monitoring_router
 from .planning import router as planning_router
 from .access_control import router as access_control_router

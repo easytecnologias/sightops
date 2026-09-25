@@ -568,6 +568,61 @@ def _raw_connector(connector_id: str, enforce_tenant: bool = False) -> Dict[str,
     return None
 
 
+# Portas de servico salvas a mao no conector (Winbox, SSH, web do roteador...).
+# Ficam no proprio conector -- e nao no localStorage do navegador -- porque a
+# porta e do EQUIPAMENTO: quem trocar de PC, limpar o cache ou for outro usuario
+# do mesmo tenant precisa dela igual.
+MAX_SERVICE_PORTS = 12
+
+
+def _normalize_service_ports(value: Any) -> List[Dict[str, Any]]:
+    """Valida a lista vinda da UI. Descarta entrada sem porta valida e corta
+    duplicata de (rotulo, porta) -- a lista inteira substitui a anterior, entao
+    e aqui que editar/excluir tomam efeito."""
+    if not isinstance(value, list):
+        raise ValueError("lista de portas invalida")
+    out: List[Dict[str, Any]] = []
+    seen: set[tuple[str, int]] = set()
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        try:
+            port = int(str(item.get("port") or "").strip())
+        except Exception:
+            raise ValueError("porta invalida: use um numero de 1 a 65535")
+        if port < 1 or port > 65535:
+            raise ValueError("porta invalida: use um numero de 1 a 65535")
+        label = _text(item.get("label"))[:40] or f"Porta {port}"
+        key = (label.lower(), port)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append({
+            "id": _text(item.get("id")) or secrets.token_hex(4),
+            "label": label,
+            "port": port,
+            "service": _text(item.get("service")).lower()[:20],
+        })
+        if len(out) > MAX_SERVICE_PORTS:
+            raise ValueError(f"no maximo {MAX_SERVICE_PORTS} portas por conector")
+    return out
+
+
+def save_connector_ports(connector_id: str, ports: Any) -> Dict[str, Any]:
+    """Grava a lista completa de portas do conector (criar/editar/excluir)."""
+    cid = _text(connector_id)
+    normalized = _normalize_service_ports(ports)
+    with _lock:
+        rows = _load_connectors()
+        target = next((row for row in rows if _text(row.get("id")) == cid), None)
+        if target is None or not _visible_to_current_tenant(target):
+            raise ValueError("conector nao encontrado")
+        target["service_ports"] = normalized
+        target["service_ports_updated_at"] = _now()
+        _save_connectors(rows)
+    return {"ok": True, "ports": normalized}
+
+
 def get_connector(connector_id: str, include_token: bool = False, enforce_tenant: bool = False) -> Dict[str, Any] | None:
     """enforce_tenant=True deve ser usado por toda rota chamada por usuario logado
     (nao pelas rotas /agent/*, que autenticam por connector_id+token e nao tem
