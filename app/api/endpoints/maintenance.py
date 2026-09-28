@@ -312,10 +312,29 @@ def _zabbix_tmp_inventory_path(source: str, mode: str = "", suffix: str = "") ->
     return tenant_scoped_path("tmp/" + ".".join(parts) + ".json", tenant)
 
 
+# Nomes que o tenant `default` usa no Zabbix quando ZBX_LEGACY_DEFAULT_HOSTNAMES=1
+# (ver build_host_name em tools/mk_zabbix_from_inventory.py): sao anteriores ao
+# prefixo por cliente e nao carregam o slug.
+_ZABBIX_PREFIXOS_LEGADOS_DEFAULT = ("CAM-", "DVR-", "NVR-")
+
+
 def _zabbix_host_belongs_to_tenant(host: Dict[str, Any], tenant: str = "") -> bool:
     slug = _zabbix_host_safe(tenant or _zabbix_tenant_slug())
-    technical = _as_str(host.get("host"))
-    return technical.upper().startswith(f"{slug}-")
+    technical = _as_str(host.get("host")).upper()
+    if technical.startswith(f"{slug}-"):
+        return True
+    # O `default` e a excecao: os hosts dele se chamam "CAM-<ip>", sem o prefixo
+    # do cliente, porque nasceram antes do sistema virar multi-cliente. Exigir
+    # "DEFAULT-" fazia NENHUM host dele casar, e quem dependia disto -- como a
+    # remocao do host ao apagar a camera -- pulava os 388 hosts da Easy
+    # Tecnologias em silencio, devolvendo "removidos: 0" sem erro nenhum.
+    #
+    # A excecao vale so para ele e so para os prefixos legados: o host de outro
+    # cliente comeca pelo slug dele ("RADS-CAM-...") e nunca por "CAM-", entao
+    # isto nao alcanca equipamento alheio.
+    if slug == "DEFAULT":
+        return technical.startswith(_ZABBIX_PREFIXOS_LEGADOS_DEFAULT)
+    return False
 
 
 def _normalize_zabbix_url(url: str) -> str:
@@ -746,6 +765,64 @@ def _hik_motivo(texto: str) -> str:
     return f"codigo {_as_str(code.group(1))}" if code else "motivo nao informado"
 
 
+def _dahua_rede_atual(ip: str, user: str, password: str) -> Dict[str, str]:
+    """Mascara e gateway que a camera Dahua/Intelbras usa HOJE.
+
+    O equivalente de `_hik_rede_atual` para o outro fabricante. Sem isto a tela
+    de Trocar IP nao conseguia LER a rede dessas cameras (a maioria do parque) e
+    caia no chute "/24 com gateway .1" -- que ja tirou camera do ar quando a
+    rede real era /23. O CGI responde em texto simples:
+
+        table.Network.eth0.SubnetMask=255.255.252.0
+        table.Network.eth0.DefaultGateway=172.28.0.1
+    """
+    url = f"http://{ip}/cgi-bin/configManager.cgi?action=getConfig&name=Network"
+    texto = ""
+    for tentativa in (url, url.replace("http://", "https://", 1)):
+        try:
+            alvo = _reach_url(tentativa)
+            for auth in (HTTPDigestAuth(user, password), (user, password)):
+                try:
+                    r = requests.get(alvo, auth=auth, timeout=8, verify=False,
+                                     headers={"Accept": "*/*"})
+                    if r.status_code == 200 and "Network" in (r.text or ""):
+                        texto = r.text
+                        break
+                except Exception:
+                    continue
+            if texto:
+                break
+        except Exception:
+            continue
+    if not texto:
+        return {}
+
+    mask = gateway = ""
+    for linha in texto.splitlines():
+        linha = linha.strip()
+        if "=" not in linha:
+            continue
+        chave, _, valor = linha.partition("=")
+        chave = chave.strip().lower()
+        valor = valor.strip()
+        # eth0 e a interface cabeada; algumas cameras trazem eth2/wlan junto.
+        if chave.endswith(".subnetmask") and ".eth0." in chave and not mask:
+            mask = valor
+        elif chave.endswith(".defaultgateway") and ".eth0." in chave and not gateway:
+            gateway = valor
+    # Firmware antigo nao prefixa a interface: aceita o primeiro que aparecer.
+    if not mask or not gateway:
+        for linha in texto.splitlines():
+            chave, _, valor = linha.strip().partition("=")
+            chave = chave.strip().lower()
+            valor = valor.strip()
+            if not mask and chave.endswith(".subnetmask"):
+                mask = valor
+            elif not gateway and chave.endswith(".defaultgateway"):
+                gateway = valor
+    return {"mask": mask, "gateway": gateway}
+
+
 def _hik_rede_atual(ip: str, user: str, password: str) -> Dict[str, str]:
     """Mascara e gateway que a camera USA HOJE, lidos dela.
 
@@ -917,7 +994,13 @@ def _change_ip_one(
                      f"reiniciar, ela segue funcionando normalmente em {ip}.",
         }
 
-    params = [f"Network.eth0.IPAddress={quote(new_ip)}"]
+    # DhcpEnable=false PRIMEIRO: com DHCP ligado a camera aceita o IP fixo,
+    # responde "OK" e volta para o endereco que o servidor DHCP entrega -- a
+    # troca reportava sucesso e nada mudava. Em 28/09/2026 duas cameras do
+    # CANAPI passaram por isso: o inventario gravou o IP novo, a camera seguiu
+    # no antigo, e elas "sumiram" do sistema sem nunca ter saido do ar.
+    params = ["Network.eth0.DhcpEnable=false"]
+    params.append(f"Network.eth0.IPAddress={quote(new_ip)}")
     params.append(f"Network.eth0.SubnetMask={quote(_as_str(mask))}")
     params.append(f"Network.eth0.DefaultGateway={quote(_as_str(gateway))}")
     if _as_str(dns1):
@@ -926,9 +1009,14 @@ def _change_ip_one(
         params.append(f"Network.eth0.DnsServers[1]={quote(_as_str(dns2))}")
 
     q = "&".join(params)
+    # Em conector isolado a camera so responde no IP VIRTUAL (vnat): falar com o
+    # IP real nao chega a lugar nenhum. O caminho Hikvision logo acima ja usa
+    # _reach(); este aqui nao usava, entao trocar IP simplesmente nao funcionava
+    # em camera Intelbras/Dahua atras de conector isolado -- que e a maioria.
+    alvo = _reach(ip) or ip
     urls = [
-        f"http://{ip}/cgi-bin/configManager.cgi?action=setConfig&{q}",
-        f"https://{ip}/cgi-bin/configManager.cgi?action=setConfig&{q}",
+        f"http://{alvo}/cgi-bin/configManager.cgi?action=setConfig&{q}",
+        f"https://{alvo}/cgi-bin/configManager.cgi?action=setConfig&{q}",
     ]
 
     last_err = ""
@@ -969,8 +1057,8 @@ def _set_ntp_one(ip: str, user: str, password: str, address: str, port: int, tim
     )
 
     urls = [
-        f"http://{ip}/cgi-bin/configManager.cgi?action=setConfig&{q}",
-        f"https://{ip}/cgi-bin/configManager.cgi?action=setConfig&{q}",
+        f"http://{_reach(ip) or ip}/cgi-bin/configManager.cgi?action=setConfig&{q}",
+        f"https://{_reach(ip) or ip}/cgi-bin/configManager.cgi?action=setConfig&{q}",
     ]
 
     last_err = ""
@@ -1002,8 +1090,8 @@ def _set_datetime_one(ip: str, user: str, password: str, dt: str) -> Dict[str, A
         ]
     )
     urls = [
-        f"http://{ip}/cgi-bin/configManager.cgi?action=setConfig&{q}",
-        f"https://{ip}/cgi-bin/configManager.cgi?action=setConfig&{q}",
+        f"http://{_reach(ip) or ip}/cgi-bin/configManager.cgi?action=setConfig&{q}",
+        f"https://{_reach(ip) or ip}/cgi-bin/configManager.cgi?action=setConfig&{q}",
     ]
 
     last_err = ""
@@ -1032,8 +1120,9 @@ def _change_password_one(ip: str, user: str, old_pass: str, new_pass: str) -> Di
     )
 
     urls = [
-        f"http://{ip}/cgi-bin/userManager.cgi?{q}",
-        f"https://{ip}/cgi-bin/userManager.cgi?{q}",
+        # Conector isolado: a camera so atende no IP VIRTUAL (vnat).
+        f"http://{_reach(ip) or ip}/cgi-bin/userManager.cgi?{q}",
+        f"https://{_reach(ip) or ip}/cgi-bin/userManager.cgi?{q}",
     ]
 
     last_err = ""
@@ -1390,10 +1479,14 @@ def maintenance_camera_network(ip: str) -> Dict[str, Any]:
     if not user:
         return {"ok": False, "error": "sem credencial guardada para esta camera"}
 
-    if not _camera_fala_isapi(alvo):
-        return {"ok": False, "error": "camera nao responde na API de leitura de rede"}
-
-    rede = _hik_rede_atual(alvo, user, password)
+    # Tenta os DOIS fabricantes: antes so a Hikvision (ISAPI) era lida, e para
+    # toda camera Dahua/Intelbras -- a maioria do parque -- a tela caia no chute
+    # de mascara e gateway. Ler da propria camera e a unica fonte confiavel.
+    rede: Dict[str, str] = {}
+    if _camera_fala_isapi(alvo):
+        rede = _hik_rede_atual(alvo, user, password) or {}
+    if not rede.get("mask") and not rede.get("gateway"):
+        rede = _dahua_rede_atual(alvo, user, password) or {}
     if not rede.get("mask") and not rede.get("gateway"):
         return {"ok": False, "error": "nao consegui ler a rede da camera"}
     return {"ok": True, "ip": alvo, "mask": rede.get("mask", ""), "gateway": rede.get("gateway", "")}
@@ -2922,14 +3015,27 @@ def scripts_zabbix_status_sync(payload: Dict[str, Any]) -> Dict[str, Any]:
         ]
         return any(v == wanted_site for v in vals if v)
 
+    # O casamento com o Zabbix e feito pelo IP da INTERFACE do host. Em conector
+    # isolado essa interface carrega o IP VIRTUAL (vnat), enquanto o inventario
+    # guarda o REAL -- procurar so pelo real nunca casa, e o sync devolvia
+    # "0/387 online, 0 offline" com todos os hosts existindo e medindo. O efeito
+    # na tela era o status congelado: a camera voltava no Zabbix e o dashboard
+    # continuava mostrando offline.
     ip_to_targets: Dict[str, List[tuple[str, int]]] = {}
     for item_mode, rows in rows_by_mode.items():
         for idx, row in enumerate(rows):
             if not _row_matches_site(row):
                 continue
             ip = _as_str(row.get("ip") or row.get("IP"))
-            if ip:
-                ip_to_targets.setdefault(ip, []).append((item_mode, idx))
+            if not ip:
+                continue
+            alvo = (item_mode, idx)
+            ip_to_targets.setdefault(ip, []).append(alvo)
+            conn = _as_str(row.get("remote_connector_id") or row.get("connector_id"))
+            for alternativo in (_reach(ip, conn), _as_str(row.get("reach_ip"))):
+                alt = _as_str(alternativo)
+                if alt and alt != ip:
+                    ip_to_targets.setdefault(alt, []).append(alvo)
     if not ip_to_targets:
         return {"ok": True, "source": "zabbix", "total": 0, "online": 0, "offline": 0, "unknown": 0, "updated": 0}
 
