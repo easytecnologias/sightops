@@ -1218,7 +1218,26 @@ def _build_zabbix_rows(source: str, rows: list[dict[str, Any]]) -> list[dict[str
             )
         return out
     if src not in ("dvr", "nvr"):
-        return rows
+        # Camera IP vai para o Zabbix com o IP real (identidade) MAIS o IP de
+        # alcance (reach_ip), que e por onde o Zabbix consegue pingar. Sem isso
+        # o host nascia apontando para o IP real; em cliente isolado esse
+        # caminho falha muito mais (no rads: 119 sem resposta pelo real contra
+        # 31 pelo virtual, para as mesmas cameras).
+        saida: list[dict[str, Any]] = []
+        for r in rows or []:
+            if not isinstance(r, dict):
+                continue
+            ip_real = _as_str(r.get("ip"))
+            if not ip_real:
+                saida.append(r)
+                continue
+            linha = dict(r)
+            linha["reach_ip"] = _reach(
+                ip_real,
+                _as_str(r.get("remote_connector_id") or r.get("connector_id")),
+            )
+            saida.append(linha)
+        return saida
 
     out: list[dict[str, Any]] = []
     for r in rows or []:
@@ -2802,7 +2821,14 @@ def scripts_zabbix(payload: Dict[str, Any]) -> Dict[str, Any]:
         # apagaria os hosts dos outros sites.
         # Tambem nao poda com inventario vazio: zero linhas quase sempre e
         # fonte/filtro errado, e a poda apagaria o grupo inteiro.
-        "ZBX_PRUNE": "0" if (sites_sel or not inv_rows) else "1",
+        # A poda so fica desligada quando NAO ha o que comparar (inventario
+        # vazio = sintoma de fonte/filtro errado; podar ali apagaria tudo).
+        # Com site escolhido ela agora RODA, mas restrita aos grupos daqueles
+        # sites -- ver ZBX_PRUNE_SITES abaixo. Antes ficava desligada nesse
+        # caso, que e o modo de uso normal, e por isso os hosts de camera
+        # apagada se acumulavam (165 orfaos so no rads).
+        "ZBX_PRUNE": "0" if not inv_rows else "1",
+        "ZBX_PRUNE_SITES": "|".join(sites_sel),
         "ZBX_LEGACY_DEFAULT_HOSTNAMES": "1" if tenant_slug == "default" else "0",
         "ZBX_TEMPLATE": template,
         "ZBX_TEMPLATE_DVR": template_dvr,

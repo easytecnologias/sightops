@@ -1,5 +1,6 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any, Dict, List
 
@@ -11,6 +12,8 @@ from app.services.photo_store import ip_to_stem, snapshot_storage_dir
 # Todos os modos de inventario, nao apenas os que esta exclusao processou: a
 # MESMA camera pode ter linha em "basic" e em "olt", e apagar em um modo nao
 # pode levar a foto que o outro ainda usa.
+logger = logging.getLogger("cam-snapshot")
+
 _ALL_MODES = ("basic", "olt", "switch")
 
 
@@ -80,6 +83,70 @@ def _delete_orphan_snapshots(removed_rows: List[Dict[str, Any]]) -> List[str]:
     return apagados
 
 
+def _remover_hosts_do_zabbix(removed_rows: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Apaga no Zabbix o host das cameras que acabaram de sair do inventario.
+
+    Sem isto o host ficava para sempre: a camera sumia da tela e continuava
+    sendo pingada, alarmando por um equipamento que ninguem tem mais. Era a
+    origem dos 165 hosts orfaos encontrados no rads em 2026-09-28.
+
+    Falha aqui NAO derruba a exclusao do inventario -- apagar a camera e o que
+    o usuario pediu; o Zabbix e consequencia. O erro volta no retorno para
+    aparecer na tela em vez de morrer em silencio.
+    """
+    ips = sorted({
+        str((row or {}).get("ip") or (row or {}).get("IP") or "").strip()
+        for row in removed_rows if isinstance(row, dict)
+    } - {""})
+    if not ips:
+        return {"ok": True, "removed": 0}
+    try:
+        from app.api.endpoints.maintenance import (
+            _load_settings,
+            _normalize_zabbix_url,
+            _zabbix_api_call,
+            _zabbix_effective_sync_config,
+            _zabbix_host_belongs_to_tenant,
+            _zabbix_login,
+            _zabbix_tenant_slug,
+        )
+    except Exception as exc:
+        return {"ok": False, "error": f"zabbix indisponivel: {exc}"}
+    try:
+        cfg = _zabbix_effective_sync_config((_load_settings() or {}).get("zabbix_ip_sync") or {})
+        url = _normalize_zabbix_url(cfg.get("url"))
+        if not url:
+            return {"ok": True, "removed": 0, "detail": "zabbix nao configurado"}
+        auth = _zabbix_login(url, cfg.get("user"), cfg.get("pass") or cfg.get("password"))
+        if not auth:
+            return {"ok": False, "error": "login no zabbix falhou"}
+        tenant = _zabbix_tenant_slug()
+        # Casa pelo IP da INTERFACE: o nome do host carrega o IP real, mas em
+        # conector isolado a interface aponta para o IP virtual -- procurar so
+        # pelo nome deixaria o host de tras.
+        achados = _zabbix_api_call(
+            url, "host.get",
+            {"output": ["hostid", "host", "name"], "selectInterfaces": ["ip"]},
+            auth,
+        ) or []
+        alvo = []
+        for h in achados:
+            if not _zabbix_host_belongs_to_tenant(h, tenant):
+                continue  # host de OUTRO cliente com o mesmo IP privado
+            nome = str(h.get("host") or "")
+            ifaces = {str(i.get("ip") or "") for i in (h.get("interfaces") or [])}
+            if any(ip in nome for ip in ips) or (ifaces & set(ips)):
+                alvo.append(str(h.get("hostid")))
+        if not alvo:
+            return {"ok": True, "removed": 0}
+        _zabbix_api_call(url, "host.delete", alvo, auth)
+        logger.warning("inventario: %s host(s) removidos do Zabbix junto com as cameras", len(alvo))
+        return {"ok": True, "removed": len(alvo)}
+    except Exception as exc:
+        logger.exception("falha ao remover hosts do Zabbix na exclusao de camera")
+        return {"ok": False, "error": str(exc)}
+
+
 def inventory_delete(req: InventoryDeleteRequest) -> Dict[str, Any]:
     ensure_dirs()
     ips_set = {ip.strip() for ip in (req.ips or []) if ip and ip.strip()}
@@ -146,6 +213,7 @@ def inventory_delete(req: InventoryDeleteRequest) -> Dict[str, Any]:
 
 
     snapshots_removed = _delete_orphan_snapshots(removed_rows)
+    zabbix_removed = _remover_hosts_do_zabbix(removed_rows)
 
     inventory = inventories.get("olt") or inventories.get(modes[0], [])
     return {
@@ -154,6 +222,7 @@ def inventory_delete(req: InventoryDeleteRequest) -> Dict[str, Any]:
         "ips_removed": sorted(list(removed_ips)),
         "keys_removed": sorted(list(removed_keys)),
         "snapshots_removed": snapshots_removed,
+        "zabbix": zabbix_removed,
         "inventory": inventory,
         "inventories": inventories,
     }

@@ -15,6 +15,9 @@ ZBX_PRUNE = os.getenv("ZBX_PRUNE", "0").strip() == "1"
 ZBX_PRUNE_MAX_PCT = float(os.getenv("ZBX_PRUNE_MAX_PCT", "20") or 20)
 ZBX_PRUNE_MIN_ABS = int(os.getenv("ZBX_PRUNE_MIN_ABS", "5") or 5)
 ZBX_LEGACY_DEFAULT_HOSTNAMES = os.getenv("ZBX_LEGACY_DEFAULT_HOSTNAMES", "0").strip() == "1"
+# Sites desta rodada. Com eles a poda fica restrita aos grupos "<base>/<SITE>",
+# que e o que permite podar num sync por site sem varrer os outros sites.
+ZBX_PRUNE_SITES = [s.strip() for s in (os.getenv("ZBX_PRUNE_SITES", "") or "").split("|") if s.strip()]
 ZBX_URL  = os.getenv("ZBX_URL","").strip()
 ZBX_USER = os.getenv("ZBX_USER","").strip()
 ZBX_PASS = os.getenv("ZBX_PASS","").strip()
@@ -777,15 +780,25 @@ def disable_legacy_actions(auth: str, extra_names: list[str] | None = None) -> N
         except Exception:
             pass
 
-def prune_hosts(auth: str, group_name: str, tenant: str, hosts_ativos: set) -> int:
-    """Remove do grupo do tenant os hosts que sairam do inventario."""
+def prune_hosts(auth: str, group_name: str, tenant: str, hosts_ativos: set, sites: List[str] | None = None) -> int:
+    """Remove os hosts que sairam do inventario.
+
+    Com `sites`, a poda olha SO os grupos daqueles sites ("<base>/<SITE>"). Isso
+    e o que torna seguro podar num sync por site: sem escopo, o host de todo
+    site que nao veio nesta rodada parece "fora do inventario" e some. Foi
+    assim que a poda apagou ~88% do grupo em 19 e 20/08 -- por isso ela vinha
+    simplesmente desligada quando havia site escolhido, e os hosts orfaos se
+    acumulavam (165 so no rads).
+    """
     if not group_name or not tenant:
         return 0
-    grupos = api("hostgroup.get", {"filter": {"name": [group_name]}}, auth)
+    nomes = [f"{group_name}/{' '.join(str(s).split()).strip()}" for s in (sites or []) if str(s).strip()] or [group_name]
+    grupos = api("hostgroup.get", {"filter": {"name": nomes}}, auth)
     if not grupos:
         return 0
-    gid = grupos[0]["groupid"]
-    atuais = api("host.get", {"groupids": [gid], "output": ["hostid", "host"]}, auth)
+    gids = [g["groupid"] for g in grupos]
+    atuais = api("host.get", {"groupids": gids, "output": ["hostid", "host"]}, auth)
+    escopo = ("sites " + ", ".join(nomes)) if sites else f"grupo '{group_name}'"
 
     prefixo = f"{_host_safe(tenant).upper()}-"
     alvo = []
@@ -809,7 +822,7 @@ def prune_hosts(auth: str, group_name: str, tenant: str, hosts_ativos: set) -> i
         pct = (len(alvo) * 100 // total_no_grupo) if total_no_grupo else 100
         print(
             f"PRUNE BLOQUEADO: removeria {len(alvo)} de {total_no_grupo} hosts ({pct}%) "
-            f"de '{group_name}' -- acima do limite de {ZBX_PRUNE_MAX_PCT:.0f}%.",
+            f"de {escopo} -- acima do limite de {ZBX_PRUNE_MAX_PCT:.0f}%.",
             file=sys.stderr,
         )
         print(
@@ -822,7 +835,7 @@ def prune_hosts(auth: str, group_name: str, tenant: str, hosts_ativos: set) -> i
 
     for i in range(0, len(alvo), 100):
         api("host.delete", alvo[i:i + 100], auth)
-    print(f"PRUNE: {len(alvo)} host(s) removidos de '{group_name}' (fora do inventario)")
+    print(f"PRUNE: {len(alvo)} host(s) removidos de {escopo} (fora do inventario)")
     return len(alvo)
 
 
@@ -883,6 +896,13 @@ def main():
     hosts_ativos = set()
     for c in rows:
         ip=(c.get("ip") or "").strip()
+        # IP que o Zabbix vai PINGAR. Em cliente com conector isolado o IP real
+        # nao e o caminho (ou e um caminho pior): quem responde de verdade e o
+        # IP virtual do vnat. O NOME do host continua saindo do IP real, que e a
+        # identidade da camera no inventario -- se o nome mudasse, cada troca de
+        # caminho criaria um host novo em vez de corrigir o existente, que foi
+        # exatamente como o rads acumulou 542 cameras com DOIS hosts cada.
+        reach_ip=(c.get("reach_ip") or "").strip() or ip
         if not ip: 
             continue
         title=(c.get("titulo") or c.get("title") or c.get("nome") or ip).strip()
@@ -964,7 +984,7 @@ def main():
         if source == "windows":
             macros["{$SERVICE.NAME.NOT_MATCHES}"] = WINDOWS_SERVICE_NAME_NOT_MATCHES
         visible_name = build_visible_name(ZBX_TENANT, c, title)
-        st, hostid = host_upsert(auth, host, visible_name, ip, host_groups, templateids, macros)
+        st, hostid = host_upsert(auth, host, visible_name, reach_ip, host_groups, templateids, macros)
         hosts_ativos.add(host)
         n+=1
         print(f"{st}: {host} ({visible_name})")
@@ -1004,11 +1024,11 @@ def main():
         print("PRUNE: desligado (inventario vazio -- nada foi removido)")
     elif ZBX_PRUNE:
         try:
-            prune_hosts(auth, ZBX_GROUP, ZBX_TENANT, hosts_ativos)
+            prune_hosts(auth, ZBX_GROUP, ZBX_TENANT, hosts_ativos, ZBX_PRUNE_SITES)
         except Exception as e:
             print(f"AVISO: poda nao concluida: {e}")
     else:
-        print("PRUNE: desligado (sync parcial/por site nao remove nada)")
+        print("PRUNE: desligado")
 
 if __name__=="__main__":
     main()
