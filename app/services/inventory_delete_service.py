@@ -1,10 +1,12 @@
 ﻿from __future__ import annotations
 
 import logging
+import hashlib
 from pathlib import Path
 from typing import Any, Dict, List
 
 from app.core.paths import ensure_dirs
+from app.core.tenant_context import get_current_tenant_slug
 from app.models.requests import InventoryDeleteRequest
 from app.services.inventory_json import inventory_row_key, load_inventory_json, save_inventory_json
 from app.services.photo_store import ip_to_stem, snapshot_storage_dir
@@ -83,7 +85,46 @@ def _delete_orphan_snapshots(removed_rows: List[Dict[str, Any]]) -> List[str]:
     return apagados
 
 
-def _remover_hosts_do_zabbix(removed_rows: List[Dict[str, Any]]) -> Dict[str, Any]:
+def _telemetria_host_names(
+    removed_com_modo: List[tuple[str, Dict[str, Any]]]
+) -> set[str]:
+    """Nomes dos hosts de TELEMETRIA das linhas removidas.
+
+    Cada camera tem DOIS hosts no Zabbix, por caminhos independentes:
+
+      1. medicao   -- "CAM-<ip>" / "<TENANT>-CAM-<ip>", que o Zabbix pinga;
+      2. telemetria -- "SIGHTOPS.<tenant>.CAMERA.<sha1(entity_key)[:16]>",
+         que o SightOps ALIMENTA por push.
+
+    Apagar so o primeiro deixava o segundo para tras, e ele continua aparecendo
+    na tela do Zabbix com o nome e o local da camera -- parece que a exclusao
+    nao funcionou. A chave e a mesma montada em monitoring_service; se mudar la,
+    tem que mudar aqui.
+    """
+    nomes: set[str] = set()
+    try:
+        tenant = get_current_tenant_slug() or "default"
+    except Exception:
+        return nomes
+    for modo, row in removed_com_modo or []:
+        if not isinstance(row, dict):
+            continue
+        ip = str(row.get("ip") or row.get("IP") or "").strip()
+        if not ip:
+            continue
+        conn = str(
+            row.get("remote_connector_id") or row.get("connector_id") or ""
+        ).strip() or "local"
+        entity_key = f"camera:{modo}:{conn}:{ip}"
+        digest = hashlib.sha1(entity_key.encode("utf-8")).hexdigest()[:16]
+        nomes.add(f"SIGHTOPS.{tenant}.CAMERA.{digest}")
+    return nomes
+
+
+def _remover_hosts_do_zabbix(
+    removed_rows: List[Dict[str, Any]],
+    removed_com_modo: List[tuple[str, Dict[str, Any]]] | None = None,
+) -> Dict[str, Any]:
     """Apaga no Zabbix o host das cameras que acabaram de sair do inventario.
 
     Sem isto o host ficava para sempre: a camera sumia da tela e continuava
@@ -94,16 +135,11 @@ def _remover_hosts_do_zabbix(removed_rows: List[Dict[str, Any]]) -> Dict[str, An
     o usuario pediu; o Zabbix e consequencia. O erro volta no retorno para
     aparecer na tela em vez de morrer em silencio.
     """
-    ips = sorted({
-        str((row or {}).get("ip") or (row or {}).get("IP") or "").strip()
-        for row in removed_rows if isinstance(row, dict)
-    } - {""})
-    if not ips:
-        return {"ok": True, "removed": 0}
     try:
         from app.api.endpoints.maintenance import (
             _load_settings,
             _normalize_zabbix_url,
+            _reach,
             _zabbix_api_call,
             _zabbix_effective_sync_config,
             _zabbix_host_belongs_to_tenant,
@@ -112,6 +148,34 @@ def _remover_hosts_do_zabbix(removed_rows: List[Dict[str, Any]]) -> Dict[str, An
         )
     except Exception as exc:
         return {"ok": False, "error": f"zabbix indisponivel: {exc}"}
+
+    # O inventario guarda o IP REAL da camera, mas em conector isolado o host do
+    # Zabbix e criado com o IP VIRTUAL (vnat) -- que e por onde o servidor
+    # alcanca. Procurar so pelo real deixava esses hosts para tras: na Mega
+    # Alarmes, as 16 cameras da faixa 10.0.0.x viraram hosts 10.208.128.x e
+    # sobreviveram a exclusao. Aqui os dois enderecos entram na busca.
+    ips_set: set[str] = set()
+    for row in removed_rows:
+        if not isinstance(row, dict):
+            continue
+        ip = str(row.get("ip") or row.get("IP") or "").strip()
+        if not ip:
+            continue
+        ips_set.add(ip)
+        conn = str(row.get("remote_connector_id") or row.get("connector_id") or "").strip()
+        try:
+            virtual = str(_reach(ip, conn) or "").strip()
+        except Exception:
+            virtual = ""
+        if virtual:
+            ips_set.add(virtual)
+        # O reach_ip ja carimbado na linha, quando existir, tambem vale.
+        carimbado = str(row.get("reach_ip") or "").strip()
+        if carimbado:
+            ips_set.add(carimbado)
+    ips = sorted(ips_set)
+    if not ips:
+        return {"ok": True, "removed": 0}
     try:
         cfg = _zabbix_effective_sync_config((_load_settings() or {}).get("zabbix_ip_sync") or {})
         url = _normalize_zabbix_url(cfg.get("url"))
@@ -129,11 +193,19 @@ def _remover_hosts_do_zabbix(removed_rows: List[Dict[str, Any]]) -> Dict[str, An
             {"output": ["hostid", "host", "name"], "selectInterfaces": ["ip"]},
             auth,
         ) or []
+        nomes_telemetria = _telemetria_host_names(removed_com_modo or [])
         alvo = []
         for h in achados:
+            nome = str(h.get("host") or "")
+            # O host de telemetria ja carrega o tenant no proprio nome e o hash
+            # e calculado a partir desta camera, entao nao ha como alcancar
+            # equipamento de outro cliente -- por isso ele nao passa (nem
+            # poderia) pelo filtro de prefixo, que so entende "<TENANT>-".
+            if nome in nomes_telemetria:
+                alvo.append(str(h.get("hostid")))
+                continue
             if not _zabbix_host_belongs_to_tenant(h, tenant):
                 continue  # host de OUTRO cliente com o mesmo IP privado
-            nome = str(h.get("host") or "")
             ifaces = {str(i.get("ip") or "") for i in (h.get("interfaces") or [])}
             if any(ip in nome for ip in ips) or (ifaces & set(ips)):
                 alvo.append(str(h.get("hostid")))
@@ -166,6 +238,7 @@ def inventory_delete(req: InventoryDeleteRequest) -> Dict[str, Any]:
     removed_ips: set[str] = set()
     removed_keys: set[str] = set()
     removed_rows: List[Dict[str, Any]] = []
+    removed_com_modo: List[tuple[str, Dict[str, Any]]] = []
     inventories: Dict[str, List[Dict[str, Any]]] = {}
     raw_mode = str(getattr(req, "mode", "olt") or "olt").strip().lower()
     if raw_mode in {"all", "todos", "camera", "cameras"}:
@@ -206,6 +279,10 @@ def inventory_delete(req: InventoryDeleteRequest) -> Dict[str, Any]:
                 removed_ips.add(rip)
                 removed_keys.add(row_key)
                 removed_rows.append(row)
+                # O modo vai junto: o host de telemetria e identificado por
+                # "camera:<modo>:<conector>:<ip>", entao sem ele nao da para
+                # saber qual host SIGHTOPS.* corresponde a esta linha.
+                removed_com_modo.append((current_mode, row))
             else:
                 rows_kept.append(row)
         save_inventory_json(rows_kept, mode=current_mode)
@@ -213,7 +290,7 @@ def inventory_delete(req: InventoryDeleteRequest) -> Dict[str, Any]:
 
 
     snapshots_removed = _delete_orphan_snapshots(removed_rows)
-    zabbix_removed = _remover_hosts_do_zabbix(removed_rows)
+    zabbix_removed = _remover_hosts_do_zabbix(removed_rows, removed_com_modo)
 
     inventory = inventories.get("olt") or inventories.get(modes[0], [])
     return {
