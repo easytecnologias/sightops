@@ -33,6 +33,7 @@ from app.services.olt_service import (
     find_onu,
     list_macs,
     onu_signal,
+    clear_macs_da_olt,
     reboot_onu,
 )
 from app.services.onu_action_log import list_onu_actions
@@ -197,9 +198,17 @@ def api_olt_registry_save(req: OltRegistryRequest) -> Dict[str, Any]:
 
 @router.delete("/olt/registry/{olt_id}")
 def api_olt_registry_delete(olt_id: int) -> Dict[str, Any]:
+    # O host tem que ser lido ANTES do delete -- depois a OLT ja nao existe e
+    # nao ha como saber quais ONUs eram dela.
+    olt = olt_registry.get_olt(olt_id) or {}
+    host = str(olt.get("host") or olt.get("ip") or "").strip()
     if not olt_registry.delete_olt(olt_id):
         raise HTTPException(status_code=404, detail="OLT nao encontrada")
-    return {"ok": True}
+    # Sem isto as ONUs dela continuam no cache, seguem aparecendo no dashboard e
+    # mantem o host no Zabbix. O sync de telemetria ja remove host de entidade
+    # inativa sozinho -- basta a ONU deixar de ser listada aqui.
+    limpeza = clear_macs_da_olt(host) if host else {"ok": True, "removed_rows": 0}
+    return {"ok": True, "onus_removidas": int(limpeza.get("removed_rows") or 0)}
 
 
 @router.post("/olt/registry/{olt_id}/test")

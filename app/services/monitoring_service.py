@@ -147,10 +147,27 @@ def _observe_many(rows: Iterable[Dict[str, Any]], prune_entity_type: str = "") -
                 _text(dict(row).get("entity_key")) for row in existing
                 if _text(dict(row).get("entity_key")) not in active_keys
             ]
+            # APAGA, nao desativa. Antes a linha ficava com monitoring_enabled=0
+            # para sempre: o equipamento sumia do inventario e continuava no
+            # banco, junto com todo o historico de sinal dele. Em 28/09/2026
+            # isso tinha virado 2,19 MILHOES de amostras de ONU que nao existiam
+            # mais -- 609 MB de um banco de 637 MB, 96% do total.
+            #
+            # O usuario foi explicito: "se eu exclui ele sai, se eu add
+            # escreve". Quando o equipamento voltar ao inventario, a proxima
+            # passagem por aqui recria a entidade normalmente.
             for key in stale_keys:
                 c.execute(
-                    "UPDATE monitoring_entities SET monitoring_enabled=0,updated_at=? WHERE tenant_slug=? AND entity_key=?",
-                    (_now(), tenant, key),
+                    "DELETE FROM onu_signal_samples WHERE tenant_slug=? AND entity_key=?",
+                    (tenant, key),
+                )
+                c.execute(
+                    "DELETE FROM monitoring_events WHERE tenant_slug=? AND entity_key=?",
+                    (tenant, key),
+                )
+                c.execute(
+                    "DELETE FROM monitoring_entities WHERE tenant_slug=? AND entity_key=?",
+                    (tenant, key),
                 )
     return len(items)
 

@@ -1216,6 +1216,53 @@ def clear_macs(site: str = "") -> Dict[str, Any]:
     return {"ok": True, "cleared": True, "scope": "all", "removed_rows": int(before), "removed_file": removed_file}
 
 
+def clear_macs_da_olt(olt_host: str) -> Dict[str, Any]:
+    """Remove do cache as ONUs que vieram de UMA OLT.
+
+    Apagar a OLT do cadastro fazia so `DELETE FROM olts`. As ONUs dela ficavam
+    neste cache, e como e dele que `refresh_from_inventory` monta as entidades
+    de monitoramento, elas continuavam ativas: apareciam no dashboard e
+    mantinham o host no Zabbix de um equipamento que ninguem tem mais. Foi o que
+    o usuario viu no rads -- apagou as 3 OLTs e sobraram 322 ONUs vivas.
+
+    Diferente de `clear_macs(site=...)`, aqui o escopo e a OLT, nao o site: dois
+    equipamentos podem dividir o mesmo site e apagar um nao pode levar o outro.
+    """
+    host = str(olt_host or "").strip()
+    if not host:
+        return {"ok": True, "removed_rows": 0, "detail": "sem host"}
+    logger.warning(
+        "clear_macs_da_olt: tenant=%s olt=%s",
+        get_current_tenant_slug() or "default",
+        host,
+    )
+    try:
+        obj = load_olt_cpe_state() or {}
+        if not isinstance(obj, dict):
+            return {"ok": True, "removed_rows": 0}
+        rows = list(obj.get("cpes") or obj.get("rows") or [])
+        kept = [
+            r for r in rows
+            if not (isinstance(r, dict) and str(r.get("olt_ip") or "").strip() == host)
+        ]
+        removidos = max(0, len(rows) - len(kept))
+        if removidos:
+            save_olt_cpe_state({
+                **{k: v for k, v in obj.items() if k not in ("cpes", "rows")},
+                "olt": obj.get("olt") if isinstance(obj.get("olt"), dict) else {},
+                "cpes": kept,
+            })
+        logger.warning(
+            "clear_macs_da_olt concluido: olt=%s removidos=%d restantes=%d",
+            host, removidos, len(kept),
+        )
+        return {"ok": True, "removed_rows": int(removidos), "remaining": len(kept)}
+    except Exception as exc:
+        # Nao derruba a exclusao da OLT: apagar a OLT e o que o usuario pediu.
+        logger.exception("falha ao limpar as ONUs da OLT %s", host)
+        return {"ok": False, "error": str(exc), "removed_rows": 0}
+
+
 def list_macs(site: str = "") -> Dict[str, Any]:
     """Lista dados OLT persistidos (DB-first), com filtro opcional por site."""
     site_norm = str(site or "").strip().lower()
