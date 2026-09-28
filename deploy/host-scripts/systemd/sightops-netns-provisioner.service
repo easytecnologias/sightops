@@ -1,0 +1,14 @@
+[Unit]
+Description=SightOps - provisionador de namespace de rede por conector
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /opt/sightops-netns-provisioner/ops/netns_provisioner/entrypoint.py
+Restart=on-failure
+RestartSec=3
+User=root
+Group=root
+
+[Install]
+WantedBy=multi-user.target

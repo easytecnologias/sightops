@@ -1,0 +1,11 @@
+[Unit]
+Description=SightOps - roda a sincronizacao da VPN Ruijie a cada minuto
+
+[Timer]
+OnBootSec=30s
+OnUnitActiveSec=60s
+AccuracySec=5s
+Unit=sightops-ruijie-vpn-sync.service
+
+[Install]
+WantedBy=timers.target

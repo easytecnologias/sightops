@@ -1,0 +1,18 @@
+[Unit]
+Description=SightOps - sincroniza tuneis OpenVPN dos conectores Ruijie com o cadastro
+# Roda scripts/sightops_ruijie_vpn_sync.py: pergunta pro container sightops-api
+# quais conectores Ruijie tem VPN configurada e garante que exista um container
+# sightops-vpn-<id> (--network host --restart unless-stopped) com a config em
+# dia -- cria na primeira vez, recria se usuario/senha/config mudou, remove se
+# a VPN foi tirada do cadastro. Sem isso, cada mudanca de VPN precisaria de
+# alguem rodando `docker run` na mao (foi assim que o JANGADEIROS foi ligado
+# em 27/07/2026, antes deste timer existir).
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /opt/sightops/scripts/sightops_ruijie_vpn_sync.py
+# central ja esta no grupo docker -- nao precisa de root aqui (diferente do
+# sync do WireGuard, que mexe direto no kernel e exige CAP_NET_ADMIN).
+User=central

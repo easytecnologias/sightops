@@ -1,0 +1,10 @@
+[Unit]
+Description=SightOps - roteamento isolado por conector (tabelas individuais)
+After=wg-quick@wg-sightops.service network-online.target docker.service
+Wants=wg-quick@wg-sightops.service network-online.target
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/opt/sightops/scripts/connector_iso.sh
+[Install]
+WantedBy=multi-user.target

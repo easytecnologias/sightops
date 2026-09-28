@@ -1,0 +1,12 @@
+[Unit]
+Description=SightOps Docker to WireGuard NAT
+After=docker.service wg-quick@wg-sightops.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/sightops-wg-docker-nat.sh
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

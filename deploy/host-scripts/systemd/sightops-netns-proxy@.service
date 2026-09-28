@@ -1,0 +1,15 @@
+[Unit]
+Description=SightOps - proxy SOCKS5 isolado do conector %i
+After=sightops-netns-provisioner.service
+Requires=sightops-netns-provisioner.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/ip netns exec ns-%i /usr/bin/python3 /opt/sightops-netns-provisioner/netns_socks_proxy.py 8080
+Restart=always
+RestartSec=2
+User=root
+Group=root
+
+[Install]
+WantedBy=multi-user.target
