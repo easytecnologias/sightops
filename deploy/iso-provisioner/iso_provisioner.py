@@ -110,6 +110,7 @@ def _apply(n, cid, pubkey, lans, vmap, priv):
     sh(["ip", "route", "replace", "%s/32" % peer_ip, "dev", ifn, "table", str(table)])
     for lan in lans:
         sh(["ip", "route", "replace", lan, "dev", ifn, "table", str(table)])
+    _vnat_limpa_obsoletas(n, vmap)
     for real, virt in vmap:
         _iptc("mangle", "PREROUTING", ["-d", virt, "-j", "MARK", "--set-mark", hex(fwmark)])
         _iptc("nat", "PREROUTING", ["-d", virt, "-j", "NETMAP", "--to", real])
@@ -130,6 +131,54 @@ def _in_slice(cidr, slice_net):
         return ipaddress.ip_network(cidr, strict=False).subnet_of(slice_net)
     except Exception:
         return False
+
+
+def _norm_cidr(valor):
+    try:
+        return str(ipaddress.ip_network(str(valor), strict=False))
+    except Exception:
+        return str(valor)
+
+
+def _vnat_limpa_obsoletas(n, vmap):
+    """Tira do slice do conector toda regra de vnat que nao esta no mapa de agora.
+
+    As regras sao aditivas (_iptc so insere o que falta), entao quando o conjunto
+    de LANs muda -- o normal num conector recem-criado, que so descobre a LAN das
+    cameras no heartbeat seguinte -- o mapa virtual e recalculado e as regras da
+    rodada anterior ficam para tras. Uma faixa velha MAIOR pode cair antes na
+    chain e sequestrar o IP do roteador: no CANAPI (25/09/2026)
+    `10.210.192.0/23 -> 172.28.0.0/23` engolia `10.210.192.0/24 -> 10.201.0.0/24`
+    e o Winbox nao alcancava o MikroTik, embora as cameras funcionassem.
+
+    Com vmap vazio nao limpa nada de proposito: um ciclo sem LAN detectada nao
+    deve derrubar um vnat que esta funcionando.
+    """
+    if not vmap:
+        return
+    slice_net = virtual_slice(n)
+    virts = {_norm_cidr(virt) for _real, virt in vmap}
+    pares = {(_norm_cidr(virt), _norm_cidr(real)) for real, virt in vmap}
+
+    def _destino(r):
+        return _norm_cidr(r[r.index("-d") + 1]) if "-d" in r else ""
+
+    def _mark_obsoleta(r):
+        if "MARK" not in r or "-d" not in r:
+            return False
+        d = _destino(r)
+        return _in_slice(d, slice_net) and d not in virts
+
+    def _netmap_obsoleta(r):
+        if "NETMAP" not in r or "-d" not in r or "--to" not in r:
+            return False
+        d = _destino(r)
+        if not _in_slice(d, slice_net):
+            return False
+        return (d, _norm_cidr(r[r.index("--to") + 1])) not in pares
+
+    _ipt_delete_matching("mangle", "PREROUTING", _mark_obsoleta)
+    _ipt_delete_matching("nat", "PREROUTING", _netmap_obsoleta)
 
 
 def _ipt_delete_matching(tabela, chain, pred):
