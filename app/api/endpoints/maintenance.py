@@ -2498,15 +2498,22 @@ def api_cameras_rename(payload: Dict[str, Any]) -> Dict[str, Any]:
     # Brand hint from inventory (helps route first attempt for Hikvision/HiLook)
     brand = ""
     try:
-        inv = load_inventory_json() or []
-        for r in inv:
-            if str(r.get("ip") or "").strip() == ip:
-                brand = str(r.get("fabricante") or "").strip().lower()
+        # Os TRES modos: a camera pode estar em "switch" ou "basic", e procurar
+        # so no "olt" (o padrao) deixava `brand` vazio -- era o caso de todo o
+        # CANAPI, que vive no modo switch.
+        for _modo in ("olt", "basic", "switch"):
+            for r in (load_inventory_json(mode=_modo) or []):
+                if str(r.get("ip") or "").strip() == ip:
+                    brand = str(r.get("fabricante") or "").strip().lower()
+                    break
+            if brand:
                 break
     except Exception:
         brand = ""
 
     is_hik = ("hik" in brand) or ("hilook" in brand)
+    # Marca conhecida que NAO fala ISAPI: pular o caminho Hikvision inteiro.
+    nao_e_hik = any(m in brand for m in ("intelbras", "dahua", "vip", "multilaser"))
     idx0 = channel - 1
     q_title = urllib.parse.quote(title)
 
@@ -2524,10 +2531,15 @@ def api_cameras_rename(payload: Dict[str, Any]) -> Dict[str, Any]:
     # <name> (read-modify-write). Cobre camera avulsa E camera atras de NVR/DVR,
     # que rejeitava o PUT parcial antigo com badXmlContent (era o "renomear que
     # nao funcionava"). Se falhar, cai no fluxo antigo (Dahua/Intelbras) abaixo.
-    hik_result = _hikvision_rename_channel(ip, port_candidates, channel, title, user, password)
-    if hik_result:
-        hik_result["inventory_updated"] = _persist_inventory_title()
-        return hik_result
+    # Em camera Intelbras/Dahua isto so queima tempo: sao ate 4 tentativas de
+    # ISAPI, 2,5s de timeout cada, e no fim o erro exibido fala de um protocolo
+    # que a camera nao implementa. Com marca desconhecida mantemos a tentativa,
+    # porque ai ela ainda pode ser Hikvision.
+    if not nao_e_hik:
+        hik_result = _hikvision_rename_channel(ip, port_candidates, channel, title, user, password)
+        if hik_result:
+            hik_result["inventory_updated"] = _persist_inventory_title()
+            return hik_result
 
     attempts: list[dict[str, Any]] = []
 
