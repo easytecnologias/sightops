@@ -692,6 +692,50 @@ def _draw_camera_overview_pages(
     sink.add(page)
 
 
+def _col_value(r: Dict[str, Any], col_name: str) -> str:
+    """Valor de uma celula da tabela. Unico lugar que conhece o mapa de campos."""
+    if col_name == "IP":
+        return _to_text(r.get("ip") or r.get("IP"))
+    if col_name == "MAC":
+        return _to_text(r.get("mac") or r.get("MAC"))
+    if col_name == "Status":
+        return _to_text(r.get("status"))
+    return {
+        "Titulo": _to_text(r.get("titulo") or r.get("title") or r.get("nome")),
+        "Local": _to_text(r.get("local") or r.get("LOCAL")),
+        "Modelo": _to_text(r.get("modelo")),
+        "Switch": _to_text(r.get("switch_name") or r.get("switch") or r.get("switch_label")),
+        "Switch IP": _to_text(r.get("switch_ip")),
+        "Porta": _to_text(r.get("switch_port")),
+        "VLAN": _to_text(r.get("switch_vlan") or r.get("vlan")),
+        "PON": _to_text(r.get("pon") or r.get("PON")),
+        "ONU ID": _to_text(r.get("onu_id") or r.get("ONU_ID") or r.get("onuid")),
+        "ONU Name": _to_text(r.get("onu_name") or r.get("ONU_NAME")),
+        "ONU Serial": _to_text(r.get("onu_serial") or r.get("ONU_SERIAL")),
+    }.get(col_name, "")
+
+
+def _drop_empty_columns(
+    cols: List[Tuple[str, int]], rows: List[Dict[str, Any]]
+) -> List[Tuple[str, int]]:
+    """Tira as colunas que estao vazias em TODAS as linhas.
+
+    IP, Titulo e Status ficam sempre: sao a identidade da linha, e uma tabela
+    sem elas nao se le. As outras so aparecem se alguem tiver valor.
+    """
+    FIXAS = ("IP", "Titulo", "Status")
+    vazio = ("", "-", "--", "n/a", "none", "null")
+    mantidas = []
+    for nome, cw in cols:
+        if nome in FIXAS:
+            mantidas.append((nome, cw))
+            continue
+        tem = any(_to_text(_col_value(r, nome)).strip().lower() not in vazio for r in rows)
+        if tem:
+            mantidas.append((nome, cw))
+    return mantidas
+
+
 def _draw_table_pages(
     rows: List[Dict[str, Any]],
     sink: "_PageSink",
@@ -712,16 +756,29 @@ def _draw_table_pages(
 
     color = _report_color(report_color)
     cols = _column_set(include_switch, include_olt)
-    # Em paisagem sobra quase metade de uma pagina de largura. Esticar as
-    # colunas na proporcao em que ja estao e o que acaba com o corte do
-    # titulo -- antes "03 - ESCOLA JOAO VIEIRA E UBS" virava "...VIEIRA E ...".
     pag_w = A4_H if landscape else A4_W
     pag_h = A4_W if landscape else A4_H
+    # Coluna vazia em todas as linhas so ocupa espaco: sai. Era o caso de
+    # SWITCH/SWITCH IP/PORTA/VLAN em site sem switch cadastrado.
+    cols = _drop_empty_columns(cols, rows)
+    # As colunas NAO sao esticadas para preencher a largura: a tabela de
+    # gravadores nao faz isso, e esticar abre um vao no meio da pagina. A
+    # unica que cresce e a do titulo, e so ate caber o MAIOR titulo que
+    # existe neste relatorio -- medido, nao chutado. O que sobrar de largura
+    # fica na direita, como no relatorio de gravadores.
     largura_util = pag_w - (2 * MARGIN_X) - 40
     soma = sum(cw for _, cw in cols) or 1
-    if largura_util > soma:
-        fator = largura_util / soma
-        cols = [(nome, int(cw * fator)) for nome, cw in cols]
+    folga = largura_util - soma
+    if folga > 0 and any(nome == "Titulo" for nome, _ in cols):
+        regua = ImageDraw.Draw(Image.new("RGB", (8, 8)))
+        maior_titulo = 0
+        for r in rows:
+            maior_titulo = max(maior_titulo, regua.textlength(_col_value(r, "Titulo"), font=f_h))
+        atual = next(cw for nome, cw in cols if nome == "Titulo")
+        precisa = int(maior_titulo) + 40 - atual      # 40 = respiro da celula
+        extra = max(0, min(precisa, folga))
+        if extra:
+            cols = [(nome, cw + extra if nome == "Titulo" else cw) for nome, cw in cols]
     line_h = 54
     header_h = 58
 
@@ -775,20 +832,7 @@ def _draw_table_pages(
                     bgp, fgp = _status_colors(val)
                     _draw_pill(draw, x, y + 8, (val or "-").upper(), f_status, bgp, fgp, pad_x=14, pad_y=6)
                 else:
-                    field_map = {
-                        "Titulo": _to_text(r.get("titulo") or r.get("title") or r.get("nome")),
-                        "Local": _to_text(r.get("local") or r.get("LOCAL")),
-                        "Modelo": _to_text(r.get("modelo")),
-                        "Switch": _to_text(r.get("switch_name") or r.get("switch") or r.get("switch_label")),
-                        "Switch IP": _to_text(r.get("switch_ip")),
-                        "Porta": _to_text(r.get("switch_port")),
-                        "VLAN": _to_text(r.get("switch_vlan") or r.get("vlan")),
-                        "PON": _to_text(r.get("pon") or r.get("PON")),
-                        "ONU ID": _to_text(r.get("onu_id") or r.get("ONU_ID") or r.get("onuid")),
-                        "ONU Name": _to_text(r.get("onu_name") or r.get("ONU_NAME")),
-                        "ONU Serial": _to_text(r.get("onu_serial") or r.get("ONU_SERIAL")),
-                    }
-                    val = field_map.get(col_name, "")
+                    val = _col_value(r, col_name)
                     fnt = f_h if col_name == "Titulo" else f
                     fill = INK if col_name == "Titulo" else INK_MUTED
                     draw.text((x, y + 15), _fit_text(draw, val, fnt, cw - 20), font=fnt, fill=fill)
