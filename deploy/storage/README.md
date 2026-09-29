@@ -60,3 +60,31 @@ a sair. Confira `docker inspect -f '{{.State.Status}}'` depois.
 | Disco ocupado | 96% | 3% |
 | Carga | 50 | 1,5 |
 | `/v3/` por HTTPS | 10,6 s | 0,04 s |
+
+## O Docker tem que esperar o disco (`systemd/10-espera-os-volumes.conf`)
+
+Mover os volumes para `/mnt/dados` cria um risco que nao existia antes: o
+diretorio `_data` por baixo do bind fica **vazio**. Se a montagem falhar no boot
+-- e ela usa `nofail` de proposito, para um disco secundario com defeito nao
+prender a maquina no modo de emergencia -- o Docker subia assim mesmo, o
+Postgres encontrava `PGDATA` vazio e rodava `initdb`. Resultado: SightOps e
+Zabbix no ar com banco novo em branco, parecendo perda total, e gravando no
+diretorio errado.
+
+O drop-in da ao `docker.service` um `RequiresMountsFor` das tres montagens
+(`/mnt/dados` e os dois binds). Sem elas o Docker **nao sobe**. E a troca certa:
+ficar fora do ar avisando e muito melhor que subir com o banco vazio.
+
+```bash
+sudo install -Dm644 deploy/storage/systemd/10-espera-os-volumes.conf \
+  /etc/systemd/system/docker.service.d/10-espera-os-volumes.conf
+sudo systemctl daemon-reload
+```
+
+Conferir (tem que listar as tres montagens):
+
+```bash
+systemctl show docker.service -p Requires | tr ' ' '\n' | grep -i mount
+```
+
+Para desfazer: apagar o arquivo e `systemctl daemon-reload`.
