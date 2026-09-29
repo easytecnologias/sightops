@@ -68,6 +68,11 @@ _OLT_LINK_FIELDS = (
     "onu_oper_status", "onu_omci_status", "onu_rx", "olt_rx", "onu_telemetry_updated_at",
 )
 
+# O que um operador consegue digitar na tela. O resto de _OLT_LINK_FIELDS e
+# telemetria (sinal optico, status da ONU): ninguem preenche isso a mao, e
+# mostrar valor velho engana -- esses continuam sendo limpos sempre.
+_OLT_FIELDS_MANUAIS = ("pon", "onu_id", "onu_name", "onu_serial")
+
 
 def _enrich_inventory_with_olt(rows: List[Dict[str, Any]], olt_json_path: Path) -> tuple[List[Dict[str, Any]], int]:
     if not rows:
@@ -127,8 +132,16 @@ def _enrich_inventory_with_olt(rows: List[Dict[str, Any]], olt_json_path: Path) 
             # Nao existe na coleta atual: a tela NAO pode mostrar PON/ONU de uma
             # coleta antiga como se fosse de agora (ONU apagada/renumerada
             # continuava aparecendo). Informacao falsa e pior do que ausente.
-            if any(str(cam.get(k) or "").strip() for k in _OLT_LINK_FIELDS):
-                for k in _OLT_LINK_FIELDS:
+            #
+            # A excecao e o que foi PREENCHIDO A MAO: em camera que a coleta nao
+            # alcanca, digitar e a unica forma de ter o dado, e apagar em toda
+            # leitura fazia o trabalho do operador sumir sem aviso -- a tela
+            # dizia "salvo" e o campo voltava vazio.
+            manual = bool(cam.get("olt_manual"))
+            apagar = [k for k in _OLT_LINK_FIELDS
+                      if not (manual and k in _OLT_FIELDS_MANUAIS)]
+            if any(str(cam.get(k) or "").strip() for k in apagar):
+                for k in apagar:
                     if k in cam:
                         cam[k] = ""
                 changed += 1
@@ -150,6 +163,10 @@ def _enrich_inventory_with_olt(rows: List[Dict[str, Any]], olt_json_path: Path) 
             if str(cam.get(k) or "").strip() != v:
                 cam[k] = v
                 cam_changed = True
+        # A OLT passou a enxergar esta camera: o dado coletado manda, e a marca
+        # de "digitado a mao" deixa de valer. Dado real vence dado digitado.
+        if cam.pop("olt_manual", None):
+            cam_changed = True
         if cam_changed:
             changed += 1
 

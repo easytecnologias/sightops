@@ -463,6 +463,15 @@ def api_cameras_save(req: CamerasSaveRequest, mode: str = Query(default="olt")) 
             row["onu_name"] = cam.onu_name
         if cam.onu_serial is not None:
             row["onu_serial"] = cam.onu_serial
+        # Marca o que foi digitado a mao. Sem isso o enriquecimento da OLT
+        # apagava tudo na leitura seguinte, porque essas cameras nao aparecem
+        # na coleta -- era o "salvou e nao fez nada". Esvaziar os campos tira a
+        # marca: volta a valer so o que a OLT disser.
+        if any(v is not None for v in (cam.pon, cam.onu_id, cam.onu_name, cam.onu_serial)):
+            if any(str(row.get(k) or "").strip() for k in ("pon", "onu_id", "onu_name", "onu_serial")):
+                row["olt_manual"] = True
+            else:
+                row.pop("olt_manual", None)
         if cam.switch_name is not None:
             row["switch_name"] = cam.switch_name
         if cam.switch_ip is not None:
@@ -503,6 +512,9 @@ def api_cameras_save(req: CamerasSaveRequest, mode: str = Query(default="olt")) 
             "onu_name": cam.onu_name or "",
             "onu_serial": cam.onu_serial or "",
         }
+        # Linha nova ja nasce marcada se veio com dado de OLT digitado.
+        if any(str(x or "").strip() for x in (cam.pon, cam.onu_id, cam.onu_name, cam.onu_serial)):
+            new_row["olt_manual"] = True
         connector_id = cam.remote_connector_id or cam.connector_id or ""
         if cam.remote or connector_id:
             new_row["remote"] = True
