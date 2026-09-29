@@ -791,6 +791,49 @@ def collect_macs(req: OltCollectMacsRequest) -> Dict[str, Any]:
                         )
 
                     kept = [x for x in existing_cpes if isinstance(x, dict) and not _same_scope(x)]
+
+                    # ONU sem CPE ativo (caida, ou ligada sem nada atras dela)
+                    # nao tem MAC aprendido, entao collect_macs nunca a devolve.
+                    # As linhas que a telemetria gravou para essas posicoes caem
+                    # neste escopo e eram descartadas logo abaixo -- por isso ONU
+                    # down nunca chegava a aparecer: a telemetria gravava e o
+                    # proximo sync de inventario apagava. Na OLT da Barra isso
+                    # escondia 13 ONUs caidas de 97.
+                    # Preserva so as posicoes que ESTA coleta nao viu; quando a
+                    # ONU volta e aprende MAC, a posicao reaparece em new_cpes e
+                    # a linha antiga sai no dedup. ONU removida da OLT continua
+                    # saindo pela poda da propria telemetria.
+                    # collect_macs grava a PON como "0/4" e a telemetria como 4.
+                    # Comparar cru faria toda linha de telemetria parecer uma
+                    # posicao nova, e o inventario da Barra ficaria com 180 ONUs
+                    # onde a OLT tem 97 -- cada ONU contada duas vezes.
+                    def _posicao(x: dict[str, Any]) -> Tuple[str, str]:
+                        pon = str(x.get("pon") or "").strip()
+                        if "/" in pon:
+                            pon = pon.rsplit("/", 1)[-1]
+                        onu = str(x.get("onu_id") or x.get("onu") or "").strip()
+                        if "/" in onu:
+                            onu = onu.rsplit("/", 1)[-1]
+                        try:
+                            pon = str(int(pon))
+                        except ValueError:
+                            pon = pon.lower()
+                        try:
+                            onu = str(int(onu))
+                        except ValueError:
+                            onu = onu.lower()
+                        return (pon, onu)
+
+                    vistas_agora = {_posicao(x) for x in new_cpes}
+                    sem_cpe = [
+                        x
+                        for x in existing_cpes
+                        if isinstance(x, dict)
+                        and _same_scope(x)
+                        and not str(x.get("cpe_mac") or "").strip()
+                        and _posicao(x) not in vistas_agora
+                    ]
+
                     # Coleta que nao achou NADA (PON vazia, OLT lenta, saida de
                     # CLI que mudou de formato -- o parser devolve lista vazia
                     # sem lancar excecao nesses casos) nao pode apagar
@@ -805,7 +848,7 @@ def collect_macs(req: OltCollectMacsRequest) -> Dict[str, Any]:
                             "OLT/site. Nada foi apagado -- confirme se a OLT respondeu "
                             "corretamente (PON, ONUs cadastradas) antes de tentar de novo."
                         )
-                    all_cpes = kept + new_cpes
+                    all_cpes = kept + sem_cpe + new_cpes
                 all_cpes = _dedup_cpes_by_key(all_cpes)
 
                 out_obj = {
