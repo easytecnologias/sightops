@@ -60,7 +60,11 @@ from app.core.tenant_context import (
 )
 from app.services.scan_service import _upload_imgbb_for_inventory
 from app.services.scan_service import _enrich_inventory_with_olt, _enrich_inventory_with_switch
-from app.services.pdf_inventory_report import build_inventory_pdf_report, build_inventory_preview_image
+from app.services.pdf_inventory_report import build_inventory_preview_image
+# Gerador VETORIAL (ReportLab): PDF com texto selecionavel, em paisagem.
+# O build_inventory_pdf_report de pdf_inventory_report.py desenha a pagina
+# com PIL e salva JPEG -- era o relatorio 'em foto', sem fonte nenhuma.
+from app.services.camera_pdf_report import build_inventory_pdf_report
 from app.services.inventory_json import inventory_row_key, load_inventory_json, save_inventory_json
 
 router = APIRouter(prefix="/api", tags=["tools"])
