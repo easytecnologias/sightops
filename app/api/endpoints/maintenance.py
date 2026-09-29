@@ -913,7 +913,7 @@ def _hik_trocar_ip(ip: str, new_ip: str, mask: str, gateway: str, dns1: str, dns
     return False, f"A camera recusou a troca: {_hik_motivo(resp.text or '')}."
 
 
-def _change_ip_one(
+def _aplica_ip_na_camera(
     ip: str,
     new_ip: str,
     mask: str,
@@ -1035,6 +1035,46 @@ def _change_ip_one(
         "error": (last_err or "falha ao trocar IP")
         + " -- a camera nao respondeu nem na API Hikvision (ISAPI) nem na Dahua/Intelbras (configManager.cgi)",
     }
+
+
+def _change_ip_one(
+    ip: str,
+    new_ip: str,
+    mask: str,
+    gateway: str,
+    dns1: str,
+    dns2: str,
+    user: str,
+    password: str,
+    forcar_rede: bool = False,
+) -> Dict[str, Any]:
+    """Troca o IP na camera E leva o host do Zabbix junto.
+
+    Antes a troca de IP nao tocava no Zabbix. Sobrava o pior dos dois mundos: a
+    camera no IP novo ficava sem monitoramento nenhum, e o host do IP velho
+    continuava sendo pingado, alarmando por um equipamento que nao existe mais.
+    A renumeracao do CANAPI em 29/09/2026 deixou 53 hosts fantasma e 21 cameras
+    sem medicao -- 63 dos 132 alertas de severidade alta vinham dai.
+
+    O host e RENOMEADO, nao recriado, entao o historico de ping sobrevive a
+    troca. So o host de medicao precisa disso: o de telemetria se conserta
+    sozinho no proximo sync.
+
+    Falha no Zabbix NAO invalida a troca -- a camera ja mudou de endereco. O
+    resultado vem em `zabbix` para a tela mostrar, em vez de sumir em silencio.
+    """
+    resultado = _aplica_ip_na_camera(
+        ip=ip, new_ip=new_ip, mask=mask, gateway=gateway,
+        dns1=dns1, dns2=dns2, user=user, password=password,
+        forcar_rede=forcar_rede,
+    )
+    if isinstance(resultado, dict) and resultado.get("ok"):
+        try:
+            from app.services.zabbix_ip_rename_service import renomear_host_de_medicao
+            resultado["zabbix"] = renomear_host_de_medicao(_as_str(ip), _as_str(new_ip))
+        except Exception as exc:  # pragma: no cover - defensivo
+            resultado["zabbix"] = {"ok": False, "error": str(exc)}
+    return resultado
 
 
 def _set_ntp_one(ip: str, user: str, password: str, address: str, port: int, timezone: int, update_period: int) -> Dict[str, Any]:
