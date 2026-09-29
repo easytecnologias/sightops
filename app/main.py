@@ -29,8 +29,14 @@ from app.services.access_control_sync import (
 )
 from app.services.access_control_store import list_devices as list_access_devices
 from app.api.endpoints.maintenance import scripts_zabbix_status_sync
-from app.api.endpoints.olt import api_olt_registry_telemetry
+from app.api.endpoints.olt import (
+    _ensure_supported_registry_driver,
+    _registered_request,
+    api_olt_registry_telemetry,
+)
+from app.models.requests import OltCollectMacsRequest
 from app.services.olt_registry import list_olts
+from app.services.olt_service import collect_macs
 from app.api.endpoints import (
     auth_router,
     cameras_router,
@@ -134,6 +140,7 @@ app.state.zabbix_status_last = {}
 app.state.monitoring_refresh_task = None
 app.state.monitoring_refresh_last = {}
 app.state.olt_telemetry_task = None
+app.state.olt_sync_task = None
 app.state.olt_telemetry_last = {}
 app.state.access_control_sync_task = None
 app.state.access_control_sync_last = {}
@@ -273,6 +280,63 @@ async def _monitoring_refresh_loop() -> None:
         except Exception as exc:
             app.state.monitoring_refresh_last = {"ok": False, "interval_s": interval, "error": str(exc)}
             logger.exception("monitoring inventory refresh failed")
+        await asyncio.sleep(interval)
+
+
+def _sync_uma_olt(olt_id: int) -> dict:
+    """Refaz a lista de ONUs de UMA OLT, igual ao botao Sincronizar da tela."""
+    _ensure_supported_registry_driver(olt_id)
+    req = _registered_request(OltCollectMacsRequest(olt_id=olt_id, pon="all", reuse_json=False))
+    req = req.model_copy(update={"scan_origin": "connector" if req.connector_id else "local"})
+    return collect_macs(req)
+
+
+async def _olt_inventory_sync_loop() -> None:
+    """Mantem a LISTA de ONUs em dia sem ninguem apertar botao.
+
+    A telemetria (o outro laco) so atualiza sinal e status de quem ja esta na
+    lista -- ONU apagada na OLT ficava para sempre. Intervalo proprio porque
+    collect_macs e caro: abre SSH e percorre todas as PONs, minutos por OLT.
+    """
+    try:
+        interval = max(600, min(int(os.getenv("SIGHTOPS_OLT_SYNC_INTERVAL", "1800")), 21600))
+    except Exception:
+        interval = 1800
+    # comeca depois da telemetria (60s) para as duas nao disputarem a OLT no boot
+    await asyncio.sleep(180)
+    while True:
+        results: dict[str, object] = {}
+        try:
+            for tenant_slug in await asyncio.to_thread(list_monitoring_tenants):
+                token = set_current_tenant_slug(tenant_slug)
+                try:
+                    olts = await asyncio.to_thread(list_olts, False)
+                    do_tenant = []
+                    for olt in olts:
+                        try:
+                            r = await asyncio.to_thread(_sync_uma_olt, int(olt["id"]))
+                            do_tenant.append({
+                                "olt_id": olt.get("id"), "ok": True,
+                                "count": r.get("count"), "count_all": r.get("count_all"),
+                            })
+                        except Exception as exc:
+                            # uma OLT fora do ar nao pode parar as outras
+                            do_tenant.append({"olt_id": olt.get("id"), "ok": False, "error": str(exc)})
+                    results[tenant_slug] = do_tenant
+                finally:
+                    reset_current_tenant_slug(token)
+            app.state.olt_sync_last = {"ok": True, "interval_s": interval, "tenants": results}
+            resumo = [
+                f"{t}/olt{d.get('olt_id')}: {d.get('count')}"
+                for t, ds in results.items() for d in ds if d.get("ok")
+            ]
+            if resumo:
+                logger.info("olt inventory sync: %s", "; ".join(resumo))
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            app.state.olt_sync_last = {"ok": False, "interval_s": interval, "error": str(exc)}
+            logger.exception("OLT inventory sync loop failed")
         await asyncio.sleep(interval)
 
 
@@ -455,6 +519,9 @@ async def startup_events() -> None:
         _monitoring_refresh_loop(), name="monitoring-refresh-loop"
     )
     app.state.olt_telemetry_task = asyncio.create_task(_olt_telemetry_loop(), name="olt-telemetry-loop")
+    app.state.olt_sync_task = asyncio.create_task(
+        _olt_inventory_sync_loop(), name="olt-inventory-sync-loop"
+    )
     app.state.access_control_sync_task = asyncio.create_task(
         _access_control_sync_loop(), name="access-control-sync-loop"
     )
@@ -472,6 +539,7 @@ async def shutdown_events() -> None:
         "zabbix_status_task",
         "monitoring_refresh_task",
         "olt_telemetry_task",
+        "olt_sync_task",
         "access_control_sync_task",
         "live_stream_cleanup_task",
         "alert_escalation_task",
