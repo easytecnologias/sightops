@@ -131,9 +131,14 @@ async function openMonitoringDrawer(entityType, activeStatus = 'all', activeSite
   });
 }
 
-async function openMonitoringAttentionDrawer(activeType = 'all', activeSite = null) {
+async function openMonitoringAttentionDrawer(activeType = 'all', activeSite = null, refreshData = true) {
   _openDashDrawer('Atencao operacional', 'Equipamentos que precisam de cuidado');
-  if (!_monitoringEntities.length) {
+  // Abrir este painel e um ato deliberado para ver o estado de AGORA.
+  // Antes so buscava com o cache vazio, entao equipamento excluido
+  // continuava na lista ate alguem dar F5 -- e o operador concluia que
+  // a exclusao nao tinha funcionado.
+  if (refreshData || !_monitoringEntities.length) {
+    _drawerRenderRows('<div class="drawer-empty-state">Carregando equipamentos...</div>');
     try {
       const response = await apiJson('/api/monitoring/entities?limit=2000', { forceRefresh: true });
       _monitoringEntities = response?.entities || [];
