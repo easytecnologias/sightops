@@ -571,29 +571,42 @@ def _faixa_de_ips(rows: List[Dict[str, Any]]) -> str:
     return f"{validos[0][1]} - {validos[-1][1]}"
 
 
-def _draw_camera_overview_pages(
+def _draw_camera_summary_block(
+    page,
+    draw: ImageDraw.ImageDraw,
+    y: int,
     rows: List[Dict[str, Any]],
-    sink: "_PageSink",
-    site_label: str,
-    company_name: str = "",
-    logo_path: Optional[Path] = None,
-    include_olt: bool = True,
-    include_switch: bool = False,
-    module_label: str = "Cameras IP",
     report_color: str = "",
-    progress_cb: ProgressCb = None,
-) -> None:
-    """Abre o relatorio com numeros consolidados e um cartao por site.
+) -> int:
+    """Indicadores + um cartao por site, no topo da primeira pagina da tabela.
 
-    Espelha _draw_recorder_overview_pages, que e o formato que o usuario
-    aprovou: quatro indicadores no topo e, abaixo, um cartao por agrupamento.
+    Devolve o `y` onde a tabela deve comecar. Nao cria pagina: dar uma folha
+    inteira a quatro numeros era justamente o desperdicio que o usuario viu.
     """
     total = len(rows)
+    if total == 0:
+        return y
+    page_w, page_h = page.size
+    color = _report_color(report_color)
+
     online = sum(1 for r in rows if _camera_online(r))
-    offline = total - online
     com_foto = sum(1 for r in rows if _pick_image_path(r) is not None)
 
-    # Um cartao por site, na ordem em que aparecem na tabela.
+    card_gap = 26
+    card_w = (page_w - 2 * MARGIN_X - 3 * card_gap) // 4
+    card_h = 118
+    _draw_kpi_card(draw, MARGIN_X, y, card_w, card_h, "Cameras", str(total), color)
+    _draw_kpi_card(draw, MARGIN_X + (card_w + card_gap), y, card_w, card_h,
+                   "Online", str(online), STATUS_OK_FG)
+    _draw_kpi_card(draw, MARGIN_X + 2 * (card_w + card_gap), y, card_w, card_h,
+                   "Offline", str(total - online), STATUS_BAD_FG)
+    _draw_kpi_card(draw, MARGIN_X + 3 * (card_w + card_gap), y, card_w, card_h,
+                   "Com foto", str(com_foto), color)
+    y += card_h + 28
+
+    # Um cartao por site. Com filtro de site (o caso normal) e um so; sem
+    # filtro, mostra ate tres e resume o resto numa linha, para o resumo nunca
+    # empurrar a tabela para fora da pagina.
     sites: List[Tuple[str, List[Dict[str, Any]]]] = []
     indice: Dict[str, List[Dict[str, Any]]] = {}
     for r in rows:
@@ -603,93 +616,52 @@ def _draw_camera_overview_pages(
             sites.append((chave, indice[chave]))
         indice[chave].append(r)
 
-    page, draw = _new_page_landscape()
-    page_w, page_h = page.size
-    y = _draw_header(
-        page,
-        draw,
-        f"Relatorio tecnico | {module_label}",
-        f"Gerado em {datetime.now().strftime('%d/%m/%Y as %H:%M')}  ·  Site: {site_label}  ·  {total} camera{'s' if total != 1 else ''}",
-        company_name=company_name,
-        logo_path=logo_path,
-        report_color=report_color,
-    )
-    draw = ImageDraw.Draw(page)
-    color = _report_color(report_color)
-
-    card_gap = 26
-    card_w = (page_w - 2 * MARGIN_X - 3 * card_gap) // 4
-    card_h = 118
-    _draw_kpi_card(draw, MARGIN_X, y, card_w, card_h, "Cameras", str(total), color)
-    _draw_kpi_card(draw, MARGIN_X + (card_w + card_gap), y, card_w, card_h, "Online", str(online), STATUS_OK_FG)
-    _draw_kpi_card(draw, MARGIN_X + 2 * (card_w + card_gap), y, card_w, card_h, "Offline", str(offline), STATUS_BAD_FG)
-    _draw_kpi_card(draw, MARGIN_X + 3 * (card_w + card_gap), y, card_w, card_h, "Com foto", str(com_foto), color)
-    y += card_h + 42
-
-    draw.text((MARGIN_X, y), "Resumo por site", font=_load_font(30, bold=True), fill=INK)
-    y += 48
-
-    f_title = _load_font(25, bold=True)
-    f = _load_font(21, bold=False)
-    f_b = _load_font(21, bold=True)
-    f_mono = _load_mono_font(20, bold=False)
-    card_h2 = 168
+    f_title = _load_font(24, bold=True)
+    f = _load_font(20, bold=False)
+    f_b = _load_font(20, bold=True)
+    f_mono = _load_mono_font(19, bold=False)
     w = page_w - (2 * MARGIN_X)
+    LIMITE = 3
+    card_h2 = 104
 
-    if not sites:
-        draw.rounded_rectangle((MARGIN_X, y, MARGIN_X + w, y + 90), radius=12,
-                               fill=CARD_BG, outline=BORDER_SOFT, width=2)
-        draw.text((MARGIN_X + 24, y + 32), "Nenhuma camera encontrada para o filtro atual.",
-                  font=f, fill=INK_MUTED)
-        sink.add(page)
-        return
-
-    for nome, itens in sites:
-        if y + card_h2 > page_h - MARGIN_Y - 80:
-            sink.add(page)
-            page, draw = _new_page_landscape()
-            page_w, page_h = page.size
-            y = _draw_header(
-                page, draw,
-                f"Resumo tecnico | {module_label}",
-                f"Site: {site_label}  ·  continuacao",
-                company_name=company_name, logo_path=logo_path, report_color=report_color,
-            )
-            draw = ImageDraw.Draw(page)
-            w = page_w - (2 * MARGIN_X)
-
+    for nome, itens in sites[:LIMITE]:
         n_on = sum(1 for r in itens if _camera_online(r))
         n_foto = sum(1 for r in itens if _pick_image_path(r) is not None)
-        modelos = sorted({_to_text(r.get("modelo") or r.get("model")) for r in itens if _to_text(r.get("modelo") or r.get("model"))})
-        modelo_txt = ", ".join(modelos[:3]) + (f" (+{len(modelos) - 3})" if len(modelos) > 3 else "")
+        modelos = sorted({_to_text(r.get("modelo") or r.get("model")) for r in itens
+                          if _to_text(r.get("modelo") or r.get("model"))})
+        modelo_txt = ", ".join(modelos[:2]) + (f" (+{len(modelos) - 2})" if len(modelos) > 2 else "")
 
-        draw.rounded_rectangle((MARGIN_X, y, MARGIN_X + w, y + card_h2), radius=18,
+        draw.rounded_rectangle((MARGIN_X, y, MARGIN_X + w, y + card_h2), radius=16,
                                fill=CARD_BG, outline=BORDER_SOFT, width=2)
-        draw.text((MARGIN_X + 28, y + 22), _fit_text(draw, nome, f_title, w - 56), font=f_title, fill=INK)
-
-        col_w = (w - 56) // 3
-        linhas = [
-            [("Cameras:", str(len(itens))),
-             ("Online:", f"{n_on} de {len(itens)}"),
-             ("Com foto:", f"{n_foto} de {len(itens)}")],
-            [("Faixa de IP:", _faixa_de_ips(itens)),
-             ("Modelos:", modelo_txt or "-"),
-             ("Offline:", str(len(itens) - n_on))],
+        draw.text((MARGIN_X + 26, y + 16), _fit_text(draw, nome, f_title, w - 52),
+                  font=f_title, fill=INK)
+        col_w = (w - 52) // 4
+        campos = [
+            ("Cameras:", str(len(itens)), f),
+            ("Online:", f"{n_on} de {len(itens)}", f),
+            ("Com foto:", f"{n_foto} de {len(itens)}", f),
+            ("Faixa de IP:", _faixa_de_ips(itens), f_mono),
         ]
-        yy = y + 74
-        for linha in linhas:
-            for i, (rotulo, valor) in enumerate(linha):
-                x = MARGIN_X + 28 + (i * col_w)
-                draw.text((x, yy), rotulo, font=f_b, fill=INK)
-                lw = draw.textlength(rotulo, font=f_b)
-                fonte_valor = f_mono if rotulo in ("Faixa de IP:",) else f
-                draw.text((x + lw + 10, yy),
-                          _fit_text(draw, valor, fonte_valor, col_w - lw - 30),
-                          font=fonte_valor, fill=INK_MUTED)
-            yy += 40
-        y += card_h2 + 24
+        yy = y + 58
+        for i, (rotulo, valor, fonte) in enumerate(campos):
+            x = MARGIN_X + 26 + (i * col_w)
+            draw.text((x, yy), rotulo, font=f_b, fill=INK)
+            lw = draw.textlength(rotulo, font=f_b)
+            draw.text((x + lw + 10, yy), _fit_text(draw, valor, fonte, col_w - lw - 28),
+                      font=fonte, fill=INK_MUTED)
+        if modelo_txt:
+            draw.text((MARGIN_X + 26 + (3 * col_w) + 0, y + 16),
+                      _fit_text(draw, f"Modelos: {modelo_txt}", f, col_w - 20),
+                      font=f, fill=INK_MUTED)
+        y += card_h2 + 16
 
-    sink.add(page)
+    if len(sites) > LIMITE:
+        draw.text((MARGIN_X + 4, y),
+                  f"+ {len(sites) - LIMITE} outro(s) site(s) na tabela abaixo",
+                  font=f, fill=INK_MUTED)
+        y += 34
+
+    return y + 14
 
 
 def _col_value(r: Dict[str, Any], col_name: str) -> str:
@@ -796,6 +768,10 @@ def _draw_table_pages(
             report_color=report_color,
         )
         draw = ImageDraw.Draw(page)
+        if idx == 0:
+            # Indicadores e resumo por site abrem a primeira pagina, com a
+            # tabela logo abaixo -- em vez de uma folha so para eles.
+            y = _draw_camera_summary_block(page, draw, y, rows, report_color=report_color)
         draw.text((MARGIN_X, y), "Inventario detalhado", font=_load_font(28, bold=True), fill=INK)
         y += 50
 
@@ -1023,23 +999,6 @@ def build_inventory_pdf_report(
     try:
         sink = _PageSink(tmp_dir)
         if progress_cb:
-            progress_cb(0, len(rows_list), "resumo")
-        # Abre igual ao relatorio de gravadores: indicadores e um cartao por
-        # site. Antes o documento comecava na tabela crua, sem nenhum numero
-        # consolidado.
-        _draw_camera_overview_pages(
-            rows_list,
-            sink,
-            site_label,
-            company_name=company_name,
-            logo_path=logo_path,
-            include_olt=include_olt,
-            include_switch=include_switch,
-            module_label=module_label,
-            report_color=report_color,
-            progress_cb=progress_cb,
-        )
-        if progress_cb:
             progress_cb(0, len(rows_list), "tabela")
         _draw_table_pages(
             rows_list,
@@ -1209,18 +1168,23 @@ def _recorder_recording_text(row: Dict[str, Any]) -> str:
                 return "nao"
     status = _to_text(row.get("recording_status")).lower()
     if status:
-        if any(token in status for token in ("recording", "gravando", "active", "normal", "configurado")):
+        # "nao confirmado pelo playback": online mas o playback nao provou gravacao.
+        # Tem que vir ANTES dos tokens de "sim", senao o fallback afirmava gravacao.
+        if "nao confirmado" in status or "not confirmed" in status:
+            return "n/c"
+        if any(token in status for token in ("recording", "gravando", "playback encontrado", "active", "normal", "configurado")):
             return "sim"
-        if any(token in status for token in ("stopped", "parado", "idle", "sem gravacao", "disabled", "disable")):
+        if any(token in status for token in ("stopped", "parado", "idle", "sem playback", "sem gravacao", "disabled", "disable", "sem camera")):
             return "nao"
-    return "sim" if _recorder_channel_status(row) == "online" else "nao"
+    # Sem status conhecido: nao afirma "sim" so por estar online -> deixa indeterminado.
+    return "n/c" if _recorder_channel_status(row) == "online" else "nao"
 
 
 def _recorder_recording_known(row: Dict[str, Any]) -> bool:
     return _recorder_recording_text(row).lower() in ("sim", "nao")
 
 
-def _clean_platform_label(value):
+def _clean_platform_label(value: Any) -> str:
     # O backend as vezes anexa "(true)"/"(false)" ao status da plataforma.
     txt = _to_text(value)
     txt = re.sub(r"\s*\((?:true|false|1|0)\)\s*$", "", txt, flags=re.IGNORECASE)
@@ -1332,10 +1296,13 @@ def _draw_recorder_overview_pages(
         model = _first_text(items, "nvr_model", "recorder_model", "modelo", "model")
         serial = _first_text(items, "equip_serial", "serial", "serial_number")
         local = _first_text(items, "local", "site", "site_name")
-        mac = _first_text(items, "nvr_mac", "mac")
+        # MAC do gravador: nunca cai no MAC da camera do canal (rotulo diz NVR).
+        mac = _first_text(items, "nvr_mac")
         status_ok = sum(1 for r in items if _recorder_channel_status(r) == "online")
         status_bad = sum(1 for r in items if _recorder_channel_offline(r))
-        rec_ok = sum(1 for r in items if _recorder_recording_text(r) in ("sim", "ok", "gravando", "recording"))
+        rec_sim = sum(1 for r in items if _recorder_recording_text(r) == "sim")
+        rec_nao = sum(1 for r in items if _recorder_recording_text(r) == "nao")
+        rec_nc = max(0, len(items) - rec_sim - rec_nao)
         rec_known = sum(1 for r in items if _recorder_recording_known(r))
         rec_unknown = len(items) - rec_known
         used_count = sum(1 for r in items if _recorder_channel_in_use(r))
@@ -1345,10 +1312,17 @@ def _draw_recorder_overview_pages(
         col2 = x + 1130
         col3 = x + 2230
         row_y = y + 68
-        hdd = _first_text(items, "hdd_status", "disk_status", "storage_status", "hdd_total", "disk_total", "storage_total")
+        # hdd_status e network_status ja vem como resumo pronto do backend
+        # (ex.: "normal - 10.9 TB - 100% usado"). Nao recompor por cima, senao duplica.
+        hdd_count = _first_text(items, "hdd_count")
+        hdd = _first_text(items, "hdd_status", "disk_status", "storage_status") or _first_text(items, "hdd_total", "disk_total", "storage_total")
+        if hdd and hdd_count and "disco" not in hdd.lower():
+            hdd = f"{hdd_count} disco(s) - {hdd}"
         retention = _first_text(items, "recording_days", "retention_days", "retention")
-        platform = _clean_platform_label(_first_text(items, "platform_status", "cloud_status", "hik_connect_status", "p2p_status"))
-        network = _first_text(items, "network_status", "nvr_ip", "gateway", "nvr_gateway")
+        platform = _clean_platform_label(_first_text(items, "hik_connect_status", "p2p_status", "platform_status", "cloud_status"))
+        nvr_ip = _first_text(items, "nvr_ip")
+        nvr_gw = _first_text(items, "nvr_gateway", "gateway")
+        network = _first_text(items, "network_status") or nvr_ip
         pending = []
         if not hdd:
             pending.append("HD")
@@ -1367,12 +1341,12 @@ def _draw_recorder_overview_pages(
             (col1, row_y + 102, "MAC NVR", mac or "-", f_mono),
             (col2, row_y, "Canais", f"{len(items)} total - {used_count} em uso - {status_bad} offline - {no_camera_count} vazios", f),
             (col2, row_y + 34, "Video loss", str(sum(1 for r in items if bool(r.get('video_loss')))), f),
-            (col2, row_y + 68, "Fotos", f"{sum(1 for r in items if _recorder_photo_available(r))} com imagem", f),
-            (col2, row_y + 102, "Gravacao", f"{rec_ok} sim - {len(items) - rec_ok} nao", f),
+            (col2, row_y + 68, "Fotos", f"{sum(1 for r in items if _recorder_photo_available(r) and not _recorder_channel_empty(r))} com imagem", f),
+            (col2, row_y + 102, "Gravacao", f"{rec_sim} sim - {rec_nao} nao - {rec_nc} n/c", f),
             (col3, row_y, "HD", hdd or "pendente de coleta", f),
-            (col3, row_y + 34, "Retencao", retention or "pendente de coleta", f),
+            (col3, row_y + 34, "Rede", network or "pendente de coleta", f_mono if (nvr_ip or nvr_gw) else f),
             (col3, row_y + 68, "Plataforma", platform or "pendente de coleta", f),
-            (col3, row_y + 102, "Rede", network or "pendente de coleta", f),
+            (col3, row_y + 102, "Retencao", retention or "pendente de coleta", f),
         ]
         for px, py, k, v, font_value in pairs:
             draw.text((px, py), f"{k}: ", font=f_b, fill=INK)
@@ -1539,6 +1513,10 @@ def build_recorder_pdf_report(
         if include_photos:
             photo_rows = []
             for row in rows_list:
+                # Canal vazio/sem camera: o NVR devolve um frame generico reaproveitado
+                # (mesma imagem em todos). Nao entra na galeria -> "snapshot que nao existe".
+                if _recorder_channel_empty(row):
+                    continue
                 r = dict(row)
                 host = _recorder_host_text(r)
                 ch = int(r.get("channel") or 0)

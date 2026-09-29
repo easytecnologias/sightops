@@ -27,7 +27,12 @@ from app.services.db_store import decorate_legacy_rows
 from app.services.db_store import replace_recorder_inventory_rows
 from app.services.db_store import legacy_rows_from_db
 from app.services.db_store import load_app_settings, save_app_settings
-from app.services.pdf_inventory_report import build_inventory_pdf_report, build_inventory_preview_image, build_recorder_pdf_report
+from app.services.pdf_inventory_report import build_inventory_pdf_report, build_inventory_preview_image
+# Gerador VETORIAL (ReportLab): PDF com texto selecionavel, nao uma pilha de
+# JPEGs. O build_recorder_pdf_report de pdf_inventory_report.py segue existindo,
+# mas rasteriza a pagina inteira -- era por isso que nao se copiava um IP do
+# relatorio de gravadores.
+from app.services.recorder_pdf_report import build_recorder_pdf_report
 from app.services.ws_scan_service import (
     _connector_from_payload,
     _connector_has_tunnel,
