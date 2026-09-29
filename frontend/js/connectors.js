@@ -1032,18 +1032,33 @@ async function saveEditCam() {
     }
     // Feedback: pelo tunel isolado o rename no equipamento leva alguns segundos.
     // Sem mudar o botao, parecia que "nao fazia nada".
+    // O botao PRECISA voltar ao normal em qualquer saida -- inclusive nos
+    // `return` de erro logo abaixo. Sem o finally, o rename terminava no
+    // servidor (HTTP 200) e a tela ficava presa em "Renomeando no
+    // equipamento...", so saindo com F5.
+    const rotuloOriginal = btn.innerHTML;
     btn.disabled = true;
     btn.innerHTML = '<i data-lucide="loader-2"></i> Renomeando no equipamento...';
     lucide.createIcons();
-    const renameRes = await api('/api/maintenance/batch/rename', {
-      method: 'POST',
-      body: JSON.stringify({
-        user,
-        pass,
-        targets: payloads.map(p => ({ ip: p.ip, title: p.titulo || p.title || '', channel: 1, remote_connector_id: p.remote_connector_id || p.connector_id || '' })),
-      }),
-    });
-    const renameBody = await renameRes?.json().catch(() => ({}));
+    let renameRes = null;
+    let renameBody = {};
+    try {
+      renameRes = await api('/api/maintenance/batch/rename', {
+        method: 'POST',
+        body: JSON.stringify({
+          user,
+          pass,
+          targets: payloads.map(p => ({ ip: p.ip, title: p.titulo || p.title || '', channel: 1, remote_connector_id: p.remote_connector_id || p.connector_id || '' })),
+        }),
+      });
+      renameBody = await renameRes?.json().catch(() => ({})) || {};
+    } catch (e) {
+      renameBody = { ok: false, error: 'A renomeacao nao terminou a tempo. Confira a lista antes de tentar de novo.' };
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = rotuloOriginal;
+      try { lucide.createIcons(); } catch (_) {}
+    }
     if (!renameRes?.ok || renameBody?.ok === false) {
       const failed = (renameBody?.results || []).filter(r => !r.ok);
       const first = failed[0] || {};
