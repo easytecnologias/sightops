@@ -58,7 +58,19 @@ fi
 # --- 2. configuracao (env + compose) ------------------------------------
 # Vai junto em TODO backup: sem a chave, o dump do banco nao serve de nada.
 cfg=$DEST/diario/v3-config-$TS.tar.gz
-if tar czf "$cfg" -C /home/central/sightops-v3 \
+# O .env.v3 mora no RELEASE (o que esta no ar), nao no repositorio git.
+# Apontar para o repo funcionou por acidente enquanto havia uma copia solta
+# la dentro; quando ela saiu, o backup passou a falhar so nesta parte, todo
+# dia, sem que ninguem visse. Conferir antes do tar faz o erro dizer QUAL
+# arquivo faltou, em vez de repetir o mesmo engano em silencio.
+SRC_CFG=/home/central/sightops-v3-release
+faltando=""
+for f in .env.v3 docker-compose.production.yml; do
+  [ -f "$SRC_CFG/$f" ] || faltando="$faltando $f"
+done
+if [ -n "$faltando" ]; then
+  log "ERRO: configuracao nao encontrada em $SRC_CFG:$faltando"; falhou=1
+elif tar czf "$cfg" -C "$SRC_CFG" \
      .env.v3 docker-compose.production.yml 2>>"$LOG"; then
   chmod 600 "$cfg"
   log "config OK: $(basename "$cfg")"
