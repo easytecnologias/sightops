@@ -1,6 +1,7 @@
 ﻿from __future__ import annotations
 
 import json
+import os
 import logging
 import re
 from datetime import datetime, timezone
@@ -172,6 +173,22 @@ def _observe_many(rows: Iterable[Dict[str, Any]], prune_entity_type: str = "") -
     return len(items)
 
 
+def _segundos_desde(quando: Any) -> float:
+    """Quanto tempo passou desde `quando` (ISO 8601). Falha -> muito tempo."""
+    from datetime import datetime, timezone as _tz
+
+    texto = _text(quando)
+    if not texto:
+        return float("inf")
+    try:
+        valor = datetime.fromisoformat(texto.replace("Z", "+00:00"))
+        if valor.tzinfo is None:
+            valor = valor.replace(tzinfo=_tz.utc)
+        return (datetime.now(_tz.utc) - valor).total_seconds()
+    except Exception:
+        return float("inf")
+
+
 def refresh_from_inventory() -> Dict[str, Any]:
     from app.services.connector_service import list_connectors
     from app.services.inventory_json import load_inventory_json
@@ -249,10 +266,34 @@ def refresh_from_inventory() -> Dict[str, Any]:
             continue
         signal_rows.append((tenant := _tenant(), key, onu_rx, olt_rx, distance, _text(row.get("oper_status") or row.get("status")), _text(row.get("omci_status")), _now()))
     if signal_rows:
+        # Uma amostra por ONU por hora, nao a cada ciclo de 2 minutos. Sem este
+        # limite a tabela crescia ~225 mil linhas/dia com 313 ONUs -- em
+        # 28/09/2026 eram 2,19 milhoes de linhas, 96% do tamanho do banco.
+        # Excecao: mudanca de estado (ONU caiu ou voltou) grava na hora, senao
+        # o evento se perderia por ate uma hora.
+        try:
+            intervalo = max(60, min(int(os.getenv("SIGHTOPS_ONU_SIGNAL_INTERVAL", "3600")), 86400))
+        except Exception:
+            intervalo = 3600
+        gravadas = 0
         with _conn() as c:
             for values in signal_rows:
+                chave, estado = values[1], values[5]
+                ultima = c.execute(
+                    "SELECT captured_at, oper_status FROM onu_signal_samples "
+                    "WHERE tenant_slug=? AND entity_key=? ORDER BY id DESC LIMIT 1",
+                    (values[0], chave),
+                ).fetchone()
+                if ultima is not None:
+                    anterior = dict(ultima)
+                    mudou = _text(anterior.get("oper_status")) != _text(estado)
+                    if not mudou and _segundos_desde(anterior.get("captured_at")) < intervalo:
+                        continue
                 c.execute("INSERT INTO onu_signal_samples(tenant_slug,entity_key,onu_rx,olt_rx,distance_km,oper_status,omci_status,captured_at) VALUES(?,?,?,?,?,?,?,?)", values)
-    counts["onu_signals"] = len(signal_rows)
+                gravadas += 1
+        counts["onu_signals"] = gravadas
+    else:
+        counts["onu_signals"] = 0
     cameras = []
     for mode in ("basic", "olt", "switch"):
         cameras.extend((dict(r, _mode=mode) for r in (load_inventory_json(mode=mode) or [])))
