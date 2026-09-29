@@ -901,6 +901,13 @@ function renderMapLayerGroup(id, def, skipFit = false) {
   const bounds = [];
   let drawnCount = 0;
   const editing = mapEditIsActive(id);
+  // Quantos pontos dividem cada nome. A exclusao no backend casa por nome
+  // e remove TODOS os Placemarks que batem -- o aviso precisa dizer isso.
+  const _porNome = {};
+  (state.features || []).forEach(x => {
+    const n = mapFeatureName(x).toLowerCase();
+    if (n) _porNome[n] = (_porNome[n] || 0) + 1;
+  });
   state.features.forEach(f => {
       const geomType = String(f.geometry?.type || '');
       const name = f.properties?.name || '';
@@ -958,7 +965,12 @@ function renderMapLayerGroup(id, def, skipFit = false) {
       // Em modo de edicao, os pontos de camera ganham draggable: true (ver
       // editar_ponto_no_kmz no backend, que casa o Placemark pelo nome do
       // proprio ponto e regrava a coordenada preservando estilo/descricao).
-      const canDrag = editing && pointType === 'camera' && !!mapFeatureName(f) && !!def?.updateUrl;
+      // Editar NAO depende mais de o ponto casar com o inventario: o ponto que
+      // nao casa e justamente o que precisa de conserto. So exige nome, porque
+      // e por ele que o backend acha o Placemark no KML.
+      const podeEditarPonto = editing && !!mapFeatureName(f) && !!def?.updateUrl;
+      const semNomeNaEdicao = editing && !mapFeatureName(f) && !!def?.updateUrl;
+      const canDrag = podeEditarPonto;
       const icon = L.divIcon({
         html: `<div style="background:${tc.bg};color:white;border:2px solid white;border-radius:6px;padding:2px 5px;font-size:10px;font-weight:700;white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,.4);cursor:${canDrag ? 'move' : 'pointer'}${canDrag ? ';outline:2px dashed rgba(255,255,255,.8);outline-offset:2px' : ''}">${tc.label}</div>`,
         className: '', iconSize: [40, 22], iconAnchor: [20, 11], popupAnchor: [0, -14],
@@ -1007,17 +1019,19 @@ function renderMapLayerGroup(id, def, skipFit = false) {
           ${cam?.ip ? `<div style="margin-top:10px;display:flex;gap:6px">
             <a href="http://${esc(cam.ip)}" target="_blank" style="flex:1;text-align:center;padding:6px;background:#e7f5ff;color:#1971c2;border-radius:6px;font-size:11px;font-weight:600;text-decoration:none;border:1px solid #a5d8ff">Abrir camera</a>
           </div>` : ''}
-          ${canDrag ? `<div style="margin-top:8px;display:flex;gap:6px">
+          ${podeEditarPonto ? `${!cam ? `<div style="margin-top:8px;padding:6px 8px;background:#fff9db;border:1px solid #ffec99;border-radius:6px;font-size:11px;color:#997404">Este ponto nao casa com nenhuma camera do inventario. Renomeie com o nome exato da camera para ele passar a casar.</div>` : ''}
+          <div style="margin-top:8px;display:flex;gap:6px">
             <button type="button" data-map-point-rename style="flex:1;text-align:center;padding:6px;background:#fff3bf;color:#997404;border-radius:6px;font-size:11px;font-weight:600;border:1px solid #ffe066;cursor:pointer">Renomear ponto</button>
             <button type="button" data-map-point-delete style="flex:1;text-align:center;padding:6px;background:#ffe3e3;color:#c92a2a;border-radius:6px;font-size:11px;font-weight:600;border:1px solid #ffc9c9;cursor:pointer">Excluir ponto</button>
-          </div>` : ''}
+          </div>` : (semNomeNaEdicao ? `<div style="margin-top:8px;padding:6px 8px;background:#fff9db;border:1px solid #ffec99;border-radius:6px;font-size:11px;color:#997404">Ponto sem nome no KMZ: nao da pra renomear nem excluir por aqui, porque e pelo nome que ele e localizado no arquivo.</div>` : '')}
         </div>`, { maxWidth: 320, className: 'sightops-popup' });
-      if (canDrag) {
+      if (podeEditarPonto) {
         marker.on('popupopen', () => {
           const el = marker.getPopup()?.getElement();
           const nomePonto = mapFeatureName(f);
+          const repetidos = _porNome[nomePonto.toLowerCase()] || 1;
           el?.querySelector('[data-map-point-rename]')?.addEventListener('click', () => openMapPointRename(def, nomePonto));
-          el?.querySelector('[data-map-point-delete]')?.addEventListener('click', () => handleMapPointDelete(def, nomePonto));
+          el?.querySelector('[data-map-point-delete]')?.addEventListener('click', () => handleMapPointDelete(def, nomePonto, repetidos));
         });
       }
       state.markers[featureKey] = marker;
@@ -1222,11 +1236,16 @@ async function saveMapPointRename() {
   await saveMapPoint(alvo.def, { nome: alvo.nome, novo_nome: novoNome }, `Ponto renomeado para "${novoNome}".`);
 }
 
-async function handleMapPointDelete(def, nome) {
+async function handleMapPointDelete(def, nome, repetidos = 1) {
   if (!def?.updateUrl || !nome) return;
+  // O backend casa por nome e remove TODOS os Placemarks que batem. Com
+  // nome repetido, apagar um apaga os outros junto -- melhor dizer antes.
+  const aviso = repetidos > 1
+    ? ` ATENCAO: existem ${repetidos} pontos com esse mesmo nome nesta camada, e TODOS serao removidos.`
+    : '';
   const ok = await showConfirm({
     title: 'Excluir ponto',
-    msg: `Remover o ponto "${nome}" do mapa? A camera continua no inventario, so o pino some do KMZ.`,
+    msg: `Remover o ponto "${nome}" do mapa? A camera continua no inventario, so o pino some do KMZ.${aviso}`,
     label: 'Excluir',
   });
   if (!ok) return;
