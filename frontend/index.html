@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=1790181300">
+  <link rel="stylesheet" href="styles.css?v=1790705101">
 </head>
 <body>
 
@@ -1264,12 +1264,20 @@
           <div><p class="eyebrow">MANUTENCAO</p><h1>Monitoramento</h1><p>Estado consolidado dos equipamentos do cliente atual.</p></div>
           <button class="primary-action" id="btnMonitoringRefresh" type="button"><i data-lucide="refresh-cw"></i> Atualizar estados</button>
         </div>
-        <div class="monitoring-kpis" id="monitoringKpis"></div>
+        <div class="panel"><div class="mn-health" id="monitoringHealth"></div></div>
         <div class="panel">
-          <div class="panel-header"><div><h2>Equipamentos que precisam de atencao</h2><p id="monitoringSummaryText">Carregando...</p></div></div>
-          <div class="filters monitoring-filters"><label class="search-box"><i data-lucide="search"></i><input id="monitoringSearch" placeholder="Buscar equipamento, site ou tipo"></label><select class="filter-select" id="monitoringSite"><option value="">Todos os sites</option></select><select class="filter-select" id="monitoringType"><option value="">Todos os tipos</option><option value="connector">Conectores</option><option value="olt">OLTs</option><option value="onu">ONUs</option><option value="camera">Cameras</option><option value="nvr">NVRs</option><option value="dvr">DVRs</option><option value="windows">Computadores</option></select><select class="filter-select" id="monitoringStatus"><option value="">Todos os estados</option><option value="down">Down</option><option value="unstable">Instavel</option><option value="unknown">Nao verificado</option><option value="up">Up</option><option value="maintenance">Em manutencao</option></select></div>
-          <div class="table-wrap monitoring-table-wrap"><table class="data-table monitoring-table"><colgroup><col class="col-type"><col class="col-device"><col class="col-site"><col class="col-state"><col class="col-checked"><col class="col-detail"></colgroup><thead><tr><th>TIPO</th><th>EQUIPAMENTO</th><th>SITE</th><th>ESTADO</th><th>ULTIMA VERIFICACAO</th><th>DETALHES</th></tr></thead><tbody id="monitoringRows"></tbody></table></div>
-          <div class="table-footer"><span id="monitoringFooter">0 equipamentos</span></div>
+          <div class="panel-header"><div><h2>Precisa de voce agora</h2><p id="monitoringSummaryText">Carregando...</p></div><span class="badge badge-red" id="monitoringIncidentCount" hidden></span></div>
+          <div id="monitoringIncidents"></div>
+        </div>
+        <div class="panel">
+          <div class="panel-header"><div><h2>Inventario por tipo</h2><p>Clique numa linha para abrir a lista completa do tipo.</p></div></div>
+          <div class="monitoring-inv" id="monitoringKpis"></div>
+        </div>
+        <div class="panel" id="monitoringTablePanel">
+          <div class="mn-tabs" role="tablist" aria-label="Escopo da tabela"><button class="mn-tab" type="button" role="tab" data-monitoring-tab="attention" aria-selected="true">Com problema</button><button class="mn-tab" type="button" role="tab" data-monitoring-tab="all" aria-selected="false">Todos os equipamentos</button></div>
+          <div class="filters monitoring-filters"><label class="search-box"><i data-lucide="search"></i><input id="monitoringSearch" placeholder="Buscar equipamento, site, IP ou tipo"></label><select class="filter-select" id="monitoringSite"><option value="">Todos os sites</option></select><select class="filter-select" id="monitoringType"><option value="">Todos os tipos</option><option value="connector">Conectores</option><option value="olt">OLTs</option><option value="onu">ONUs</option><option value="camera">Cameras</option><option value="nvr">NVRs</option><option value="dvr">DVRs</option><option value="windows">Computadores</option></select><select class="filter-select" id="monitoringStatus"><option value="">Todos os estados</option><option value="down">Down</option><option value="unstable">Instavel</option><option value="unknown">Nao verificado</option><option value="up">Up</option><option value="maintenance">Em manutencao</option></select></div>
+          <div class="table-wrap monitoring-table-wrap"><table class="data-table monitoring-table"><colgroup><col class="col-type"><col class="col-device"><col class="col-site"><col class="col-state"><col class="col-since"><col class="col-checked"><col class="col-detail"></colgroup><thead><tr><th>TIPO</th><th>EQUIPAMENTO</th><th>SITE</th><th>ESTADO</th><th>HA QUANTO</th><th>ULTIMA VERIFICACAO</th><th>DETALHES</th></tr></thead><tbody id="monitoringRows"></tbody></table></div>
+          <div class="table-footer"><span id="monitoringFooter">0 equipamentos</span><span class="mn-muted">Ordenado por gravidade</span></div>
         </div>
       </section>
 
@@ -6698,7 +6706,7 @@
   <script src="js/cameraActivation.js?v=1790048800"></script>
   <script src="js/deployOlt.js?v=160"></script>
   <script src="js/connectors.js?v=1790632536"></script>
-  <script src="js/monitoring.js?v=1790696477"></script>
+  <script src="js/monitoring.js?v=1790705101"></script>
   <script src="js/planning.js?v=69"></script>
   <script src="js/helpers.js?v=144"></script>
   <script src="js/accessControl.js?v=89"></script>
