@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from datetime import datetime
 from pathlib import Path
@@ -545,7 +545,33 @@ def _column_set(include_switch: bool, include_olt: bool) -> List[Tuple[str, int]
     ]
 
 
-def _draw_table_pages(
+def _camera_online(row: Dict[str, Any]) -> bool:
+    """Camera no ar. O campo `status` e texto livre, entao aceita as variacoes."""
+    st = _to_text(row.get("status")).strip().lower()
+    return st in ("online", "on", "ok", "ativo", "ativa", "up")
+
+
+def _camera_site(row: Dict[str, Any]) -> str:
+    return _to_text(row.get("site") or row.get("site_name") or row.get("local")) or "Sem site"
+
+
+def _faixa_de_ips(rows: List[Dict[str, Any]]) -> str:
+    """Menor e maior IP do grupo, para o cartao de resumo."""
+    validos = []
+    for r in rows:
+        ip = _to_text(r.get("ip"))
+        partes = ip.split(".")
+        if len(partes) == 4 and all(p.isdigit() for p in partes):
+            validos.append((tuple(int(p) for p in partes), ip))
+    if not validos:
+        return "-"
+    validos.sort()
+    if len(validos) == 1:
+        return validos[0][1]
+    return f"{validos[0][1]} - {validos[-1][1]}"
+
+
+def _draw_camera_overview_pages(
     rows: List[Dict[str, Any]],
     sink: "_PageSink",
     site_label: str,
@@ -557,6 +583,128 @@ def _draw_table_pages(
     report_color: str = "",
     progress_cb: ProgressCb = None,
 ) -> None:
+    """Abre o relatorio com numeros consolidados e um cartao por site.
+
+    Espelha _draw_recorder_overview_pages, que e o formato que o usuario
+    aprovou: quatro indicadores no topo e, abaixo, um cartao por agrupamento.
+    """
+    total = len(rows)
+    online = sum(1 for r in rows if _camera_online(r))
+    offline = total - online
+    com_foto = sum(1 for r in rows if _pick_image_path(r) is not None)
+
+    # Um cartao por site, na ordem em que aparecem na tabela.
+    sites: List[Tuple[str, List[Dict[str, Any]]]] = []
+    indice: Dict[str, List[Dict[str, Any]]] = {}
+    for r in rows:
+        chave = _camera_site(r)
+        if chave not in indice:
+            indice[chave] = []
+            sites.append((chave, indice[chave]))
+        indice[chave].append(r)
+
+    page, draw = _new_page_landscape()
+    page_w, page_h = page.size
+    y = _draw_header(
+        page,
+        draw,
+        f"Relatorio tecnico | {module_label}",
+        f"Gerado em {datetime.now().strftime('%d/%m/%Y as %H:%M')}  ·  Site: {site_label}  ·  {total} camera{'s' if total != 1 else ''}",
+        company_name=company_name,
+        logo_path=logo_path,
+        report_color=report_color,
+    )
+    draw = ImageDraw.Draw(page)
+    color = _report_color(report_color)
+
+    card_gap = 26
+    card_w = (page_w - 2 * MARGIN_X - 3 * card_gap) // 4
+    card_h = 118
+    _draw_kpi_card(draw, MARGIN_X, y, card_w, card_h, "Cameras", str(total), color)
+    _draw_kpi_card(draw, MARGIN_X + (card_w + card_gap), y, card_w, card_h, "Online", str(online), STATUS_OK_FG)
+    _draw_kpi_card(draw, MARGIN_X + 2 * (card_w + card_gap), y, card_w, card_h, "Offline", str(offline), STATUS_BAD_FG)
+    _draw_kpi_card(draw, MARGIN_X + 3 * (card_w + card_gap), y, card_w, card_h, "Com foto", str(com_foto), color)
+    y += card_h + 42
+
+    draw.text((MARGIN_X, y), "Resumo por site", font=_load_font(30, bold=True), fill=INK)
+    y += 48
+
+    f_title = _load_font(25, bold=True)
+    f = _load_font(21, bold=False)
+    f_b = _load_font(21, bold=True)
+    f_mono = _load_mono_font(20, bold=False)
+    card_h2 = 168
+    w = page_w - (2 * MARGIN_X)
+
+    if not sites:
+        draw.rounded_rectangle((MARGIN_X, y, MARGIN_X + w, y + 90), radius=12,
+                               fill=CARD_BG, outline=BORDER_SOFT, width=2)
+        draw.text((MARGIN_X + 24, y + 32), "Nenhuma camera encontrada para o filtro atual.",
+                  font=f, fill=INK_MUTED)
+        sink.add(page)
+        return
+
+    for nome, itens in sites:
+        if y + card_h2 > page_h - MARGIN_Y - 80:
+            sink.add(page)
+            page, draw = _new_page_landscape()
+            page_w, page_h = page.size
+            y = _draw_header(
+                page, draw,
+                f"Resumo tecnico | {module_label}",
+                f"Site: {site_label}  ·  continuacao",
+                company_name=company_name, logo_path=logo_path, report_color=report_color,
+            )
+            draw = ImageDraw.Draw(page)
+            w = page_w - (2 * MARGIN_X)
+
+        n_on = sum(1 for r in itens if _camera_online(r))
+        n_foto = sum(1 for r in itens if _pick_image_path(r) is not None)
+        modelos = sorted({_to_text(r.get("modelo") or r.get("model")) for r in itens if _to_text(r.get("modelo") or r.get("model"))})
+        modelo_txt = ", ".join(modelos[:3]) + (f" (+{len(modelos) - 3})" if len(modelos) > 3 else "")
+
+        draw.rounded_rectangle((MARGIN_X, y, MARGIN_X + w, y + card_h2), radius=18,
+                               fill=CARD_BG, outline=BORDER_SOFT, width=2)
+        draw.text((MARGIN_X + 28, y + 22), _fit_text(draw, nome, f_title, w - 56), font=f_title, fill=INK)
+
+        col_w = (w - 56) // 3
+        linhas = [
+            [("Cameras:", str(len(itens))),
+             ("Online:", f"{n_on} de {len(itens)}"),
+             ("Com foto:", f"{n_foto} de {len(itens)}")],
+            [("Faixa de IP:", _faixa_de_ips(itens)),
+             ("Modelos:", modelo_txt or "-"),
+             ("Offline:", str(len(itens) - n_on))],
+        ]
+        yy = y + 74
+        for linha in linhas:
+            for i, (rotulo, valor) in enumerate(linha):
+                x = MARGIN_X + 28 + (i * col_w)
+                draw.text((x, yy), rotulo, font=f_b, fill=INK)
+                lw = draw.textlength(rotulo, font=f_b)
+                fonte_valor = f_mono if rotulo in ("Faixa de IP:",) else f
+                draw.text((x + lw + 10, yy),
+                          _fit_text(draw, valor, fonte_valor, col_w - lw - 30),
+                          font=fonte_valor, fill=INK_MUTED)
+            yy += 40
+        y += card_h2 + 24
+
+    sink.add(page)
+
+
+def _draw_table_pages(
+    rows: List[Dict[str, Any]],
+    sink: "_PageSink",
+    site_label: str,
+    company_name: str = "",
+    logo_path: Optional[Path] = None,
+    include_olt: bool = True,
+    include_switch: bool = False,
+    module_label: str = "Cameras IP",
+    report_color: str = "",
+    landscape: bool = True,
+    progress_cb: ProgressCb = None,
+) -> None:
     f_h = _load_font(23, bold=True)
     f = _load_font(23, bold=False)
     f_status = _load_font(19, bold=True)
@@ -564,18 +712,28 @@ def _draw_table_pages(
 
     color = _report_color(report_color)
     cols = _column_set(include_switch, include_olt)
+    # Em paisagem sobra quase metade de uma pagina de largura. Esticar as
+    # colunas na proporcao em que ja estao e o que acaba com o corte do
+    # titulo -- antes "03 - ESCOLA JOAO VIEIRA E UBS" virava "...VIEIRA E ...".
+    pag_w = A4_H if landscape else A4_W
+    pag_h = A4_W if landscape else A4_H
+    largura_util = pag_w - (2 * MARGIN_X) - 40
+    soma = sum(cw for _, cw in cols) or 1
+    if largura_util > soma:
+        fator = largura_util / soma
+        cols = [(nome, int(cw * fator)) for nome, cw in cols]
     line_h = 54
     header_h = 58
 
     idx = 0
     total = len(rows)
     while idx < total or (total == 0 and idx == 0):
-        page, draw = _new_page()
+        page, draw = _new_page_landscape() if landscape else _new_page()
         y = _draw_header(
             page,
             draw,
             f"Relatorio de inventario | {module_label}",
-            f"Gerado em {datetime.now().strftime('%d/%m/%Y as %H:%M')}  Â·  Site: {site_label}  Â·  {total} camera{'s' if total != 1 else ''}",
+            f"Gerado em {datetime.now().strftime('%d/%m/%Y as %H:%M')}  ·  Site: {site_label}  ·  {total} camera{'s' if total != 1 else ''}",
             company_name=company_name,
             logo_path=logo_path,
             report_color=report_color,
@@ -585,7 +743,7 @@ def _draw_table_pages(
         y += 50
 
         x0 = MARGIN_X
-        w = A4_W - (2 * MARGIN_X)
+        w = pag_w - (2 * MARGIN_X)
         draw.rounded_rectangle((x0, y, x0 + w, y + header_h), radius=12, fill=color)
         x = x0 + 20
         for name, cw in cols:
@@ -600,7 +758,7 @@ def _draw_table_pages(
             break
 
         row_top = y
-        while idx < total and y + line_h < A4_H - MARGIN_Y - 30:
+        while idx < total and y + line_h < pag_h - MARGIN_Y - 30:
             r = rows[idx]
             bg = CARD_BG if (idx % 2 == 0) else ROW_STRIPE
             draw.rectangle((x0, y, x0 + w, y + line_h), fill=bg)
@@ -690,7 +848,7 @@ def _draw_photo_pages(
             page,
             draw,
             f"Galeria de snapshots | {module_label}",
-            f"Gerado em {datetime.now().strftime('%d/%m/%Y as %H:%M')}  Â·  Site: {site_label}  Â·  {total} foto{'s' if total != 1 else ''}",
+            f"Gerado em {datetime.now().strftime('%d/%m/%Y as %H:%M')}  ·  Site: {site_label}  ·  {total} foto{'s' if total != 1 else ''}",
             company_name=company_name,
             logo_path=logo_path,
             report_color=report_color,
@@ -773,14 +931,14 @@ def _draw_photo_pages(
             if modelo:
                 info_bits.append(modelo)
             if info_bits:
-                draw.text((x + pad_x, info_y), _fit_text(draw, "  Â·  ".join(info_bits), f_txt, card_w - (pad_x * 2)), font=f_txt, fill=INK_MUTED)
+                draw.text((x + pad_x, info_y), _fit_text(draw, "  ·  ".join(info_bits), f_txt, card_w - (pad_x * 2)), font=f_txt, fill=INK_MUTED)
                 info_y += 26
 
             detail = ""
             if include_switch:
-                detail = f"Switch {(_to_text(r.get('switch_name')) or '-')}  Â·  Porta {(_to_text(r.get('switch_port')) or '-')}  Â·  VLAN {(_to_text(r.get('switch_vlan') or r.get('vlan')) or '-')}"
+                detail = f"Switch {(_to_text(r.get('switch_name')) or '-')}  ·  Porta {(_to_text(r.get('switch_port')) or '-')}  ·  VLAN {(_to_text(r.get('switch_vlan') or r.get('vlan')) or '-')}"
             elif include_olt:
-                detail = f"PON {(_to_text(r.get('pon') or r.get('PON')) or '-')}  Â·  ONU {(_to_text(r.get('onu_id') or r.get('ONU_ID')) or '-')}  Â·  SN {(_to_text(r.get('onu_serial') or r.get('ONU_SERIAL')) or '-')}"
+                detail = f"PON {(_to_text(r.get('pon') or r.get('PON')) or '-')}  ·  ONU {(_to_text(r.get('onu_id') or r.get('ONU_ID')) or '-')}  ·  SN {(_to_text(r.get('onu_serial') or r.get('ONU_SERIAL')) or '-')}"
             if detail:
                 draw.text((x + pad_x, info_y), _fit_text(draw, detail, f_txt_b, card_w - (pad_x * 2)), font=f_txt_b, fill=INK)
 
@@ -821,6 +979,23 @@ def build_inventory_pdf_report(
     try:
         sink = _PageSink(tmp_dir)
         if progress_cb:
+            progress_cb(0, len(rows_list), "resumo")
+        # Abre igual ao relatorio de gravadores: indicadores e um cartao por
+        # site. Antes o documento comecava na tabela crua, sem nenhum numero
+        # consolidado.
+        _draw_camera_overview_pages(
+            rows_list,
+            sink,
+            site_label,
+            company_name=company_name,
+            logo_path=logo_path,
+            include_olt=include_olt,
+            include_switch=include_switch,
+            module_label=module_label,
+            report_color=report_color,
+            progress_cb=progress_cb,
+        )
+        if progress_cb:
             progress_cb(0, len(rows_list), "tabela")
         _draw_table_pages(
             rows_list,
@@ -845,6 +1020,7 @@ def build_inventory_pdf_report(
                 include_switch=include_switch,
                 module_label=module_label,
                 report_color=report_color,
+                landscape=True,
                 progress_cb=progress_cb,
             )
 
@@ -1063,7 +1239,7 @@ def _draw_recorder_overview_pages(
         page,
         draw,
         f"Relatorio tecnico | Gravadores {label}",
-        f"Gerado em {datetime.now().strftime('%d/%m/%Y as %H:%M')}  Â·  Site: {site_label}  Â·  {len(groups)} gravador{'es' if len(groups) != 1 else ''}",
+        f"Gerado em {datetime.now().strftime('%d/%m/%Y as %H:%M')}  ·  Site: {site_label}  ·  {len(groups)} gravador{'es' if len(groups) != 1 else ''}",
         company_name=company_name,
         logo_path=logo_path,
         report_color=report_color,
@@ -1096,7 +1272,7 @@ def _draw_recorder_overview_pages(
                 page,
                 draw,
                 f"Resumo tecnico | Gravadores {label}",
-                f"Site: {site_label}  Â·  continuacao",
+                f"Site: {site_label}  ·  continuacao",
                 company_name=company_name,
                 logo_path=logo_path,
                 report_color=report_color,
@@ -1208,7 +1384,7 @@ def _draw_recorder_channel_table_pages(
             page,
             draw,
             f"Canais e cameras | Gravadores {label}",
-            f"Site: {site_label}  Â·  {total} canal{'is' if total != 1 else ''}",
+            f"Site: {site_label}  ·  {total} canal{'is' if total != 1 else ''}",
             company_name=company_name,
             logo_path=logo_path,
             report_color=report_color,
@@ -1342,7 +1518,7 @@ def build_recorder_pdf_report(
             )
 
         total_pages = len(sink)
-        note = f"{len(_recorder_groups(rows_list))} gravador(es) Â· {len(rows_list)} canal(is)"
+        note = f"{len(_recorder_groups(rows_list))} gravador(es) · {len(rows_list)} canal(is)"
         if progress_cb:
             progress_cb(0, total_pages, "finalizando")
         for i, p in enumerate(sink.paths, start=1):
@@ -1384,7 +1560,7 @@ def build_inventory_preview_image(
         page,
         draw,
         f"Preview do relatorio | {module_label}",
-        f"Gerado em {datetime.now().strftime('%d/%m/%Y as %H:%M')}  Â·  Site: {site_label}",
+        f"Gerado em {datetime.now().strftime('%d/%m/%Y as %H:%M')}  ·  Site: {site_label}",
         company_name=company_name,
         logo_path=logo_path,
         report_color=report_color,
@@ -1454,7 +1630,7 @@ def build_inventory_preview_image(
             y += line_h
         draw.rectangle((x0, row_top, x0 + w, y), outline=BORDER_SOFT, width=2)
 
-    _draw_footer(draw, 1, 1, note=f"Preview rapido Â· {len(rows_list)} camera{'s' if len(rows_list) != 1 else ''} no total")
+    _draw_footer(draw, 1, 1, note=f"Preview rapido · {len(rows_list)} camera{'s' if len(rows_list) != 1 else ''} no total")
 
     # Reduz resolucao para carregar rapido no browser
     preview = page.resize((1240, 1754))
