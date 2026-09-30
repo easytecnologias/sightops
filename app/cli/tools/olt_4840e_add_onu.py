@@ -50,10 +50,14 @@ logger = logging.getLogger(__name__)
 # Quantas vezes reenviar o onu-vlan-mode e quanto esperar antes de conferir.
 # A ONU recem-registrada costuma ignorar a primeira; 3s ja bastou nos testes.
 # Espera ANTES de cada conferencia da VLAN, em segundos. Progressivo de
-# proposito: quando a ONU ja esta pronta a 1a conferencia passa e o cadastro
-# termina rapido; a paciencia so entra quando ela demora. Soma ~31s no pior
-# caso, contra 30s fixos que atrasavam ate quem ia bem.
-_VLAN_ESPERAS = (1.0, 2.0, 4.0, 6.0, 8.0, 10.0)
+# proposito: com a ONU ja pronta a 1a conferencia passa (cadastro em ~8s) e a
+# paciencia so entra quando ela demora. Soma ~88s no pior caso.
+#
+# A janela e longa porque estar 'Up' nao basta: em 30/09/2026 uma ONU subiu,
+# aceitou o onu-vlan-mode e so aplicou depois de 30s -- o cadastro terminava
+# com a camera em VLAN 1, que nao transmite e so aparece em campo. Entre
+# demorar e sair errado, o driver demora e reaplica ate colar.
+_VLAN_ESPERAS = (1.0, 2.0, 4.0, 8.0, 12.0, 16.0, 20.0, 25.0)
 _VLAN_TENTATIVAS = len(_VLAN_ESPERAS)
 _VLAN_ESPERA_S = _VLAN_ESPERAS[0]
 
