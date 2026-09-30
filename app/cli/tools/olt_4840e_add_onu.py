@@ -48,12 +48,41 @@ _FAILURE_MARKERS = (
     "invalid parameter",
     "incomplete command",
     "unrecognized command",
+    # A OLT recusa operacao de whitelist quando a PON nao esta em white-list
+    # com "...is not white-list, so don't allowed to operate." -- frase que nao
+    # tem '%' nem nenhuma das outras. Sem este marcador o driver dava a operacao
+    # por feita: foi o que fez a exclusao de uma ONU responder OK em 29/09/2026
+    # sem tirar nada da OLT, e o que fez 50 comandos de whitelist recusados
+    # passarem por aplicados.
+    "allowed to operate",
 )
+
+# Respostas que NAO sao falha: a OLT esta dizendo que o estado desejado ja
+# vale. Tratar como erro faria o cadastro quebrar ao repetir uma ONU que ja
+# esta autorizada, e a exclusao quebrar numa ONU que ja saiu da lista.
+_WHITELIST_JA_PRESENTE = "the mac has existed"
+_WHITELIST_JA_AUSENTE = "the mac is not in white-list"
 
 
 def command_failed(output: str) -> bool:
     low = (output or "").strip().lower()
     return any(marker in low for marker in _FAILURE_MARKERS)
+
+
+def whitelist_add_ok(output: str) -> bool:
+    """True quando o MAC esta na whitelist depois do comando -- inclusive
+    quando ja estava antes ('The mac has existed.')."""
+    if _WHITELIST_JA_PRESENTE in (output or "").lower():
+        return True
+    return not command_failed(output)
+
+
+def whitelist_del_ok(output: str) -> bool:
+    """True quando o MAC nao esta mais na whitelist -- inclusive quando ja
+    nao estava ('The mac is not in white-list.')."""
+    if _WHITELIST_JA_AUSENTE in (output or "").lower():
+        return True
+    return not command_failed(output)
 
 
 _MAC_SHAPE_RE = re.compile(r"^(?:[0-9a-f]{2}:){5}[0-9a-f]{2}$")
@@ -448,7 +477,7 @@ def add_onu_4840e(
         cmd = f"white-list add mac {mac_norm}"
         out = _cli(chan, cmd, timeout=timeout)
         commands_run.append(cmd)
-        if command_failed(out):
+        if not whitelist_add_ok(out):
             raise OnuAddError(f"Falha ao adicionar {mac_norm} na whitelist da PON {pon}: {out.strip()[:300]}", cmd, commands_run)
 
         cmd = "show white-list"
@@ -547,11 +576,6 @@ def delete_onu_4840e(
         _cli(chan, cmd, timeout=timeout)
         commands_run.append(cmd)
 
-        cmd = f"no onu-binding onu {addr}"
-        out = _cli(chan, cmd, timeout=timeout)
-        commands_run.append(cmd)
-        binding_failed = command_failed(out)
-
         cmd = f"interface pon 0/{pon}"
         out = _cli(chan, cmd, timeout=timeout)
         commands_run.append(cmd)
@@ -559,14 +583,35 @@ def delete_onu_4840e(
             return {"ok": False, "pon": pon, "onu": onu, "commands_run": commands_run, "saved": False,
                     "error": f"Falha ao entrar na PON {pon} pra tirar da whitelist: {out.strip()[:300]}"}
 
+        # Conferir o modo ANTES de qualquer escrita. Com
+        # 'onu-authentication mode: disable' a OLT aceita qualquer ONU, entao
+        # tirar o binding nao adianta -- ela se re-registra em segundos e o
+        # operador ve a ONU de volta depois do sistema dizer que excluiu. Sair
+        # aqui deixa a OLT exatamente como estava, em vez de desvincular a ONU
+        # a toa e devolver um erro depois do estrago.
+        cmd = "show onu-authenticate mode"
+        mode_out = _cli(chan, cmd, timeout=timeout)
+        commands_run.append(cmd)
+        if _classify_auth_mode(mode_out) != "mac-auth":
+            return {"ok": False, "pon": pon, "onu": onu, "commands_run": commands_run, "saved": False,
+                    "error": (f"PON {pon} esta com a autenticacao de ONU desabilitada (nao e mac-auth/white-list). "
+                              "A OLT autoriza qualquer ONU sozinha, entao esta ONU voltaria a se registrar "
+                              "logo apos a exclusao. Ajuste o modo da PON antes de excluir por aqui.")}
+
         cmd = f"white-list del mac {mac_norm}"
         out = _cli(chan, cmd, timeout=timeout)
         commands_run.append(cmd)
-        whitelist_failed = command_failed(out)
+        whitelist_failed = not whitelist_del_ok(out)
 
         cmd = "exit"
         _cli(chan, cmd, timeout=timeout)
         commands_run.append(cmd)
+
+        cmd = f"no onu-binding onu {addr}"
+        out = _cli(chan, cmd, timeout=timeout)
+        commands_run.append(cmd)
+        binding_failed = command_failed(out)
+
         cmd = "end"
         _cli(chan, cmd, timeout=timeout)
         commands_run.append(cmd)
