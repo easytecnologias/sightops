@@ -150,6 +150,9 @@ class OltAddOnuRequest(BaseModel):
     description: str = ""
     service: str = "downlink"
     vlan: int
+    # "tag" marca a VLAN na porta da ONU (camera); "transparent" deixa passar
+    # sem marcar. A tela de Implantacao escolhe; o default mantem o que existia.
+    vlan_mode: str = "tag"
     services: List[OnuServiceEntry] = []
     tag_mode: str = "tagged"
     terminal: str = "onu"

@@ -31,6 +31,7 @@ manual oficial Intelbras 4840E (secoes 9.1-9.11):
 
 from __future__ import annotations
 
+import logging
 import re
 import time
 from typing import Any, Dict, List, Optional, Tuple
@@ -43,6 +44,13 @@ from app.cli.tools.olt_4840e_collect_macs import (
     _open_shell,
     _parse_mac_table_onu,
 )
+
+logger = logging.getLogger(__name__)
+
+# Quantas vezes reenviar o onu-vlan-mode e quanto esperar antes de conferir.
+# A ONU recem-registrada costuma ignorar a primeira; 3s ja bastou nos testes.
+_VLAN_TENTATIVAS = 4
+_VLAN_ESPERA_S = 4.0
 
 _FAILURE_MARKERS = (
     "invalid parameter",
@@ -439,6 +447,8 @@ def add_onu_4840e(
     port: int = 22,
     timeout: float = 15.0,
     register_wait: float = 45.0,
+    vlan_mode: str = "tag",
+    onu_position: int = 0,
 ) -> Dict[str, Any]:
     """Autoriza uma ONU pelo MAC (whitelist), espera ela se registrar, aplica
     descricao e VLAN por porta ethernet, libera p2p (camera) e salva a config.
@@ -513,21 +523,69 @@ def add_onu_4840e(
         # na whitelist apenas a autoriza. Enquanto nao registra, a OLT recusa
         # tudo com "has not bound mac or type". Por isso: perguntar o endereco
         # pelo MAC e dar tempo para ela aparecer.
-        onu_id = None
+        # Vincular MAC -> posicao EXPLICITAMENTE. Sem este passo a OLT so
+        # registra a ONU quando ela aparece, e ate la nada pode ser configurado
+        # ("has not bound mac or type"); pior, a ONU costuma aceitar o
+        # onu-vlan-mode sem aplicar, e o cadastro termina com a camera em VLAN 1.
+        # Com o binding a posicao existe na hora e a configuracao cola -- foi
+        # assim que a CAIXA-02 entrou certa em 30/09/2026, na mao.
+        cmd = f"show onu-status slot 0 port {pon}"
+        st_out = _cli(chan, cmd, timeout=timeout)
+        commands_run.append(cmd)
+        existentes = {int(r["onu"]): r for r in _parse_onu_status(st_out) if r.get("pon") == pon}
+
+        # A posicao escolhida: a que o MAC ja ocupa nesta PON, a pedida, ou a
+        # primeira livre.
+        ja = next((n for n, r in existentes.items() if _norm_mac(r.get("mac")) == mac_norm), None)
+        onu_id = ja if ja is not None else (
+            int(onu_position) if onu_position else next((n for n in range(1, 65) if n not in existentes), 0)
+        )
+        if not onu_id:
+            raise OnuAddError(f"PON {pon} sem posicao livre para a ONU.", cmd, commands_run)
+
+        # O binding vai SEMPRE, mesmo quando a ONU ja aparece no show onu-status.
+        # Depois de uma exclusao ela continua listada mas SEM vinculo, e ai todo
+        # comando de configuracao morre com "has not bound mac or type" -- foi o
+        # que aconteceu em 30/09/2026 ao recadastrar a CAIXA-02 logo apos
+        # exclui-la. Repetir um binding que ja existe e inofensivo.
+        cmd = f"onu-binding mac {mac_norm} onu 0/{pon}/{onu_id}"
+        out = _cli(chan, cmd, timeout=timeout)
+        commands_run.append(cmd)
+        if command_failed(out) and "has existed" not in out.lower() and "already" not in out.lower():
+            raise OnuAddError(
+                f"Falha ao vincular {mac_norm} na posicao 0/{pon}/{onu_id}: {out.strip()[:300]}",
+                cmd, commands_run,
+            )
+        # O vinculo tambem nao vale no mesmo instante: dar tempo antes de
+        # entrar no contexto da ONU.
+        time.sleep(_VLAN_ESPERA_S)
+
+        # Espera a posicao aparecer de fato antes de configurar.
+        # Nao basta a posicao existir: enquanto a ONU nao esta 'Up' ela aceita os
+        # comandos e nao os aplica (a config vai por OMCI). Esperar o estado Up
+        # e o que faz a VLAN colar de primeira, igual a configurar na mao numa
+        # ONU ja estabelecida.
         limite = time.time() + max(float(register_wait), 0.0)
+        vista = False
         while True:
             cmd = f"show onu-status mac {mac_norm}"
             st_out = _cli(chan, cmd, timeout=timeout)
             achadas = [r for r in _parse_onu_status(st_out) if r.get("pon") == pon]
             if achadas:
-                commands_run.append(cmd)
+                vista = True
                 onu_id = int(achadas[0]["onu"])
-                break
+                if str(achadas[0].get("state") or "").lower() == "up":
+                    commands_run.append(cmd)
+                    break
             if time.time() >= limite:
                 commands_run.append(cmd)
+                detalhe = (
+                    f"ficou vinculada em 0/{pon}/{onu_id} mas nao chegou a Up"
+                    if vista else "nao apareceu na PON"
+                )
                 raise OnuAddError(
-                    f"MAC {mac_norm} entrou na whitelist da PON {pon}, mas a ONU nao se registrou "
-                    f"em {register_wait:.0f}s. A autorizacao ficou gravada: confira se a ONU esta "
+                    f"MAC {mac_norm} entrou na whitelist da PON {pon} e {detalhe} em "
+                    f"{register_wait:.0f}s. A autorizacao ficou gravada: confira se a ONU esta "
                     "ligada e com fibra, e refaca o cadastro para aplicar descricao, VLAN e p2p.",
                     cmd, commands_run,
                 )
@@ -547,9 +605,16 @@ def add_onu_4840e(
             if command_failed(out):
                 raise OnuAddError(f"ONU autorizada, mas falha ao gravar descricao: {out.strip()[:300]}", cmd, commands_run, onu=onu_id)
 
+        # 'tag' e o modo de camera (marca a VLAN na porta da ONU); 'transparent'
+        # deixa passar sem marcar, que e o padrao de fabrica. Ate 30/09/2026 o
+        # driver so sabia 'tag' e a tela nao deixava escolher.
+        modo = str(vlan_mode or "tag").strip().lower()
+        if modo not in ("tag", "transparent"):
+            modo = "tag"
+
         for entry in ports:
             vlan = entry.get("vlan")
-            if not vlan:
+            if modo == "tag" and not vlan:
                 continue
             eth_port = int(entry.get("port") or 1)
             cmd = f"interface ethernet 0/{eth_port}"
@@ -557,11 +622,44 @@ def add_onu_4840e(
             commands_run.append(cmd)
             if command_failed(out):
                 raise OnuAddError(f"ONU autorizada, mas falha ao entrar na porta ethernet {eth_port}: {out.strip()[:300]}", cmd, commands_run, onu=onu_id)
-            cmd = f"onu-vlan-mode tag vlan {vlan}"
-            out = _cli(chan, cmd, timeout=timeout)
-            commands_run.append(cmd)
-            if command_failed(out):
-                raise OnuAddError(f"ONU autorizada, mas falha ao aplicar VLAN {vlan} na porta {eth_port}: {out.strip()[:300]}", cmd, commands_run, onu=onu_id)
+            cmd = "onu-vlan-mode transparent" if modo == "transparent" else f"onu-vlan-mode tag vlan {vlan}"
+            # A ONU recem-registrada aceita o comando na OLT (entra no
+            # running-config) mas NAO o aplica -- a config vai pra ela por OMCI e
+            # ela ainda nao esta pronta. O resultado era uma ONU com
+            # "onu-vlan-mode tag vlan 3000" no config da OLT e o trafego saindo
+            # em VLAN 1/4005, indistinguivel de sucesso (30/09/2026, CAIXA-02).
+            # Dar o mesmo comando de novo, mais tarde, resolve -- entao aplica,
+            # espera, confere no proprio equipamento e repete se preciso.
+            aplicado = False
+            for tentativa in range(1, _VLAN_TENTATIVAS + 1):
+                out = _cli(chan, cmd, timeout=timeout)
+                commands_run.append(cmd if tentativa == 1 else f"{cmd}   (tentativa {tentativa})")
+                if command_failed(out):
+                    raise OnuAddError(
+                        f"ONU autorizada, mas falha ao aplicar modo {modo} na porta {eth_port}: {out.strip()[:300]}",
+                        cmd, commands_run, onu=onu_id,
+                    )
+                time.sleep(_VLAN_ESPERA_S)
+                conferido = " ".join(_cli(chan, "show onu-vlan-mode", timeout=timeout).split())
+                commands_run.append("show onu-vlan-mode")
+                if modo == "transparent":
+                    aplicado = "transparent" in conferido
+                else:
+                    aplicado = f"default vlan : {vlan}" in conferido
+                if aplicado:
+                    break
+                logger.warning(
+                    "ONU 0/%s/%s porta %s tentativa %d: pedi %s e a OLT devolveu '%s'",
+                    pon, onu_id, eth_port, tentativa, modo, conferido[-110:],
+                )
+            if not aplicado:
+                raise OnuAddError(
+                    f"ONU autorizada, mas a porta {eth_port} nao assumiu o modo {modo}"
+                    + (f" com VLAN {vlan}" if modo == "tag" else "")
+                    + f" apos {_VLAN_TENTATIVAS} tentativas. A ONU aceita o comando e nao aplica; "
+                      "reenvie o cadastro em alguns segundos.",
+                    cmd, commands_run, onu=onu_id,
+                )
             cmd = "exit"
             _cli(chan, cmd, timeout=timeout)
             commands_run.append(cmd)

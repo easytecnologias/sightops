@@ -653,13 +653,71 @@ def _virtualize_olt_ip(req) -> None:
     so arma o contexto; a virtualizacao acontece no ponto de conexao do driver e
     nao contamina o dado gravado. Gated: sem mapa vnat, reach_olt_ip devolve o
     IP real, entao site nao isolado nao muda."""
+    connector_id = str(
+        getattr(req, "remote_connector_id", None) or getattr(req, "connector_id", None) or ""
+    ).strip()
     try:
         from app.services import connector_routing_vnat as _vnat
-        _vnat.set_olt_reach_connector(
-            str(getattr(req, "remote_connector_id", None) or getattr(req, "connector_id", None) or "").strip()
-        )
+        _vnat.set_olt_reach_connector(connector_id)
+    except Exception:
+        return
+    _exigir_tunel_vivo(req, connector_id)
+
+
+# Quantos minutos sem handshake do wgc antes de considerar o tunel fora. O
+# WireGuard renova a cada ~2 min; os conectores saudaveis ficam abaixo de 3.
+_TUNEL_PARADO_MIN = 10.0
+
+
+def _exigir_tunel_vivo(req, connector_id: str) -> None:
+    """Falha cedo, e explicando, quando a OLT so e alcancavel por um tunel que
+    esta fora.
+
+    O status do conector nao serve aqui: em conector migrado o heartbeat do
+    agente vai pro PROD e o v3 mostra "offline" com o tunel de pe. Quem diz a
+    verdade e o handshake do wgc, que o iso-provisioner grava em
+    connector_liveness.json.
+
+    Sem isto o operador levava um "timed out" seco depois de 15s: em 30/09/2026
+    tres conectores (SANTANA, UFV-DEMERVAL-LOBAO, PORTO REAL) cairam no mesmo
+    segundo e a tela de ONU so dizia "timed out", sem indicar que o problema era
+    o link do site e nao a OLT."""
+    if not connector_id:
+        return
+    try:
+        from app.services import connector_routing_vnat as _vnat
+        real = str(getattr(req, "olt_ip", "") or "").strip()
+        # So exige tunel quando a conexao REALMENTE vai pelo IP virtual.
+        if not real or str(_vnat.reach_olt_ip(real) or real) == real:
+            return
+    except Exception:
+        return
+
+    try:
+        with open(DATA_DIR / "connector_liveness.json", "r", encoding="utf-8") as fh:
+            liveness = json.load(fh)
+        visto = float(liveness.get(connector_id) or 0)
+    except Exception:
+        return  # sem o arquivo, segue o fluxo antigo em vez de bloquear
+    if not visto:
+        return
+
+    parado_min = (time.time() - visto) / 60.0
+    if parado_min <= _TUNEL_PARADO_MIN:
+        return
+
+    nome = connector_id
+    try:
+        conector = get_connector(connector_id, include_token=False, enforce_tenant=True) or {}
+        nome = str(conector.get("name") or connector_id)
     except Exception:
         pass
+    raise HTTPException(
+        409,
+        f"O tunel do conector {nome} esta sem handshake ha {parado_min:.0f} min. "
+        "Esta OLT so e alcancavel por esse tunel, entao a operacao falharia por "
+        "timeout. Verifique o link do site antes de tentar de novo.",
+    )
 
 
 def collect_macs(req: OltCollectMacsRequest) -> Dict[str, Any]:
@@ -1415,6 +1473,7 @@ def add_onu(req: OltAddOnuRequest) -> Dict[str, Any]:
                     olt_ip=req.olt_ip, user=req.user, password=req.password,
                     pon=req.pon, mac=req.serial, description=req.description,
                     ports=ports, timeout=req.timeout,
+                    vlan_mode=str(getattr(req, "vlan_mode", "") or "tag"),
                 )
             elif _is_vsol(req):
                 vsol_result = add_onu_vsol(

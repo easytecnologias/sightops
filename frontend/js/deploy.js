@@ -1684,6 +1684,9 @@ function onuUpdatePonSelectors() {
   const row = onuSelectedRegistryRow();
   const count = onuPonCountForRow(row);
   onuRenderPonSelectOptions(document.getElementById('onuOltPon'), count, true);
+  // A PON de autorizar fica no proprio formulario: antes o tecnico tinha que
+  // subir ate "Conexao com a OLT" so pra troca-la.
+  onuRenderPonSelectOptions(document.getElementById('onuAddPonEpon'), count, false);
   onuRenderPonSelectOptions(document.getElementById('onuQueryPon'), count, false);
   onuRenderPonSelectOptions(document.getElementById('onuRebootPon'), count, false);
   onuRenderPonSelectOptions(document.getElementById('onuDeletePon'), count, false);
@@ -2398,9 +2401,14 @@ async function onuAddEpon(olt) {
     port: Number(row.querySelector('.onu-eth-port-epon')?.value || 1),
     vlan: Number(row.querySelector('.onu-eth-vlan-epon')?.value || 0),
   })).filter(s => s.vlan > 0);
-  const ponSelect = document.getElementById('onuOltPon');
-  const pon = Number(ponSelect?.value || '0');
+  // PON do proprio formulario; o seletor do topo fica so como padrao inicial.
+  const pon = Number(document.getElementById('onuAddPonEpon')?.value
+    || document.getElementById('onuOltPon')?.value || '0');
   if (!pon) { showToast('Escolha a PON.', true); return; }
+  const vlanMode = document.getElementById('onuAddVlanModeEpon')?.value || 'tag';
+  if (vlanMode === 'tag' && !services.length) {
+    showToast('No modo Tag e preciso informar a VLAN.', true); return;
+  }
 
   const ticker = onuStartTicker('onuAddResult', 'Autorizando ONU na OLT');
   const res = await api('/api/olt/add-onu', {
@@ -2409,7 +2417,7 @@ async function onuAddEpon(olt) {
       olt_id: olt.olt_id || null, olt_ip: olt.olt_ip, user: olt.user, password: olt.password,
       olt_vendor: olt.olt_vendor, olt_model: olt.olt_model,
       pon, serno_id: 0, serial: mac, description,
-      vlan: services[0]?.vlan || 0,
+      vlan: services[0]?.vlan || 0, vlan_mode: vlanMode,
       services: services.map(s => ({ service: 'downlink', vlan: s.vlan, port: s.port })),
       site: olt.site || '', olt_name: olt.olt_name || '',
       connector_id: olt.connector_id || '', remote_connector_id: olt.remote_connector_id || '', connector_name: olt.connector_name || '',

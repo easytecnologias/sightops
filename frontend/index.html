@@ -4081,6 +4081,21 @@
                 <div id="onuAddFieldsEpon" class="hidden">
                   <div class="form-row">
                     <div class="form-group">
+                      <label>PON
+                        <select id="onuAddPonEpon"></select>
+                      </label>
+                    </div>
+                    <div class="form-group">
+                      <label>Modo da ONU
+                        <select id="onuAddVlanModeEpon">
+                          <option value="tag">Tag - VLAN fixa (camera)</option>
+                          <option value="transparent">Transparent - sem marcar VLAN</option>
+                        </select>
+                      </label>
+                    </div>
+                  </div>
+                  <div class="form-row">
+                    <div class="form-group">
                       <label>MAC da ONU
                         <input type="text" id="onuAddMacEpon" placeholder="aa:bb:cc:dd:ee:ff">
                       </label>
@@ -6702,7 +6717,7 @@
   <script src="js/maintenance.js?v=146"></script>
   <script src="js/analysis.js?v=147"></script>
   <script src="js/network.js?v=158"></script>
-  <script src="js/deploy.js?v=1790357244"></script>
+  <script src="js/deploy.js?v=1790782258"></script>
   <script src="js/cameraActivation.js?v=1790048800"></script>
   <script src="js/deployOlt.js?v=160"></script>
   <script src="js/connectors.js?v=1790632536"></script>
