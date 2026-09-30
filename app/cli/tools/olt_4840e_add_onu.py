@@ -256,7 +256,12 @@ def _classify_auth_mode(output: str) -> str:
     'disable' (ainda nao configurado) -- 'loid-auth'/'hybrid-auth' sao
     esquemas diferentes que este driver nao deve sobrescrever sozinho."""
     low = (output or "").lower()
-    if "mac-auth" in low:
+    # A OLT CONFIGURA com "onu-authenticate mode mac-auth white-list" mas
+    # RELATA so "onu-authentication mode: white-list" -- sem a palavra
+    # "mac-auth". Sem aceitar as duas grafias, uma PON corretamente
+    # configurada era lida como "disable": a tela de exclusao passou a recusar
+    # ONU de PON ja migrada, dizendo que a autenticacao estava desabilitada.
+    if "mac-auth" in low or "white-list" in low:
         return "mac-auth"
     if "loid-auth" in low:
         return "loid-auth"
