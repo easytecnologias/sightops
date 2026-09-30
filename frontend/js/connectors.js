@@ -501,11 +501,10 @@ async function openConnectorWinbox(connectorId) {
     showToast('Este conector nao tem IP de tunel (VPN) configurado.', true);
     return;
   }
-  const salvas = connectorSavedPorts(connectorId);
-  if (salvas.length === 1) {
-    await abrirTunelWinbox(connectorId, Number(salvas[0].port));
-    return;
-  }
+  // Sempre pela lista de portas, mesmo com uma so salva. O atalho que abria
+  // direto deixava o conector preso na primeira porta cadastrada: nao havia
+  // tela para trocar, e cada MikroTik atende numa porta diferente (JAPARATINGA
+  // na 8291, os outros na 3854). Um caminho so, igual em todo conector.
   openConnectorPortsModal(connectorId);
 }
 
