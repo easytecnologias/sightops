@@ -50,7 +50,7 @@ route_add 10.201.0.7/32 wgc3 1003
 route_add 10.0.0.0/23 wgc3 1003
 vnat 10.208.128.0/23 10.0.0.0/23 wgc3 1003 10.201.0.6 0x5103 20003
 # ---- SANTANA (8e22b6f911073e79) index 4 ----
-wg_iface wgc4 52004 10.201.0.8/31 1004 10004 "HrtMyJx0hgd6H48o1YQvf6RIFpF1ya82vC2C/K/b0EM=" "10.201.0.9/32,100.64.8.0/22"
+wg_iface wgc4 52004 10.201.0.8/31 1004 10004 "11nMyoe8X0bDR0AGNKUoiLfcgUsjvciatyBPpGiyVhQ=" "10.201.0.9/32,100.64.8.0/22"
 route_add 10.201.0.9/32 wgc4 1004
 route_add 100.64.8.0/22 wgc4 1004
 vnat 10.208.192.0/22 100.64.8.0/22 wgc4 1004 10.201.0.8 0x5104 20004
