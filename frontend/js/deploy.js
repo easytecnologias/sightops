@@ -1600,7 +1600,23 @@ async function refreshOnuConnectors() {
     _connectors = _connectors || [];
   }
   const current = sel.value;
-  const rows = _routerConnectors();
+  // So faz sentido escolher um conector que tenha OLT cadastrada -- pelos
+  // outros nao ha o que provisionar, e a lista cheia so atrapalha o tecnico.
+  // Se nenhuma OLT tiver conector (tudo local), mostra todos em vez de deixar
+  // a lista vazia.
+  if (!_onuRegistryRows.length) {
+    try {
+      const reg = await apiJson('/api/olt/registry');
+      _onuRegistryRows = (Array.isArray(reg?.items) ? reg.items : []).filter(row => row?.active);
+    } catch { /* segue com a lista cheia */ }
+  }
+  const comOlt = new Set(_onuRegistryRows
+    .map(row => String(row?.connector_id || row?.remote_connector_id || '').trim())
+    .filter(Boolean));
+  const todos = _routerConnectors();
+  const rows = comOlt.size
+    ? todos.filter(c => comOlt.has(String(c.id || c.connector_id || '').trim()))
+    : todos;
   sel.innerHTML = '<option value="">Escolha a origem de acesso</option><option value="__local__">Local / VPN do servidor</option>' + rows.map(c => {
     const online = _connectorIsOnline(c);
     const tunnel = _connectorHasTunnel(c) ? ' + VPN' : '';
@@ -2627,10 +2643,52 @@ function onuLinhaTelemetria(data) {
   return partes.join(' &nbsp;&middot;&nbsp; ') || 'sem telemetria';
 }
 
+// Nem sempre o tecnico sabe a posicao da ONU -- em campo ele tem o MAC na
+// etiqueta. Quando o MAC vem preenchido, pergunta a posicao para a propria OLT
+// ('show onu-status mac <mac>') antes de consultar/reiniciar/excluir.
+async function onuPosicaoPorMac(olt, mac) {
+  const res = await api('/api/olt/find-onu', {
+    method: 'POST',
+    body: JSON.stringify({
+      olt_id: olt.olt_id || null, olt_ip: olt.olt_ip, user: olt.user, password: olt.password,
+      olt_vendor: olt.olt_vendor, olt_model: olt.olt_model, serial: mac,
+      connector_id: olt.connector_id || '', remote_connector_id: olt.remote_connector_id || '', connector_name: olt.connector_name || '',
+    }),
+  });
+  const data = await res?.json().catch(() => ({}));
+  if (!res?.ok || data?.ok === false) {
+    return { erro: data?.error || data?.detail || 'MAC nao encontrado nesta OLT.' };
+  }
+  return { pon: Number(data.pon || 0), onu: Number(data.onu || 0) };
+}
+
+// Resolve o alvo dos passos EPON: posicao digitada tem prioridade; senao usa o
+// MAC. Devolve {pon, onu} ou null (ja avisando o tecnico).
+async function onuAlvoEpon(olt, prefixo, caixaResultado) {
+  const pon = Number(document.getElementById(`${prefixo}PonEpon`)?.value || '0');
+  const onuNum = Number(document.getElementById(`${prefixo}OnuNumEpon`)?.value || '0');
+  const mac = (document.getElementById(`${prefixo}MacEpon`)?.value || '').trim();
+  if (pon && onuNum) return { pon, onu: onuNum };
+  if (!mac) { showToast('Informe PON e numero da ONU, ou o MAC.', true); return null; }
+  const ticker = onuStartTicker(caixaResultado, 'Procurando a ONU pelo MAC na OLT');
+  const achado = await onuPosicaoPorMac(olt, mac);
+  onuStopTicker(ticker);
+  if (achado.erro || !achado.pon || !achado.onu) {
+    onuSetResult(caixaResultado, esc(achado.erro || 'MAC nao encontrado nesta OLT.'), true);
+    return null;
+  }
+  const ponEl = document.getElementById(`${prefixo}PonEpon`);
+  const onuEl = document.getElementById(`${prefixo}OnuNumEpon`);
+  if (ponEl) ponEl.value = String(achado.pon);
+  if (onuEl) onuEl.value = String(achado.onu);
+  showToast(`MAC ${mac} esta na PON ${achado.pon} / posicao ${achado.onu}.`);
+  return achado;
+}
+
 async function onuQueryEpon(olt) {
-  const pon = Number(document.getElementById('onuQueryPonEpon')?.value || '0');
-  const onuNum = Number(document.getElementById('onuQueryOnuNumEpon')?.value || '0');
-  if (!pon || !onuNum) { showToast('Informe PON e numero da ONU.', true); return; }
+  const alvo = await onuAlvoEpon(olt, 'onuQuery', 'onuQueryResult');
+  if (!alvo) return;
+  const { pon, onu: onuNum } = alvo;
 
   const ticker = onuStartTicker('onuQueryResult', 'Consultando sinal da ONU');
   const res = await api('/api/olt/onu-signal', {
@@ -2754,9 +2812,9 @@ async function onuQuery() {
 }
 
 async function onuRebootEpon(olt) {
-  const pon = Number(document.getElementById('onuRebootPonEpon')?.value || '0');
-  const onuNum = Number(document.getElementById('onuRebootOnuNumEpon')?.value || '0');
-  if (!pon || !onuNum) { showToast('Informe PON e numero da ONU.', true); return; }
+  const alvo = await onuAlvoEpon(olt, 'onuReboot', 'onuRebootResult');
+  if (!alvo) return;
+  const { pon, onu: onuNum } = alvo;
 
   const ticker = onuStartTicker('onuRebootResult', 'Reiniciando ONU na OLT');
   const res = await api('/api/olt/reboot-onu', {
@@ -2848,9 +2906,9 @@ function openOnuDeleteModal() { document.getElementById('modalOnuDelete')?.class
 function closeOnuDeleteModal() { document.getElementById('modalOnuDelete')?.classList.add('hidden'); }
 
 async function onuDeleteEpon(olt) {
-  const pon = Number(document.getElementById('onuDeletePonEpon')?.value || '0');
-  const onuNum = Number(document.getElementById('onuDeleteOnuNumEpon')?.value || '0');
-  if (!pon || !onuNum) { showToast('Informe PON e numero da ONU.', true); return; }
+  const alvo = await onuAlvoEpon(olt, 'onuDelete', 'onuDeleteResult');
+  if (!alvo) return;
+  const { pon, onu: onuNum } = alvo;
 
   _onuDeleteTarget = { olt, pon, onu: onuNum, vlanHint: '' };
   const panoramaEl = document.getElementById('onuDeletePanorama');

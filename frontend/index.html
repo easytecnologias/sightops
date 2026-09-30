@@ -4008,8 +4008,12 @@
               </div>
             </details>
 
-            <details class="onu-step" name="onuAccordion" id="onuStepDiscover">
-              <summary><span class="onu-step-title">1. Descobrir ONUs nao autorizadas</span></summary>
+            <!-- Descobrir ONUs nao autorizadas: a 4840E nao devolve lista de nao
+                 autorizadas de forma confiavel, entao o passo so confundia o tecnico
+                 (30/09/2026). Fica oculto, nao removido: deploy.js ainda procura
+                 btnOnuDiscover/onuDiscoverResult. -->
+            <details class="onu-step" name="onuAccordion" id="onuStepDiscover" style="display:none">
+              <summary><span class="onu-step-title">Descobrir ONUs nao autorizadas</span></summary>
               <div class="onu-step-body">
                 <div class="deploy-inline-button" style="margin:2px 0 10px">
                   <button class="secondary-action" id="btnOnuDiscover" type="button"><i data-lucide="radar"></i> Descobrir na PON</button>
@@ -4020,7 +4024,7 @@
             </details>
 
             <details class="onu-step" name="onuAccordion" id="onuStepAdd">
-              <summary><span class="onu-step-title">2. Autorizar (adicionar) ONU</span></summary>
+              <summary><span class="onu-step-title">1. Autorizar (adicionar) ONU</span></summary>
               <div class="onu-step-body">
                 <div id="onuAddFieldsGpon">
                 <div class="form-row">
@@ -4152,7 +4156,7 @@
             </details>
 
             <details class="onu-step" name="onuAccordion" id="onuStepQuery">
-              <summary><span class="onu-step-title">3. Consultar sinal e MACs</span></summary>
+              <summary><span class="onu-step-title">2. Consultar sinal e MACs</span></summary>
               <div class="onu-step-body">
                 <div id="onuQueryFieldsGpon" class="form-row" style="grid-template-columns:minmax(120px,.55fr) minmax(180px,1fr) minmax(260px,1.25fr)">
                   <div class="form-group">
@@ -4174,7 +4178,7 @@
                     <input id="onuQuerySerial" placeholder="VSOL00181583">
                   </div>
                 </div>
-                <div id="onuQueryFieldsEpon" class="hidden form-row" style="grid-template-columns:1fr 1fr auto;align-items:end">
+                <div id="onuQueryFieldsEpon" class="hidden form-row" style="grid-template-columns:1fr 1fr 1.3fr auto;align-items:end">
                   <div class="form-group">
                     <label>PON
                       <select id="onuQueryPonEpon"></select>
@@ -4183,6 +4187,11 @@
                   <div class="form-group">
                     <label>ONU (posicao)
                       <input type="number" min="1" id="onuQueryOnuNumEpon">
+                    </label>
+                  </div>
+                  <div class="form-group">
+                    <label>Ou MAC da ONU
+                      <input id="onuQueryMacEpon" placeholder="30:e1:f1:3e:a0:3f" autocomplete="off">
                     </label>
                   </div>
                   <div class="form-group" id="onuQueryBtnSlotEpon">
@@ -4212,7 +4221,7 @@
             </details>
 
             <details class="onu-step" name="onuAccordion" id="onuStepReboot">
-              <summary><span class="onu-step-title">4. Reiniciar ONU</span></summary>
+              <summary><span class="onu-step-title">3. Reiniciar ONU</span></summary>
               <div class="onu-step-body">
                 <div id="onuRebootFieldsGpon" class="form-row">
                   <div class="form-group">
@@ -4233,7 +4242,7 @@
                     <input id="onuRebootOnuNum" type="number" placeholder="Ex: 4">
                   </div>
                 </div>
-                <div id="onuRebootFieldsEpon" class="hidden form-row" style="grid-template-columns:1fr 1fr auto;align-items:end">
+                <div id="onuRebootFieldsEpon" class="hidden form-row" style="grid-template-columns:1fr 1fr 1.3fr auto;align-items:end">
                   <div class="form-group">
                     <label>PON
                       <select id="onuRebootPonEpon"></select>
@@ -4242,6 +4251,11 @@
                   <div class="form-group">
                     <label>ONU (posicao)
                       <input type="number" min="1" id="onuRebootOnuNumEpon">
+                    </label>
+                  </div>
+                  <div class="form-group">
+                    <label>Ou MAC da ONU
+                      <input id="onuRebootMacEpon" placeholder="30:e1:f1:3e:a0:3f" autocomplete="off">
                     </label>
                   </div>
                   <div class="form-group" id="onuRebootBtnSlotEpon">
@@ -4275,7 +4289,7 @@
             </details>
 
             <details class="onu-step" name="onuAccordion" id="onuStepDelete">
-              <summary><span class="onu-step-title">5. Excluir ONU</span></summary>
+              <summary><span class="onu-step-title">4. Excluir ONU</span></summary>
               <div class="onu-step-body">
                 <div id="onuDeleteFieldsGpon" class="form-row">
                   <div class="form-group">
@@ -4296,7 +4310,7 @@
                     <input id="onuDeleteOnuNum" type="number" placeholder="Ex: 4">
                   </div>
                 </div>
-                <div id="onuDeleteFieldsEpon" class="hidden form-row" style="grid-template-columns:1fr 1fr auto;align-items:end">
+                <div id="onuDeleteFieldsEpon" class="hidden form-row" style="grid-template-columns:1fr 1fr 1.3fr auto;align-items:end">
                   <div class="form-group">
                     <label>PON
                       <select id="onuDeletePonEpon"></select>
@@ -4305,6 +4319,11 @@
                   <div class="form-group">
                     <label>ONU (posicao)
                       <input type="number" min="1" id="onuDeleteOnuNumEpon">
+                    </label>
+                  </div>
+                  <div class="form-group">
+                    <label>Ou MAC da ONU
+                      <input id="onuDeleteMacEpon" placeholder="30:e1:f1:3e:a0:3f" autocomplete="off">
                     </label>
                   </div>
                   <div class="form-group" id="onuDeleteBtnSlotEpon">
@@ -6717,7 +6736,7 @@
   <script src="js/maintenance.js?v=146"></script>
   <script src="js/analysis.js?v=147"></script>
   <script src="js/network.js?v=158"></script>
-  <script src="js/deploy.js?v=1790785206"></script>
+  <script src="js/deploy.js?v=1790801777"></script>
   <script src="js/cameraActivation.js?v=1790048800"></script>
   <script src="js/deployOlt.js?v=160"></script>
   <script src="js/connectors.js?v=1790632536"></script>
