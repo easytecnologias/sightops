@@ -612,10 +612,16 @@ def delete_onu_4840e(
         _cli(chan, cmd, timeout=timeout)
         commands_run.append(cmd)
 
+        # 'no onu-binding' abre "This operation will clean all the configuration
+        # of the onu, Are you sure ... (y/n)?[n]". Sem responder 'y' a OLT
+        # cancela pelo default e a entrada fica na tabela: a ONU perdia o
+        # servico (saiu da whitelist) mas a posicao nunca liberava.
         cmd = f"no onu-binding onu {addr}"
-        out = _cli(chan, cmd, timeout=timeout)
+        out, confirmado = _cli_confirm_yn(chan, cmd, timeout=max(timeout, 25.0))
         commands_run.append(cmd)
-        binding_failed = command_failed(out)
+        if confirmado:
+            commands_run.append("y")
+        binding_failed = command_failed(out) or not confirmado
 
         cmd = "end"
         _cli(chan, cmd, timeout=timeout)
@@ -642,12 +648,18 @@ def delete_onu_4840e(
             pass
 
 
-def _cli_confirm_reboot(chan, cmd: str, timeout: float) -> Tuple[str, bool]:
-    """So usada por reboot_onu_4840e. Manda `cmd`, espera o prompt de
-    confirmacao '(y/n)?[n]' aparecer e responde 'y' explicitamente -- nunca
-    conta com o proximo comando da fila pra responder (ver restricao de
-    seguranca no topo do plano: foi exatamente essa suposicao que quase
-    causou um reboot real da OLT inteira durante a investigacao).
+def _cli_confirm_yn(chan, cmd: str, timeout: float) -> Tuple[str, bool]:
+    """Para todo comando que abre um '(y/n)?[n]'. Hoje: 'onu-reboot' e
+    'no onu-binding'. Manda `cmd`, espera o prompt de confirmacao aparecer e
+    responde 'y' explicitamente -- nunca conta com o proximo comando da fila
+    pra responder (ver restricao de seguranca no topo do plano: foi exatamente
+    essa suposicao que quase causou um reboot real da OLT inteira durante a
+    investigacao).
+
+    O default da OLT e 'n': quem manda o comando e NAO confirma tem a operacao
+    cancelada em silencio. Foi assim que a exclusao de ONU tirava o MAC da
+    whitelist (derrubando o servico) mas nunca removia o binding -- a entrada
+    continuava na tabela e a posicao nunca liberava.
 
     Devolve (output, answered) -- `answered` so vira True depois de ver o
     texto real de confirmacao E mandar 'y'. So retorna no prompt generico
@@ -704,7 +716,7 @@ def reboot_onu_4840e(
                     "error": f"Falha ao entrar no contexto {addr}: {out.strip()[:300]}"}
 
         cmd = "onu-reboot"
-        out, answered = _cli_confirm_reboot(chan, cmd, timeout=timeout)
+        out, answered = _cli_confirm_yn(chan, cmd, timeout=timeout)
         commands_run.append(cmd)
         if answered:
             commands_run.append("y")
