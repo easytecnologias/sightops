@@ -1704,6 +1704,17 @@ def delete_onu(req: OltDeleteOnuRequest) -> Dict[str, Any]:
             if result.get("ok"):
                 result["inventory"] = _remove_onu_inventory(req)
                 result["camera_topology"] = _clear_deleted_onu_from_camera_inventory(req)
+                # O painel de monitoramento so reconcilia a cada 120s. Sem isto
+                # o tecnico excluia a ONU, ia conferir e a via ainda la como
+                # "Down" -- e repetia a exclusao achando que nao tinha
+                # funcionado (30/09/2026, BARRA 0/1/11).
+                try:
+                    from app.services.monitoring_service import forget_onu
+                    result["monitoring_forgotten"] = forget_onu(req.olt_ip, req.pon, req.onu)
+                except Exception:
+                    # Nao derruba a exclusao, que ja aconteceu na OLT: o ciclo
+                    # de reconciliacao ainda limpa sozinho depois.
+                    logger.warning("nao consegui esquecer a ONU no monitoramento", exc_info=True)
             log_onu_action(
                 "delete_onu", olt_id=req.olt_id, olt_ip=req.olt_ip, site=req.site,
                 pon=req.pon, onu=req.onu, serial=req.serial, vlan=req.vlan_hint, ok=bool(result.get("ok")),

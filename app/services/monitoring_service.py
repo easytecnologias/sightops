@@ -355,6 +355,66 @@ def refresh_from_inventory() -> Dict[str, Any]:
     return {"ok": True, "tenant": _tenant(), "observed": counts, "total": sum(counts.values())}
 
 
+def forget_entity(entity_key: str) -> bool:
+    """Esquece uma entidade AGORA, sem esperar o ciclo de reconciliacao.
+
+    refresh_from_inventory() ja poda o que sumiu do inventario, mas so passa a
+    cada 120s. Quem acabava de excluir uma ONU na OLT ia conferir no painel e
+    via o equipamento ainda la, como "Down" -- e concluia que a exclusao tinha
+    falhado, chegando a repetir a operacao (30/09/2026, BARRA 0/1/11).
+
+    Apaga tambem historico de sinal e eventos, igual a poda: entidade que nao
+    existe mais nao deve deixar serie temporal para tras (foi assim que o banco
+    acumulou 2,19 milhoes de amostras de ONUs inexistentes).
+    """
+    key = _text(entity_key)
+    if not key:
+        return False
+    tenant = _tenant()
+    with _conn() as c:
+        achou = c.execute(
+            "SELECT 1 FROM monitoring_entities WHERE tenant_slug=? AND entity_key=?",
+            (tenant, key),
+        ).fetchone()
+        for tabela in ("onu_signal_samples", "monitoring_events", "monitoring_entities"):
+            c.execute(
+                f"DELETE FROM {tabela} WHERE tenant_slug=? AND entity_key=?",
+                (tenant, key),
+            )
+    return bool(achou)
+
+
+def forget_onu(olt_ip: Any, pon: Any, onu: Any) -> int:
+    """Esquece a ONU daquela posicao, sem depender do id do conector.
+
+    A chave e "onu:<conector>|<olt_ip>|<pon>|<onu>", e o conector pode chegar
+    em `connector_id` ou em `remote_connector_id` conforme quem chama -- casar
+    a chave inteira falharia em silencio na hora errada. Dentro de um cliente,
+    olt_ip + pon + posicao ja identificam a ONU, entao a busca e pelo final da
+    chave. Devolve quantas entidades sairam.
+    """
+    sufixo = "|%s|%s|%s" % (_text(olt_ip), _text(pon), _text(onu))
+    if sufixo.count("|") != 3 or sufixo.endswith("|"):
+        return 0
+    tenant = _tenant()
+    with _conn() as c:
+        alvos = [
+            _text(dict(row).get("entity_key"))
+            for row in c.execute(
+                "SELECT entity_key FROM monitoring_entities "
+                "WHERE tenant_slug=? AND entity_type='onu' AND entity_key LIKE ?",
+                (tenant, "onu:%" + sufixo),
+            ).fetchall()
+        ]
+        for key in alvos:
+            for tabela in ("onu_signal_samples", "monitoring_events", "monitoring_entities"):
+                c.execute(
+                    f"DELETE FROM {tabela} WHERE tenant_slug=? AND entity_key=?",
+                    (tenant, key),
+                )
+    return len(alvos)
+
+
 def list_profiles() -> List[Dict[str, Any]]:
     ensure_default_profiles()
     with _conn() as c:
