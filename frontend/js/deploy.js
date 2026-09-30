@@ -2027,15 +2027,19 @@ async function onuAplicarAlvoPendente() {
 
   // Preenche os tres passos: o tecnico costuma consultar antes de excluir, e
   // ter que redigitar a posicao no meio do caminho e onde o erro acontece.
+  // Os tres drivers tem campos proprios, e os nomes NAO seguem um padrao so:
+  // no GPON a posicao e "onuDeleteOnuNum" (sem sufixo) e a da consulta e
+  // "onuTargetNum"; no EPON/VSOL vem com sufixo. Preencher so os sufixados
+  // deixava a 8820i com a PON certa e a posicao vazia (30/09/2026).
   ['onuQuery', 'onuReboot', 'onuDelete'].forEach(prefixo => {
     ['', 'Epon', 'Vsol'].forEach(sufixo => {
       const elPon = document.getElementById(`${prefixo}Pon${sufixo}`);
       if (elPon && pon) elPon.value = String(pon);
+      const elOnu = document.getElementById(`${prefixo}OnuNum${sufixo}`);
+      if (elOnu && onu) elOnu.value = String(onu);
     });
-    const elOnu = document.getElementById(`${prefixo}OnuNumEpon`)
-      || document.getElementById(`${prefixo}OnuNumVsol`);
-    if (elOnu && onu) elOnu.value = String(onu);
   });
+  // Consulta no GPON usa um campo de nome proprio.
   const alvoGpon = document.getElementById('onuTargetNum');
   if (alvoGpon && onu) alvoGpon.value = String(onu);
 
@@ -2152,10 +2156,18 @@ function onuToggleDriverFields(gponId, eponId, vsolId) {
 
 function onuPlaceInlineButton(buttonId, gponWrapId, eponRowId, vsolRowId, kind) {
   const btn = document.getElementById(buttonId);
-  const targetId = kind === 'epon' ? eponRowId : (kind === 'vsol' ? vsolRowId : gponWrapId);
+  // No GPON o botao tambem tem um slot DENTRO da linha, como no EPON/VSOL:
+  // antes ele ia para um wrapper abaixo dos campos e a etapa ocupava tres
+  // alturas para dois campos (30/09/2026). O wrapper continua existindo como
+  // destino de reserva -- se o slot nao estiver no HTML, o botao nao some.
+  const gponSlotId = gponWrapId.replace('BtnWrapGpon', 'BtnSlotGpon');
+  const gponAlvo = document.getElementById(gponSlotId) ? gponSlotId : gponWrapId;
+  const targetId = kind === 'epon' ? eponRowId : (kind === 'vsol' ? vsolRowId : gponAlvo);
   const target = document.getElementById(targetId);
   if (btn && target && btn.parentElement !== target) target.appendChild(btn);
-  document.getElementById(gponWrapId)?.classList.toggle('hidden', kind !== 'gpon');
+  // O wrapper so aparece quando ainda e ele quem segura o botao.
+  document.getElementById(gponWrapId)?.classList.toggle(
+    'hidden', kind !== 'gpon' || gponAlvo !== gponWrapId);
 }
 
 function onuServiceOptionsHtmlForDriver(driver) {

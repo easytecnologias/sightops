@@ -4158,7 +4158,7 @@
             <details class="onu-step" name="onuAccordion" id="onuStepQuery">
               <summary><span class="onu-step-title onu-step-num">Consultar sinal e MACs</span></summary>
               <div class="onu-step-body">
-                <div id="onuQueryFieldsGpon" class="form-row" style="grid-template-columns:minmax(120px,.55fr) minmax(180px,1fr) minmax(260px,1.25fr)">
+                <div id="onuQueryFieldsGpon" class="form-row" style="grid-template-columns:minmax(110px,.5fr) minmax(150px,.8fr) minmax(200px,1fr) auto;align-items:end">
                   <div class="form-group">
                     <label for="onuQueryPon">PON</label>
                     <select id="onuQueryPon">
@@ -4176,6 +4176,9 @@
                   <div class="form-group">
                     <label for="onuQuerySerial">Ou serial (se nao souber a posicao)</label>
                     <input id="onuQuerySerial" placeholder="VSOL00181583">
+                  </div>
+                  <div class="form-group" id="onuQueryBtnSlotGpon">
+                    <label style="visibility:hidden">.</label>
                   </div>
                 </div>
                 <div id="onuQueryFieldsEpon" class="hidden form-row" style="grid-template-columns:1fr 1fr 1.3fr auto;align-items:end">
@@ -4223,7 +4226,7 @@
             <details class="onu-step" name="onuAccordion" id="onuStepReboot">
               <summary><span class="onu-step-title onu-step-num">Reiniciar ONU</span></summary>
               <div class="onu-step-body">
-                <div id="onuRebootFieldsGpon" class="form-row">
+                <div id="onuRebootFieldsGpon" class="form-row" style="grid-template-columns:minmax(120px,.6fr) minmax(160px,1fr) auto;align-items:end">
                   <div class="form-group">
                     <label for="onuRebootPon">PON</label>
                     <select id="onuRebootPon">
@@ -4240,6 +4243,9 @@
                   <div class="form-group">
                     <label for="onuRebootOnuNum">Numero da ONU (posicao)</label>
                     <input id="onuRebootOnuNum" type="number" placeholder="Ex: 4">
+                  </div>
+                  <div class="form-group" id="onuRebootBtnSlotGpon">
+                    <label style="visibility:hidden">.</label>
                   </div>
                 </div>
                 <div id="onuRebootFieldsEpon" class="hidden form-row" style="grid-template-columns:1fr 1fr 1.3fr auto;align-items:end">
@@ -4291,7 +4297,7 @@
             <details class="onu-step" name="onuAccordion" id="onuStepDelete">
               <summary><span class="onu-step-title onu-step-num">Excluir ONU</span></summary>
               <div class="onu-step-body">
-                <div id="onuDeleteFieldsGpon" class="form-row">
+                <div id="onuDeleteFieldsGpon" class="form-row" style="grid-template-columns:minmax(120px,.6fr) minmax(160px,1fr) auto;align-items:end">
                   <div class="form-group">
                     <label for="onuDeletePon">PON</label>
                     <select id="onuDeletePon">
@@ -4308,6 +4314,9 @@
                   <div class="form-group">
                     <label for="onuDeleteOnuNum">Numero da ONU (posicao)</label>
                     <input id="onuDeleteOnuNum" type="number" placeholder="Ex: 4">
+                  </div>
+                  <div class="form-group" id="onuDeleteBtnSlotGpon">
+                    <label style="visibility:hidden">.</label>
                   </div>
                 </div>
                 <div id="onuDeleteFieldsEpon" class="hidden form-row" style="grid-template-columns:1fr 1fr 1.3fr auto;align-items:end">
@@ -6736,7 +6745,7 @@
   <script src="js/maintenance.js?v=146"></script>
   <script src="js/analysis.js?v=147"></script>
   <script src="js/network.js?v=158"></script>
-  <script src="js/deploy.js?v=1790816802"></script>
+  <script src="js/deploy.js?v=1790819600"></script>
   <script src="js/cameraActivation.js?v=1790048800"></script>
   <script src="js/deployOlt.js?v=160"></script>
   <script src="js/connectors.js?v=1790804180"></script>
