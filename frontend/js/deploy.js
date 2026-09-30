@@ -1808,6 +1808,7 @@ function onuApplyRegisteredOlt() {
   });
   const password = document.getElementById('onuOltPassword');
   if (password) password.placeholder = row ? 'Credencial salva no servidor' : 'Senha';
+  onuAtualizarPassoDescoberta(row);
   onuUpdatePonSelectors();
   onuUpdateServiceOptions();
   onuToggleDriverFields('onuAddFieldsGpon', 'onuAddFieldsEpon', 'onuAddFieldsVsol');
@@ -2116,6 +2117,20 @@ function onuIsEpon(row) {
 
 function onuIsVsol(row) {
   return String(row?.driver || '').trim().toLowerCase() === 'vsol_epon';
+}
+
+// "Descobrir ONUs nao autorizadas" e util na 8820i e nao funciona na 4840E,
+// que nao devolve a lista de nao autorizadas de forma confiavel. Antes isso
+// estava fixo no HTML (display:none) e tirou o passo das DUAS -- a 8820i ficou
+// sem uma etapa que ela precisa (30/09/2026).
+//
+// Nao da para usar a capability discover_onus: a 4840E declara true.
+function onuAtualizarPassoDescoberta(row) {
+  const passo = document.getElementById('onuStepDiscover');
+  if (!passo) return;
+  const esconder = onuIsEpon(row);
+  passo.classList.toggle('hidden', esconder);
+  if (esconder) passo.open = false;
 }
 
 function onuActiveOltKind(row) {

@@ -9958,3 +9958,14 @@ body.shell-owner .nav-item.active { box-shadow: inset 3px 0 #c9962c; }
   padding: 3px 10px;
   font-size: 11px;
 }
+
+/* Numero dos passos da tela de ONU: vem de contador, nao do texto.
+   "Descobrir ONUs" existe na 8820i e some na 4840E -- com numero fixo no HTML
+   a lista pulava de 1 para 3 quando o passo sumia. Elemento com display:none
+   nao gera caixa, entao nao incrementa o contador e a numeracao se fecha
+   sozinha (30/09/2026). */
+.onu-accordion { counter-reset: onu-passo; }
+.onu-step-num::before {
+  counter-increment: onu-passo;
+  content: counter(onu-passo) ". ";
+}

@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=1790812440">
+  <link rel="stylesheet" href="styles.css?v=1790816802">
 </head>
 <body>
 
@@ -4008,12 +4008,12 @@
               </div>
             </details>
 
-            <!-- Descobrir ONUs nao autorizadas: a 4840E nao devolve lista de nao
-                 autorizadas de forma confiavel, entao o passo so confundia o tecnico
-                 (30/09/2026). Fica oculto, nao removido: deploy.js ainda procura
-                 btnOnuDiscover/onuDiscoverResult. -->
-            <details class="onu-step" name="onuAccordion" id="onuStepDiscover" style="display:none">
-              <summary><span class="onu-step-title">Descobrir ONUs nao autorizadas</span></summary>
+            <!-- "Descobrir ONUs" existe na 8820i e some na 4840E, que nao devolve a
+                 lista de nao autorizadas de forma confiavel. Quem esconde e o
+                 deploy.js pelo driver da OLT escolhida -- em 30/09/2026 isso estava
+                 fixo no HTML e tirou o passo da 8820i tambem, que precisa dele. -->
+            <details class="onu-step" name="onuAccordion" id="onuStepDiscover">
+              <summary><span class="onu-step-title onu-step-num">Descobrir ONUs nao autorizadas</span></summary>
               <div class="onu-step-body">
                 <div class="deploy-inline-button" style="margin:2px 0 10px">
                   <button class="secondary-action" id="btnOnuDiscover" type="button"><i data-lucide="radar"></i> Descobrir na PON</button>
@@ -4024,7 +4024,7 @@
             </details>
 
             <details class="onu-step" name="onuAccordion" id="onuStepAdd">
-              <summary><span class="onu-step-title">1. Autorizar (adicionar) ONU</span></summary>
+              <summary><span class="onu-step-title onu-step-num">Autorizar (adicionar) ONU</span></summary>
               <div class="onu-step-body">
                 <div id="onuAddFieldsGpon">
                 <div class="form-row">
@@ -4156,7 +4156,7 @@
             </details>
 
             <details class="onu-step" name="onuAccordion" id="onuStepQuery">
-              <summary><span class="onu-step-title">2. Consultar sinal e MACs</span></summary>
+              <summary><span class="onu-step-title onu-step-num">Consultar sinal e MACs</span></summary>
               <div class="onu-step-body">
                 <div id="onuQueryFieldsGpon" class="form-row" style="grid-template-columns:minmax(120px,.55fr) minmax(180px,1fr) minmax(260px,1.25fr)">
                   <div class="form-group">
@@ -4221,7 +4221,7 @@
             </details>
 
             <details class="onu-step" name="onuAccordion" id="onuStepReboot">
-              <summary><span class="onu-step-title">3. Reiniciar ONU</span></summary>
+              <summary><span class="onu-step-title onu-step-num">Reiniciar ONU</span></summary>
               <div class="onu-step-body">
                 <div id="onuRebootFieldsGpon" class="form-row">
                   <div class="form-group">
@@ -4289,7 +4289,7 @@
             </details>
 
             <details class="onu-step" name="onuAccordion" id="onuStepDelete">
-              <summary><span class="onu-step-title">4. Excluir ONU</span></summary>
+              <summary><span class="onu-step-title onu-step-num">Excluir ONU</span></summary>
               <div class="onu-step-body">
                 <div id="onuDeleteFieldsGpon" class="form-row">
                   <div class="form-group">
@@ -6736,7 +6736,7 @@
   <script src="js/maintenance.js?v=146"></script>
   <script src="js/analysis.js?v=147"></script>
   <script src="js/network.js?v=158"></script>
-  <script src="js/deploy.js?v=1790813915"></script>
+  <script src="js/deploy.js?v=1790816802"></script>
   <script src="js/cameraActivation.js?v=1790048800"></script>
   <script src="js/deployOlt.js?v=160"></script>
   <script src="js/connectors.js?v=1790804180"></script>
