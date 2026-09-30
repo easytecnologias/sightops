@@ -57,7 +57,11 @@ logger = logging.getLogger(__name__)
 # aceitou o onu-vlan-mode e so aplicou depois de 30s -- o cadastro terminava
 # com a camera em VLAN 1, que nao transmite e so aparece em campo. Entre
 # demorar e sair errado, o driver demora e reaplica ate colar.
-_VLAN_ESPERAS = (1.0, 2.0, 4.0, 8.0, 12.0, 16.0, 20.0, 25.0)
+# Espera ANTES de cada tentativa de aplicar a VLAN. A primeira e a unica que
+# costuma valer (ver o laco de aplicacao), por isso ela e a mais longa: a ONU
+# recem-registrada precisa estar pronta para receber a config por OMCI.
+_VLAN_ESPERA_INICIAL = 10.0
+_VLAN_ESPERAS = (4.0, 8.0, 12.0, 16.0, 20.0, 25.0)
 _VLAN_TENTATIVAS = len(_VLAN_ESPERAS)
 _VLAN_ESPERA_S = _VLAN_ESPERAS[0]
 
@@ -641,7 +645,19 @@ def add_onu_4840e(
             # Dar o mesmo comando de novo, mais tarde, resolve -- entao aplica,
             # espera, confere no proprio equipamento e repete se preciso.
             aplicado = False
+            # Reemitir o MESMO comando nao adianta: a OLT compara com o
+            # running-config, ve que nada mudou e nao reenvia nada por OMCI --
+            # foi por isso que 8 tentativas em 88s deixaram a CAIXA-02 em
+            # 'transparent' com 'tag vlan 3000' gravado na OLT (30/09/2026).
+            # A partir da 2a tentativa o driver troca o valor primeiro, o que
+            # obriga a OLT a mandar a config para a ONU de novo.
+            reverso = "onu-vlan-mode transparent" if modo == "tag" else None
+            time.sleep(_VLAN_ESPERA_INICIAL)
             for tentativa, _espera in enumerate(_VLAN_ESPERAS, 1):
+                if tentativa > 1 and reverso:
+                    _cli(chan, reverso, timeout=timeout)
+                    commands_run.append(f"{reverso}   (para reaplicar)")
+                    time.sleep(2.0)
                 out = _cli(chan, cmd, timeout=timeout)
                 commands_run.append(cmd if tentativa == 1 else f"{cmd}   (tentativa {tentativa})")
                 if command_failed(out):
@@ -670,7 +686,7 @@ def add_onu_4840e(
                 avisos.append(
                     f"a porta {eth_port} ainda nao mostrava o modo {modo}"
                     + (f" com VLAN {vlan}" if modo == "tag" else "")
-                    + f" apos {sum(_VLAN_ESPERAS):.0f}s; a OLT aceitou o comando e "
+                    + f" apos {_VLAN_ESPERA_INICIAL + sum(_VLAN_ESPERAS):.0f}s; a OLT aceitou o comando e "
                       "costuma aplicar em seguida -- confira a tabela MAC em um minuto."
                 )
             cmd = "exit"
