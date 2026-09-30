@@ -438,12 +438,15 @@ def add_onu_4840e(
     ports: Optional[List[Dict[str, Any]]] = None,
     port: int = 22,
     timeout: float = 15.0,
+    register_wait: float = 45.0,
 ) -> Dict[str, Any]:
-    """Autoriza uma ONU pelo MAC (whitelist), aplica descricao e VLAN por
-    porta ethernet, libera p2p (camera) e salva a config. Equipamento vivo.
+    """Autoriza uma ONU pelo MAC (whitelist), espera ela se registrar, aplica
+    descricao e VLAN por porta ethernet, libera p2p (camera) e salva a config.
+    Equipamento vivo.
 
-    A OLT auto-atribui o onu-id ao dar 'white-list add mac' -- essa funcao
-    le esse id de volta via 'show white-list' antes de continuar, nunca
+    A OLT auto-atribui o onu-id quando a ONU REGISTRA -- nao quando o MAC entra
+    na whitelist. Esta funcao descobre a posicao perguntando por MAC
+    ('show onu-status mac'), esperando ate `register_wait` segundos, e nunca
     escolhe a posicao manualmente (fora de escopo desta entrega)."""
     mac_norm = _norm_mac(mac)
     _validate_mac_shape(mac_norm)
@@ -494,11 +497,41 @@ def add_onu_4840e(
                 f"MAC {mac_norm} adicionado na whitelist mas nao apareceu em 'show white-list' pra confirmar a posicao.",
                 cmd, commands_run,
             )
-        onu_id = wl_match["index"]
 
         cmd = "exit"
         _cli(chan, cmd, timeout=timeout)
         commands_run.append(cmd)
+
+        # O 'Index' do 'show white-list' e a posicao NA LISTA, nao o onu-id --
+        # sao numeros independentes. Em 30/09/2026 um MAC entrou como index 8 e
+        # a OLT registrou a ONU em 0/1/1: usar o index como endereco mandava a
+        # descricao e a VLAN para 'onu 0/1/8'. Deu erro porque aquela posicao
+        # estava vazia; se estivesse ocupada, a configuracao teria caido na ONU
+        # de outro cliente.
+        #
+        # A posicao real so existe depois que a ONU se registra de fato -- estar
+        # na whitelist apenas a autoriza. Enquanto nao registra, a OLT recusa
+        # tudo com "has not bound mac or type". Por isso: perguntar o endereco
+        # pelo MAC e dar tempo para ela aparecer.
+        onu_id = None
+        limite = time.time() + max(float(register_wait), 0.0)
+        while True:
+            cmd = f"show onu-status mac {mac_norm}"
+            st_out = _cli(chan, cmd, timeout=timeout)
+            achadas = [r for r in _parse_onu_status(st_out) if r.get("pon") == pon]
+            if achadas:
+                commands_run.append(cmd)
+                onu_id = int(achadas[0]["onu"])
+                break
+            if time.time() >= limite:
+                commands_run.append(cmd)
+                raise OnuAddError(
+                    f"MAC {mac_norm} entrou na whitelist da PON {pon}, mas a ONU nao se registrou "
+                    f"em {register_wait:.0f}s. A autorizacao ficou gravada: confira se a ONU esta "
+                    "ligada e com fibra, e refaca o cadastro para aplicar descricao, VLAN e p2p.",
+                    cmd, commands_run,
+                )
+            time.sleep(3.0)
 
         addr = f"0/{pon}/{onu_id}"
         cmd = f"onu {addr}"
