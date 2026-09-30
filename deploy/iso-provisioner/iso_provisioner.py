@@ -140,6 +140,64 @@ def _norm_cidr(valor):
         return str(valor)
 
 
+def _tunnel_lan(n):
+    """A /31 do proprio tunel do conector n: servidor .2n, MikroTik .2n+1."""
+    return "10.201.0.%d/31" % (2 * n)
+
+
+def _virtual_livre(n, vmap, prefixlen=31):
+    """Primeira faixa livre e alinhada dentro do slice /18 do conector."""
+    slice_net = virtual_slice(n)
+    usados = []
+    for _real, virt in vmap:
+        try:
+            usados.append(ipaddress.ip_network(virt, strict=False))
+        except ValueError:
+            pass
+    size = 2 ** (32 - prefixlen)
+    cursor = int(slice_net.network_address)
+    while True:
+        cursor = (cursor + size - 1) // size * size
+        cand = ipaddress.ip_network((cursor, prefixlen))
+        if cand.broadcast_address > slice_net.broadcast_address:
+            return ""
+        bate = next((u for u in usados if cand.overlaps(u)), None)
+        if not bate:
+            return str(cand)
+        cursor = int(bate.broadcast_address) + 1
+
+
+def _vnat_completa_tunel(n, vmap):
+    """Garante a rede do TUNEL no vnat de um conector migrado (iso_manual).
+
+    Os migrados tem o vnat congelado do dia da migracao, que levou so as LANs
+    de camera. Sem a /31 do tunel o servidor nao traduz o IP do proprio
+    MikroTik -- e o container, que nao tem as interfaces wgc, tenta o IP real e
+    nao chega. Era por isso que o Winbox pelo tunel parava em "Logging in..."
+    em 7 dos 12 conectores, e funcionava nos born-isolated, que recalculam o
+    mapa a partir das client_lans (30/09/2026).
+
+    Aditivo de proposito: nao encosta no que ja esta mapeado e funcionando.
+    """
+    real = _tunnel_lan(n)
+    if any(_norm_cidr(r) == _norm_cidr(real) for r, _v in vmap):
+        return vmap, None
+    virt = _virtual_livre(n, vmap, 31)
+    if not virt:
+        return vmap, None
+    return list(vmap) + [(real, virt)], (real, virt)
+
+
+def _vnat_regra_avulsa(n, real, virt):
+    """So as regras de traducao da faixa nova -- nao toca na interface viva."""
+    ifn = "wgc%d" % n
+    fwmark = 0x5100 + n
+    server_ip = "10.201.0.%d" % (2 * n)
+    _iptc("mangle", "PREROUTING", ["-d", virt, "-j", "MARK", "--set-mark", hex(fwmark)])
+    _iptc("nat", "PREROUTING", ["-d", virt, "-j", "NETMAP", "--to", real])
+    _iptc("nat", "POSTROUTING", ["-o", ifn, "-j", "SNAT", "--to-source", server_ip], insert=True)
+
+
 def _vnat_limpa_obsoletas(n, vmap):
     """Tira do slice do conector toda regra de vnat que nao esta no mapa de agora.
 
@@ -270,9 +328,23 @@ def reconcile_once():
         active_all.add(n)
         try:
             if c.get("iso_manual"):
-                # MIGRADO: no servidor atual JA existe -> NAO toca no vivo (pula).
+                # MIGRADO: no servidor atual JA existe -> NAO toca no vivo.
+                # Ainda assim completa o vnat com a rede do tunel, que a
+                # migracao nao levou (ver _vnat_completa_tunel): so acrescenta
+                # regra, nunca mexe na interface nem no que ja esta mapeado.
                 # Num servidor novo (wgc<N> faltando) recria da config gravada.
                 if n in existing:
+                    vm = [(e.get("real_cidr"), e.get("virtual_cidr"))
+                          for e in (c.get("iso_vnat") or [])
+                          if e.get("real_cidr") and e.get("virtual_cidr")]
+                    vm, adicionada = _vnat_completa_tunel(n, vm)
+                    if adicionada:
+                        _vnat_regra_avulsa(n, adicionada[0], adicionada[1])
+                        logs.append("%s: vnat do tunel %s -> %s" % (
+                            c.get("id"), adicionada[0], adicionada[1]))
+                    if vm:
+                        vnat_entries[str(c.get("id"))] = [
+                            {"real_cidr": r, "virtual_cidr": v} for r, v in vm]
                     continue
                 pub = (c.get("iso_peer_pubkey") or "").strip()
                 if not pub:
