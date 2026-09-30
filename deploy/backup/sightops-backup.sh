@@ -78,6 +78,33 @@ else
   log "ERRO: falhou o tar da configuracao"; falhou=1
 fi
 
+# --- 2b. o que NAO esta em compose nenhum -------------------------------
+# Cinco containers (sightops-tls, sightops-nginx, sightops-tunnel,
+# sightops-lpr-ocr, go2rtc) foram criados a mao e nao existiam em arquivo
+# nenhum ate 30/09/2026: portas, volumes e comandos moravam so dentro de
+# /var/lib/docker. Com banco e .env.v3 o nucleo do v3 volta, mas o site nao
+# responderia na internet nem em HTTPS -- e nao haveria onde consultar como
+# eram. Aqui vao a definicao deles, os certificados da CA (que ficam fora de
+# qualquer volume) e a config do go2rtc legado.
+extras=$DEST/diario/v3-extras-$TS.tar.gz
+tmp_extras=$(mktemp -d)
+# O `docker inspect` guarda o token do tunnel em claro no comando -- por isso
+# o tar inteiro fica 600, como o da configuracao.
+docker inspect sightops-tls sightops-nginx sightops-tunnel sightops-lpr-ocr go2rtc   > "$tmp_extras/containers-sem-compose.json" 2>>"$LOG" || true
+for extra in /home/central/sightops-ca /opt/sightops/go2rtc; do
+  [ -e "$extra" ] && cp -a "$extra" "$tmp_extras/" 2>>"$LOG"
+done
+for extra in /home/central/sightops-v3/deploy/compose/docker-compose.extras.yml              /home/central/lpr_ocr_teste; do
+  [ -e "$extra" ] && cp -a "$extra" "$tmp_extras/" 2>>"$LOG"
+done
+if tar czf "$extras" -C "$tmp_extras" . 2>>"$LOG"; then
+  chmod 600 "$extras"
+  log "extras OK: $(basename "$extras") ($(du -h "$extras" | cut -f1))"
+else
+  log "ERRO: falhou o tar dos extras"; falhou=1
+fi
+rm -rf "$tmp_extras"
+
 # --- 3. inventario (os JSON do volume, sem as fotos) --------------------
 inv=$DEST/diario/v3-inventario-$TS.tar.gz
 # As exclusoes tem que vir ANTES dos caminhos: o tar as trata como posicionais
@@ -117,7 +144,7 @@ fi
 
 # --- 5. limpeza: so apaga se o backup de hoje deu certo -----------------
 if [ "$falhou" = "0" ]; then
-  for tipo in v3-db v3-config v3-inventario; do
+  for tipo in v3-db v3-config v3-inventario v3-extras; do
     ls -t "$DEST"/diario/$tipo-*.* 2>/dev/null | tail -n +$((MANTER_DIARIOS+1)) | xargs -r rm -f
   done
   ls -t "$DEST"/semanal/v3-volume-*.tar.gz 2>/dev/null | tail -n +$((MANTER_SEMANAIS+1)) | xargs -r rm -f

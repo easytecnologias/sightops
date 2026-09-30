@@ -1,0 +1,85 @@
+# Containers que ate 30/09/2026 existiam SO na definicao do Docker.
+#
+# Foram criados a mao, um a um, e nenhum arquivo descrevia como. Sobrevivem a
+# reboot (restart: unless-stopped), mas se um for removido -- ou se a maquina
+# se perder -- portas, volumes e comandos nao existem em lugar nenhum: moram
+# dentro de /var/lib/docker. O pior caso era o tunnel, cujo token do Cloudflare
+# so estava na linha de comando do container; sem ele o site nao responde pela
+# internet e nao ha onde consultar o valor.
+#
+# Este arquivo foi gerado a partir do que estava RODANDO, nao de memoria.
+#
+# Uso:
+#   docker compose -f docker-compose.extras.yml --env-file .env.v3 up -d
+#
+# ATENCAO: subir isto com os containers atuais no ar vai recria-los. Em
+# operacao normal nao rode -- ele existe para reconstruir, nao para manter.
+
+services:
+  # HTTPS na 443. Certificados da CA interna, fora de qualquer volume Docker:
+  # se /home/central/sightops-ca sumir, o TLS nao volta.
+  sightops-tls:
+    image: nginx:alpine
+    container_name: sightops-tls
+    restart: unless-stopped
+    ports:
+      - "443:443"
+    volumes:
+      - /home/central/sightops-ca/server.crt:/etc/nginx/certs/server.crt:ro
+      - /home/central/sightops-ca/server.key:/etc/nginx/certs/server.key:ro
+      - /home/central/sightops-ca/tls-proxy.conf:/etc/nginx/conf.d/default.conf:ro
+    networks:
+      - sightops-platform
+      - sightops-prod-platform
+
+  # Proxy publico. Nao publica porta: quem expoe e o sightops-prod-nginx.
+  sightops-nginx:
+    image: nginx:1.27-alpine
+    container_name: sightops-nginx
+    restart: unless-stopped
+    volumes:
+      - /home/central/sightops-prod-release/deploy/nginx/public-prod-proxy.conf:/etc/nginx/conf.d/default.conf:ro
+    networks:
+      - sightops-platform
+      - sightops-prod-platform
+
+  # Entrada do site pela internet. O TOKEN NAO FICA AQUI: vem do .env.v3, que
+  # nao e versionado. Estava em claro no comando do container -- visivel em
+  # `docker inspect` e no `ps` do host.
+  sightops-tunnel:
+    image: cloudflare/cloudflared:latest
+    container_name: sightops-tunnel
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN}
+    networks:
+      - default
+      - sightops-platform
+
+  # OCR de placas. Imagem LOCAL, construida de /home/central/lpr_ocr_teste.
+  # Sem o build aqui, um `docker image prune -a` deixaria o servico sem volta.
+  sightops-lpr-ocr:
+    image: lpr-ocr-teste
+    build:
+      context: /home/central/lpr_ocr_teste
+    container_name: sightops-lpr-ocr
+    restart: unless-stopped
+    command: uvicorn app:app --host 0.0.0.0 --port 8600
+    ports:
+      - "18600:8600"
+
+  # go2rtc legado (o do v3 e outro, no compose principal). network_mode host
+  # de proposito: precisa enxergar as faixas das cameras direto.
+  go2rtc:
+    image: alexxit/go2rtc
+    container_name: go2rtc
+    restart: unless-stopped
+    network_mode: host
+    command: go2rtc -config /config/go2rtc.yaml
+    volumes:
+      - /opt/sightops/go2rtc:/config
+
+networks:
+  sightops-platform:
+    external: true
+  sightops-prod-platform:
+    external: true
