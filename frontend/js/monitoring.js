@@ -134,6 +134,19 @@ async function openMonitoringDrawer(entityType, activeStatus = 'all', activeSite
   });
 }
 
+// A entity_key de uma ONU carrega tudo que a tela de implantacao precisa:
+// "onu:<connector_id>|<olt_ip>|<pon>|<onu>". Sem isso o tecnico via "gpon 1 onu
+// 11 / fora do ar" e tinha que reescolher conector, OLT, PON e posicao a mao
+// para consultar ou excluir (30/09/2026).
+function monitoringOnuAlvo(row) {
+  if (!row || row.entity_type !== 'onu') return null;
+  const partes = String(row.entity_key || '').replace(/^onu:/, '').split('|');
+  if (partes.length < 4) return null;
+  const [connectorId, oltIp, pon, onu] = partes.map(x => String(x || '').trim());
+  if (!oltIp || !pon || !onu) return null;
+  return { connectorId, oltIp, pon, onu };
+}
+
 async function openMonitoringAttentionDrawer(activeType = 'all', activeSite = null, refreshData = true) {
   _openDashDrawer('Atencao operacional', 'Equipamentos que precisam de cuidado');
   // Abrir este painel e um ato deliberado para ver o estado de AGORA.
@@ -194,20 +207,50 @@ async function openMonitoringAttentionDrawer(activeType = 'all', activeSite = nu
     const typeDiff = String(a.entity_type).localeCompare(String(b.entity_type), 'pt-BR');
     return statusDiff || typeDiff || String(a.display_name || '').localeCompare(String(b.display_name || ''), 'pt-BR', { numeric: true });
   });
-  _drawerRenderRows(rows.map(row => `
-    <div class="drawer-item monitoring-attention-item">
+  _drawerRenderRows(rows.map(row => {
+    const alvo = monitoringOnuAlvo(row);
+    const dados = alvo
+      ? ` data-onu-connector="${esc(alvo.connectorId)}" data-onu-olt="${esc(alvo.oltIp)}" data-onu-pon="${esc(alvo.pon)}" data-onu-num="${esc(alvo.onu)}"`
+      : '';
+    return `
+    <div class="drawer-item monitoring-attention-item${alvo ? ' monitoring-attention-acionavel' : ''}"${dados}>
       ${_drawerStatusDot(row.status)}
       <div class="drawer-item-main">
         <div class="drawer-item-title">${esc(row.display_name || row.entity_key)}</div>
         <div class="drawer-item-sub" title="${esc(monitoringDrawerMeta(row))}">${esc(monitoringDrawerMeta(row) || 'Sem detalhes adicionais')}</div>
         <div class="monitoring-attention-checked">Verificado em ${esc(monitoringDate(row.last_checked_at))}</div>
+        ${alvo ? `<div class="monitoring-attention-acoes">
+          <button type="button" class="drawer-filter-btn" data-onu-acao="consultar">Consultar sinal</button>
+          <button type="button" class="drawer-filter-btn" data-onu-acao="excluir">Excluir ONU</button>
+        </div>` : ''}
       </div>
       <div class="monitoring-attention-side">
         <span class="monitoring-type-chip">${esc(MONITORING_LABELS[row.entity_type] || row.entity_type)}</span>
         <span class="monitoring-status ${esc(row.status)}">${esc(monitoringStatusLabel(row.status))}</span>
       </div>
-    </div>
-  `).join(''));
+    </div>`;
+  }).join(''));
+
+  // Um listener no container, nao um por linha: a lista e reconstruida a cada
+  // troca de filtro.
+  const lista = document.getElementById('dashDrawerBody') || document.getElementById('dashDrawerList');
+  if (lista && !lista.dataset.onuAcaoBound) {
+    lista.dataset.onuAcaoBound = '1';
+    lista.addEventListener('click', event => {
+      const botao = event.target.closest('[data-onu-acao]');
+      const item = event.target.closest('[data-onu-olt]');
+      if (!item) return;
+      if (typeof window.onuAbrirAlvo !== 'function') return;
+      if (typeof closeDashDrawer === 'function') closeDashDrawer();
+      window.onuAbrirAlvo({
+        connectorId: item.dataset.onuConnector || '',
+        oltIp: item.dataset.onuOlt || '',
+        pon: item.dataset.onuPon || '',
+        onu: item.dataset.onuNum || '',
+        acao: botao?.dataset.onuAcao || 'consultar',
+      });
+    });
+  }
 }
 
 const MONITORING_ATTENTION = ['down', 'unstable', 'unknown'];

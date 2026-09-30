@@ -9944,3 +9944,17 @@ body.shell-owner .nav-item.active { box-shadow: inset 3px 0 #c9962c; }
 @media (max-width: 640px) {
   .winbox-port-add { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* Linha de ONU no painel de atencao: da para ir direto consultar/excluir. */
+.monitoring-attention-acionavel { cursor: pointer; }
+.monitoring-attention-acionavel:hover { background: var(--hover, rgba(0,0,0,.03)); }
+.monitoring-attention-acoes {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+  flex-wrap: wrap;
+}
+.monitoring-attention-acoes .drawer-filter-btn {
+  padding: 3px 10px;
+  font-size: 11px;
+}

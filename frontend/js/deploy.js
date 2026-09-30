@@ -1938,6 +1938,9 @@ function loadDeployOnu() {
     onuApplyRegisteredOlt();
     updateOnuConnectorStatus();
     onuUpdateConnectorGate();
+    // Veio do painel de atencao do Dashboard apontando para uma ONU: so agora
+    // os selects existem de verdade.
+    onuAplicarAlvoPendente();
   });
   bindAccordionExclusive('#viewDeployOnu');
   bindOnuStepLockGuards();
@@ -1973,6 +1976,77 @@ function loadDeployOnu() {
   loadOnuHistory();
   lucide.createIcons();
 }
+
+// Abre a tela de ONU ja apontada para uma ONU especifica. Quem chama e o painel
+// de atencao do Dashboard: o tecnico ve "gpon 1 onu 11 / fora do ar" e quer ir
+// direto consultar ou excluir, sem reescolher conector, OLT, PON e posicao a mao
+// (30/09/2026).
+//
+// `acao` decide qual passo abre: 'consultar' (padrao) ou 'excluir'.
+let _onuAlvoPendente = null;
+
+function onuAbrirAlvo({ connectorId = '', oltIp = '', pon = '', onu = '', acao = 'consultar' } = {}) {
+  // Guarda ANTES de navegar: loadDeployOnu() roda ao abrir a tela, e termina
+  // depois daqui (as duas listas sao carregadas por Promise.all). Ele reescreve
+  // os selects e limpa o formulario -- preencher agora e perder tudo, que foi
+  // exatamente o que aconteceu na primeira versao (30/09/2026).
+  _onuAlvoPendente = { connectorId, oltIp, pon, onu, acao };
+  // navigateTo sempre chama loadDeployOnu (core.js), e e ele quem aplica o
+  // alvo no fim -- quando os selects ja existem. Aplicar aqui consumiria o
+  // pendente cedo demais e o reset da tela apagaria tudo em seguida.
+  if (typeof navigateTo === 'function') navigateTo('deploy-onu');
+}
+
+async function onuAplicarAlvoPendente() {
+  const alvoPendente = _onuAlvoPendente;
+  if (!alvoPendente) return;
+  _onuAlvoPendente = null;
+  const { connectorId, oltIp, pon, onu, acao } = alvoPendente;
+
+  // O seletor de conector so lista quem tem OLT, e a lista pode ainda nao ter
+  // sido carregada se o tecnico entrou direto no Dashboard.
+  try { await refreshOnuConnectors(); } catch { /* segue com o que ja tem */ }
+  try { await refreshOnuRegistry(); } catch { /* idem */ }
+
+  const selConector = document.getElementById('onuConnector');
+  if (selConector && connectorId) {
+    selConector.value = connectorId;
+    selConector.dispatchEvent(new Event('change'));
+  }
+
+  // A OLT certa e a que casa host + conector: dois sites podem repetir o IP.
+  const selOlt = document.getElementById('onuOltRegistry');
+  const alvo = _onuRegistryRows.find(row =>
+    String(row?.host || '').trim() === String(oltIp).trim() &&
+    (!connectorId || String(row?.connector_id || '').trim() === String(connectorId).trim()));
+  if (selOlt && alvo) {
+    selOlt.value = String(alvo.id);
+    selOlt.dispatchEvent(new Event('change'));
+  }
+
+  // Preenche os tres passos: o tecnico costuma consultar antes de excluir, e
+  // ter que redigitar a posicao no meio do caminho e onde o erro acontece.
+  ['onuQuery', 'onuReboot', 'onuDelete'].forEach(prefixo => {
+    ['', 'Epon', 'Vsol'].forEach(sufixo => {
+      const elPon = document.getElementById(`${prefixo}Pon${sufixo}`);
+      if (elPon && pon) elPon.value = String(pon);
+    });
+    const elOnu = document.getElementById(`${prefixo}OnuNumEpon`)
+      || document.getElementById(`${prefixo}OnuNumVsol`);
+    if (elOnu && onu) elOnu.value = String(onu);
+  });
+  const alvoGpon = document.getElementById('onuTargetNum');
+  if (alvoGpon && onu) alvoGpon.value = String(onu);
+
+  onuUpdateStepsLock();
+  const passoId = { excluir: 'onuStepDelete', reiniciar: 'onuStepReboot' }[acao] || 'onuStepQuery';
+  const passo = document.getElementById(passoId);
+  if (passo) {
+    passo.open = true;
+    passo.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+}
+window.onuAbrirAlvo = onuAbrirAlvo;
 
 function onuAccordionOpen(stepId) {
   const el = document.getElementById(stepId);
