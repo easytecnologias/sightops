@@ -24,6 +24,9 @@ SLICE_PREFIX = 18
 # TRAVA DE SEGURANCA: teardown so mexe em wgc<N> com N >= ISO_FLOOR.
 # wgc1..7 sao os conectores migrados na mao (iso_manual) -- NUNCA derrubar.
 ISO_FLOOR = 8
+# Portas de GESTAO do servidor, que ninguem do lado do cliente deve alcancar.
+# Vazio desliga o bloqueio.
+PORTAS_GESTAO = os.environ.get("ISO_BLOCK_PORTS", "9000,9443,3003,8091,10053,18600,8090").strip()
 ENV = {"PATH": "/usr/sbin:/sbin:/usr/bin:/bin"}
 
 
@@ -117,9 +120,42 @@ def _apply(n, cid, pubkey, lans, vmap, priv):
         _iptc("nat", "POSTROUTING", ["-o", ifn, "-j", "SNAT", "--to-source", server_ip], insert=True)
     _iptc("filter", "DOCKER-USER", ["-o", ifn, "-j", "ACCEPT"], insert=True)
     _iptc("filter", "DOCKER-USER", ["-i", ifn, "-j", "ACCEPT"], insert=True)
+    _bloqueia_gestao(ifn)
     sh(["ip", "rule", "del", "fwmark", hex(fwmark)])
     sh(["ip", "rule", "add", "fwmark", hex(fwmark), "table", str(table), "pref", str(mark_pref)])
     return "%s: wgc%d ok (%d LAN, vnat=%d)" % (cid, n, len(lans), len(vmap))
+
+
+def _iptc_topo(tabela, chain, spec):
+    """Garante a regra na POSICAO 1 da chain (remove antes de inserir)."""
+    base = ["iptables", "-t", tabela]
+    sh(base + ["-D", chain] + spec)
+    sh(base + ["-I", chain, "1"] + spec)
+
+
+def _bloqueia_gestao(ifn):
+    """Fecha as portas de gestao do servidor para quem entra pelo tunel.
+
+    DOCKER-USER leva um '-i wgc<N> -j ACCEPT' amplo, para o trafego de volta dos
+    equipamentos do cliente. So que ele tambem libera as portas publicadas no
+    host: Portainer (9000/9443), Grafana (3003), Zabbix (8091/10053) e afins
+    ficavam alcancaveis de dentro da rede de QUALQUER cliente conectado, e o
+    Portainer e controle total do Docker -- ou seja, dos dados de todos os
+    clientes (auditoria de 30/09/2026, INPUT com policy ACCEPT e sem regras).
+
+    O tunel existe para o SERVIDOR alcancar o cliente; o contrario nunca e
+    necessario -- o agente do MikroTik fala com a API pela internet, nao por
+    aqui. Isso nao muda o acesso de quem chega pela LAN ou pelo dominio.
+
+    Vai na posicao 1 a cada ciclo porque o ACCEPT amplo tambem e inserido no
+    topo: sem reinserir, a ordem entre os dois dependeria de quem foi
+    recriado por ultimo.
+    """
+    if not PORTAS_GESTAO:
+        return
+    _iptc_topo("filter", "DOCKER-USER",
+               ["-i", ifn, "-p", "tcp", "-m", "multiport",
+                "--dports", PORTAS_GESTAO, "-j", "DROP"])
 
 
 def _lans_of(conn):
@@ -318,6 +354,11 @@ def reconcile_once():
     conns = load_connectors()
     existing = set(existing_wgc_indices())
     logs, vnat_entries = [], {}
+    try:
+        mapa_atual = json.load(open(VNAT_MAP))
+        mapa_atual = mapa_atual if isinstance(mapa_atual, dict) else {}
+    except Exception:
+        mapa_atual = {}
     active_all = set()  # todo indice com conector presente (manual OU born) -- protege do teardown
     for c in conns:
         if str(c.get("type") or "routeros") != "routeros":
@@ -334,8 +375,13 @@ def reconcile_once():
                 # regra, nunca mexe na interface nem no que ja esta mapeado.
                 # Num servidor novo (wgc<N> faltando) recria da config gravada.
                 if n in existing:
+                    _bloqueia_gestao("wgc%d" % n)
+                    # Parte do mapa que ESTA valendo, nao do iso_vnat congelado
+                    # na migracao: senao a entrada do tunel e recalculada a cada
+                    # ciclo e o log repete para sempre.
+                    gravado = mapa_atual.get(str(c.get("id"))) or []
                     vm = [(e.get("real_cidr"), e.get("virtual_cidr"))
-                          for e in (c.get("iso_vnat") or [])
+                          for e in (gravado or c.get("iso_vnat") or [])
                           if e.get("real_cidr") and e.get("virtual_cidr")]
                     vm, adicionada = _vnat_completa_tunel(n, vm)
                     if adicionada:
@@ -351,6 +397,7 @@ def reconcile_once():
                     logs.append("%s: iso_manual sem iso_peer_pubkey (nao recria)" % c.get("id"))
                     continue
                 vm = [(e.get("real_cidr"), e.get("virtual_cidr")) for e in (c.get("iso_vnat") or []) if e.get("real_cidr") and e.get("virtual_cidr")]
+                vm, _nova = _vnat_completa_tunel(n, vm)
                 logs.append("[recria migrado] " + _apply(n, c.get("id"), pub, _lans_of(c), vm, priv))
                 if vm:
                     vnat_entries[str(c.get("id"))] = [{"real_cidr": r, "virtual_cidr": v} for r, v in vm]
