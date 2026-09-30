@@ -2429,7 +2429,11 @@ async function onuAddEpon(olt) {
     onuSetResult('onuAddResult', esc(data?.error || data?.detail || 'Falha ao autorizar ONU.'), true);
     return;
   }
-  onuSetResult('onuAddResult', `ONU autorizada: PON ${esc(pon)} / posicao ${esc(data.onu)} (MAC ${esc(mac)}).`);
+  // A OLT aceita a VLAN e as vezes demora a refletir. Isso e aviso, nao falha:
+  // o cadastro foi ate o fim (p2p e save inclusive).
+  const avisos = (data.avisos || []).filter(Boolean);
+  const extra = avisos.length ? ` Atencao: ${avisos.map(esc).join(' ')}` : '';
+  onuSetResult('onuAddResult', `ONU autorizada: PON ${esc(pon)} / posicao ${esc(data.onu)} (MAC ${esc(mac)}).${extra}`);
   showToast('ONU autorizada na OLT.');
   loadOnuHistory();
 }

@@ -49,8 +49,13 @@ logger = logging.getLogger(__name__)
 
 # Quantas vezes reenviar o onu-vlan-mode e quanto esperar antes de conferir.
 # A ONU recem-registrada costuma ignorar a primeira; 3s ja bastou nos testes.
-_VLAN_TENTATIVAS = 4
-_VLAN_ESPERA_S = 4.0
+# Espera ANTES de cada conferencia da VLAN, em segundos. Progressivo de
+# proposito: quando a ONU ja esta pronta a 1a conferencia passa e o cadastro
+# termina rapido; a paciencia so entra quando ela demora. Soma ~31s no pior
+# caso, contra 30s fixos que atrasavam ate quem ia bem.
+_VLAN_ESPERAS = (1.0, 2.0, 4.0, 6.0, 8.0, 10.0)
+_VLAN_TENTATIVAS = len(_VLAN_ESPERAS)
+_VLAN_ESPERA_S = _VLAN_ESPERAS[0]
 
 _FAILURE_MARKERS = (
     "invalid parameter",
@@ -464,6 +469,7 @@ def add_onu_4840e(
     ports = ports or [{"port": 1, "vlan": None}]
     client, chan = _connect_and_login(olt_ip, user, password, port, timeout)
     commands_run: List[str] = []
+    avisos: List[str] = []
     try:
         cmd = "conf t"
         _cli(chan, cmd, timeout=timeout)
@@ -556,9 +562,9 @@ def add_onu_4840e(
                 f"Falha ao vincular {mac_norm} na posicao 0/{pon}/{onu_id}: {out.strip()[:300]}",
                 cmd, commands_run,
             )
-        # O vinculo tambem nao vale no mesmo instante: dar tempo antes de
-        # entrar no contexto da ONU.
-        time.sleep(_VLAN_ESPERA_S)
+        # O vinculo nao vale no mesmo instante, mas 2s bastam -- quem garante o
+        # resto e a espera pelo estado 'Up' logo abaixo.
+        time.sleep(2.0)
 
         # Espera a posicao aparecer de fato antes de configurar.
         # Nao basta a posicao existir: enquanto a ONU nao esta 'Up' ela aceita os
@@ -631,7 +637,7 @@ def add_onu_4840e(
             # Dar o mesmo comando de novo, mais tarde, resolve -- entao aplica,
             # espera, confere no proprio equipamento e repete se preciso.
             aplicado = False
-            for tentativa in range(1, _VLAN_TENTATIVAS + 1):
+            for tentativa, _espera in enumerate(_VLAN_ESPERAS, 1):
                 out = _cli(chan, cmd, timeout=timeout)
                 commands_run.append(cmd if tentativa == 1 else f"{cmd}   (tentativa {tentativa})")
                 if command_failed(out):
@@ -639,7 +645,7 @@ def add_onu_4840e(
                         f"ONU autorizada, mas falha ao aplicar modo {modo} na porta {eth_port}: {out.strip()[:300]}",
                         cmd, commands_run, onu=onu_id,
                     )
-                time.sleep(_VLAN_ESPERA_S)
+                time.sleep(_espera)
                 conferido = " ".join(_cli(chan, "show onu-vlan-mode", timeout=timeout).split())
                 commands_run.append("show onu-vlan-mode")
                 if modo == "transparent":
@@ -653,12 +659,15 @@ def add_onu_4840e(
                     pon, onu_id, eth_port, tentativa, modo, conferido[-110:],
                 )
             if not aplicado:
-                raise OnuAddError(
-                    f"ONU autorizada, mas a porta {eth_port} nao assumiu o modo {modo}"
+                # NAO e erro: o comando foi aceito e a OLT costuma refletir
+                # depois (em 30/09/2026 levou mais que a janela de conferencia e
+                # a VLAN entrou certa). Abortar aqui era pior que nao conferir --
+                # deixava o cadastro sem onu-p2p e sem salvar. Avisa e segue.
+                avisos.append(
+                    f"a porta {eth_port} ainda nao mostrava o modo {modo}"
                     + (f" com VLAN {vlan}" if modo == "tag" else "")
-                    + f" apos {_VLAN_TENTATIVAS} tentativas. A ONU aceita o comando e nao aplica; "
-                      "reenvie o cadastro em alguns segundos.",
-                    cmd, commands_run, onu=onu_id,
+                    + f" apos {sum(_VLAN_ESPERAS):.0f}s; a OLT aceitou o comando e "
+                      "costuma aplicar em seguida -- confira a tabela MAC em um minuto."
                 )
             cmd = "exit"
             _cli(chan, cmd, timeout=timeout)
@@ -683,7 +692,7 @@ def add_onu_4840e(
         if saved:
             commands_run.append("y")
 
-        return {"ok": True, "pon": pon, "onu": onu_id, "mac": mac_norm, "commands_run": commands_run, "saved": saved}
+        return {"ok": True, "pon": pon, "onu": onu_id, "mac": mac_norm, "commands_run": commands_run, "saved": saved, "avisos": avisos}
     finally:
         try:
             chan.close()
