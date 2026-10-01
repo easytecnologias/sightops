@@ -46,6 +46,7 @@ _SECOES_CGI = {
     "ChannelTitle": "titulos",
     "Encode": "encode",
     "RecordMode": "gravacao",
+    "T2UServer": "plataforma",
     "MotionDetect": "movimento",
     "LossDetect": "perda_video",
     "BlindDetect": "encoberta",
@@ -275,6 +276,25 @@ def _xray_intelbras(base: str, user: str, password: str) -> Dict[str, Any]:
             "snmp_ligado": v("SNMP", "SNMP.Enable") == "true",
             "https_ligado": v("Https", "Https.Enable") == "true",
             "nas_ligado": v("NAS", "NAS[0].Enable") == "true",
+        },
+        # Modo de gravacao por canal. RecordMode[N].Mode: 0 = programado,
+        # 1 = manual (grava sempre), 2 = desligado. Sem isso o relatorio
+        # mostrava a gravacao de todo canal como "n/c".
+        "gravacao": {
+            "por_canal": {
+                int(n) + 1: ("desligado" if modo == "2" else
+                             "manual" if modo == "1" else "programado")
+                for n, modo in sorted(
+                    _cgi_indexado(cru.get("RecordMode", {}), "RecordMode", "Mode").items()
+                )
+            },
+        },
+        # Nuvem do fabricante. No Intelbras e o T2UServer (intelbrasp2p.com.br);
+        # le-se apenas se esta ligado e para qual servidor -- a chave e a senha
+        # de verificacao que vem na mesma resposta NAO sao lidas nem guardadas.
+        "plataforma": {
+            "ligada": v("T2UServer", "T2UServer[0].Enable") == "true",
+            "servidor": v("T2UServer", "T2UServer[0].Address"),
         },
         "deteccao": {rotulo: contar(rotulo) for rotulo in deteccoes},
         "alarmes": {

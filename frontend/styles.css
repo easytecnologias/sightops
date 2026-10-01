@@ -10331,6 +10331,149 @@ table.recorder-tabela tbody tr:hover { background: var(--surface-soft); }
 #recTampa .rec-campo input{width:100%;box-sizing:border-box;padding:9px 11px;font-size:13px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text)}
 #recTampa .rec-campo input:focus{outline:none;border-color:var(--primary);box-shadow:0 0 0 3px rgba(16,122,87,.14)}
 #recTampa .rec-erro{margin:10px 0 0;font-size:12px;color:var(--danger,#b4232a)}
+#recTampa .rec-dica{margin:9px 0 0;font-size:11.5px;color:var(--muted)}
+
+/* ── CADASTRAR/ENTRAR EM GRAVADOR ──
+   A tela anterior era uma pilha de campos com um bloco vermelho de alerta
+   aberto antes de a pessoa fazer qualquer coisa. Aqui o formulario ganha
+   ritmo (tres grupos nomeados), o aviso de origem deixa de gritar enquanto e
+   so uma instrucao, e o espacamento fica regular. */
+#viewDeployRecorder .recorder-deploy-modal { width: min(94vw, 640px); max-width: min(94vw, 640px); }
+#viewDeployRecorder .recorder-deploy-modal .modal-header { padding: 20px 24px 14px; align-items: flex-start; }
+#viewDeployRecorder .recorder-deploy-modal .modal-header h2 { font-size: 17px; margin: 2px 0 3px; }
+#viewDeployRecorder .recorder-deploy-modal .modal-header p:not(.eyebrow) { font-size: 12.5px; color: var(--muted); margin: 0; }
+#viewDeployRecorder .recorder-deploy-modal .recorder-deploy-modal-body { padding: 0 24px 4px; }
+#viewDeployRecorder .recorder-deploy-modal .deployment-form { display: flex; flex-direction: column; gap: 14px; }
+#viewDeployRecorder .recorder-deploy-modal .recorder-connector-block { display: flex; flex-direction: column; gap: 12px; }
+/* Uma grade so para o formulario inteiro: tudo comeca na mesma margem
+   esquerda e termina na mesma direita. Antes cada linha tinha sua propria
+   largura (umas com estilo inline, outras com classe propria) e os campos
+   nasciam desalinhados uns com os outros. */
+#viewDeployRecorder .recorder-deploy-modal .deployment-form > * { box-sizing: border-box; width: 100%; }
+#viewDeployRecorder .recorder-deploy-modal .form-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin: 0;
+  width: 100%;
+}
+#viewDeployRecorder .recorder-deploy-modal .form-row.uma { grid-template-columns: minmax(0, 1fr); }
+#viewDeployRecorder .recorder-deploy-modal .recorder-destination-row { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+#viewDeployRecorder .recorder-deploy-modal .form-group { gap: 5px; min-width: 0; }
+#viewDeployRecorder .recorder-deploy-modal .form-group > input,
+#viewDeployRecorder .recorder-deploy-modal .form-group > select { width: 100%; box-sizing: border-box; }
+#viewDeployRecorder .recorder-deploy-modal .recorder-saved-inline { display: flex; flex-direction: column; gap: 5px; }
+#viewDeployRecorder .recorder-deploy-modal .recorder-saved-inline-head { display: flex; align-items: center; justify-content: space-between; }
+#viewDeployRecorder .recorder-deploy-modal .recorder-saved-select { width: 100%; box-sizing: border-box; }
+
+/* Rotulo de grupo: separa "por onde chegar", "endereco" e "credencial". */
+#viewDeployRecorder .recorder-deploy-modal .rec-grupo-tit {
+  margin: 4px 0 -4px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+#viewDeployRecorder .recorder-deploy-modal .rec-grupo-tit + .form-row { margin-top: 0; }
+
+#viewDeployRecorder .recorder-deploy-modal label { font-size: 12px; color: var(--muted); font-weight: 500; }
+#viewDeployRecorder .recorder-deploy-modal input,
+#viewDeployRecorder .recorder-deploy-modal select {
+  padding: 9px 11px;
+  font-size: 13px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+}
+#viewDeployRecorder .recorder-deploy-modal input:focus,
+#viewDeployRecorder .recorder-deploy-modal select:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(16,122,87,.14);
+}
+#viewDeployRecorder .recorder-deploy-modal input:disabled,
+#viewDeployRecorder .recorder-deploy-modal select:disabled { opacity: .55; cursor: not-allowed; }
+
+/* O aviso de origem e instrucao, nao falha: so fica vermelho quando algo
+   realmente deu errado (a classe .error continua valendo para isso). */
+#viewDeployRecorder .recorder-deploy-modal #deployStandaloneRecorderConnectorStatus.error {
+  background: var(--surface-soft, rgba(125,125,125,.07));
+  border: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+  padding: 10px 12px;
+  border-radius: 8px;
+}
+#viewDeployRecorder .recorder-deploy-modal .deploy-result-box {
+  font-size: 12px;
+  line-height: 1.5;
+  padding: 10px 12px;
+  border-radius: 8px;
+  color: var(--muted);
+}
+
+/* Site, tipo e destino deixaram de ficar escondidos atras de "Mais opcoes":
+   sao tres campos que a pessoa confere sempre, e esconde-los custava um clique
+   e uma caixa a mais na tela. Viraram um grupo igual aos outros. */
+#viewDeployRecorder .recorder-deploy-modal .recorder-avancado { border: none; padding: 0; background: transparent; }
+#viewDeployRecorder .recorder-deploy-modal .recorder-avancado > .form-row { padding: 0; }
+
+#viewDeployRecorder .recorder-deploy-modal .recorder-deploy-modal-actions { padding: 14px 24px 18px; gap: 8px; }
+#viewDeployRecorder .recorder-deploy-modal .recorder-deploy-modal-actions button { min-height: 38px; font-size: 13px; }
+
+@media (max-width: 560px) {
+  #viewDeployRecorder .recorder-deploy-modal .recorder-deploy-modal-body { padding: 0 16px 4px; }
+  #viewDeployRecorder .recorder-deploy-modal .modal-header { padding: 16px 16px 12px; }
+  #viewDeployRecorder .recorder-deploy-modal .recorder-deploy-modal-actions { padding: 12px 16px 16px; }
+  #viewDeployRecorder .recorder-deploy-modal .form-row { grid-template-columns: minmax(0, 1fr); }
+}
+/* ── JANELA DO AO VIVO ──
+   A anterior era uma caixa branca de dialogo com o video espremido dentro,
+   sobrando area clara dos lados e um rodape so para o botao fechar. Aqui a
+   janela E o video: moldura escura, controles na barra de cima e nada abaixo. */
+#recTampa .rec-tampa-vivo{padding:0}
+#recTampa .rec-vivo{
+  background:#0b0f14;border:1px solid rgba(255,255,255,.1);border-radius:12px;
+  overflow:hidden;box-shadow:0 26px 70px rgba(0,0,0,.55);
+  width:min(94vw, calc((100vh - 150px) * 16 / 9));
+  display:flex;flex-direction:column;
+}
+#recTampa .rec-vivo-topo{
+  display:flex;align-items:center;gap:14px;justify-content:space-between;
+  padding:10px 12px 10px 14px;border-bottom:1px solid rgba(255,255,255,.08);
+}
+#recTampa .rec-vivo-id{min-width:0}
+#recTampa .rec-vivo-id b{display:block;font-size:13.5px;color:#f2f5f8;line-height:1.3;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#recTampa .rec-vivo-id span{display:block;font-size:11.5px;color:#8b98a5;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#recTampa .rec-vivo-acoes{display:flex;align-items:center;gap:8px;flex:0 0 auto}
+#recTampa .rec-vivo-taxa{font-size:11px;color:#6f7d8a;font-variant-numeric:tabular-nums}
+#recTampa .rec-vivo-seg{border-color:rgba(255,255,255,.14)}
+#recTampa .rec-vivo-seg button{
+  background:transparent;color:#8b98a5;border:0;padding:5px 11px;font-size:11.5px;
+  font-weight:600;cursor:pointer}
+#recTampa .rec-vivo-seg button[aria-pressed="true"]{background:var(--primary);color:#fff}
+#recTampa .rec-vivo-bt{
+  display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;
+  border-radius:7px;border:1px solid rgba(255,255,255,.14);background:transparent;
+  color:#c7d0d9;cursor:pointer}
+#recTampa .rec-vivo-bt:hover{background:rgba(255,255,255,.08);color:#fff}
+#recTampa .rec-vivo-bt svg{width:15px;height:15px}
+#recTampa .rec-vivo-palco{position:relative;width:100%;aspect-ratio:16/9;background:#000}
+#recTampa .rec-vivo-palco video{position:absolute;inset:0;width:100%;height:100%;
+  object-fit:contain;display:block;background:#000}
+#recTampa .rec-vivo-palco:fullscreen{aspect-ratio:auto;height:100%}
+#recTampa .rec-vivo-aviso{
+  position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+  text-align:center;padding:0 26px;font-size:12.5px;color:#c7d0d9;line-height:1.5}
+@media (max-width:640px){
+  #recTampa .rec-vivo{width:96vw}
+  #recTampa .rec-vivo-id span{display:none}
+}
+#deployRecorderApp .cam[data-rec-vivo]{cursor:pointer}
+#deployRecorderApp .cam[data-rec-vivo]:hover{outline:2px solid var(--primary);outline-offset:-2px}
 #deployRecorderApp .rec-progresso{padding:20px 22px}
 #deployRecorderApp .rec-prog-cab{display:flex;gap:13px;align-items:flex-start}
 #deployRecorderApp .rec-prog-cab h2{margin:0;font-size:16px}

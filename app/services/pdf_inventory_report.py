@@ -1119,9 +1119,26 @@ def _recorder_groups(rows: List[Dict[str, Any]]) -> List[Tuple[str, List[Dict[st
     return ordered
 
 
+def _tem_video_loss(row: Dict[str, Any]) -> bool:
+    """`video_loss` chega ora como booleano (da varredura), ora como a string
+    "sim"/"nao" (do cadastro pela tela de implantacao).
+
+    Ler o valor cru marcava TODO canal como perda de video, porque em Python a
+    string "nao" tambem e verdadeira. No relatorio isso cascateava: o canal
+    virava "video loss", logo nao estava "em uso", logo entrava em "offline" --
+    um gravador com 32 canais online saia no PDF como 0 em uso e 32 offline.
+    """
+    valor = row.get("video_loss")
+    if valor is True:
+        return True
+    if valor in (False, None, ""):
+        return False
+    return _to_text(valor).strip().lower() in ("1", "s", "sim", "y", "yes", "true")
+
+
 def _recorder_channel_status(row: Dict[str, Any]) -> str:
     status = _to_text(row.get("status")).lower()
-    if row.get("video_loss"):
+    if _tem_video_loss(row):
         return "video loss"
     if status in ("online", "ok"):
         return "online"
@@ -1234,7 +1251,7 @@ def _draw_recorder_overview_pages(
     total = len(rows)
     online = sum(1 for r in rows if _recorder_channel_status(r) == "online")
     offline = sum(1 for r in rows if _recorder_channel_offline(r))
-    vloss = sum(1 for r in rows if bool(r.get("video_loss")) or _recorder_channel_status(r) == "video loss")
+    vloss = sum(1 for r in rows if _tem_video_loss(r) or _recorder_channel_status(r) == "video loss")
     photos = sum(1 for r in rows if _recorder_photo_available(r))
     in_use = sum(1 for r in rows if _recorder_channel_in_use(r))
     no_camera = sum(1 for r in rows if _recorder_channel_empty(r))
@@ -1340,7 +1357,7 @@ def _draw_recorder_overview_pages(
             (col1, row_y + 68, "Local", local or "-", f),
             (col1, row_y + 102, "MAC NVR", mac or "-", f_mono),
             (col2, row_y, "Canais", f"{len(items)} total - {used_count} em uso - {status_bad} offline - {no_camera_count} vazios", f),
-            (col2, row_y + 34, "Video loss", str(sum(1 for r in items if bool(r.get('video_loss')))), f),
+            (col2, row_y + 34, "Video loss", str(sum(1 for r in items if _tem_video_loss(r))), f),
             (col2, row_y + 68, "Fotos", f"{sum(1 for r in items if _recorder_photo_available(r) and not _recorder_channel_empty(r))} com imagem", f),
             (col2, row_y + 102, "Gravacao", f"{rec_sim} sim - {rec_nao} nao - {rec_nc} n/c", f),
             (col3, row_y, "HD", hdd or "pendente de coleta", f),

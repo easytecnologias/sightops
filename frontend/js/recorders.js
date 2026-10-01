@@ -260,7 +260,7 @@ const NVR_COLS = {
       `<span class="text-muted" title="${esc(r.camera_model||r.modelo||'')}">${esc(r.camera_model||r.modelo||'')}</span>`,
       `<span class="monospace text-muted" title="${esc(r.camera_mac||r.mac||'')}" style="font-size:11px">${esc(r.camera_mac||r.mac||'')}</span>`,
       `<span class="text-muted" title="${esc(r.equip_serial||'')}">${esc(r.equip_serial||'')}</span>`,
-      r.video_loss
+      recTemVideoLoss(r)
         ? `<span style="color:var(--danger);font-weight:600;font-size:11px">SIM</span>`
         : `<span class="text-muted" style="font-size:11px">nao</span>`,
     ],
@@ -325,7 +325,7 @@ const DVR_COLS = {
       `<span class="monospace text-muted" title="${esc(r.mac||'')}" style="font-size:11px">${esc(r.mac||'')}</span>`,
       `<span class="text-muted" title="${esc(r.modelo||'')}">${esc(r.modelo||'')}</span>`,
       `<span class="text-muted" title="${esc(r.equip_serial||'')}">${esc(r.equip_serial||'')}</span>`,
-      r.video_loss ? `<span style="color:var(--danger);font-weight:600;font-size:11px">SIM</span>` : `<span class="text-muted" style="font-size:11px">nao</span>`,
+      recTemVideoLoss(r) ? `<span style="color:var(--danger);font-weight:600;font-size:11px">SIM</span>` : `<span class="text-muted" style="font-size:11px">nao</span>`,
       recSnapshotUrl(r) ? `<a href="${esc(recSnapshotUrl(r))}" target="_blank" style="color:var(--primary);font-size:12px"> ver</a>` : `<span class="text-muted"></span>`,
     ],
   },
@@ -477,7 +477,7 @@ function populateNvrFilters() {
 
   const rows   = _currentNvrRows();
   const online = rows.filter(r => r.status==='online').length;
-  const vloss  = rows.filter(r => r.video_loss).length;
+  const vloss  = rows.filter(recTemVideoLoss).length;
   setText('nvrTotal',   rows.length);
   setText('nvrOnline',  online);
   setText('nvrOffline', rows.length - online);
@@ -485,6 +485,18 @@ function populateNvrFilters() {
 }
 
 let _dvrDisplayCache = {};
+// `video_loss` chega ora como booleano (vindo da varredura), ora como a string
+// "sim"/"nao" (vinda do cadastro pela tela de implantacao). Ler o valor cru
+// marcava TODO canal como perda de video, porque a string "nao" e verdadeira em
+// JavaScript -- era por isso que 32 canais online apareciam com "Video loss: 32"
+// e V.LOSS=SIM em todas as linhas.
+function recTemVideoLoss(r) {
+  const v = r && r.video_loss;
+  if (v === true) return true;
+  if (v === false || v === null || v === undefined) return false;
+  return /^(1|s|sim|y|yes|true)$/i.test(String(v).trim());
+}
+
 function recHostName(host) {
   return _dvrDisplayCache[String(host || '')] || String(host || '');
 }
@@ -497,7 +509,7 @@ function applyNvrFilters() {
   const host   = document.getElementById('filterNvrHost')?.value   || '';
 
   const filtered = _currentNvrRows().filter(r => {
-    if (status === 'video_loss' && !r.video_loss) return false;
+    if (status === 'video_loss' && !recTemVideoLoss(r)) return false;
     else if (status === 'missing_data' && !recHasMissingData(r)) return false;
     else if (status === 'default_title' && !recHasDefaultTitle(r)) return false;
     else if (status === 'imgbb_down' && recImgbbUrl(r)) return false;
@@ -623,6 +635,9 @@ function renderNvrTable(rows) {
       const total = rows.filter(x => (x.host || '') === host).length;
       pieces.push(`<tr class="rec-group-header" data-group-host="${esc(host)}">
         <td colspan="${colspan}">
+          <input type="checkbox" class="chk-rec-grupo" data-host="${esc(host)}"
+                 title="Selecionar os ${total} canais deste gravador"
+                 style="margin-right:8px;vertical-align:middle">
           <span class="rec-group-toggle" onclick="toggleDvrGroup('${esc(host)}')" style="cursor:pointer;display:inline-flex;align-items:center;gap:6px">
             <i data-lucide="${collapsed ? 'chevron-right' : 'chevron-down'}" style="width:14px;height:14px"></i>
             <strong>${esc(nome)}</strong>
@@ -648,9 +663,31 @@ function renderNvrTable(rows) {
   });
   tbody.innerHTML = pieces.join('');
 
+  // "Marcar tudo" vale para TODAS as linhas do filtro atual, nao so para as
+  // desenhadas: com grupo recolhido as linhas nem existem no DOM.
   document.getElementById('chkNvrAll').onchange = function() {
-    document.querySelectorAll('.chk-nvr').forEach(c => c.checked = this.checked);
+    const marcar = this.checked;
+    _currentNvrRows().forEach(r => {
+      const k = _recChave(r.host, r.channel);
+      if (marcar) _recSelecionados.add(k);
+      else _recSelecionados.delete(k);
+    });
+    recSincronizarCaixas();
   };
+
+  tbody.querySelectorAll('.chk-rec-grupo').forEach(c => {
+    c.addEventListener('click', ev => ev.stopPropagation());
+    c.addEventListener('change', () => recMarcarHost(c.dataset.host, c.checked));
+  });
+  tbody.querySelectorAll('.chk-nvr').forEach(c => {
+    c.addEventListener('change', () => {
+      const k = _recChave(c.dataset.host, c.dataset.channel);
+      if (c.checked) _recSelecionados.add(k);
+      else _recSelecionados.delete(k);
+      recSincronizarCaixas();
+    });
+  });
+  recSincronizarCaixas();
 
   tbody.querySelectorAll('.inv-nvr-row').forEach(tr => {
     tr.addEventListener('click', () => {
@@ -1000,12 +1037,55 @@ function recPanelAction(action) {
   openRecAction(action);
 }
 
+// A selecao vive aqui, nao nos checkboxes da tela. Grupo recolhido nao desenha
+// linha nenhuma, entao ler `.chk-nvr:checked` dava zero canais mesmo com tudo
+// marcado -- era o "Nenhum canal para gerar relatorio" com 64 canais na tela.
+const _recSelecionados = new Set();
+
+function _recChave(host, canal) {
+  return `${String(host || '')}|${Number(canal || 0)}`;
+}
+
+function recCanaisDoHost(host) {
+  return _currentNvrRows().filter(r => String(r.host || '') === String(host));
+}
+
+function recMarcarHost(host, marcar) {
+  recCanaisDoHost(host).forEach(r => {
+    const k = _recChave(r.host, r.channel);
+    if (marcar) _recSelecionados.add(k);
+    else _recSelecionados.delete(k);
+  });
+  recSincronizarCaixas();
+}
+
+function recSincronizarCaixas() {
+  document.querySelectorAll('.chk-nvr').forEach(c => {
+    c.checked = _recSelecionados.has(_recChave(c.dataset.host, c.dataset.channel));
+  });
+  document.querySelectorAll('.chk-rec-grupo').forEach(c => {
+    const canais = recCanaisDoHost(c.dataset.host);
+    const marcados = canais.filter(r => _recSelecionados.has(_recChave(r.host, r.channel))).length;
+    c.checked = canais.length > 0 && marcados === canais.length;
+    c.indeterminate = marcados > 0 && marcados < canais.length;
+  });
+  const todas = document.getElementById('chkNvrAll');
+  if (todas) {
+    const vis = _currentNvrRows();
+    const marcados = vis.filter(r => _recSelecionados.has(_recChave(r.host, r.channel))).length;
+    todas.checked = vis.length > 0 && marcados === vis.length;
+    todas.indeterminate = marcados > 0 && marcados < vis.length;
+  }
+}
+
 function selectedRecItems() {
-  return [...document.querySelectorAll('.chk-nvr:checked')].map(c => ({
-    host: c.dataset.host || '',
-    channel: Number(c.dataset.channel || 0),
-    mode: _invNvrView || 'basico',
-  })).filter(x => x.host && x.channel > 0);
+  // Canal que saiu do inventario nao pode continuar selecionado.
+  const vivos = new Set(_currentNvrRows().map(r => _recChave(r.host, r.channel)));
+  [..._recSelecionados].forEach(k => { if (!vivos.has(k)) _recSelecionados.delete(k); });
+  return [..._recSelecionados].map(k => {
+    const [host, canal] = k.split('|');
+    return { host, channel: Number(canal || 0), mode: _invNvrView || 'basico' };
+  }).filter(x => x.host && x.channel > 0);
 }
 
 function selectedRecRows() {
@@ -1015,10 +1095,11 @@ function selectedRecRows() {
 
 async function runNvrReport(button) {
   if (!button || button.disabled) return;
-  const visibleItems = [...document.querySelectorAll('#invNvrTable .inv-nvr-row')].map(tr => {
-    const [host, channel] = String(tr.dataset.key || '|').split('_');
-    return { host, channel: Number(channel || 0) };
-  }).filter(x => x.host && x.channel > 0);
+  // Sem selecao, o relatorio sai do filtro atual -- nao do que esta desenhado.
+  // Lendo o DOM, grupo recolhido virava "nenhum canal para gerar relatorio".
+  const visibleItems = _currentNvrRows()
+    .map(r => ({ host: String(r.host || ''), channel: Number(r.channel || 0) }))
+    .filter(x => x.host && x.channel > 0);
   const selected = selectedRecItems();
   const items = selected.length ? selected : visibleItems;
   if (!items.length) {

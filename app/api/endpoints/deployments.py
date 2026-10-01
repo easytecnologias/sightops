@@ -1344,6 +1344,89 @@ def api_deployments_connectors() -> Dict[str, Any]:
     return list_connectors(include_token=False)
 
 
+@router.post("/recorder-live-stream")
+def api_deployments_recorder_live_stream(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Registra um canal do gravador no go2rtc e devolve o nome do stream.
+
+    Substitui o repasse de MJPEG que existia aqui antes. O MJPEG saia do
+    proprio gravador, mas custava caro no link do cliente (512 KB/s por canal
+    no stream principal, medido) e o NVD testado so mantem um punhado de
+    sessoes desse tipo -- quando acabavam, ele parava de responder em silencio.
+    Pelo RTSP, que e a porta para a qual esses gravadores foram feitos, o
+    video chega em H.264 e o go2rtc so reembala para o navegador.
+
+    A senha nao vai nem volta pelo navegador: e resolvida aqui e entregue
+    direto ao go2rtc.
+    """
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="payload invalido")
+    host = _text(payload.get("recorder_host") or payload.get("host"))
+    try:
+        canal = int(_text(payload.get("canal") or payload.get("channel")) or "0")
+    except Exception:
+        canal = 0
+    if not host or canal <= 0:
+        raise HTTPException(status_code=400, detail="informe host e canal")
+
+    porta_http = payload.get("recorder_http_port") or payload.get("http_port")
+    user, password = _credencial_gravador({"recorder_host": host, "http_port": porta_http})
+    if not password:
+        raise HTTPException(status_code=428, detail="SEM_CREDENCIAL")
+
+    connector_id = _text(payload.get("connector_id") or payload.get("remote_connector_id"))
+    if connector_id:
+        try:
+            register_connector_known_targets(connector_id, [host])
+        except Exception:
+            pass
+    # Conector isolado so responde no IP virtual -- o real nao alcanca.
+    alcance = _reach_deploy_host(host, connector_id)
+
+    alta = str(payload.get("alta", "1")).strip().lower() not in ("0", "false", "nao", "")
+    from app.services.live_stream_service import register_recorder_stream
+
+    try:
+        nome = register_recorder_stream(
+            host=alcance, user=user, password=password, canal=canal,
+            marca=_text(payload.get("marca")), alta=alta,
+            porta_rtsp=int(payload.get("porta_rtsp") or 554),
+        )
+    except Exception as exc:
+        logger.exception("Falha ao registrar canal %s de %s no go2rtc", canal, host)
+        raise HTTPException(status_code=502, detail=f"nao consegui preparar o video: {exc}") from exc
+    logger.info("ao vivo: canal %s de %s registrado como %s", canal, host, nome)
+    return {"ok": True, "stream_name": nome}
+
+
+@router.post("/recorder-live-stop")
+def api_deployments_recorder_live_stop(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Tira o canal do go2rtc quando ninguem mais esta assistindo.
+
+    Nao e so higiene: a fonte guardada no go2rtc contem a senha RTSP do
+    gravador, e stream esquecido ali ja foi causa de vazamento de credencial
+    neste sistema. A varredura periodica tambem pega, isto apenas antecipa.
+    """
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="payload invalido")
+    host = _text(payload.get("recorder_host") or payload.get("host"))
+    try:
+        canal = int(_text(payload.get("canal") or payload.get("channel")) or "0")
+    except Exception:
+        canal = 0
+    if not host or canal <= 0:
+        return {"ok": True, "removido": False}
+    connector_id = _text(payload.get("connector_id") or payload.get("remote_connector_id"))
+    alcance = _reach_deploy_host(host, connector_id)
+    alta = str(payload.get("alta", "1")).strip().lower() not in ("0", "false", "nao", "")
+    try:
+        from app.services.live_stream_service import unregister_recorder_stream
+        unregister_recorder_stream(host=alcance, canal=canal, alta=alta)
+    except Exception:
+        logger.warning("nao consegui remover o canal %s de %s do go2rtc", canal, host)
+        return {"ok": True, "removido": False}
+    return {"ok": True, "removido": True}
+
+
 @router.post("/recorder-xray")
 def api_deployments_recorder_xray(payload: Dict[str, Any]) -> Dict[str, Any]:
     """Tudo que o gravador sabe responder, em uma chamada.

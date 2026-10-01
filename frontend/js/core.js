@@ -474,6 +474,14 @@ function navigateTo(view) {
   if (String(view).startsWith('owner-') && !_currentUser?.is_platform_admin) view = 'dashboard';
   if (DISABLED_VIEWS.has(view) || isStaffOnlyView(view)) view = 'dashboard';
 
+  // Sair de Gravadores fecha o gravador aberto. Sem isto ele sobrevivia a troca
+  // de tela E a troca de cliente: ao entrar na conta da RADS, a tela ainda
+  // mostrava o gravador da Easy, com canais e fotos de outro cliente.
+  if (_currentView === 'deploy-recorder' && view !== 'deploy-recorder'
+      && typeof recSair === 'function') {
+    try { recSair(); } catch (_) {}
+  }
+
   // Esconde todas as views
   document.querySelectorAll('[id^="view"]').forEach(el => el.classList.add('hidden'));
 

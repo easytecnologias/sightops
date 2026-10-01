@@ -2282,7 +2282,7 @@ def api_nvr_save(req: RecorderSaveRequest) -> Dict[str, Any]:
         "snapshot_url", "imgbb_url", "imgbb_thumb_url", "site", "remote",
         "remote_connector_id", "recorder_user", "http_port", "name", "recorder_name", "inventory_mode",
         "hdd_status", "hdd_total", "hdd_free", "hdd_used_percent", "hdd_count",
-        "network_status", "nvr_ip", "nvr_mask", "nvr_gateway", "nvr_dns",
+        "network_status", "nvr_ip", "nvr_mask", "nvr_gateway", "nvr_dns", "nvr_mac",
         "platform_status", "cloud_status", "hik_connect_status", "p2p_status", "platform_online",
         "recording", "is_recording", "recording_status", "recording_days", "retention_days", "retention",
         "recorder_health_collected",

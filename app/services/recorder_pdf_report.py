@@ -41,6 +41,7 @@ from app.services.pdf_inventory_report import (
     _recorder_channel_empty,
     _recorder_channel_in_use,
     _recorder_channel_offline,
+    _tem_video_loss,
     _recorder_channel_status,
     _recorder_groups,
     _recorder_host_text,
@@ -342,7 +343,7 @@ def build_recorder_pdf_report(
         used = sum(1 for r in items if _recorder_channel_in_use(r))
         bad = sum(1 for r in items if _recorder_channel_offline(r))
         no_cam = sum(1 for r in items if _recorder_channel_empty(r))
-        vloss = sum(1 for r in items if bool(r.get("video_loss")))
+        vloss = sum(1 for r in items if _tem_video_loss(r))
         photos = sum(1 for r in items if _recorder_photo_available(r) and not _recorder_channel_empty(r))
         rec_sim = sum(1 for r in items if _recorder_recording_text(r) == "sim")
         rec_nao = sum(1 for r in items if _recorder_recording_text(r) == "nao")

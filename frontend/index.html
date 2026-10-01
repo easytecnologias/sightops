@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=1790895600">
+  <link rel="stylesheet" href="styles.css?v=1790964100">
 </head>
 <body>
 
@@ -4391,13 +4391,15 @@
           </div>
         </div>
 
-        <div id="modalDeployStandaloneRecorder" class="modal-backdrop hidden" onclick="if(event.target===this)closeDeployStandaloneRecorderModal()">
+        <!-- Sem fechar ao clicar fora: um clique torto ao lado do formulario apagava
+             conector, OLT, site, host e senha ja digitados. Fecha pelo X ou por Cancelar. -->
+        <div id="modalDeployStandaloneRecorder" class="modal-backdrop hidden">
           <div class="modal recorder-deploy-modal">
             <div class="modal-header">
               <div>
                 <p class="eyebrow">Implantacao</p>
                 <h2 id="deployStandaloneRecorderModalTitle">Cadastrar gravador</h2>
-                <p id="deployStandaloneRecorderModalSubtitle">Informe o acesso. Modelo, tipo e quantidade de canais vem do proprio gravador.</p>
+                <p id="deployStandaloneRecorderModalSubtitle">Tres passos: por onde chegar, qual o endereco e com que credencial.</p>
               </div>
               <button class="icon-button" id="btnDeployStandaloneRecorderCloseModal" type="button" aria-label="Fechar cadastro"><i data-lucide="x"></i></button>
             </div>
@@ -4408,19 +4410,20 @@
             </div>
             <form id="deployStandaloneRecorderForm" class="deployment-form">
               <div class="recorder-connector-block">
-                <div class="form-row" style="grid-template-columns:1fr">
+                <p class="rec-grupo-tit">Por onde o sistema chega</p>
+                <div class="form-row uma">
                   <div class="form-group">
                     <label for="deployStandaloneRecorderConnector">Conector (MikroTik/Ruijie)</label>
-                    <select id="deployStandaloneRecorderConnector" class="filter-select" style="width:100%">
+                    <select id="deployStandaloneRecorderConnector" class="filter-select">
                       <option value="">Escolha a origem de acesso</option>
                       <option value="__local__">Local / VPN do servidor</option>
                     </select>
                   </div>
                 </div>
-                <div class="form-row" style="grid-template-columns:1fr">
+                <div class="form-row uma">
                   <div class="form-group">
                     <label for="deployStandaloneRecorderOlt">OLT cadastrada</label>
-                    <select id="deployStandaloneRecorderOlt" class="filter-select" style="width:100%" disabled>
+                    <select id="deployStandaloneRecorderOlt" class="filter-select" disabled>
                       <option value="">Escolha primeiro o conector</option>
                     </select>
                   </div>
@@ -4430,7 +4433,7 @@
                     <label>Gravadores cadastrados</label>
                     <button class="icon-button" id="btnDeployStandaloneRecorderReloadSaved" type="button" title="Atualizar gravadores cadastrados"><i data-lucide="refresh-cw"></i></button>
                   </div>
-                  <select id="deployStandaloneRecorderSavedSelect" class="filter-select recorder-saved-select" style="width:100%">
+                  <select id="deployStandaloneRecorderSavedSelect" class="filter-select recorder-saved-select">
                     <option value="">Carregando gravadores cadastrados...</option>
                   </select>
                 </div>
@@ -4438,8 +4441,8 @@
                   Escolha Local/VPN do servidor ou um conector online com VPN. Os dados do gravador ficam bloqueados ate definir a origem.
                 </div>
               </div>
-              <details class="recorder-avancado" data-recorder-modal-mode="create">
-                <summary>Mais opcoes <small>site, tipo e destino do inventario</small></summary>
+              <p class="rec-grupo-tit" data-recorder-modal-mode="create">Destino no inventario</p>
+              <div class="recorder-avancado" data-recorder-modal-mode="create">
               <div class="form-row recorder-destination-row">
                 <div class="form-group">
                   <label for="deployStandaloneRecorderSite">Site / local</label>
@@ -4462,7 +4465,8 @@
                   </select>
                 </div>
               </div>
-              </details>
+              </div>
+              <p class="rec-grupo-tit" data-recorder-modal-mode="create">Endereco do gravador</p>
               <div class="form-row deploy-standalone-recorder-host-row" data-recorder-modal-mode="create">
                 <div class="form-group">
                   <label for="deployStandaloneRecorderHost">Host do gravador</label>
@@ -4474,6 +4478,7 @@
                 </div>
                 <input id="deployStandaloneRecorderChannelTotal" type="hidden">
               </div>
+              <p class="rec-grupo-tit">Credencial de acesso</p>
               <div class="form-row deploy-standalone-recorder-login-row recorder-login-fields-only">
                 <div class="form-group">
                   <label for="deployStandaloneRecorderUser">Usuario</label>
@@ -4485,7 +4490,7 @@
                 </div>
               </div>
               <input id="deployStandaloneRecorderName" type="hidden">
-              <div id="deployStandaloneRecorderResult" class="deploy-result-box">Modelo, tipo e canais vem do proprio gravador.</div>
+              <div id="deployStandaloneRecorderResult" class="deploy-result-box">O gravador e quem informa modelo, serial e quantos canais tem.</div>
             </form>
           </div>
             </div>
@@ -6615,17 +6620,17 @@
        trechos do app.js original na sequencia em que estavam, entao carregar
        fora de ordem muda o comportamento. Ao adicionar um arquivo novo, entre
        antes de bootstrap.js, que e quem liga os botoes no DOMContentLoaded. -->
-  <script src="js/core.js?v=1790013585"></script>
+  <script src="js/core.js?v=1790956900"></script>
   <script src="js/dashboard.js?v=266"></script>
-  <script src="js/liveStream.js?v=1789810300"></script>
+  <script src="js/liveStream.js?v=1790960500"></script>
   <script src="js/cameras.js?v=1790693990"></script>
-  <script src="js/recorders.js?v=1790172000"></script>
+  <script src="js/recorders.js?v=1790935300"></script>
   <script src="js/windows.js?v=142"></script>
   <script src="js/snapshots.js?v=1790019880"></script>
   <script src="js/maintenance.js?v=146"></script>
   <script src="js/analysis.js?v=147"></script>
   <script src="js/network.js?v=158"></script>
-  <script src="js/deploy.js?v=1790884800"></script>
+  <script src="js/deploy.js?v=1790964100"></script>
   <script src="js/cameraActivation.js?v=1790048800"></script>
   <script src="js/deployOlt.js?v=160"></script>
   <script src="js/connectors.js?v=1790804180"></script>

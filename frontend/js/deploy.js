@@ -1266,6 +1266,12 @@ function deployStandaloneRecorderClearRecorderFields({ keepConnector = false, ke
 }
 
 async function loadDeployRecorder() {
+  // Entrar na tela sempre comeca do zero. Trocar de cliente nao passa por
+  // navigateTo em alguns caminhos, e o gravador da conta anterior continuava
+  // aberto -- dados de um cliente na tela de outro.
+  if (_deployRecorderXray || _deployStandaloneRecorderProbe) {
+    try { recSair(); } catch (_) {}
+  }
   deploymentApplyPreferredInventoryMode();
   await Promise.all([loadDeployRecorderSites(), deployStandaloneRecorderLoadConnectors(), deployStandaloneRecorderLoadOlts(), deployStandaloneRecorderLoadSaved(), recCarregarSenhasSalvas()]);
   deployStandaloneRecorderRenderOltsForOrigin();
@@ -1332,6 +1338,11 @@ async function deployStandaloneRecorderLogin() {
     if (campoCanais && data.channel_total) campoCanais.value = data.channel_total;
     const campoTipo = document.getElementById('deployStandaloneRecorderType');
     if (campoTipo && data.source) campoTipo.value = data.source;
+    // O gravador acabou de dizer quem e: o nome do inventario sai daqui, nao
+    // de um rotulo digitado a mao.
+    const campoNome = document.getElementById('deployStandaloneRecorderName');
+    const nomeReal = String(data.name || data.model || '').trim();
+    if (campoNome && nomeReal) campoNome.value = nomeReal;
     // O login confirma acesso; o raio-x le o resto do equipamento (canais,
     // discos, deteccao, servicos). Vai sem await de proposito: no Intelbras
     // leva ~13s e nao pode segurar o retorno do login.
@@ -1362,8 +1373,36 @@ function deployStandaloneRecorderRows(payload, probe) {
   const channels = deployStandaloneRecorderChannelsFromProbe(probe);
   const byChannel = new Map(channels.map(item => [Number(item.channel || 0), item]));
   const total = Number(probe?.channel_total || payload.recorder_channel_total || channels.length || 32);
-  const model = probe?.model || '';
-  const serial = probe?.serial || '';
+  // O login nem sempre traz o modelo; o raio-x traz. Sem isto a coluna
+  // "Modelo NVR" do inventario ficava vazia num gravador que se identifica.
+  const xray = _deployRecorderXray || {};
+  const eqXray = xray.equipamento || {};
+  const model = probe?.model || eqXray.modelo || '';
+  const serial = probe?.serial || eqXray.serial || '';
+
+  // Tudo abaixo o raio-x ja le do equipamento. Sem isso o relatorio saia com
+  // "pendente de coleta" em HD, MAC, plataforma, e "n/c" na gravacao de todo
+  // canal -- informacao que o sistema tinha em maos e nao gravava.
+  const redeX = xray.rede || {};
+  const discos = xray.discos || [];
+  const capacidade = discos.reduce((t, x) => t + (Number(x.total_tb) || 0), 0);
+  const comErro = discos.filter(x => x.erro).length;
+  const plataforma = xray.plataforma || {};
+  const porCanal = (xray.gravacao || {}).por_canal || {};
+  const saude = discos.length ? {
+    hdd_count: String(discos.length),
+    hdd_total: capacidade ? `${capacidade.toFixed(1)} TB` : '',
+    hdd_status: comErro ? `${comErro} disco(s) com erro` : 'todos ok',
+    nvr_mac: redeX.mac || '',
+    nvr_ip: redeX.ip || '',
+    nvr_mask: redeX.mascara || '',
+    nvr_gateway: redeX.gateway || '',
+    nvr_dns: redeX.dns || '',
+    platform_status: plataforma.ligada
+      ? `ligada${plataforma.servidor ? ' - ' + plataforma.servidor : ''}`
+      : (plataforma.servidor || Object.keys(plataforma).length ? 'desligada' : ''),
+    recorder_health_collected: new Date().toISOString(),
+  } : {};
   return Array.from({ length: total }, (_, idx) => {
     const channel = idx + 1;
     const live = byChannel.get(channel) || {};
@@ -1378,6 +1417,10 @@ function deployStandaloneRecorderRows(payload, probe) {
       recorder_user: payload.recorder_user,
       recorder_password: payload.recorder_password,
       name: payload.name,
+      // A tela de inventario mostra `recorder_name` (ver computeDvrDisplayNames
+      // em frontend/js/recorders.js); sem ele o gravador aparece como DVR-01
+      // sequencial, por mais que `name` esteja preenchido.
+      recorder_name: payload.name,
       channel,
       title,
       local: payload.site,
@@ -1385,6 +1428,11 @@ function deployStandaloneRecorderRows(payload, probe) {
       status: used ? 'online' : 'offline',
       video_loss: used ? 'nao' : 'sim',
       equip_serial: serial,
+      // Modo de gravacao do canal: "desligado" e o unico que significa que o
+      // canal nao grava; programado e manual gravam.
+      recording: porCanal[channel] ? (porCanal[channel] !== 'desligado' ? 'sim' : 'nao') : '',
+      recording_status: porCanal[channel] || '',
+      ...saude,
       snapshot_url: live.snapshot_url || '',
       imgbb_url: live.imgbb_url || '',
       imgbb_thumb_url: live.imgbb_thumb_url || '',
@@ -4106,18 +4154,37 @@ function recAchadosLista(d) {
 }
 
 // miniatura do canal, vinda do inventario de gravadores (host + canal)
-function recFoto(c, host) {
+function recFoto(c, host, deduzir = true) {
+  // Tres fontes, nesta ordem, porque a primeira sozinha ja falhou: a tela lia
+  // SO o inventario, entao apagar o gravador do inventario deixava o mosaico
+  // inteiro sem foto -- mesmo com os JPGs em disco, recem-capturados no login.
+  //
+  // 1) o que o login acabou de capturar (sempre o mais novo)
+  // 2) o que esta gravado no inventario
+  // 3) o caminho que o backend usa para escrever o arquivo, deduzido do IP
+  //    (ver _capture_recorder_snapshots em app/api/endpoints/deployments.py)
+  const canal = Number(c.canal);
+  const doProbe = (deployStandaloneRecorderChannelsFromProbe(_deployStandaloneRecorderProbe) || [])
+    .find(x => Number(x.channel) === canal);
   const linha = (_deployStandaloneRecorderSavedItems || [])
     .flatMap(x => x.rows || [])
-    .find(r => String(r.host || '') === String(host) && Number(r.channel) === Number(c.canal));
-  const bruto = String(linha?.snapshot_url || linha?.imgbb_url || '').trim();
+    .find(r => String(r.host || '') === String(host) && Number(r.channel) === canal);
+
+  let bruto = String(doProbe?.snapshot_url || doProbe?.imgbb_url || '').trim();
+  if (!bruto) bruto = String(linha?.snapshot_url || linha?.imgbb_url || '').trim();
+  if (!bruto && deduzir && host && canal > 0) {
+    const seguro = String(host).replace(/[^0-9A-Za-z_-]+/g, '_').replace(/^_+|_+$/g, '') || 'nvr';
+    bruto = `/data/nvr_snapshot/deploy_${seguro}_ch${String(canal).padStart(3, '0')}.jpg`;
+  }
   if (!bruto) return '';
   return /^https?:\/\//i.test(bruto) ? bruto : `${API_BASE}${bruto}`;
 }
 
 function recSecVivo(d) {
   const canais = d.canais || [], host = d.host;
-  const comImagem = canais.filter(c => recFoto(c, host)).length;
+  // Conta so foto de origem conhecida: o caminho deduzido pode nao existir
+  // em disco, e dizer "32 com imagem" sem ter seria mentir no cabecalho.
+  const comImagem = canais.filter(c => recFoto(c, host, false)).length;
   const caidos = canais.filter(c => c.online === false).length;
   return `<div class="bloco">
     <div class="bloco-cab">
@@ -4132,8 +4199,9 @@ function recSecVivo(d) {
       const foto = recFoto(c, host), n = String(c.canal).padStart(2, '0');
       if (!c.ip) return `<div class="cam livre"><div class="vazio">canal ${n} livre</div></div>`;
       const caiu = c.online === false;
-      return `<div class="cam ${caiu ? 'caiu' : ''}" title="${esc([c.nome, c.ip].filter(Boolean).join(' · '))}">
-        ${foto ? `<img src="${esc(foto)}" alt="" loading="lazy">`
+      return `<div class="cam ${caiu ? 'caiu' : ''}" data-rec-vivo="${esc(c.canal)}"
+        title="${esc([c.nome, c.ip, 'clique para ver ao vivo'].filter(Boolean).join(' · '))}">
+        ${foto ? `<img src="${esc(foto)}" alt="" loading="lazy" onerror="this.remove()">`
                : `<div class="vazio">${caiu ? 'sem sinal' : 'sem imagem'}</div>`}
         <div class="marca"><span class="n">${n}</span>${caiu ? '' : '<span class="rec"><i></i>REC</span>'}</div>
         <div class="rotulo">${esc(c.nome || c.ip)}</div>
@@ -4323,6 +4391,7 @@ function recPintarProgresso() {
 function recSair() {
   // Sem isto so o F5 tirava o operador daqui: a tela do gravador aberta nao
   // tinha nenhuma saida.
+  recFecharVivo();
   _deployRecorderXray = null;
   _deployStandaloneRecorderProbe = null;
   _deployStandaloneRecorderNetworkLoaded = false;
@@ -4332,6 +4401,229 @@ function recSair() {
   deployStandaloneRecorderClearRecorderFields();
   recPintarApp();
   lucide.createIcons();
+}
+
+let _recVivoHandle = null;
+let _recVivoAlvo = null;
+
+function recFecharVivo() {
+  if (_recVivoHandle) { try { _recVivoHandle.stop(); } catch (_) {} _recVivoHandle = null; }
+  // Avisa o servidor para tirar o canal do go2rtc: a fonte guardada la tem a
+  // senha RTSP do gravador, e stream esquecido ja foi causa de vazamento de
+  // credencial neste sistema.
+  if (_recVivoAlvo) {
+    const alvo = _recVivoAlvo;
+    _recVivoAlvo = null;
+    api('/api/deployments/recorder-live-stop', { method: 'POST', body: JSON.stringify(alvo) })
+      .catch(() => {});
+  }
+}
+
+let _recVivoAlta = true;
+
+function recAbrirVivo(canal) {
+  // Video ao vivo pelo RTSP do PROPRIO gravador, servido ao navegador pelo
+  // go2rtc (o mesmo player das cameras). O gravador vive atras do tunel do
+  // conector, entao quem fala com ele e o backend -- a senha nunca chega aqui.
+  const d = _deployRecorderXray;
+  if (!d) return;
+  const dados = (d.canais || []).find(c => Number(c.canal) === Number(canal));
+  if (!dados || !dados.ip) { showToast('Canal livre: nao ha camera para ver.', true); return; }
+
+  const p = deployStandaloneRecorderPayload();
+  const tampa = document.getElementById('recTampa') || (() => {
+    const el = document.createElement('div');
+    el.id = 'recTampa';
+    document.body.appendChild(el);
+    return el;
+  })();
+  const nome = dados.nome || dados.ip;
+  const n = String(canal).padStart(2, '0');
+
+  tampa.innerHTML = `<div class="rec-tampa rec-tampa-vivo" role="dialog" aria-modal="true" aria-label="Ao vivo">
+    <div class="rec-vivo">
+      <div class="rec-vivo-topo">
+        <div class="rec-vivo-id">
+          <b>${esc(n)} · ${esc(nome)}</b>
+          <span>${esc(dados.ip)}${dados.modelo ? ' · ' + esc(dados.modelo) : ''} · ${esc(d.host)}</span>
+        </div>
+        <div class="rec-vivo-acoes">
+          <span class="rec-vivo-taxa" id="recVivoTaxa"></span>
+          <div class="seg rec-vivo-seg">
+            <button type="button" data-rec-q="1" aria-pressed="${_recVivoAlta}">Alta</button>
+            <button type="button" data-rec-q="0" aria-pressed="${!_recVivoAlta}">Leve</button>
+          </div>
+          <button class="rec-vivo-bt" type="button" data-rec-tela title="Tela cheia" aria-label="Tela cheia">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3m13-5v3a2 2 0 0 1-2 2h-3"/></svg>
+          </button>
+          <button class="rec-vivo-bt" type="button" data-rec-fechar title="Fechar" aria-label="Fechar">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg>
+          </button>
+        </div>
+      </div>
+      <div class="rec-vivo-palco" id="recVivoPalco">
+        <video id="recVivoVideo" autoplay muted playsinline></video>
+        <div class="rec-vivo-aviso" id="recVivoAviso">Conectando...</div>
+      </div>
+    </div></div>`;
+
+  const video = document.getElementById('recVivoVideo');
+  const aviso = document.getElementById('recVivoAviso');
+  const palco = document.getElementById('recVivoPalco');
+  const taxa = document.getElementById('recVivoTaxa');
+
+  const ligar = () => {
+    recFecharVivo();
+    const alvo = {
+      recorder_host: d.host || p.recorder_host,
+      canal: Number(canal),
+      http_port: p.recorder_http_port || '',
+      connector_id: p.connector_id || '',
+      marca: d.marca || '',
+      alta: _recVivoAlta ? 1 : 0,
+    };
+    _recVivoAlvo = alvo;
+    if (aviso) { aviso.hidden = false; aviso.textContent = 'Conectando...'; }
+    if (taxa) taxa.textContent = '';
+    _recVivoHandle = mountLiveStream(video, {
+      ip: alvo.recorder_host, user: 'admin', pass: '', subtype: _recVivoAlta ? 0 : 1,
+      // O backend e quem sabe a senha do gravador e o caminho RTSP de cada
+      // marca; daqui so pedimos o stream pronto.
+      registrar: async () => {
+        const res = await api('/api/deployments/recorder-live-stream', {
+          method: 'POST', body: JSON.stringify(alvo),
+        });
+        const r = await res?.json().catch(() => ({}));
+        if (res?.status === 428) throw new Error('Este gravador nao tem senha guardada.');
+        if (!res?.ok || !r?.stream_name) throw new Error(r?.detail || 'nao consegui preparar o video');
+        return r.stream_name;
+      },
+      onStatus: texto => {
+        if (!aviso) return;
+        if (texto) { aviso.hidden = false; aviso.textContent = texto; }
+        else {
+          aviso.hidden = true;
+          if (taxa) taxa.textContent = `${video.videoWidth || ''}×${video.videoHeight || ''}`;
+        }
+      },
+    });
+  };
+
+  video.addEventListener('loadedmetadata', () => {
+    if (taxa) taxa.textContent = `${video.videoWidth}×${video.videoHeight}`;
+  });
+
+  tampa.querySelectorAll('[data-rec-q]').forEach(b => b.addEventListener('click', () => {
+    const alta = b.dataset.recQ === '1';
+    if (alta === _recVivoAlta) return;
+    _recVivoAlta = alta;
+    tampa.querySelectorAll('[data-rec-q]').forEach(x =>
+      x.setAttribute('aria-pressed', String((x.dataset.recQ === '1') === _recVivoAlta)));
+    ligar();
+  }));
+
+  tampa.querySelector('[data-rec-tela]')?.addEventListener('click', () => {
+    if (document.fullscreenElement) document.exitFullscreen?.();
+    else palco?.requestFullscreen?.().catch(() => showToast('O navegador nao permitiu tela cheia.', true));
+  });
+
+  const fechar = () => { recFecharVivo(); tampa.innerHTML = ''; };
+  tampa.querySelectorAll('[data-rec-fechar]').forEach(b => b.addEventListener('click', fechar));
+  tampa.querySelector('.rec-tampa').addEventListener('click', ev => {
+    if (ev.target === ev.currentTarget) fechar();
+  });
+  ligar();
+}
+
+function recNomeDoGravador(d) {
+  // O nome que vai pro inventario tem que ser o do EQUIPAMENTO. Antes vinha do
+  // campo do formulario, que nascia com o site ou com o que tivesse sobrado da
+  // tela anterior -- dai "DVR-01" virar o nome de um NVD 7132 e ninguem mais
+  // reconhecer o gravador na lista.
+  const eq = (d && d.equipamento) || {};
+  const p = _deployStandaloneRecorderProbe || {};
+  return String(eq.nome || p.name || eq.modelo || p.model || (d && d.host) || '').trim();
+}
+
+async function recSalvarInventario(botao) {
+  const d = _deployRecorderXray;
+  if (!d) { showToast('Entre num gravador antes de salvar.', true); return; }
+
+  // O nome e escolhido por quem salva, nao inventado pelo sistema. O campo ja
+  // vem com o nome que este gravador tem hoje no inventario; so quando ele
+  // ainda nao existe la e que o equipamento serve de sugestao.
+  const host = d.host || '';
+  const noInventario = (_deployStandaloneRecorderSavedItems || [])
+    .find(x => String(x.host || '') === String(host) && String(x.name || '').trim());
+  const sugestao = (noInventario && noInventario.name) || recNomeDoGravador(d);
+
+  recPedirNome(sugestao, d, async nome => {
+    const campo = document.getElementById('deployStandaloneRecorderName');
+    if (campo) campo.value = nome;
+    if (botao) { botao.disabled = true; botao.textContent = 'Salvando...'; }
+    try {
+      await deployStandaloneRecorderSave();
+    } finally {
+      if (botao) {
+        botao.disabled = false;
+        botao.textContent = _deployStandaloneRecorderSaved ? 'Salvo no inventario' : 'Salvar no inventario';
+      }
+    }
+  });
+}
+
+function recPedirNome(sugestao, d, aoConfirmar) {
+  const tampa = document.getElementById('recTampa') || (() => {
+    const el = document.createElement('div');
+    el.id = 'recTampa';
+    document.body.appendChild(el);
+    return el;
+  })();
+  const fechar = () => { tampa.innerHTML = ''; };
+  const p = deployStandaloneRecorderPayload();
+  const tipo = (p.recorder_type || 'nvr').toUpperCase();
+  const site = p.site || '';
+
+  tampa.innerHTML = `<div class="rec-tampa" role="dialog" aria-modal="true" aria-label="Nome do gravador">
+    <div class="rec-caixa rec-caixa-estreita">
+      <div class="rec-caixa-cab">
+        <h3>Nome deste gravador</h3>
+        <p>E assim que ele aparece no inventario, em relatorio e na busca.</p>
+      </div>
+      <div class="rec-caixa-corpo">
+        <label class="rec-campo"><span>Nome</span>
+          <input id="recNomeCampo" autocomplete="off" value="${esc(sugestao)}"></label>
+        <p class="rec-dica">${esc(tipo)}${site ? ' · ' + esc(site) : ''} · ${esc(d.host || '')}
+        · ${esc((d.equipamento || {}).modelo || '')}</p>
+        <p class="rec-erro" id="recNomeErro" hidden></p>
+      </div>
+      <div class="rec-caixa-pe">
+        <button class="acao" type="button" data-rec-fechar>Cancelar</button>
+        <button class="acao forte" type="button" data-rec-ok>Salvar</button>
+      </div>
+    </div></div>`;
+
+  const campo = document.getElementById('recNomeCampo');
+  const erro = document.getElementById('recNomeErro');
+  campo?.focus();
+  campo?.select();
+
+  const confirmar = () => {
+    const nome = (campo?.value || '').trim();
+    if (!nome) {
+      if (erro) { erro.hidden = false; erro.textContent = 'Da um nome ao gravador.'; }
+      campo?.focus();
+      return;
+    }
+    fechar();
+    aoConfirmar(nome);
+  };
+  tampa.querySelector('[data-rec-ok]')?.addEventListener('click', confirmar);
+  tampa.querySelectorAll('[data-rec-fechar]').forEach(b => b.addEventListener('click', fechar));
+  campo?.addEventListener('keydown', ev => { if (ev.key === 'Enter') confirmar(); });
+  tampa.querySelector('.rec-tampa').addEventListener('click', ev => {
+    if (ev.target === ev.currentTarget) fechar();
+  });
 }
 
 function recPintarApp() {
@@ -4386,6 +4678,7 @@ function recPintarApp() {
       <div class="barra-dir">
         ${criticos ? `<span class="sinal erro"><i></i>${criticos} achados</span>`
                    : '<span class="sinal ok"><i></i>sem achado</span>'}
+        <button class="acao forte" type="button" data-rec-salvar="1">Salvar no inventario</button>
         <button class="acao" type="button" data-rec-reler="1">Reler</button>
         <button class="acao" type="button" data-rec-sair="1" title="Fechar o gravador e voltar">Sair</button>
       </div>
@@ -4407,6 +4700,9 @@ function recPintarApp() {
     b.addEventListener('click', () => { _recCols = b.dataset.recCol; recPintarApp(); }));
   app.querySelector('[data-rec-reler]')?.addEventListener('click', () => deployRecorderCarregarXray());
   app.querySelector('[data-rec-sair]')?.addEventListener('click', () => recSair());
+  app.querySelector('[data-rec-salvar]')?.addEventListener('click', ev => recSalvarInventario(ev.target));
+  app.querySelectorAll('[data-rec-vivo]').forEach(el =>
+    el.addEventListener('click', () => recAbrirVivo(Number(el.dataset.recVivo))));
   app.querySelector('[data-rec-trocar]')?.addEventListener('click', () => recAbrirSeletor());
   app.querySelectorAll('[data-rec-editar]').forEach(b =>
     b.addEventListener('click', () => recAbrirEdicao('editar', Number(b.dataset.recEditar))));

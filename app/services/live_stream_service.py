@@ -141,6 +141,62 @@ def register_stream(*, ip: str, user: str, password: str, subtype: int = 1, vend
     return name
 
 
+def _recorder_rtsp_path(canal: int, marca: str = "", alta: bool = True) -> str:
+    """Caminho RTSP de um CANAL do gravador (nao da camera).
+
+    O gravador ja tem o video de todas as cameras; puxar por ele evita abrir
+    uma conexao em cada camera e funciona mesmo quando a camera so fala com o
+    NVR. Intelbras/Dahua usam `realmonitor` com o numero do canal; Hikvision
+    usa id composto (canal 1 principal = 101, substream = 102).
+    """
+    st = 0 if alta else 1
+    if str(marca or "").strip().lower().startswith("hik"):
+        return f"/Streaming/Channels/{int(canal) * 100 + (1 if st == 0 else 2)}"
+    return f"/cam/realmonitor?channel={int(canal)}&subtype={st}"
+
+
+def recorder_stream_name(host: str, canal: int, alta: bool = True) -> str:
+    return f"rec_{str(host).replace('.', '_')}_{int(canal)}_{0 if alta else 1}"
+
+
+def register_recorder_stream(
+    *, host: str, user: str, password: str, canal: int, marca: str = "",
+    alta: bool = True, porta_rtsp: int = 554,
+) -> str:
+    """Registra no go2rtc um canal do gravador e devolve o nome do stream.
+
+    Idempotente igual ao de camera: so toca no go2rtc quando a fonte mudou,
+    para nao derrubar quem ja esta assistindo.
+
+    A fonte vai como `ffmpeg:...#video=h264` de proposito: quando o canal ja
+    e H.264 o go2rtc apenas copia (sem recodificar, custo quase zero); quando
+    for H.265 ele converte, porque navegador nao decodifica H.265 por MSE.
+    """
+    nome = recorder_stream_name(host, canal, alta)
+    _registered_at[nome] = time.time()
+    user_q = quote(str(user or "admin"), safe="")
+    pass_q = quote(str(password or ""), safe="")
+    caminho = _recorder_rtsp_path(canal, marca, alta)
+    fonte = f"ffmpeg:rtsp://{user_q}:{pass_q}@{host}:{int(porta_rtsp or 554)}{caminho}#video=h264"
+
+    if _stream_registered_with_source(nome, fonte):
+        return nome
+
+    put = requests.put(f"{GO2RTC_BASE_URL}/api/streams", params={"name": nome, "src": fonte}, timeout=8)
+    if put.status_code not in (200, 201, 204):
+        # Mesmo bug de YAML do go2rtc 1.9.14 descrito no topo: ele cria e
+        # devolve 400. Conferir o estado real antes de desistir.
+        if _stream_registered_with_source(nome, fonte):
+            return nome
+        raise RuntimeError(f"go2rtc recusou registrar {nome}: HTTP {put.status_code} {put.text[:200]}")
+    return nome
+
+
+def unregister_recorder_stream(*, host: str, canal: int, alta: bool = True) -> None:
+    nome = recorder_stream_name(host, canal, alta)
+    requests.delete(f"{GO2RTC_BASE_URL}/api/streams", params={"src": nome}, timeout=5)
+
+
 def unregister_stream(*, ip: str, subtype: int = 1) -> None:
     """Remove o stream do go2rtc. Nao existir mais nao e erro (idempotente).
 
@@ -153,9 +209,10 @@ def unregister_stream(*, ip: str, subtype: int = 1) -> None:
 
 
 def reap_idle_streams() -> List[str]:
-    """Remove do go2rtc todo stream de camera (prefixo `cam_`) sem espectador.
+    """Remove do go2rtc todo stream sem espectador criado aqui (`cam_`/`rec_`).
 
-    So mexe em streams criados por este modulo (prefixo `cam_`) -- nunca em
+    So mexe em streams criados por este modulo (`cam_` de camera, `rec_` de
+    canal de gravador) -- nunca em
     outras entradas que porventura existam no go2rtc por outro motivo.
     Devolve os nomes removidos, para quem chamar poder logar.
     """
@@ -170,7 +227,11 @@ def reap_idle_streams() -> List[str]:
     removed: List[str] = []
     now = time.time()
     for name, info in streams.items():
-        if not name.startswith("cam_"):
+        # `rec_` entra junto: canal de gravador tambem guarda a senha RTSP
+        # dentro do go2rtc, e stream esquecido ali foi a causa do vazamento
+        # de credenciais de 2026-08-29. O que este modulo cria, este modulo
+        # limpa.
+        if not name.startswith(("cam_", "rec_")):
             continue
         consumers = (info or {}).get("consumers")
         if consumers:

@@ -159,7 +159,12 @@ function mountLiveStream(videoEl, opts) {
 
     let streamName;
     try {
-      streamName = await _liveStreamRegister(ip, user, pass, subtype, hint);
+      // `registrar` permite a quem chama dizer QUAL stream tocar. Canal de
+      // gravador nao e camera: ele nasce de /api/deployments/recorder-live-stream
+      // e nao tem IP proprio, entao nao cabe no registro por IP de camera.
+      streamName = typeof opts.registrar === 'function'
+        ? await opts.registrar()
+        : await _liveStreamRegister(ip, user, pass, subtype, hint);
     } catch (e) {
       if (myGen !== generation || stopped) return;
       if (e instanceof CredentialRequiredError) {
