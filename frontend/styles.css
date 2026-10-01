@@ -6246,21 +6246,44 @@ body.cam-live-lock {
   border-radius: 8px;
   background: var(--surface-soft);
 }
+/* A altura travada em 100vh com overflow:hidden era da tela antiga, de duas
+   colunas, que rolava por dentro. A tela nova cresce com o conteudo -- canais,
+   deteccao e discos sao listas longas -- entao quem rola e a pagina. Travar
+   aqui cortava tudo que passasse da primeira dobra, sem barra de rolagem. */
 #viewDeployRecorder {
-  height: calc(100vh - 84px);
-  padding: 14px 16px 10px;
-  overflow: hidden;
+  padding: 14px 16px 26px;
+  overflow: visible;
 }
 #viewDeployRecorder .page-heading {
   margin-bottom: 10px;
   align-items: center;
 }
+/* Cabecalho enxuto: cada pixel que sai daqui vira altura de mosaico no cartao
+   do gravador, que e o que o operador fica olhando. */
 #viewDeployRecorder .page-heading h1 {
-  font-size: 21px;
-  margin-bottom: 2px;
+  font-size: 18px;
+  margin-bottom: 1px;
 }
 #viewDeployRecorder .page-heading p {
-  font-size: 13px;
+  font-size: 12px;
+}
+#viewDeployRecorder .page-heading .eyebrow {
+  font-size: 10px;
+  margin-bottom: 1px;
+}
+/* Os dois botoes com a mesma largura: lado a lado, tamanhos diferentes
+   pareciam desalinho e nao hierarquia. */
+#viewDeployRecorder .page-heading-actions .primary-action,
+#viewDeployRecorder .page-heading-actions .secondary-action {
+  min-width: 182px;
+  min-height: 36px;
+  padding: 8px 14px;
+  font-size: 12.5px;
+}
+#viewDeployRecorder .page-heading-actions .primary-action svg,
+#viewDeployRecorder .page-heading-actions .secondary-action svg {
+  width: 15px;
+  height: 15px;
 }
 #viewDeployRecorder .recorder-deploy-grid {
   height: calc(100vh - 205px);
@@ -6271,6 +6294,43 @@ body.cam-live-lock {
 #viewDeployRecorder .deployment-side-panel {
   height: 100%;
   overflow: hidden;
+}
+/* O corte vinha daqui: .recorder-deploy-grid tem altura fixa e o painel
+   height:100% com overflow:hidden, mas nada dentro dele rolava -- o que
+   passasse da altura sumia sem barra de rolagem, sempre no mesmo ponto.
+   A altura fixa fica (a barra do gravador e o menu das secoes nao devem sair
+   da tela); quem ganha rolagem propria e o conteudo. */
+#viewDeployRecorder .recorder-deploy-grid.recorder-console-only {
+  height: calc(100vh - 178px);
+  min-height: 420px;
+}
+#viewDeployRecorder .recorder-console-only .deployment-side-panel {
+  height: 100%;
+  overflow: hidden;
+}
+/* O console ocupa o painel inteiro: barra fixa em cima, corpo ocupando o resto. */
+#deployRecorderApp {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+#deployRecorderApp > .corpo {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+/* So isto rola. O menu de secoes fica parado ao lado. */
+#deployRecorderApp .conteudo {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 3px;
+}
+@media (min-width: 900px) {
+  #deployRecorderApp .nav {
+    position: static;
+    overflow-y: auto;
+    min-height: 0;
+  }
 }
 #viewDeployRecorder .recorder-deploy-modal .deployment-form-panel {
   height: auto;

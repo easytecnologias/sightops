@@ -4320,6 +4320,20 @@ function recPintarProgresso() {
   </div>`;
 }
 
+function recSair() {
+  // Sem isto so o F5 tirava o operador daqui: a tela do gravador aberta nao
+  // tinha nenhuma saida.
+  _deployRecorderXray = null;
+  _deployStandaloneRecorderProbe = null;
+  _deployStandaloneRecorderNetworkLoaded = false;
+  _recProgresso = null;
+  _recSec = 'vivo';
+  deployStandaloneRecorderRenderProbe(null);
+  deployStandaloneRecorderClearRecorderFields();
+  recPintarApp();
+  lucide.createIcons();
+}
+
 function recPintarApp() {
   const app = document.getElementById('deployRecorderApp');
   if (!app) return;
@@ -4373,6 +4387,7 @@ function recPintarApp() {
         ${criticos ? `<span class="sinal erro"><i></i>${criticos} achados</span>`
                    : '<span class="sinal ok"><i></i>sem achado</span>'}
         <button class="acao" type="button" data-rec-reler="1">Reler</button>
+        <button class="acao" type="button" data-rec-sair="1" title="Fechar o gravador e voltar">Sair</button>
       </div>
     </div>
     <div class="corpo">
@@ -4391,6 +4406,7 @@ function recPintarApp() {
   app.querySelectorAll('[data-rec-col]').forEach(b =>
     b.addEventListener('click', () => { _recCols = b.dataset.recCol; recPintarApp(); }));
   app.querySelector('[data-rec-reler]')?.addEventListener('click', () => deployRecorderCarregarXray());
+  app.querySelector('[data-rec-sair]')?.addEventListener('click', () => recSair());
   app.querySelector('[data-rec-trocar]')?.addEventListener('click', () => recAbrirSeletor());
   app.querySelectorAll('[data-rec-editar]').forEach(b =>
     b.addEventListener('click', () => recAbrirEdicao('editar', Number(b.dataset.recEditar))));
