@@ -1461,6 +1461,98 @@ def api_deployments_recorder_xray(payload: Dict[str, Any]) -> Dict[str, Any]:
     return dados
 
 
+def _gravador_que_varre(connector_id: str, site: str = "") -> Dict[str, Any]:
+    """Escolhe um gravador JA cadastrado para varrer a rede do cliente.
+
+    Quem enxerga a LAN do cliente e o equipamento que esta nela. Entao, para
+    descobrir um gravador novo, pedimos a varredura a um gravador conhecido do
+    mesmo conector. Prefere o do mesmo site, porque a varredura e por rede.
+
+    Devolve {} quando nao ha nenhum com senha guardada -- a tela precisa dizer
+    isso em vez de falhar sem explicacao.
+    """
+    from app.services.recorder_credentials import resolve_recorder_credential
+
+    cid = _text(connector_id)
+    site_n = _text(site).lower()
+    candidatos: List[Dict[str, Any]] = []
+    for fonte in ("nvr", "dvr"):
+        for linha in _read_recorder_rows(fonte):
+            host = _text(linha.get("host") or linha.get("ip"))
+            if not host:
+                continue
+            dono = _text(linha.get("remote_connector_id") or linha.get("connector_id"))
+            if cid and dono != cid:
+                continue
+            candidatos.append({
+                "host": host,
+                "porta": linha.get("http_port") or 80,
+                "site": _text(linha.get("site") or linha.get("local")),
+                "connector_id": dono,
+            })
+
+    vistos: Dict[str, Dict[str, Any]] = {}
+    for c in candidatos:
+        vistos.setdefault(c["host"], c)
+    ordenados = sorted(
+        vistos.values(),
+        key=lambda c: 0 if (site_n and _text(c.get("site")).lower() == site_n) else 1,
+    )
+    for c in ordenados:
+        cred = resolve_recorder_credential(c["host"], c.get("porta"))
+        if cred and cred.get("password"):
+            c["user"] = cred["username"]
+            c["password"] = cred["password"]
+            return c
+    return {}
+
+
+@router.post("/buscar-gravadores")
+def api_deployments_buscar_gravadores(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Gravadores que existem na rede do cliente, para cadastrar sem caca ao IP.
+
+    Nao exige gravador aberto: o backend escolhe um ja cadastrado no mesmo
+    conector e pede a varredura a ele. So leitura.
+    """
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="payload invalido")
+    connector_id = _text(payload.get("connector_id") or payload.get("remote_connector_id"))
+    site = _text(payload.get("site"))
+
+    varredor = _gravador_que_varre(connector_id, site)
+    if not varredor:
+        raise HTTPException(
+            status_code=409,
+            detail="nenhum gravador com senha guardada neste conector para fazer a varredura -- "
+                   "cadastre um pelo IP primeiro, e dai em diante a busca funciona",
+        )
+    try:
+        from app.services.recorder_xray import buscar_gravadores
+        dados = buscar_gravadores(
+            varredor["host"], varredor["user"], varredor["password"],
+            varredor.get("porta"), varredor.get("connector_id") or connector_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("Erro na busca de gravadores pelo %s", varredor.get("host"))
+        raise HTTPException(status_code=502, detail=f"Erro ao buscar gravadores: {exc}") from exc
+
+    # Marca quem ja esta no inventario, para a tela nao oferecer duplicata.
+    ja: set[str] = set()
+    for fonte in ("nvr", "dvr"):
+        for linha in _read_recorder_rows(fonte):
+            h = _text(linha.get("host") or linha.get("ip"))
+            if h:
+                ja.add(h.lower())
+    for g in dados.get("gravadores") or []:
+        g["cadastrado"] = g.get("ip", "").lower() in ja
+
+    dados["ok"] = True
+    dados["varrido_por"] = varredor["host"]
+    return dados
+
+
 @router.post("/recorder-buscar-cameras")
 def api_deployments_recorder_buscar_cameras(payload: Dict[str, Any]) -> Dict[str, Any]:
     """Cameras que o GRAVADOR enxerga na rede dele.

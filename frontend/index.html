@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=1790967700">
+  <link rel="stylesheet" href="styles.css?v=1790996500">
 </head>
 <body>
 
@@ -4486,6 +4486,14 @@
                   <label for="deployStandaloneRecorderPort">Porta HTTP</label>
                   <input id="deployStandaloneRecorderPort" data-recorder-needs-connector="1" type="number" value="80" min="1" max="65535" disabled>
                 </div>
+                <!-- Buscar depois da porta: um gravador ja cadastrado deste
+                     conector varre a rede e preenche host E porta de uma vez
+                     (so gravadores; camera fica de fora). -->
+                <div class="form-group rec-grupo-botao">
+                  <label>&nbsp;</label>
+                  <button class="secondary-action" id="btnBuscarGravadores" type="button"
+                          data-recorder-needs-connector="1" disabled>Buscar na rede</button>
+                </div>
                 <input id="deployStandaloneRecorderChannelTotal" type="hidden">
               </div>
               <p class="rec-grupo-tit">Credencial de acesso</p>
@@ -6640,7 +6648,7 @@
   <script src="js/maintenance.js?v=146"></script>
   <script src="js/analysis.js?v=147"></script>
   <script src="js/network.js?v=158"></script>
-  <script src="js/deploy.js?v=1790971300"></script>
+  <script src="js/deploy.js?v=1790989300"></script>
   <script src="js/cameraActivation.js?v=1790048800"></script>
   <script src="js/deployOlt.js?v=160"></script>
   <script src="js/connectors.js?v=1790804180"></script>
@@ -6652,6 +6660,6 @@
   <script src="js/accessWhatsappTriage.js?v=3"></script>
   <script src="js/messenger.js?v=5"></script>
   <script src="js/alert.js?v=1789901000"></script>
-  <script src="js/bootstrap.js?v=1790100200"></script>
+  <script src="js/bootstrap.js?v=1790985700"></script>
 </body>
 </html>

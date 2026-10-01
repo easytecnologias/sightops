@@ -10345,6 +10345,21 @@ table.recorder-tabela tbody tr:hover { background: var(--surface-soft); }
 #recTampa .rec-tag.alerta{background:rgba(224,168,0,.14);color:#9a7400}
 #recTampa .rec-com-botao{display:flex;gap:8px}
 #recTampa .rec-com-botao input{flex:1;min-width:0}
+/* Tabela das buscas: coluna clicavel ordena, clicar de novo inverte. */
+#recTampa .rec-tabela{width:100%;border-collapse:collapse;font-size:12.5px}
+#recTampa .rec-tabela th{
+  position:sticky;top:0;z-index:1;background:var(--surface);
+  text-align:left;font-size:11px;font-weight:600;letter-spacing:.04em;
+  text-transform:uppercase;color:var(--muted);padding:8px 9px;
+  border-bottom:1px solid var(--border);cursor:pointer;white-space:nowrap;user-select:none}
+#recTampa .rec-tabela th:hover{color:var(--text)}
+#recTampa .rec-tabela th.ord{color:var(--primary)}
+#recTampa .rec-tabela td{padding:8px 9px;border-bottom:1px solid var(--border);vertical-align:middle}
+#recTampa .rec-tabela tbody tr{cursor:pointer}
+#recTampa .rec-tabela tbody tr:hover{background:var(--surface-soft,rgba(125,125,125,.08))}
+#recTampa .rec-tabela td.n{font-variant-numeric:tabular-nums;white-space:nowrap}
+#recTampa .rec-tabela td.fraco{color:var(--muted);font-size:11.5px}
+#recTampa .rec-tag.novo{background:rgba(16,122,87,.12);color:var(--primary)}
 
 /* ── CADASTRAR/ENTRAR EM GRAVADOR ──
    A tela anterior era uma pilha de campos com um bloco vermelho de alerta
@@ -10375,6 +10390,23 @@ table.recorder-tabela tbody tr:hover { background: var(--surface-soft); }
 #viewDeployRecorder .recorder-deploy-modal .form-group { gap: 5px; min-width: 0; }
 #viewDeployRecorder .recorder-deploy-modal .form-group > input,
 #viewDeployRecorder .recorder-deploy-modal .form-group > select { width: 100%; box-sizing: border-box; }
+/* Host | Porta | Buscar na mesma linha, o botao alinhado pela base dos campos. */
+#viewDeployRecorder .recorder-deploy-modal .deploy-standalone-recorder-host-row {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+}
+#viewDeployRecorder .recorder-deploy-modal .rec-grupo-botao button {
+  min-height: 0;
+  height: 38px;
+  padding: 0 16px;
+  font-size: 12.5px;
+  white-space: nowrap;
+}
+@media (max-width: 560px) {
+  #viewDeployRecorder .recorder-deploy-modal .deploy-standalone-recorder-host-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  #viewDeployRecorder .recorder-deploy-modal .rec-grupo-botao label { display: none; }
+}
 #viewDeployRecorder .recorder-deploy-modal .recorder-saved-inline { display: flex; flex-direction: column; gap: 5px; }
 #viewDeployRecorder .recorder-deploy-modal .recorder-saved-inline-head { display: flex; align-items: center; justify-content: space-between; }
 #viewDeployRecorder .recorder-deploy-modal .recorder-saved-select { width: 100%; box-sizing: border-box; }

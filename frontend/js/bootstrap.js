@@ -200,6 +200,8 @@ document.addEventListener('DOMContentLoaded', () => {
   });
   document.getElementById('btnDeployStandaloneRecorderOpenEntryModal')?.addEventListener('click', openDeployStandaloneRecorderEntryModal);
   document.getElementById('btnDeployStandaloneRecorderOpenModal')?.addEventListener('click', () => openDeployStandaloneRecorderModal('create'));
+  // Buscar gravador na rede em vez de digitar o IP de cor.
+  document.getElementById('btnBuscarGravadores')?.addEventListener('click', () => recBuscarGravadores());
   document.getElementById('btnDeployStandaloneRecorderCloseModal')?.addEventListener('click', closeDeployStandaloneRecorderModal);
   document.getElementById('btnDeployStandaloneRecorderCancelModal')?.addEventListener('click', closeDeployStandaloneRecorderModal);
   document.getElementById('btnDeployStandaloneRecorderLoginModal')?.addEventListener('click', deployStandaloneRecorderLogin);

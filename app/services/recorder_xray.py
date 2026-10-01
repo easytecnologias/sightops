@@ -503,6 +503,108 @@ def _xray_hikvision(base: str, user: str, password: str) -> Dict[str, Any]:
     }
 
 
+# Como o equipamento classifica o que encontra na rede, confirmado na varredura
+# real do iNVD 5132 de BARRA: IPC (camera fixa), SD (speed dome), ITC (camera de
+# placa/LPR), NVR (gravador), KEYBOARD (teclado de operacao).
+#
+# Separar por aqui e o que permite "buscar gravador" e "buscar camera" lerem a
+# MESMA varredura e cada tela mostrar so o que interessa.
+CLASSES_CAMERA = ("IPC", "SD", "ITC")
+CLASSES_GRAVADOR = ("NVR", "DVR", "HCVR", "XVR", "MHDX", "HDCVI")
+
+
+def _descobrir_dahua(base: str, user: str, password: str, rodadas: int = 3,
+                     pausa: float = 1.2) -> Dict[str, Dict[str, str]]:
+    """Varredura da rede pelo gravador, lida mais de uma vez e somada.
+
+    `deviceDiscovery.cgi?action=attach` NAO devolve a rede inteira: devolve o
+    que o equipamento ja coletou ate aquele instante, e a lista cresce enquanto
+    os vizinhos respondem. Medido no iNVD 5132 de BARRA: a primeira leitura
+    trouxe 243 dispositivos e 12 gravadores; a segunda, 276 e 14. Quem lesse uma
+    vez so via um gravador existir e, segundos depois, sumir -- foi exatamente o
+    que aconteceu com o 100.65.10.52 e o .54.
+
+    Tres leituras curtas somadas, com chave pelo IP: o equipamento que apareceu
+    em qualquer uma delas entra na lista.
+    """
+    import time as _t
+
+    achados: Dict[str, Dict[str, str]] = {}
+    erro = ""
+    for volta in range(max(1, int(rodadas))):
+        if volta:
+            _t.sleep(pausa)
+        cod, corpo = _pedir(
+            f"{base}/cgi-bin/deviceDiscovery.cgi?action=attach&Types[0]=onvif&Types[1]=privateDahua",
+            user, password, 30.0,
+        )
+        if not cod or not (200 <= cod < 300):
+            erro = f"HTTP {cod}"
+            continue
+        bruto: Dict[int, Dict[str, str]] = {}
+        for idx, chave, valor in re.findall(
+                r"deviceInfo\[(\d+)\]\.([\w\.]+)=([^\r\n]*)", corpo or ""):
+            bruto.setdefault(int(idx), {})[chave] = valor.strip()
+        for item in bruto.values():
+            ip = item.get("IPv4Address.IPAddress", "")
+            if not ip or ip == "0.0.0.0":
+                continue
+            # Leitura mais nova vence: so completa o que faltava, nunca apaga.
+            atual = achados.setdefault(ip, {})
+            for k, v in item.items():
+                if v:
+                    atual[k] = v
+    if not achados and erro:
+        raise ValueError(f"o gravador nao respondeu a busca ({erro})")
+    return achados
+
+
+def buscar_gravadores(host: str, user: str, password: str, porta: Any = None,
+                      connector_id: str = "") -> Dict[str, Any]:
+    """Gravadores que ESTE gravador enxerga na rede dele.
+
+    Para cadastrar um gravador novo e preciso saber o IP dele, e descobrir isso
+    na mao significa varrer a rede do cliente por fora -- coisa que daqui nem da
+    para fazer. Mas um gravador ja cadastrado esta na mesma LAN e enxerga os
+    vizinhos: na BARRA, um iNVD 5132 achou outros 10 gravadores com IP, modelo e
+    fabricante.
+
+    E a mesma varredura de `buscar_cameras`, filtrada por classe de equipamento.
+    So leitura.
+    """
+    base = _base(host, porta, connector_id)
+    marca = detectar_marca(base, user, password)
+    if marca == "hikvision":
+        # O ISAPI so lista o que pode virar canal (camera). Gravador vizinho nao
+        # aparece la -- por isso o Hikvision nao oferece esta busca.
+        return {"marca": marca, "gravadores": [], "total": 0,
+                "aviso": "o Hikvision nao lista gravadores vizinhos; use um gravador Intelbras para varrer"}
+
+    bruto = _descobrir_dahua(base, user, password)
+
+    achados: List[Dict[str, Any]] = []
+    for item in bruto.values():
+        ip = item.get("IPv4Address.IPAddress", "")
+        classe = (item.get("DeviceClass") or "").upper()
+        if not ip or ip == "0.0.0.0" or classe not in CLASSES_GRAVADOR:
+            continue
+        achados.append({
+            "ip": ip,
+            "mac": item.get("Mac", ""),
+            "modelo": item.get("DeviceType", ""),
+            "fabricante": item.get("Vendor") or item.get("Manufacturer", ""),
+            "serial": item.get("SerialNo") or item.get("MachineName", ""),
+            "porta": item.get("Port", "37777"),
+            "porta_http": item.get("HttpPort", "80"),
+            "firmware": item.get("Version", ""),
+            "classe": classe,
+            "canais": item.get("RemoteVideoInputChannels") or item.get("VideoInputChannels", ""),
+            "ele_mesmo": ip == str(host),
+        })
+    achados.sort(key=lambda c: tuple(int(x) if x.isdigit() else 0 for x in c["ip"].split(".")))
+    return {"marca": marca, "gravadores": achados, "total": len(achados)}
+
+
 def buscar_cameras(host: str, user: str, password: str, porta: Any = None,
                    connector_id: str = "") -> Dict[str, Any]:
     """Pergunta ao GRAVADOR quais cameras ele enxerga na rede dele.
@@ -560,17 +662,10 @@ def buscar_cameras(host: str, user: str, password: str, porta: Any = None,
         return {"marca": marca, "cameras": achadas, "total": len(achadas),
                 "ja_no_gravador": sorted(set(ja_hik))}
 
-    # Intelbras/Dahua: deviceDiscovery.cgi devolve pares indexados por dispositivo.
-    cod, corpo = _pedir(
-        f"{base}/cgi-bin/deviceDiscovery.cgi?action=attach&Types[0]=onvif&Types[1]=privateDahua",
-        user, password, 30.0,
-    )
-    if not cod or not (200 <= cod < 300):
-        raise ValueError("o gravador nao respondeu a busca de cameras")
-
-    bruto: Dict[int, Dict[str, str]] = {}
-    for idx, chave, valor in re.findall(r"deviceInfo\[(\d+)\]\.([\w\.]+)=([^\r\n]*)", corpo or ""):
-        bruto.setdefault(int(idx), {})[chave] = valor.strip()
+    # Intelbras/Dahua: varredura lida mais de uma vez e somada -- ver
+    # _descobrir_dahua; uma leitura so perde equipamento que ainda nao
+    # respondeu.
+    bruto = _descobrir_dahua(base, user, password)
 
     # Quem ja esta em um canal, para nao oferecer de novo.
     cod2, corpo2 = _pedir(
@@ -584,7 +679,7 @@ def buscar_cameras(host: str, user: str, password: str, porta: Any = None,
         if not ip or ip == "0.0.0.0":
             continue
         classe = (item.get("DeviceClass") or "").upper()
-        if classe and classe not in ("IPC", "DVR", "NVR"):
+        if classe and classe not in CLASSES_CAMERA:
             continue
         cameras.append({
             "ip": ip,

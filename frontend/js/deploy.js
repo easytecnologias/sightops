@@ -4721,7 +4721,41 @@ function recPintarApp() {
 // ---- adicionar / editar / soltar canal ----
 // Equipamento vivo: a caixa diz o que vai acontecer ANTES de mandar, e o aviso
 // de impacto aparece em vermelho quando a acao tira algo do ar.
+// Ordenacao das listas de busca. IP nao e texto: ordenar "100.65.10.9" como
+// string poe ele depois de "100.65.10.10". Compara octeto a octeto.
+function _recChaveIp(valor) {
+  const partes = String(valor || '').split('.');
+  if (partes.length === 4 && partes.every(x => /^\d+$/.test(x))) {
+    return partes.reduce((n, x) => n * 256 + Number(x), 0);
+  }
+  return null;
+}
+
+function _recOrdenar(linhas, campo, desc) {
+  const copia = [...linhas];
+  copia.sort((a, b) => {
+    const va = a[campo], vb = b[campo];
+    const ia = _recChaveIp(va), ib = _recChaveIp(vb);
+    let r;
+    if (ia != null && ib != null) r = ia - ib;
+    else if (typeof va === 'boolean' || typeof vb === 'boolean') r = (va ? 1 : 0) - (vb ? 1 : 0);
+    else r = String(va ?? '').localeCompare(String(vb ?? ''), 'pt', { numeric: true, sensitivity: 'base' });
+    return desc ? -r : r;
+  });
+  return copia;
+}
+
+function _recCabecalhoOrd(colunas, ord) {
+  return `<thead><tr>${colunas.map(c => {
+    const ativa = ord.campo === c.campo;
+    const seta = ativa ? (ord.desc ? ' ▾' : ' ▴') : '';
+    return `<th data-rec-ord="${esc(c.campo)}" class="${ativa ? 'ord' : ''}"
+      title="Ordenar por ${esc(c.rotulo)}">${esc(c.rotulo)}${seta}</th>`;
+  }).join('')}</tr></thead>`;
+}
+
 let _recCamerasAchadas = null;
+let _recOrdCam = { campo: 'ip', desc: false };
 
 function recProtocoloPorFabricante(cam) {
   const proto = document.getElementById('recProto');
@@ -4795,20 +4829,38 @@ async function recBuscarCameras(aoEscolher) {
 
   const desenhar = (filtro, soNovas) => {
     const alvo = String(filtro || '').trim().toLowerCase();
-    const vistas = _recCamerasAchadas.filter(c =>
+    let vistas = _recCamerasAchadas.filter(c =>
       (!soNovas || !c.no_gravador)
       && (!alvo || [c.ip, c.modelo, c.fabricante, c.mac, c.serial]
         .some(v => String(v || '').toLowerCase().includes(alvo))));
     const lista = document.getElementById('recCamLista');
     if (!lista) return;
-    lista.innerHTML = vistas.length ? vistas.map(c => `
-      <button class="rec-item rec-item-cam" type="button" data-rec-cam="${esc(c.ip)}">
-        <b>${esc(c.ip)}</b>
-        <span>${esc([c.modelo, c.fabricante].filter(Boolean).join(' - '))}${c.mac ? ' - ' + esc(c.mac) : ''}</span>
-        ${c.no_gravador ? '<em class="rec-tag">ja no gravador</em>'
-          : (c.inicializada ? '' : '<em class="rec-tag alerta">sem senha definida</em>')}
-      </button>`).join('')
+    vistas = _recOrdenar(vistas, _recOrdCam.campo, _recOrdCam.desc);
+    const colunas = [
+      { campo: 'ip', rotulo: 'IP' }, { campo: 'modelo', rotulo: 'Modelo' },
+      { campo: 'fabricante', rotulo: 'Fabricante' },
+      { campo: 'porta_http', rotulo: 'Porta' }, { campo: 'mac', rotulo: 'MAC' },
+      { campo: 'no_gravador', rotulo: 'Estado' },
+    ];
+    lista.innerHTML = vistas.length
+      ? `<table class="rec-tabela">${_recCabecalhoOrd(colunas, _recOrdCam)}<tbody>${vistas.map(c => `
+          <tr data-rec-cam="${esc(c.ip)}">
+            <td class="n">${esc(c.ip)}</td>
+            <td><b>${esc(c.modelo || '-')}</b></td>
+            <td>${esc(c.fabricante || '-')}</td>
+            <td class="n" title="HTTP ${esc(c.porta_http || '')} - midia ${esc(c.porta || '')}">${esc(c.porta_http || '-')}</td>
+            <td class="n fraco">${esc(c.mac || '-')}</td>
+            <td>${c.no_gravador ? '<em class="rec-tag">ja no gravador</em>'
+              : (c.inicializada ? '<em class="rec-tag novo">livre</em>'
+                                : '<em class="rec-tag alerta">sem senha</em>')}</td>
+          </tr>`).join('')}</tbody></table>`
       : `<p class="rec-vazio">Nenhuma camera com "${esc(filtro)}".</p>`;
+    lista.querySelectorAll('[data-rec-ord]').forEach(th => th.addEventListener('click', () => {
+      const campo = th.dataset.recOrd;
+      if (_recOrdCam.campo === campo) _recOrdCam.desc = !_recOrdCam.desc;
+      else { _recOrdCam.campo = campo; _recOrdCam.desc = false; }
+      desenhar(filtro, soNovas);
+    }));
     lista.querySelectorAll('[data-rec-cam]').forEach(b => b.addEventListener('click', () => {
       const cam = _recCamerasAchadas.find(x => x.ip === b.dataset.recCam);
       if (!cam) return;
@@ -4835,6 +4887,132 @@ async function recBuscarCameras(aoEscolher) {
   const repintar = () => desenhar(campo && campo.value, !!(soNovas && soNovas.checked));
   if (campo) campo.addEventListener('input', repintar);
   if (soNovas) soNovas.addEventListener('change', repintar);
+  ligarFechar();
+  repintar();
+  if (campo) campo.focus();
+}
+
+async function recBuscarGravadores() {
+  // Cadastrar um gravador exigia saber o IP de cor. Quem sabe os IPs da rede do
+  // cliente e um gravador que ja esta nela: o backend escolhe um cadastrado
+  // deste conector e pede a varredura a ele, filtrando por classe de
+  // equipamento (NVR/DVR) -- camera nao aparece aqui.
+  const p = deployStandaloneRecorderPayload();
+  const tampa = document.getElementById('recTampa') || (() => {
+    const el = document.createElement('div');
+    el.id = 'recTampa';
+    document.body.appendChild(el);
+    return el;
+  })();
+  const fechar = () => { tampa.innerHTML = ''; };
+  const moldura = (miolo, rodape, sub) => `<div class="rec-tampa" role="dialog" aria-modal="true" aria-label="Buscar gravadores">
+    <div class="rec-caixa rec-caixa-larga">
+      <div class="rec-caixa-cab">
+        <h3>Gravadores na rede</h3>
+        <p>${esc(sub || 'Procurando...')}</p>
+      </div>
+      <div class="rec-caixa-corpo">${miolo}</div>
+      <div class="rec-caixa-pe">${rodape}</div>
+    </div></div>`;
+  const ligarFechar = () => {
+    tampa.querySelectorAll('[data-rec-fechar]').forEach(b => b.addEventListener('click', fechar));
+    tampa.querySelector('.rec-tampa')?.addEventListener('click', ev => {
+      if (ev.target === ev.currentTarget) fechar();
+    });
+  };
+
+  tampa.innerHTML = moldura(
+    '<p class="rec-vazio">Pedindo a varredura a um gravador deste conector... leva alguns segundos.</p>',
+    '<button class="acao" type="button" data-rec-fechar>Cancelar</button>');
+  ligarFechar();
+
+  let dados;
+  try {
+    const res = await api('/api/deployments/buscar-gravadores', {
+      method: 'POST',
+      body: JSON.stringify({ connector_id: p.connector_id || '', site: p.site || '' }),
+    });
+    dados = await res?.json().catch(() => ({}));
+    if (!res?.ok || dados?.ok === false) throw new Error(dados?.detail || 'nao consegui varrer a rede');
+  } catch (err) {
+    tampa.innerHTML = moldura(
+      `<p class="rec-vazio">${esc(err?.message || err)}</p>`,
+      '<button class="acao" type="button" data-rec-fechar>Fechar</button>', 'Nao deu');
+    ligarFechar();
+    return;
+  }
+
+  const lista = Array.isArray(dados.gravadores) ? dados.gravadores : [];
+  const novos = lista.filter(g => !g.cadastrado && !g.ele_mesmo).length;
+
+  const colunas = [
+    { campo: 'ip', rotulo: 'IP' }, { campo: 'modelo', rotulo: 'Modelo' },
+    { campo: 'fabricante', rotulo: 'Fabricante' },
+    { campo: 'porta_http', rotulo: 'Porta' }, { campo: 'mac', rotulo: 'MAC' },
+    { campo: 'cadastrado', rotulo: 'Estado' },
+  ];
+  const ord = { campo: 'ip', desc: false };
+
+  const desenhar = (filtro, soNovos) => {
+    const alvo = String(filtro || '').trim().toLowerCase();
+    let vistos = lista.filter(g =>
+      (!soNovos || (!g.cadastrado && !g.ele_mesmo))
+      && (!alvo || [g.ip, g.modelo, g.fabricante, g.mac, g.serial]
+        .some(v => String(v || '').toLowerCase().includes(alvo))));
+    vistos = _recOrdenar(vistos, ord.campo, ord.desc);
+    const el = document.getElementById('recGravLista');
+    if (!el) return;
+    el.innerHTML = vistos.length
+      ? `<table class="rec-tabela">${_recCabecalhoOrd(colunas, ord)}<tbody>${vistos.map(g => `
+          <tr data-rec-grav="${esc(g.ip)}">
+            <td class="n">${esc(g.ip)}</td>
+            <td><b>${esc(g.modelo || '-')}</b></td>
+            <td>${esc(g.fabricante || '-')}</td>
+            <td class="n" title="HTTP ${esc(g.porta_http || '')} - midia ${esc(g.porta || '')}">${esc(g.porta_http || '-')}</td>
+            <td class="n fraco">${esc(g.mac || '-')}</td>
+            <td>${g.ele_mesmo ? '<em class="rec-tag">quem varreu</em>'
+              : (g.cadastrado ? '<em class="rec-tag">ja cadastrado</em>'
+                              : '<em class="rec-tag novo">novo</em>')}</td>
+          </tr>`).join('')}</tbody></table>`
+      : `<p class="rec-vazio">Nenhum gravador com "${esc(filtro)}".</p>`;
+    el.querySelectorAll('[data-rec-ord]').forEach(th => th.addEventListener('click', () => {
+      const campo = th.dataset.recOrd;
+      // Mesma coluna inverte; coluna nova comeca crescente.
+      if (ord.campo === campo) ord.desc = !ord.desc;
+      else { ord.campo = campo; ord.desc = false; }
+      desenhar(filtro, soNovos);
+    }));
+    el.querySelectorAll('[data-rec-grav]').forEach(b => b.addEventListener('click', () => {
+      const g = lista.find(x => x.ip === b.dataset.recGrav);
+      if (!g) return;
+      fechar();
+      const host = document.getElementById('deployStandaloneRecorderHost');
+      const porta = document.getElementById('deployStandaloneRecorderPort');
+      const nome = document.getElementById('deployStandaloneRecorderName');
+      if (host) host.value = g.ip;
+      if (porta && g.porta_http) porta.value = g.porta_http;
+      if (nome && !nome.value && g.modelo) nome.value = g.modelo;
+      const senha = document.getElementById('deployStandaloneRecorderPassword');
+      if (senha) senha.focus();
+      showToast(`${g.ip} - ${g.modelo || 'gravador'}. Informe a senha e valide.`);
+    }));
+  };
+
+  tampa.innerHTML = moldura(`
+    <div class="rec-busca-linha">
+      <input id="recGravBusca" class="rec-busca" placeholder="Buscar por IP, modelo, fabricante ou MAC" autocomplete="off">
+      <label class="rec-check"><input type="checkbox" id="recGravSoNovos" checked> So os que faltam</label>
+    </div>
+    <p class="rec-dica">${esc(lista.length)} na rede - ${esc(novos)} fora do inventario</p>
+    <div id="recGravLista" class="rec-lista rec-lista-alta"></div>`,
+    '<button class="acao" type="button" data-rec-fechar>Fechar</button>',
+    `Quem procurou foi o gravador ${dados.varrido_por || ''}, que esta na mesma rede.`);
+
+  const campo = document.getElementById('recGravBusca');
+  const soNovos = document.getElementById('recGravSoNovos');
+  const repintar = () => desenhar(campo && campo.value, !!(soNovos && soNovos.checked));
+  if (campo) campo.addEventListener('input', repintar);
+  if (soNovos) soNovos.addEventListener('change', repintar);
   ligarFechar();
   repintar();
   if (campo) campo.focus();
