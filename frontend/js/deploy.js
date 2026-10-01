@@ -4227,7 +4227,9 @@ function recSecCanais(d) {
   const canais = d.canais || [];
   return `<div class="bloco">
     <div class="bloco-cab"><div><h2>Canais</h2><p>Editar troca os dados sem soltar o canal</p></div>
-      <div class="bloco-dir"><button class="acao forte" type="button" data-rec-add="1">+ Adicionar camera</button></div></div>
+      <div class="bloco-dir">
+        <button class="acao" type="button" data-rec-buscar="1">Buscar cameras</button>
+        <button class="acao forte" type="button" data-rec-add="1">+ Adicionar camera</button></div></div>
     <div class="rolo"><table>
       <thead><tr><th>#</th><th>Nome</th><th>IP</th><th>Modelo</th><th>Resolucao</th><th>Codec</th><th>Estado</th><th></th></tr></thead>
       <tbody>${canais.map(c => `<tr>
@@ -4255,15 +4257,18 @@ function recSecDiscos(d) {
   const cap = ds.reduce((s, x) => s + (Number(x.total_tb) || 0), 0);
   return `<div class="bloco">
     <div class="bloco-cab"><div><h2>Discos</h2>
-      <p>${ds.length} unidade${ds.length === 1 ? '' : 's'}${cap ? ' · ' + cap.toFixed(1) + ' TB' : ''}</p></div></div>
+      <p>${ds.length} disco${ds.length === 1 ? '' : 's'}${cap ? ' · ' + cap.toFixed(1) + ' TB' : ''}${
+        ds.some(x => x.particoes > 1) ? ' · particionados' : ''}</p></div></div>
     <div class="rolo"><table>
-      <thead><tr><th>#</th><th>Capacidade</th><th>Tipo</th><th>Estado</th></tr></thead>
+      <thead><tr><th>#</th><th>Disco</th><th>Capacidade</th><th>Particoes</th><th>Tipo</th><th>Estado</th></tr></thead>
       <tbody>${ds.length ? ds.map(x => `<tr>
         <td class="n">${esc(String(x.id).padStart(2, '0'))}</td>
+        <td>${esc(x.caminho || '-')}</td>
         <td class="n">${x.total_tb ? esc(x.total_tb) + ' TB' : '-'}</td>
+        <td class="n">${x.particoes ? esc(x.particoes) : '-'}</td>
         <td>${esc(x.tipo || '-')}</td>
         <td>${x.erro ? '<span class="tag erro">com falha</span>' : '<span class="tag ok">ok</span>'}</td>
-      </tr>`).join('') : '<tr><td colspan="4">O gravador nao reportou disco: sem gravacao.</td></tr>'}</tbody>
+      </tr>`).join('') : '<tr><td colspan="6">O gravador nao reportou disco: sem gravacao.</td></tr>'}</tbody>
     </table></div>
   </div>`;
 }
@@ -4706,6 +4711,7 @@ function recPintarApp() {
   app.querySelector('[data-rec-trocar]')?.addEventListener('click', () => recAbrirSeletor());
   app.querySelectorAll('[data-rec-editar]').forEach(b =>
     b.addEventListener('click', () => recAbrirEdicao('editar', Number(b.dataset.recEditar))));
+  app.querySelector('[data-rec-buscar]')?.addEventListener('click', () => recBuscarCameras());
   app.querySelectorAll('[data-rec-add]').forEach(b =>
     b.addEventListener('click', () => recAbrirEdicao('adicionar', Number(b.dataset.recAdd) || 0)));
   app.querySelectorAll('[data-rec-soltar]').forEach(b =>
@@ -4715,6 +4721,125 @@ function recPintarApp() {
 // ---- adicionar / editar / soltar canal ----
 // Equipamento vivo: a caixa diz o que vai acontecer ANTES de mandar, e o aviso
 // de impacto aparece em vermelho quando a acao tira algo do ar.
+let _recCamerasAchadas = null;
+
+function recProtocoloPorFabricante(cam) {
+  const proto = document.getElementById('recProto');
+  if (!proto) return;
+  const fab = String(cam.fabricante || '').toLowerCase();
+  proto.value = fab.includes('hik') ? 'HIKVISION'
+    : (fab.includes('intelbras') || fab.includes('dahua') || fab.includes('aebell') || fab.includes('itb'))
+      ? 'Private' : 'Onvif';
+}
+
+async function recBuscarCameras(aoEscolher) {
+  // Quem varre a rede e o PROPRIO gravador: ele esta na LAN das cameras, nos
+  // nao alcancamos. No NVD de Perucaba isso devolveu 261 cameras, das quais 32
+  // ja estavam nos canais.
+  const d = _deployRecorderXray;
+  if (!d) return;
+  const p = deployStandaloneRecorderPayload();
+
+  const tampa = document.getElementById('recTampa') || (() => {
+    const el = document.createElement('div');
+    el.id = 'recTampa';
+    document.body.appendChild(el);
+    return el;
+  })();
+  const fechar = () => { tampa.innerHTML = ''; };
+
+  const moldura = (miolo, rodape) => `<div class="rec-tampa" role="dialog" aria-modal="true" aria-label="Buscar cameras">
+    <div class="rec-caixa rec-caixa-larga">
+      <div class="rec-caixa-cab">
+        <h3>Cameras na rede</h3>
+        <p>Quem procura e o gravador ${esc(d.host)}, que esta na mesma rede das cameras.</p>
+      </div>
+      <div class="rec-caixa-corpo">${miolo}</div>
+      <div class="rec-caixa-pe">${rodape}</div>
+    </div></div>`;
+
+  const ligarFechar = () => {
+    tampa.querySelectorAll('[data-rec-fechar]').forEach(b => b.addEventListener('click', fechar));
+    tampa.querySelector('.rec-tampa')?.addEventListener('click', ev => {
+      if (ev.target === ev.currentTarget) fechar();
+    });
+  };
+
+  tampa.innerHTML = moldura(
+    '<p class="rec-vazio">Procurando na rede do gravador... leva alguns segundos.</p>',
+    '<button class="acao" type="button" data-rec-fechar>Cancelar</button>');
+  ligarFechar();
+
+  let dados;
+  try {
+    const res = await api('/api/deployments/recorder-buscar-cameras', {
+      method: 'POST',
+      body: JSON.stringify({
+        recorder_host: d.host || p.recorder_host,
+        recorder_http_port: p.recorder_http_port,
+        connector_id: p.connector_id || '',
+      }),
+    });
+    dados = await res?.json().catch(() => ({}));
+    if (!res?.ok || dados?.ok === false) throw new Error(dados?.detail || 'o gravador nao respondeu a busca');
+  } catch (err) {
+    tampa.innerHTML = moldura(
+      `<p class="rec-vazio">${esc(err?.message || err)}</p>`,
+      '<button class="acao" type="button" data-rec-fechar>Fechar</button>');
+    ligarFechar();
+    return;
+  }
+
+  _recCamerasAchadas = Array.isArray(dados.cameras) ? dados.cameras : [];
+  const novas = _recCamerasAchadas.filter(c => !c.no_gravador).length;
+
+  const desenhar = (filtro, soNovas) => {
+    const alvo = String(filtro || '').trim().toLowerCase();
+    const vistas = _recCamerasAchadas.filter(c =>
+      (!soNovas || !c.no_gravador)
+      && (!alvo || [c.ip, c.modelo, c.fabricante, c.mac, c.serial]
+        .some(v => String(v || '').toLowerCase().includes(alvo))));
+    const lista = document.getElementById('recCamLista');
+    if (!lista) return;
+    lista.innerHTML = vistas.length ? vistas.map(c => `
+      <button class="rec-item rec-item-cam" type="button" data-rec-cam="${esc(c.ip)}">
+        <b>${esc(c.ip)}</b>
+        <span>${esc([c.modelo, c.fabricante].filter(Boolean).join(' - '))}${c.mac ? ' - ' + esc(c.mac) : ''}</span>
+        ${c.no_gravador ? '<em class="rec-tag">ja no gravador</em>'
+          : (c.inicializada ? '' : '<em class="rec-tag alerta">sem senha definida</em>')}
+      </button>`).join('')
+      : `<p class="rec-vazio">Nenhuma camera com "${esc(filtro)}".</p>`;
+    lista.querySelectorAll('[data-rec-cam]').forEach(b => b.addEventListener('click', () => {
+      const cam = _recCamerasAchadas.find(x => x.ip === b.dataset.recCam);
+      if (!cam) return;
+      fechar();
+      if (typeof aoEscolher === 'function') { aoEscolher(cam); return; }
+      recAbrirEdicao('adicionar', 0);
+      const ip = document.getElementById('recIp');
+      if (ip) ip.value = cam.ip;
+      recProtocoloPorFabricante(cam);
+    }));
+  };
+
+  tampa.innerHTML = moldura(`
+    <div class="rec-busca-linha">
+      <input id="recCamBusca" class="rec-busca" placeholder="Buscar por IP, modelo, fabricante ou MAC" autocomplete="off">
+      <label class="rec-check"><input type="checkbox" id="recCamSoNovas" checked> So as que faltam</label>
+    </div>
+    <p class="rec-dica">${esc(_recCamerasAchadas.length)} na rede - ${esc(novas)} fora do gravador</p>
+    <div id="recCamLista" class="rec-lista rec-lista-alta"></div>`,
+    '<button class="acao" type="button" data-rec-fechar>Fechar</button>');
+
+  const campo = document.getElementById('recCamBusca');
+  const soNovas = document.getElementById('recCamSoNovas');
+  const repintar = () => desenhar(campo && campo.value, !!(soNovas && soNovas.checked));
+  if (campo) campo.addEventListener('input', repintar);
+  if (soNovas) soNovas.addEventListener('change', repintar);
+  ligarFechar();
+  repintar();
+  if (campo) campo.focus();
+}
+
 function recAbrirEdicao(acao, canal) {
   const d = _deployRecorderXray;
   if (!d) return;
@@ -4731,7 +4856,11 @@ function recAbrirEdicao(acao, canal) {
           <select id="recCanal">${livres.map(n => `<option value="${n}">Canal ${String(n).padStart(2, '0')}</option>`).join('')}</select></label>`
           : `<input type="hidden" id="recCanal" value="${esc(canal)}">`}
         <label>Nome do canal<input id="recNome" value="${esc(c.nome || '')}" placeholder="Ex: PORTARIA"></label>
-        <label>IP da camera<input id="recIp" value="${esc(c.ip || '')}" placeholder="10.10.9.40"></label>
+        <label>IP da camera
+          <span class="rec-com-botao">
+            <input id="recIp" value="${esc(c.ip || '')}" placeholder="10.10.9.40">
+            <button class="acao" type="button" data-rec-escolher-cam>Buscar</button>
+          </span></label>
         <label>Usuario<input id="recUser" value="admin"></label>
         <label>Senha<input id="recSenha" type="password" placeholder="senha da camera"></label>
         <label>Protocolo<select id="recProto">
@@ -4766,6 +4895,25 @@ function recAbrirEdicao(acao, canal) {
   tampa.querySelectorAll('[data-rec-fechar]').forEach(b => b.addEventListener('click', fechar));
   tampa.querySelector('.rec-tampa').addEventListener('click', ev => {
     if (ev.target === ev.currentTarget) fechar();
+  });
+  // Buscar de dentro do formulario: escolher na lista preenche IP e protocolo
+  // e volta para ca sem perder o que ja foi digitado.
+  tampa.querySelector('[data-rec-escolher-cam]')?.addEventListener('click', () => {
+    const estado = {
+      nome: document.getElementById('recNome')?.value || '',
+      user: document.getElementById('recUser')?.value || 'admin',
+      canal: document.getElementById('recCanal')?.value || canal,
+    };
+    recBuscarCameras(cam => {
+      recAbrirEdicao(acao, Number(estado.canal) || canal);
+      const ip = document.getElementById('recIp');
+      const nome = document.getElementById('recNome');
+      const user = document.getElementById('recUser');
+      if (ip) ip.value = cam.ip || '';
+      if (nome && estado.nome) nome.value = estado.nome;
+      if (user) user.value = estado.user;
+      recProtocoloPorFabricante(cam);
+    });
   });
   tampa.querySelector('[data-rec-aplicar]').addEventListener('click', async ev => {
     const botao = ev.currentTarget;

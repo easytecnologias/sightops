@@ -1461,6 +1461,37 @@ def api_deployments_recorder_xray(payload: Dict[str, Any]) -> Dict[str, Any]:
     return dados
 
 
+@router.post("/recorder-buscar-cameras")
+def api_deployments_recorder_buscar_cameras(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Cameras que o GRAVADOR enxerga na rede dele.
+
+    Quem varre e o equipamento, que esta na mesma rede das cameras -- daqui
+    nao alcancamos a LAN do cliente. So leitura.
+    """
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="payload invalido")
+    host = _text(payload.get("recorder_host") or payload.get("host"))
+    if not host:
+        raise HTTPException(status_code=400, detail="host do gravador obrigatorio")
+    user, password = _credencial_gravador(payload)
+    if not password:
+        raise HTTPException(status_code=428, detail="SEM_CREDENCIAL")
+    try:
+        from app.services.recorder_xray import buscar_cameras
+        dados = buscar_cameras(
+            host, user, password,
+            payload.get("recorder_http_port") or payload.get("http_port"),
+            _text(payload.get("connector_id") or payload.get("remote_connector_id")),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("Erro na busca de cameras do gravador %s", host)
+        raise HTTPException(status_code=502, detail=f"Erro ao buscar cameras: {exc}") from exc
+    dados["ok"] = True
+    return dados
+
+
 @router.post("/recorder-edit")
 def api_deployments_recorder_edit(payload: Dict[str, Any]) -> Dict[str, Any]:
     """Adicionar, editar, excluir ou renomear um canal do gravador.

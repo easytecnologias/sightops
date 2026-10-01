@@ -366,7 +366,13 @@ def api_cameras(
                     base[k] = v
             by_key[key] = base
 
-    return {"cameras": list(by_key.values())}
+    # Status que a tela pode acreditar: conector caido ou leitura velha viram
+    # "unknown" com o motivo junto, em vez de continuar dizendo "online" com
+    # dado de dias atras (ver app/services/status_efetivo.py).
+    from app.services.status_efetivo import aplicar_em_linha, conectores_offline
+    sem_caminho = conectores_offline()
+    saida = [aplicar_em_linha(cam, sem_caminho) for cam in by_key.values()]
+    return {"cameras": saida}
 
 
 @router.post("/cameras/save")

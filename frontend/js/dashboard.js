@@ -1,3 +1,12 @@
+// "Nao verificado" e tudo que nao e nem online nem offline: o `unknown` que o
+// backend devolve quando o conector caiu ou a leitura ficou velha demais (ver
+// app/services/status_efetivo.py). Sem esse filtro, as 224 cameras de SANTANA
+// sumiam da conta -- 441 no total, 216 online, 1 offline e o resto em lugar
+// nenhum, sem jeito de olhar.
+function _dashNaoVerificado(online, offline) {
+  return r => !online(r) && !offline(r);
+}
+
 function _drawerFilterBar(statusFilters, activeStatusKey, sites, activeSite, onStatusSelect, onSiteSelect) {
   const el = document.getElementById('dashDrawerFilters');
   const statusHtml = `<div class="drawer-filter-row">` +
@@ -49,11 +58,15 @@ async function openDashDrawerIp(filterKey, activeSite) {
   const sites = [...new Set(rows.map(rowSite).filter(Boolean))].sort((a,b) => a.localeCompare(b,'pt'));
   if (activeSite && !sites.includes(activeSite)) activeSite = null;
   const siteRows = activeSite ? rows.filter(r => rowSite(r) === activeSite) : rows;
-  const counts = { all: siteRows.length, online: siteRows.filter(isOnline).length, offline: siteRows.filter(isOffline).length, no_snap: siteRows.filter(noSnap).length };
+  const semInfo = _dashNaoVerificado(isOnline, isOffline);
+  const counts = { all: siteRows.length, online: siteRows.filter(isOnline).length, offline: siteRows.filter(isOffline).length,
+                   nao_verificado: siteRows.filter(semInfo).length, no_snap: siteRows.filter(noSnap).length };
 
   _drawerFilterBar(
     [{ key:'all', label:'Todos', count:counts.all }, { key:'online', label:' Online', count:counts.online },
-     { key:'offline', label:' Offline', count:counts.offline }, { key:'no_snap', label:'Sem snapshot', count:counts.no_snap }],
+     { key:'offline', label:' Offline', count:counts.offline },
+     { key:'nao_verificado', label:'Nao verificado', count:counts.nao_verificado },
+     { key:'no_snap', label:'Sem snapshot', count:counts.no_snap }],
     filterKey, sites, activeSite,
     k => openDashDrawerIp(k, activeSite),
     s => openDashDrawerIp(filterKey, s)
@@ -62,6 +75,7 @@ async function openDashDrawerIp(filterKey, activeSite) {
   let filtered = siteRows;
   if (filterKey === 'online')  filtered = filtered.filter(isOnline);
   if (filterKey === 'offline') filtered = filtered.filter(isOffline);
+  if (filterKey === 'nao_verificado') filtered = filtered.filter(semInfo);
   if (filterKey === 'no_snap') filtered = filtered.filter(noSnap);
 
   filtered.sort((a, b) => (a.titulo || a.ip || '').localeCompare(b.titulo || b.ip || '', 'pt', { numeric: true }));
@@ -153,10 +167,14 @@ async function openDashDrawerRecorder(source, filterKey, activeSite) {
   const sites = [...new Set(rows.map(rowSite).filter(Boolean))].sort((a,b) => a.localeCompare(b,'pt'));
   if (activeSite && !sites.includes(activeSite)) activeSite = null;
   const siteRows = activeSite ? rows.filter(r => rowSite(r) === activeSite) : rows;
-  const counts = { all: siteRows.length, online: siteRows.filter(isOnline).length, offline: siteRows.filter(isOffline).length };
+  const semInfo = _dashNaoVerificado(isOnline, isOffline);
+  const counts = { all: siteRows.length, online: siteRows.filter(isOnline).length,
+                   offline: siteRows.filter(isOffline).length, nao_verificado: siteRows.filter(semInfo).length };
 
   _drawerFilterBar(
-    [{ key:'all', label:'Todos', count:counts.all }, { key:'online', label:' Online', count:counts.online }, { key:'offline', label:' Offline', count:counts.offline }],
+    [{ key:'all', label:'Todos', count:counts.all }, { key:'online', label:' Online', count:counts.online },
+     { key:'offline', label:' Offline', count:counts.offline },
+     { key:'nao_verificado', label:'Nao verificado', count:counts.nao_verificado }],
     filterKey, sites, activeSite,
     k => openDashDrawerRecorder(source, k, activeSite),
     s => openDashDrawerRecorder(source, filterKey, s)
@@ -165,6 +183,7 @@ async function openDashDrawerRecorder(source, filterKey, activeSite) {
   let filtered = siteRows;
   if (filterKey === 'online')  filtered = filtered.filter(isOnline);
   if (filterKey === 'offline') filtered = filtered.filter(isOffline);
+  if (filterKey === 'nao_verificado') filtered = filtered.filter(semInfo);
 
   filtered.sort((a, b) => {
     const hostCmp = (a.host||a.ip||'').localeCompare(b.host||b.ip||'', 'pt');
@@ -200,9 +219,13 @@ async function openDashDrawerWindows(filterKey) {
   const isOnline  = r => (r.status||'').toLowerCase() === 'online';
   const isOffline = r => ['offline','error','erro'].includes((r.status||'').toLowerCase());
 
-  const counts = { all: rows.length, online: rows.filter(isOnline).length, offline: rows.filter(isOffline).length };
+  const semInfo = _dashNaoVerificado(isOnline, isOffline);
+  const counts = { all: rows.length, online: rows.filter(isOnline).length,
+                   offline: rows.filter(isOffline).length, nao_verificado: rows.filter(semInfo).length };
   _drawerFilterBar(
-    [{ key:'all', label:'Todos', count:counts.all }, { key:'online', label:' Online', count:counts.online }, { key:'offline', label:' Offline', count:counts.offline }],
+    [{ key:'all', label:'Todos', count:counts.all }, { key:'online', label:' Online', count:counts.online },
+     { key:'offline', label:' Offline', count:counts.offline },
+     { key:'nao_verificado', label:'Nao verificado', count:counts.nao_verificado }],
     filterKey, [], null,
     k => openDashDrawerWindows(k), () => {}
   );
@@ -210,6 +233,7 @@ async function openDashDrawerWindows(filterKey) {
   let filtered = rows;
   if (filterKey === 'online')  filtered = filtered.filter(isOnline);
   if (filterKey === 'offline') filtered = filtered.filter(isOffline);
+  if (filterKey === 'nao_verificado') filtered = filtered.filter(semInfo);
 
   filtered.sort((a, b) => (a.hostname || a.ip || '').localeCompare(b.hostname || b.ip || '', 'pt', { numeric: true }));
   _drawerRenderRows(filtered.map(r => `

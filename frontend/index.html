@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=1790964100">
+  <link rel="stylesheet" href="styles.css?v=1790967700">
 </head>
 <body>
 
@@ -316,6 +316,8 @@
           <span style="color:var(--danger)">Offline: <strong id="invOltOffline">-</strong></span>
           <span class="inv-sum-sep">-</span>
           <span style="color:var(--amber)">Outros: <strong id="invOltOutros">-</strong></span>
+          <span class="inv-sum-sep" id="invOltSemInfoSep" hidden>-</span>
+          <span style="color:var(--amber)" id="invOltSemInfoBloco" hidden>Sem informacao: <strong id="invOltSemInfo">0</strong></span>
         </div>
 
         <!-- Seletor de vis-o -->
@@ -440,7 +442,11 @@
               <div id="cpSnapshotEmpty" class="cam-snap-empty"><i data-lucide="image-off"></i><span>Sem snapshot</span></div>
               <div id="cpInlineLive" class="cam-inline-live hidden" onclick="event.stopPropagation()">
                 <video id="cpLiveVideo" class="hidden" autoplay muted playsinline></video>
-                <div id="cpLiveAuth" class="cam-live-auth">
+                <!-- Nasce escondido: o servidor quase sempre JA sabe a senha desta
+                     camera (salva por MAC/site). Pedir por padrao fazia o operador
+                     digitar de novo uma senha que o sistema tinha guardada. So
+                     aparece quando o servidor responde que nao sabe. -->
+                <div id="cpLiveAuth" class="cam-live-auth" style="display:none">
                   <div>
                     <strong>Ver ao vivo</strong>
                     <span>Informe o acesso da camera.</span>
@@ -685,7 +691,11 @@
             <div id="rpSnapshotEmpty" class="cam-snap-empty"><i data-lucide="image-off"></i><span>Sem snapshot</span></div>
             <div id="rpInlineLive" class="cam-inline-live hidden" onclick="event.stopPropagation()">
               <video id="rpLiveVideo" class="hidden" autoplay muted playsinline></video>
-              <div id="rpLiveAuth" class="cam-live-auth">
+              <!-- Nasce escondido: o servidor quase sempre JA sabe a senha desta
+                     camera (salva por MAC/site). Pedir por padrao fazia o operador
+                     digitar de novo uma senha que o sistema tinha guardada. So
+                     aparece quando o servidor responde que nao sabe. -->
+                <div id="rpLiveAuth" class="cam-live-auth" style="display:none">
                 <div>
                   <strong>Ver ao vivo</strong>
                   <span>Informe o acesso da camera.</span>
@@ -6621,16 +6631,16 @@
        fora de ordem muda o comportamento. Ao adicionar um arquivo novo, entre
        antes de bootstrap.js, que e quem liga os botoes no DOMContentLoaded. -->
   <script src="js/core.js?v=1790956900"></script>
-  <script src="js/dashboard.js?v=266"></script>
+  <script src="js/dashboard.js?v=1790978500"></script>
   <script src="js/liveStream.js?v=1790960500"></script>
-  <script src="js/cameras.js?v=1790693990"></script>
+  <script src="js/cameras.js?v=1790982100"></script>
   <script src="js/recorders.js?v=1790935300"></script>
   <script src="js/windows.js?v=142"></script>
   <script src="js/snapshots.js?v=1790019880"></script>
   <script src="js/maintenance.js?v=146"></script>
   <script src="js/analysis.js?v=147"></script>
   <script src="js/network.js?v=158"></script>
-  <script src="js/deploy.js?v=1790964100"></script>
+  <script src="js/deploy.js?v=1790971300"></script>
   <script src="js/cameraActivation.js?v=1790048800"></script>
   <script src="js/deployOlt.js?v=160"></script>
   <script src="js/connectors.js?v=1790804180"></script>

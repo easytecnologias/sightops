@@ -189,8 +189,19 @@ def _xray_intelbras(base: str, user: str, password: str) -> Dict[str, Any]:
         )
     }
 
+    # O getCameraAll do NVD 7132 devolve uma entrada A MAIS no fim da lista
+    # (indice 32 num gravador de 32 canais): `Type=Compose`, que e o canal
+    # VIRTUAL de mosaico do proprio gravador, nao uma camera. Ela virava um
+    # "canal 33" que nao existe em equipamento nenhum -- e aparecia como canal
+    # livre, oferecendo encaixar camera onde nao da.
+    com_dado = {
+        i for i, c in cams.items()
+        if str(c.get("Type", "")).strip().lower() != "compose"
+        and (str(c.get("DeviceInfo.Address", "")).strip()
+             or any(str(v).strip() for k, v in c.items() if k.startswith("DeviceInfo.")))
+    }
     canais: List[Dict[str, Any]] = []
-    for i in sorted(set(titulos) | set(cams)):
+    for i in sorted(set(titulos) | com_dado):
         cam = cams.get(i, {})
         enc = cru.get("Encode", {})
         largura = enc.get(f"table.Encode[{i}].MainFormat[0].Video.Width", "")
@@ -223,27 +234,45 @@ def _xray_intelbras(base: str, user: str, password: str) -> Dict[str, Any]:
     )
     discos: List[Dict[str, Any]] = []
     if cod and 200 <= cod < 300:
-        # A chave e (grupo, detalhe): existe um Detail[0] por info[], entao
-        # indexar so pelo Detail faz um disco sobrescrever o outro -- foi assim
-        # que os 12 discos do NVD 7132 apareceram como 4.
-        achados: Dict[Tuple[int, int], Dict[str, str]] = {}
+        # Um DISCO e um `list.info[N]`; cada `Detail[i]` dele e uma PARTICAO.
+        # O NVD 7132 de Perucaba tem 3 discos de 6 TB particionados em 4 cada
+        # -- contar Detail dava "12 discos", que nao existem. Agora soma as
+        # particoes dentro de cada disco e conta disco.
+        partes: Dict[int, Dict[int, Dict[str, str]]] = {}
         for grupo, idx, chave, valor in re.findall(
                 r"list\.info\[(\d+)\]\.Detail\[(\d+)\]\.(\w+)=([^\r\n]*)", corpo):
-            achados.setdefault((int(grupo), int(idx)), {})[chave] = valor.strip()
-        for ordem, par in enumerate(sorted(achados), start=1):
-            d = achados[par]
-            try:
-                total = float(d.get("TotalBytes") or 0)
-                usado = float(d.get("UsedBytes") or 0)
-            except Exception:
-                total = usado = 0.0
+            partes.setdefault(int(grupo), {}).setdefault(int(idx), {})[chave] = valor.strip()
+        # Nome e estado ficam no nivel do disco, fora de Detail.
+        cabecas: Dict[int, Dict[str, str]] = {}
+        for grupo, chave, valor in re.findall(
+                r"list\.info\[(\d+)\]\.(Name|State|HealthDataFlag)=([^\r\n]*)", corpo):
+            cabecas.setdefault(int(grupo), {})[chave] = valor.strip()
+
+        for ordem, grupo in enumerate(sorted(partes), start=1):
+            fatias = partes[grupo]
+            total = usado = 0.0
+            com_erro = False
+            for d in fatias.values():
+                try:
+                    total += float(d.get("TotalBytes") or 0)
+                    usado += float(d.get("UsedBytes") or 0)
+                except Exception:
+                    pass
+                if (d.get("IsError") or "").lower() == "true":
+                    com_erro = True
+            cab = cabecas.get(grupo, {})
+            estado = (cab.get("State") or "").strip()
+            if estado and estado.lower() not in ("success", "ok", "normal"):
+                com_erro = True
             discos.append({
                 "id": ordem,
                 "total_tb": round(total / 1e12, 2) if total else 0,
                 "usado_tb": round(usado / 1e12, 2) if usado else 0,
-                "erro": (d.get("IsError") or "").lower() == "true",
-                "tipo": d.get("Type", ""),
-                "caminho": d.get("Path", ""),
+                "erro": com_erro,
+                "tipo": (list(fatias.values())[0].get("Type", "") if fatias else ""),
+                "caminho": cab.get("Name") or (list(fatias.values())[0].get("Path", "")[:-1] if fatias else ""),
+                "particoes": len(fatias),
+                "estado": estado,
             })
 
     def contar(rotulo: str) -> Dict[str, int]:
@@ -472,6 +501,107 @@ def _xray_hikvision(base: str, user: str, password: str) -> Dict[str, Any]:
         "usuarios": len(re.findall(r"<User\b", cru.get("usuarios") or "")),
         "total_canais": total or len(canais),
     }
+
+
+def buscar_cameras(host: str, user: str, password: str, porta: Any = None,
+                   connector_id: str = "") -> Dict[str, Any]:
+    """Pergunta ao GRAVADOR quais cameras ele enxerga na rede dele.
+
+    Quem varre e o proprio equipamento, que esta na mesma rede das cameras --
+    nos nao alcancamos a LAN do cliente para fazer isso daqui. No NVD 7132 de
+    Perucaba essa chamada devolveu 317 dispositivos com IP, MAC, modelo e
+    serial.
+
+    So leitura. Devolve tambem quais ja estao em algum canal, para a tela nao
+    oferecer uma camera que ja esta no gravador.
+    """
+    base = _base(host, porta, connector_id)
+    marca = detectar_marca(base, user, password)
+
+    if marca == "hikvision":
+        # A busca do ISAPI e GET (o POST com SearchDescription devolve 401) e o
+        # resultado vem em <VideoSourceDescriptor>, nao em <SearchResult>.
+        # Confirmado no DS-7632NXI de Perucaba: 90 cameras.
+        #
+        # ATENCAO: cada bloco traz <userName> e <password> da camera em texto
+        # puro -- o equipamento devolve isso sozinho. Nada disso e lido aqui,
+        # para nao acabar no navegador nem em log.
+        cod, corpo = _pedir(f"{base}/ISAPI/ContentMgmt/InputProxy/search", user, password, 30.0)
+        if not cod or not (200 <= cod < 300):
+            raise ValueError("o gravador nao respondeu a busca de cameras")
+        achadas: List[Dict[str, Any]] = []
+        ja_hik: List[str] = []
+        for bloco in re.findall(r"<VideoSourceDescriptor>(.*?)</VideoSourceDescriptor>", corpo or "", re.S):
+            def campo(nome: str, _b: str = "") -> str:
+                m = re.search(rf"<{nome}>([^<]*)</{nome}>", bloco)
+                return (m.group(1).strip() if m else "")
+            ip = campo("ipAddress")
+            if not ip or ip == "0.0.0.0":
+                continue
+            # O valor real deste modelo e "notAdded" (nao "no"): tratar o
+            # desconhecido como "ja adicionada" escondia TODAS as cameras do
+            # filtro "so as que faltam". So conta como adicionada quando diz.
+            no_gravador = campo("addStatus").strip().lower() in ("added", "yes", "true", "success")
+            if no_gravador:
+                ja_hik.append(ip.lower())
+            achadas.append({
+                "ip": ip,
+                "mac": campo("macAddress"),
+                "modelo": campo("deviceModel"),
+                "fabricante": "Hikvision" if campo("proxyProtocol").upper() == "HIKVISION" else (campo("proxyProtocol") or "ONVIF"),
+                "serial": campo("serialNumber"),
+                "porta": campo("managePortNo") or "8000",
+                "porta_http": "80",
+                "firmware": campo("firmwareVersion"),
+                "inicializada": campo("activated").lower() != "false",
+                "no_gravador": no_gravador,
+            })
+        achadas.sort(key=lambda c: tuple(int(x) if x.isdigit() else 0 for x in c["ip"].split(".")))
+        return {"marca": marca, "cameras": achadas, "total": len(achadas),
+                "ja_no_gravador": sorted(set(ja_hik))}
+
+    # Intelbras/Dahua: deviceDiscovery.cgi devolve pares indexados por dispositivo.
+    cod, corpo = _pedir(
+        f"{base}/cgi-bin/deviceDiscovery.cgi?action=attach&Types[0]=onvif&Types[1]=privateDahua",
+        user, password, 30.0,
+    )
+    if not cod or not (200 <= cod < 300):
+        raise ValueError("o gravador nao respondeu a busca de cameras")
+
+    bruto: Dict[int, Dict[str, str]] = {}
+    for idx, chave, valor in re.findall(r"deviceInfo\[(\d+)\]\.([\w\.]+)=([^\r\n]*)", corpo or ""):
+        bruto.setdefault(int(idx), {})[chave] = valor.strip()
+
+    # Quem ja esta em um canal, para nao oferecer de novo.
+    cod2, corpo2 = _pedir(
+        f"{base}/cgi-bin/configManager.cgi?action=getConfig&name=RemoteDevice", user, password, 25.0)
+    ja = {ip.strip().lower() for ip in re.findall(r"\.Address=([^\r\n]+)", corpo2 or "")}
+
+    cameras: List[Dict[str, Any]] = []
+    for item in bruto.values():
+        ip = item.get("IPv4Address.IPAddress", "")
+        # 0.0.0.0 e o proprio anuncio de servicos do gravador, nao camera.
+        if not ip or ip == "0.0.0.0":
+            continue
+        classe = (item.get("DeviceClass") or "").upper()
+        if classe and classe not in ("IPC", "DVR", "NVR"):
+            continue
+        cameras.append({
+            "ip": ip,
+            "mac": item.get("Mac", ""),
+            "modelo": item.get("DeviceType", ""),
+            "fabricante": item.get("Vendor") or item.get("Manufacturer", ""),
+            "serial": item.get("SerialNo") or item.get("MachineName", ""),
+            "porta": item.get("Port", "37777"),
+            "porta_http": item.get("HttpPort", "80"),
+            "firmware": item.get("Version", ""),
+            # Init vazio/0 = camera de fabrica, ainda sem senha definida.
+            "inicializada": bool((item.get("Init") or "").strip() not in ("", "0")),
+            "no_gravador": ip.lower() in ja,
+        })
+    cameras.sort(key=lambda c: tuple(int(x) if x.isdigit() else 0 for x in c["ip"].split(".")))
+    return {"marca": marca, "cameras": cameras, "total": len(cameras),
+            "ja_no_gravador": sorted(ja)}
 
 
 def raio_x(host: str, user: str, password: str, porta: Any = None,

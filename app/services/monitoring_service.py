@@ -294,6 +294,21 @@ def refresh_from_inventory() -> Dict[str, Any]:
         counts["onu_signals"] = gravadas
     else:
         counts["onu_signals"] = 0
+    # Conector caido derruba o que depende dele, e leitura velha nao vale como
+    # leitura. Sem isto, SANTANA ficou com 224 cameras "online" por mais de um
+    # dia depois que o tunel caiu -- ver app/services/status_efetivo.py.
+    from app.services.status_efetivo import avaliar as _status_efetivo, conectores_offline as _fora
+    sem_caminho = _fora()
+
+    def _efetivo(row: Dict[str, Any], campo_data: str = "status_checked_at") -> str:
+        status, _motivo = _status_efetivo(
+            row.get("status"),
+            row.get("remote_connector_id") or row.get("connector_id"),
+            row.get(campo_data),
+            sem_caminho,
+        )
+        return status
+
     cameras = []
     for mode in ("basic", "olt", "switch"):
         cameras.extend((dict(r, _mode=mode) for r in (load_inventory_json(mode=mode) or [])))
@@ -301,7 +316,8 @@ def refresh_from_inventory() -> Dict[str, Any]:
         "entity_key": f"camera:{r.get('_mode')}:{r.get('remote_connector_id') or r.get('connector_id') or 'local'}:{r.get('ip')}",
         "entity_type": "camera", "entity_id": r.get("inventory_key") or r.get("ip"), "site": r.get("local") or r.get("site"),
         "connector_id": r.get("remote_connector_id") or r.get("connector_id"), "display_name": r.get("titulo") or r.get("title") or r.get("ip"),
-        "status": r.get("status"), "detail": {"ip": r.get("ip"), "mode": r.get("_mode"), "model": r.get("modelo") or r.get("model")},
+        "status": _efetivo(r), "detail": {"ip": r.get("ip"), "mode": r.get("_mode"), "model": r.get("modelo") or r.get("model"),
+                                          "status_lido": r.get("status"), "checado_em": r.get("status_checked_at")},
     } for r in cameras if r.get("ip")), prune_entity_type="camera")
     for source in ("dvr", "nvr"):
         recorders = {}
@@ -311,13 +327,15 @@ def refresh_from_inventory() -> Dict[str, Any]:
         counts[source] = _observe_many(({
             "entity_key": f"{source}:{r.get('remote_connector_id') or r.get('connector_id') or 'local'}:{host}",
             "entity_type": source, "entity_id": host, "site": r.get("local"), "connector_id": r.get("remote_connector_id") or r.get("connector_id"),
-            "display_name": r.get("recorder_name") or r.get("nvr_name") or host, "status": r.get("status"), "detail": {"host": host, "model": r.get("recorder_model") or r.get("nvr_model")},
+            "display_name": r.get("recorder_name") or r.get("nvr_name") or host, "status": _efetivo(r),
+            "detail": {"host": host, "model": r.get("recorder_model") or r.get("nvr_model"), "status_lido": r.get("status")},
         } for host, r in recorders.items()), prune_entity_type=source)
     windows = load_windows_inventory()
     counts["windows"] = _observe_many(({
         "entity_key": f"windows:{r.get('connector_id') or 'local'}:{r.get('hostname') or r.get('ip')}", "entity_type": "windows",
         "entity_id": r.get("hostname") or r.get("ip"), "site": r.get("local") or r.get("site"), "connector_id": r.get("connector_id"),
-        "display_name": r.get("hostname") or r.get("ip"), "status": r.get("status"), "detail": {"ip": r.get("ip")},
+        "display_name": r.get("hostname") or r.get("ip"), "status": _efetivo(r),
+        "detail": {"ip": r.get("ip"), "status_lido": r.get("status")},
     } for r in windows if r.get("hostname") or r.get("ip")), prune_entity_type="windows")
     try:
         access_devices = list_access_devices()

@@ -106,7 +106,7 @@ function _camCell(c) {
     fab:       `<span class="text-muted" title="${esc(c.fabricante||'')}">${esc(c.fabricante||'')}</span>`,
     modelo:    `<span title="${esc(c.modelo || c.model || '')}">${esc(c.modelo || c.model || '')}</span>`,
     titulo:    `<strong title="${esc(c.titulo||'')}">${esc(c.titulo||'')}</strong>`,
-    status:    invStatusBadge(c.status),
+    status:    invStatusBadge(c.status, c.status_motivo),
     imgbb:     imgbbUrl ? `<a href="${esc(imgbbUrl)}" target="_blank" onclick="event.stopPropagation()" style="color:var(--primary);font-weight:700;font-size:12px;text-decoration:none"> up</a>` : `<span style="color:var(--danger);font-weight:700;font-size:12px"> down</span>`,
     local:     `<span class="text-muted" title="${esc(c.local||'')}">${esc(c.local||'')}</span>`,
     pon:       `<span style="text-align:center;display:block;font-weight:500">${esc(c.pon||'')}</span>`,
@@ -1941,10 +1941,19 @@ function renderInvOlt(cameras) {
   // Contadores
   const online  = cameras.filter(c => (c.status||'').toLowerCase() === 'online').length;
   const offline = cameras.filter(c => (c.status||'').toLowerCase() === 'offline').length;
+  const semInfo = cameras.filter(c => (c.status||'').toLowerCase() === 'unknown').length;
   setText('invOltTotal',   cameras.length);
   setText('invOltOnline',  online);
   setText('invOltOffline', offline);
-  setText('invOltOutros',  cameras.length - online - offline);
+  // "Sem informacao" aparece separado de "Outros": e a diferenca entre o
+  // sistema nao saber e o equipamento ter respondido algo incomum.
+  setText('invOltOutros',  cameras.length - online - offline - semInfo);
+  const alvoSemInfo = document.getElementById('invOltSemInfo');
+  if (alvoSemInfo) alvoSemInfo.textContent = semInfo;
+  const blocoSemInfo = document.getElementById('invOltSemInfoBloco');
+  if (blocoSemInfo) blocoSemInfo.hidden = !semInfo;
+  const sepSemInfo = document.getElementById('invOltSemInfoSep');
+  if (sepSemInfo) sepSemInfo.hidden = !semInfo;
   setText('invOltFooter',  `${cameras.length} camera${cameras.length!==1?'s':''}`);
 
   if (!cameras.length) {
@@ -1995,12 +2004,20 @@ function isImgbbUrl(url) {
   return /imgbb\.com|ibb\.co/i.test(url);
 }
 
-function invStatusBadge(status) {
+function invStatusBadge(status, motivo) {
   if (!status) return '<span class="text-muted"></span>';
   const s = status.toLowerCase();
   if (s === 'online')      return `<span style="color:var(--primary);font-weight:600;font-size:12px">online</span>`;
   if (s === 'offline')     return `<span style="color:var(--danger);font-weight:600;font-size:12px">offline</span>`;
   if (s === 'auth_failed') return `<span style="color:var(--amber);font-weight:600;font-size:12px">auth_failed</span>`;
+  // "unknown" nao e detalhe: e o sistema admitindo que nao sabe. Vinha de
+  // conector caido ou de leitura velha demais -- antes disso a tela repetia
+  // "online" com dado de dias atras (SANTANA, 01/10/2026).
+  if (s === 'unknown') {
+    const porque = motivo ? ` - ${esc(motivo)}` : '';
+    return `<span style="color:var(--amber);font-weight:600;font-size:12px"
+      title="${esc(motivo || 'sem informacao atual')}">sem informacao${porque}</span>`;
+  }
   return `<span style="color:var(--muted);font-size:12px">${esc(status)}</span>`;
 }
 
@@ -2269,9 +2286,13 @@ function openCamPanelLive() {
   if (qualityLabel) qualityLabel.textContent = 'SD';
   const remembered = _camLiveCredGet();
   const user = remembered.user || document.getElementById('mntCamUser')?.value || 'admin';
-  const pass = remembered.pass || document.getElementById('mntCamPass')?.value || '';
   document.getElementById('cpLiveUser').value = user;
-  document.getElementById('cpLivePass').value = pass;
+  // A senha NAO e preenchida da memoria do navegador de proposito. Quem tem a
+  // senha boa e o servidor (salva por MAC/site). Mandar a daqui fazia duas
+  // coisas ruins: pedia de novo o que o sistema ja sabia e, pior, uma senha
+  // velha digitada por engano SOBRESCREVIA a senha correta guardada para o
+  // site inteiro -- `resolve_camera_password` salva tudo que chega preenchido.
+  document.getElementById('cpLivePass').value = '';
   // Sempre tenta conectar primeiro, mesmo sem senha nenhuma conhecida NESTE
   // navegador: o servidor pode ja saber a senha desta camera/site (salva de
   // um acesso anterior, de qualquer operador). So mostra o formulario se o

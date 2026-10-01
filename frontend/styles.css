@@ -10332,6 +10332,19 @@ table.recorder-tabela tbody tr:hover { background: var(--surface-soft); }
 #recTampa .rec-campo input:focus{outline:none;border-color:var(--primary);box-shadow:0 0 0 3px rgba(16,122,87,.14)}
 #recTampa .rec-erro{margin:10px 0 0;font-size:12px;color:var(--danger,#b4232a)}
 #recTampa .rec-dica{margin:9px 0 0;font-size:11.5px;color:var(--muted)}
+#recTampa .rec-caixa-larga{max-width:min(94vw,620px)}
+#recTampa .rec-lista-alta{max-height:52vh}
+#recTampa .rec-busca-linha{display:flex;gap:10px;align-items:center}
+#recTampa .rec-busca-linha .rec-busca{flex:1;min-width:0}
+#recTampa .rec-check{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);white-space:nowrap}
+#recTampa .rec-item-cam{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:8px}
+#recTampa .rec-item-cam b{grid-column:1}
+#recTampa .rec-item-cam span{grid-column:1}
+#recTampa .rec-tag{grid-column:2;grid-row:1 / span 2;font-style:normal;font-size:10.5px;font-weight:600;
+  padding:3px 7px;border-radius:999px;background:var(--surface-soft,rgba(125,125,125,.12));color:var(--muted)}
+#recTampa .rec-tag.alerta{background:rgba(224,168,0,.14);color:#9a7400}
+#recTampa .rec-com-botao{display:flex;gap:8px}
+#recTampa .rec-com-botao input{flex:1;min-width:0}
 
 /* ── CADASTRAR/ENTRAR EM GRAVADOR ──
    A tela anterior era uma pilha de campos com um bloco vermelho de alerta

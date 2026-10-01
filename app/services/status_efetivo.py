@@ -1,0 +1,136 @@
+"""Status que a tela pode acreditar: o lido, mas so enquanto valer.
+
+Por que existe
+--------------
+Em 2026-10-01 o tunel de SANTANA caiu e o sistema seguiu mostrando as 224
+cameras do site como **online**. Nada mentia de proposito: o status vinha da
+ultima varredura e simplesmente **nunca envelhecia**. Com o tunel caido
+ninguem conseguia revalidar, entao a ultima verdade conhecida -- de tres dias
+antes -- ficou congelada na tela parecendo informacao de agora. O operador
+perdeu o acesso ao site inteiro sem nenhum aviso.
+
+Duas regras, nesta ordem:
+
+1. **Conector offline derruba tudo que depende dele.** Se o caminho ate o
+   equipamento caiu, nao ha como ele estar online -- e so o que sabemos e que
+   nao sabemos. Vira `unknown`, nunca `up`.
+2. **Leitura velha nao vale como leitura.** Acima do limite, `unknown`.
+   Medido no parque real: equipamento saudavel e checado em menos de 15
+   minutos, entao 30 minutos de folga nao gera alarme falso.
+
+`unknown` e deliberado em vez de `down`: dizer "caiu" tambem seria inventar.
+O honesto e "nao sei", e a tela mostra o motivo junto.
+"""
+
+from __future__ import annotations
+
+import os
+from datetime import datetime, timezone
+from typing import Any, Dict, Iterable, Set, Tuple
+
+# Folga em minutos antes de uma leitura deixar de valer.
+LIMITE_LEITURA_MIN = float(os.environ.get("SIGHTOPS_LEITURA_VALIDA_MIN", "30"))
+
+MOTIVO_CONECTOR = "conector offline"
+MOTIVO_VELHO = "sem leitura recente"
+
+
+def _texto(valor: Any) -> str:
+    return str(valor or "").strip()
+
+
+def conectores_offline() -> Set[str]:
+    """Ids dos conectores que NAO estao online agora.
+
+    Falha de leitura devolve conjunto vazio de proposito: na duvida, nao
+    rebaixar o status de ninguem -- o efeito seria o inverso do desejado,
+    apagando informacao boa.
+    """
+    try:
+        from app.services.connector_service import list_connectors
+        linhas = list_connectors(False).get("connectors", [])
+    except Exception:
+        return set()
+    return {
+        _texto(c.get("id")) for c in linhas
+        if _texto(c.get("id")) and _texto(c.get("status")).lower() != "online"
+    }
+
+
+_cache: Dict[str, Any] = {"quando": 0.0, "valor": set()}
+
+
+def conectores_offline_cache(ttl: float = 15.0) -> Set[str]:
+    """Mesma lista, com validade curta.
+
+    O dashboard avalia centenas de linhas numa so resposta; sem cache seria
+    uma leitura do arquivo de conectores por linha.
+    """
+    import time as _t
+    agora = _t.time()
+    if agora - float(_cache["quando"]) > ttl:
+        _cache["valor"] = conectores_offline()
+        _cache["quando"] = agora
+    return _cache["valor"]
+
+
+def idade_minutos(quando: Any) -> float | None:
+    """Minutos desde o carimbo, ou None se nao der para saber."""
+    bruto = _texto(quando)
+    if not bruto:
+        return None
+    try:
+        marca = datetime.fromisoformat(bruto.replace("Z", "+00:00"))
+    except Exception:
+        return None
+    if marca.tzinfo is None:
+        marca = marca.replace(tzinfo=timezone.utc)
+    return (datetime.now(timezone.utc) - marca).total_seconds() / 60.0
+
+
+def avaliar(
+    status: Any,
+    connector_id: Any = "",
+    checado_em: Any = "",
+    offline: Iterable[str] | None = None,
+    limite_min: float | None = None,
+) -> Tuple[str, str]:
+    """Devolve (status, motivo). Motivo vazio quando o status lido vale.
+
+    Nao normaliza o status de entrada: quem chama decide se trabalha com
+    "online"/"offline" (inventario) ou "up"/"down" (monitoramento).
+    """
+    cid = _texto(connector_id)
+    fora = set(offline or ())
+    if cid and cid in fora:
+        return ("unknown", MOTIVO_CONECTOR)
+
+    limite = LIMITE_LEITURA_MIN if limite_min is None else float(limite_min)
+    idade = idade_minutos(checado_em)
+    if idade is not None and idade > limite:
+        horas = idade / 60.0
+        quanto = f"{idade:.0f} min" if idade < 90 else (
+            f"{horas:.0f} h" if horas < 48 else f"{horas / 24:.0f} dias")
+        return ("unknown", f"{MOTIVO_VELHO} ({quanto})")
+
+    return (_texto(status), "")
+
+
+def aplicar_em_linha(linha: Dict[str, Any], offline: Iterable[str] | None = None,
+                     campo_status: str = "status", campo_data: str = "status_checked_at") -> Dict[str, Any]:
+    """Marca a linha do inventario com o status efetivo, sem perder o lido.
+
+    Mantem o valor original em `status_lido` para quem precisar auditar o que
+    o equipamento respondeu da ultima vez.
+    """
+    status, motivo = avaliar(
+        linha.get(campo_status),
+        linha.get("remote_connector_id") or linha.get("connector_id"),
+        linha.get(campo_data),
+        offline,
+    )
+    if motivo:
+        linha["status_lido"] = linha.get(campo_status)
+        linha[campo_status] = status
+        linha["status_motivo"] = motivo
+    return linha

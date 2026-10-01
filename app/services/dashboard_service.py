@@ -38,7 +38,25 @@ def _lower(value: Any) -> str:
 
 
 def _is_online(row: Dict[str, Any]) -> bool:
-    status = _lower(row.get("status") or row.get("health") or row.get("state"))
+    """Online de verdade: o status lido so vale se ainda houver caminho ate o
+    equipamento e se a leitura nao estiver velha.
+
+    Sem isto o painel somava como online 224 cameras de um site cujo tunel
+    tinha caido -- ver app/services/status_efetivo.py.
+    """
+    try:
+        from app.services.status_efetivo import avaliar, conectores_offline_cache
+        efetivo, motivo = avaliar(
+            row.get("status") or row.get("health") or row.get("state"),
+            row.get("remote_connector_id") or row.get("connector_id"),
+            row.get("status_checked_at"),
+            conectores_offline_cache(),
+        )
+        if motivo:
+            return False
+        status = _lower(efetivo)
+    except Exception:
+        status = _lower(row.get("status") or row.get("health") or row.get("state"))
     return status in ("online", "ok", "up", "ativo", "active")
 
 
