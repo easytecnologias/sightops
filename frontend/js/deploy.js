@@ -406,11 +406,33 @@ let _deployStandaloneRecorderProbe = null;
 let _deployStandaloneRecorderSaved = false;
 let _deployRecorderSelectedChannel = 0;
 let _deployStandaloneRecorderSavedItems = [];
+
+// Gravadores com senha ja guardada no servidor (cifrada). So host/porta/usuario
+// trafegam -- a senha nunca sai do backend. Serve para a tela saber quem entra
+// com um clique e para quem ainda falta perguntar.
+let _recSenhasSalvas = [];
+
+async function recCarregarSenhasSalvas() {
+  try {
+    const dados = await apiJson('/api/deployments/recorder-credenciais');
+    _recSenhasSalvas = Array.isArray(dados?.credenciais) ? dados.credenciais : [];
+  } catch (_) {
+    _recSenhasSalvas = [];
+  }
+}
+
+function recTemSenhaSalva(host, porta) {
+  const h = String(host || '').trim().toLowerCase();
+  if (!h) return false;
+  return _recSenhasSalvas.some(x => String(x.host || '').toLowerCase() === h);
+}
 let _deployStandaloneRecorderNetworkLoaded = false;
 let _deployStandaloneRecorderModalMode = 'create';
 
 function deployStandaloneRecorderPayload() {
-  const channels = Number(document.getElementById('deployStandaloneRecorderChannelTotal')?.value || 32);
+  // Vazio de proposito: o backend pergunta ao gravador quantos canais ele tem.
+  // Mandar 32 aqui fazia um gravador de 16 mostrar 16 canais que nao existem.
+  const channels = Number(document.getElementById('deployStandaloneRecorderChannelTotal')?.value || 0);
   return {
     olt_id: Number(document.getElementById('deployStandaloneRecorderOlt')?.value || 0) || null,
     connector_id: deployStandaloneRecorderSelectedConnectorId(),
@@ -522,6 +544,7 @@ function deployStandaloneRecorderRenderOltsForOrigin() {
     : '<option value="">Sem OLT vinculada / informar manualmente</option>'
       + rows.map(row => `<option value="${esc(row.id)}">${esc(row.name)} - ${esc(row.site || 'sem site')} - ${esc(row.host)}</option>`).join('');
   deployStandaloneRecorderRenderSaved();
+  deployRecorderPintarLista();
 }
 
 function deployStandaloneRecorderApplyOlt() {
@@ -606,12 +629,25 @@ function deployRenderStandaloneRecorderChannels() {
   if (!visible.length) {
     grid.innerHTML = '<div class="recorder-deploy-empty">Nenhum canal encontrado neste filtro.</div>';
   } else {
+    // Mosaico: a imagem OCUPA o quadro, como na tela do proprio DVR. O cartao
+    // claro com miniatura espremida ao lado do texto nao deixava ver nada --
+    // num mosaico de cameras quem manda e a imagem, o resto e legenda.
     grid.innerHTML = visible.map(item => {
       const snapshot = deployRecorderChannelSnapshotUrl(item);
       const ch = String(item.channel || '').padStart(2, '0');
-      return `<button type="button" class="recorder-deploy-channel ${item.used ? 'used' : 'free'} ${Number(item.channel) === _deployRecorderSelectedChannel ? 'selected' : ''}" data-recorder-channel="${esc(item.channel)}">
-        <div class="recorder-channel-thumb">${snapshot ? `<img src="${esc(snapshot)}" alt="">` : `<i data-lucide="${item.used ? 'image-off' : 'plus'}"></i>`}</div>
-        <div class="recorder-channel-card-body"><div><b>CH ${esc(ch)}</b><span>${item.used ? 'ocupado' : 'livre'}</span></div><strong title="${esc(item.title || '')}">${esc(item.title || (item.used ? 'Sem titulo' : 'Disponivel'))}</strong><small class="monospace">${esc(item.camera_ip || '')}</small><small>${esc(item.camera_model || item.model || (item.used ? 'Modelo nao informado' : 'Pronto para adicionar'))}</small></div>
+      const titulo = item.title || (item.used ? 'Sem titulo' : '');
+      const sel = Number(item.channel) === _deployRecorderSelectedChannel ? ' selecionado' : '';
+      if (!item.used) {
+        return `<button type="button" class="recorder-quadro livre${sel}" data-recorder-channel="${esc(item.channel)}" title="Canal ${esc(ch)} livre">
+          <span class="q-num">${esc(ch)}</span>
+          <span class="q-vazio"><i data-lucide="plus"></i>livre</span>
+        </button>`;
+      }
+      return `<button type="button" class="recorder-quadro${sel}" data-recorder-channel="${esc(item.channel)}" title="${esc([titulo, item.camera_ip].filter(Boolean).join(' - '))}">
+        <span class="q-num">${esc(ch)}</span>
+        ${snapshot ? `<img src="${esc(snapshot)}" alt="" loading="lazy">`
+                   : `<span class="q-sem"><i data-lucide="image-off"></i>sem imagem</span>`}
+        <span class="q-faixa">${esc(titulo || item.camera_ip || 'canal ' + ch)}</span>
       </button>`;
     }).join('');
   }
@@ -672,7 +708,7 @@ function deployStandaloneRecorderSetModalMode(mode = 'create') {
   if (subtitle) {
     subtitle.textContent = isEntry
       ? 'Escolha um gravador cadastrado por site e use a credencial salva para abrir o console.'
-      : 'Informe site, acesso e quantidade de canais para registrar no inventario.';
+      : 'So o acesso. Modelo, tipo e canais vem do proprio gravador.';
   }
   if (action) {
     action.innerHTML = isEntry ? '<i data-lucide="log-in"></i> Entrar' : '<i data-lucide="radar"></i> Validar gravador';
@@ -719,6 +755,14 @@ function deployStandaloneRecorderUpdateQuickActions() {
 }
 
 function deployStandaloneRecorderSelectConfigTab(tab = 'overview') {
+  // A tela nova usa secoes; mantido para quem ainda chama pelo nome antigo.
+  const mapa = { overview: 'equip', channels: 'canais', quick: 'acoes',
+                 network: 'rede', recording: 'discos', storage: 'discos',
+                 maintenance: 'achados' };
+  if (document.querySelector('[data-recorder-sec]')) {
+    deployRecorderAbrirSecao(mapa[tab] || 'achados');
+    return;
+  }
   const target = tab || 'overview';
   document.querySelectorAll('.recorder-config-tab').forEach(btn => {
     btn.classList.toggle('active', btn.dataset.recorderConfigTab === target);
@@ -1085,6 +1129,43 @@ function deployStandaloneRecorderRenderSaved() {
   `).join('');
 }
 
+// Lista clicavel dos gravadores ja cadastrados. O select continua existindo
+// (o formulario depende dele), mas no celular escolher num select de 60 itens
+// agrupados e sofrido -- aqui e um toque.
+function deployRecorderPintarLista() {
+  const el = document.getElementById('deployRecorderLista');
+  if (!el) return;
+  const itens = _deployStandaloneRecorderSavedItems || [];
+  if (!itens.length) {
+    el.innerHTML = `<div class="recorder-lista-vazia">
+      <i data-lucide="hard-drive"></i>
+      <div><b>Nenhum gravador cadastrado ainda</b>
+      <span>Use "Entrar em gravador" para ler um pela primeira vez.</span></div></div>`;
+    lucide.createIcons();
+    return;
+  }
+  el.innerHTML = itens.slice(0, 40).map(item => {
+    const titulo = item.name || item.host;
+    const canais = (item.usedChannels != null && item.totalChannels)
+      ? `${item.usedChannels}/${item.totalChannels} canais` : '';
+    return `<button class="recorder-card" type="button" data-grav="${esc(item.key)}">
+      <i data-lucide="${item.type === 'dvr' ? 'tv' : 'hard-drive'}"></i>
+      <span class="recorder-card-main">
+        <b>${esc(titulo)}</b>
+        <span>${esc(item.site || 'sem site')} · ${esc(item.host)}${canais ? ' · ' + esc(canais) : ''}</span>
+      </span>
+      <i data-lucide="chevron-right" class="recorder-card-seta"></i>
+    </button>`;
+  }).join('');
+  el.querySelectorAll('[data-grav]').forEach(b => b.addEventListener('click', () => {
+    const sel = document.getElementById('deployStandaloneRecorderSavedSelect');
+    if (sel) { sel.value = b.dataset.grav; sel.dispatchEvent(new Event('change')); }
+    // 'entry' = entrar num gravador que ja existe, nao cadastrar outro.
+    openDeployStandaloneRecorderModal('entry');
+  }));
+  lucide.createIcons();
+}
+
 async function deployStandaloneRecorderLoadSaved() {
   const select = document.getElementById('deployStandaloneRecorderSavedSelect');
   if (select) {
@@ -1140,17 +1221,17 @@ function deployStandaloneRecorderUseSaved(key) {
   const savedSelect = document.getElementById('deployStandaloneRecorderSavedSelect');
   if (savedSelect) savedSelect.value = '';
   deployStandaloneRecorderSelectConfigTab('overview');
-  if (item.password) {
+  // Gravador conhecido entra direto. Quando nem o inventario nem o servidor
+  // tem a senha, pergunta so usuario e senha num balao -- nao o formulario
+  // inteiro, que so repetia o que o cadastro ja sabe.
+  if (item.password || recTemSenhaSalva(item.host)) {
     closeDeployStandaloneRecorderModal();
     deployStandaloneRecorderSetResult(`Gravador ${esc(item.host)} carregado. Entrando com a credencial salva...`);
     deployStandaloneRecorderLogin();
-    showToast(`Gravador ${item.host} carregado.`);
+    showToast(`Entrando em ${item.host}...`);
   } else {
-    openDeployStandaloneRecorderModal('entry');
-    const pass = document.getElementById('deployStandaloneRecorderPassword');
-    if (pass) pass.focus();
-    deployStandaloneRecorderSetResult('Senha nao encontrada no cadastro salvo. Informe a senha uma vez e salve o gravador novamente.', true);
-    showToast('Senha nao encontrada no cadastro salvo.', true);
+    closeDeployStandaloneRecorderModal();
+    recPedirSenha(item);
   }
   lucide.createIcons();
 }
@@ -1186,12 +1267,10 @@ function deployStandaloneRecorderClearRecorderFields({ keepConnector = false, ke
 
 async function loadDeployRecorder() {
   deploymentApplyPreferredInventoryMode();
-  await Promise.all([loadDeployRecorderSites(), deployStandaloneRecorderLoadConnectors(), deployStandaloneRecorderLoadOlts(), deployStandaloneRecorderLoadSaved()]);
+  await Promise.all([loadDeployRecorderSites(), deployStandaloneRecorderLoadConnectors(), deployStandaloneRecorderLoadOlts(), deployStandaloneRecorderLoadSaved(), recCarregarSenhasSalvas()]);
   deployStandaloneRecorderRenderOltsForOrigin();
   deployStandaloneRecorderRenderProbe(_deployStandaloneRecorderProbe);
-  deployStandaloneRecorderSelectConfigTab(
-    document.querySelector('.recorder-config-tab.active')?.dataset.recorderConfigTab || 'overview'
-  );
+  recPintarApp();
   lucide.createIcons();
 }
 
@@ -1203,21 +1282,38 @@ async function deployStandaloneRecorderLogin() {
     showToast('Informe o site/local.', true);
     return;
   }
-  if (!payload.recorder_host || !payload.recorder_user || !payload.recorder_password) {
-    deployStandaloneRecorderSetResult('Informe host, usuario e senha do gravador.', true);
-    showToast('Informe host, usuario e senha do gravador.', true);
+  if (!payload.recorder_host || !payload.recorder_user) {
+    deployStandaloneRecorderSetResult('Informe host e usuario do gravador.', true);
+    showToast('Informe host e usuario do gravador.', true);
+    return;
+  }
+  // Senha em branco e normal em gravador conhecido: o servidor resolve a dele.
+  if (!payload.recorder_password && !recTemSenhaSalva(payload.recorder_host)) {
+    deployStandaloneRecorderSetResult('Informe a senha do gravador.', true);
+    showToast('Informe a senha do gravador.', true);
     return;
   }
   const btn = document.getElementById('btnDeployStandaloneRecorderLoginModal');
   if (btn) { btn.disabled = true; btn.innerHTML = '<i data-lucide="loader"></i> Entrando'; lucide.createIcons(); }
   deployStandaloneRecorderSetResult(`<span class="inline-loading"><i data-lucide="loader"></i> Conectando em ${esc(payload.recorder_host)}...</span>`);
   deployStandaloneRecorderRenderLoginProgress(payload);
+  recProgresso(payload.recorder_host, 0);
   showToast(`Conectando em ${payload.recorder_host}...`);
   try {
     const res = await api('/api/deployments/recorder-login', { method: 'POST', body: JSON.stringify(payload) });
     const data = await res?.json().catch(() => ({}));
     if (!res?.ok || data?.ok === false) {
       const detail = data?.detail || data?.message || 'Falha ao entrar no gravador.';
+      // 428: o servidor nao tem senha guardada para este gravador. Pergunta
+      // so usuario e senha, em vez de devolver o formulario inteiro.
+      if (res?.status === 428) {
+        deployStandaloneRecorderSetResult('Este gravador ainda nao tem senha guardada.');
+        recProgressoFim();
+        recPintarApp();
+        recPedirSenha({ host: payload.recorder_host, user: payload.recorder_user, name: payload.name });
+        return;
+      }
+      recProgressoErro(detail);
       _deployStandaloneRecorderProbe = null;
       deployStandaloneRecorderRenderProbe(null);
       deployStandaloneRecorderSetResult(esc(detail), true);
@@ -1226,7 +1322,20 @@ async function deployStandaloneRecorderLogin() {
     }
     _deployStandaloneRecorderProbe = data;
     _deployStandaloneRecorderNetworkLoaded = false;
+    // O backend guarda a senha no login confirmado: da proxima vez este
+    // gravador entra com um clique.
+    recCarregarSenhasSalvas();
     deployStandaloneRecorderRenderProbe(data);
+    // O gravador respondeu quantos canais tem: mostra no campo, que agora e
+    // resultado e nao pergunta.
+    const campoCanais = document.getElementById('deployStandaloneRecorderChannelTotal');
+    if (campoCanais && data.channel_total) campoCanais.value = data.channel_total;
+    const campoTipo = document.getElementById('deployStandaloneRecorderType');
+    if (campoTipo && data.source) campoTipo.value = data.source;
+    // O login confirma acesso; o raio-x le o resto do equipamento (canais,
+    // discos, deteccao, servicos). Vai sem await de proposito: no Intelbras
+    // leva ~13s e nao pode segurar o retorno do login.
+    deployRecorderCarregarXray();
     const label = [data.brand, data.model, data.serial].filter(Boolean).join(' / ');
     deployStandaloneRecorderSetResult(`Login confirmado em ${esc(payload.recorder_host)}${label ? ` - ${esc(label)}` : ''}. Agora pode salvar no inventario.`);
     closeDeployStandaloneRecorderModal();
@@ -1236,6 +1345,7 @@ async function deployStandaloneRecorderLogin() {
     _deployStandaloneRecorderProbe = null;
     deployStandaloneRecorderRenderProbe(null);
     deployStandaloneRecorderSetResult(esc(detail), true);
+    recProgressoErro(detail);
     showToast(detail, true);
   } finally {
     if (btn) {
@@ -3663,4 +3773,862 @@ function parseCidrInfo(cidr) {
   if (networkNum === null || !Number.isInteger(prefix)) return null;
   const size = 2 ** (32 - prefix);
   return { cidr: raw, networkNum, prefix, start: networkNum, end: networkNum + size - 1 };
+}
+
+// ===================== RAIO-X DO GRAVADOR =====================
+// A tela mostrava modelo, serial e uma grade de canais adivinhada. O
+// equipamento responde muito mais: foi lendo tudo que apareceu, no NVD 7132 de
+// Perucaba, que o NTP estava desligado (e e ele que carimba a hora da gravacao)
+// e que a perda de video so valia em 10 dos 32 canais -- 22 cameras podiam cair
+// sem gerar evento. Nada disso aparecia em lugar nenhum do sistema.
+let _deployRecorderXray = null;
+
+// ---- navegacao por secoes da tela de gravador (substitui as abas antigas) ----
+function deployRecorderAbrirSecao(nome) {
+  document.querySelectorAll('[data-recorder-sec]').forEach(b =>
+    b.classList.toggle('active', b.dataset.recorderSec === nome));
+  document.querySelectorAll('[data-recorder-painel]').forEach(p =>
+    p.classList.toggle('active', p.dataset.recorderPainel === nome));
+  if (nome === 'rede' && _deployStandaloneRecorderProbe && !_deployStandaloneRecorderNetworkLoaded) {
+    deployStandaloneRecorderLoadNetwork();
+  }
+}
+
+function deployRecorderLigarSecoes() {
+  document.querySelectorAll('[data-recorder-sec]').forEach(b => {
+    if (b.dataset.secBound) return;
+    b.dataset.secBound = '1';
+    b.addEventListener('click', () => deployRecorderAbrirSecao(b.dataset.recorderSec));
+  });
+}
+
+// KPIs do topo: os numeros que o tecnico quer de relance.
+// A secao Equipamento mostrava cartoes enormes, um por linha, repetindo os KPIs
+// do topo e dizendo "Modelo nao informado" -- o probe do login nao traz modelo,
+// mas o raio-x traz (NVD 7132). Aqui e so identidade, em pares compactos.
+function deployRecorderPintarEquipamento(d) {
+  const box = document.getElementById('deployStandaloneRecorderSummary');
+  if (!box || !d) return;
+  const eq = d.equipamento || {};
+  const rede = d.rede || {};
+  const pares = [
+    ['Fabricante', d.marca],
+    ['Modelo', eq.modelo],
+    ['Serial', eq.serial],
+    ['Firmware', eq.firmware],
+    ['Compilacao', eq.compilacao],
+    ['Processador', eq.processador],
+    ['Plataforma', eq.plataforma],
+    ['Nome no equipamento', eq.nome],
+    ['MAC', eq.mac || rede.mac],
+    ['Host', d.host],
+    ['Tipo', eq.tipo],
+    ['Ligado ha', d.uptime_s ? Math.floor(Number(d.uptime_s) / 86400) + ' dias' : ''],
+  ].filter(([, v]) => String(v || '').trim());
+  box.innerHTML = `<dl class="recorder-pares">${pares.map(([k, v]) =>
+    `<div><dt>${esc(k)}</dt><dd>${esc(v)}</dd></div>`).join('')}</dl>`;
+}
+
+function deployRecorderPintarKpis(d) {
+  const el = document.getElementById('deployRecorderKpis');
+  if (!el) return;
+  if (!d) { el.innerHTML = ''; return; }
+  const r = d.resumo || {};
+  const capacidade = (d.discos || []).reduce((s, x) => s + (Number(x.total_tb) || 0), 0);
+  const itens = [
+    [r.canais_total, 'canais', ''],
+    [r.canais_usados, 'em uso', ''],
+    [r.canais_livres, 'livres', ''],
+    [r.offline, 'offline', r.offline ? 'erro' : ''],
+    [r.discos, 'discos', r.discos_com_erro ? 'erro' : ''],
+    [capacidade ? capacidade.toFixed(1) + ' TB' : '-', 'capacidade', ''],
+  ];
+  el.innerHTML = itens.map(([v, rot, cls]) =>
+    `<div class="recorder-kpi ${cls}"><b>${esc(String(v ?? '-'))}</b><span>${esc(rot)}</span></div>`).join('');
+}
+
+async function deployRecorderCarregarXray() {
+  const p = deployStandaloneRecorderPayload();
+  // Senha vazia nao e impedimento: em gravador conhecido quem tem a senha e o
+  // servidor. Sem esta excecao o raio-x saia calado e a tela ficava parada.
+  if (!p.recorder_host || !p.recorder_user) return;
+  if (!p.recorder_password && !recTemSenhaSalva(p.recorder_host)) return;
+  deployRecorderPintarCarregando();
+  recProgresso(p.recorder_host, 1);
+  try {
+    const res = await api('/api/deployments/recorder-xray', {
+      method: 'POST',
+      body: JSON.stringify({
+        recorder_host: p.recorder_host,
+        recorder_user: p.recorder_user,
+        recorder_password: p.recorder_password,
+        recorder_http_port: p.recorder_http_port,
+        connector_id: p.connector_id || '',
+      }),
+    });
+    const data = await res?.json().catch(() => ({}));
+    if (!res?.ok || data?.ok === false) {
+      deployRecorderPintarErro(data?.detail || data?.error || 'nao consegui ler o gravador');
+      recProgressoErro(data?.detail || data?.error);
+      return;
+    }
+    recProgresso(p.recorder_host, 2);
+    _deployRecorderXray = data;
+    deployRecorderPintarXray(data);
+    recProgressoFim();
+    recPintarApp();
+  } catch (e) {
+    deployRecorderPintarErro(String(e?.message || e));
+    recProgressoErro(e?.message || e);
+  }
+}
+
+function _dx(id) { return document.getElementById(id); }
+
+function deployRecorderPintarCarregando() {
+  const msg = `<div class="recorder-discovery-empty"><i data-lucide="loader"></i>
+    <div><b>Lendo o gravador</b><span>No Intelbras sao 23 secoes de configuracao; leva alguns segundos.</span></div></div>`;
+  ['deployRecorderAchados', 'deployRecorderCanaisTabela'].forEach(id => { const el = _dx(id); if (el) el.innerHTML = msg; });
+  lucide.createIcons();
+}
+
+function deployRecorderPintarErro(detalhe) {
+  const el = _dx('deployRecorderAchados');
+  if (el) el.innerHTML = `<div class="recorder-discovery-empty"><i data-lucide="alert-triangle"></i>
+    <div><b>Nao consegui ler o gravador</b><span>${esc(detalhe)}</span></div></div>`;
+  lucide.createIcons();
+}
+
+// Achados: cada um e um problema real, dito em linguagem de operacao, com o
+// porque importa -- nao o nome do campo que veio errado.
+function deployRecorderAchados(d) {
+  const out = [];
+  const s = d.servicos || {};
+  const det = d.deteccao || {};
+  const rede = d.rede || {};
+
+  if (s.ntp_ligado === false) out.push(['erro', 'NTP desligado',
+    'O relogio do gravador anda sozinho, e e ele que carimba a hora da gravacao. Com o tempo, procurar um evento pelo horario devolve o trecho errado.']);
+  if (rede.dns === '') out.push(['aviso', 'DNS nao configurado',
+    'Sem DNS o gravador nao resolve nome nenhum: NTP por nome, e-mail e nuvem nao funcionam.']);
+  if (s.https_ligado === false) out.push(['info', 'HTTPS desligado',
+    'O acesso ao gravador trafega em texto claro na rede do cliente.']);
+  if (s.email_ligado === false) out.push(['info', 'E-mail de alerta desligado',
+    'Nenhum aviso sai do gravador quando um alarme dispara.']);
+
+  const perda = det.perda_video || det.videoloss;
+  if (perda && perda.total && perda.ligados < perda.total) {
+    const faltam = perda.total - perda.ligados;
+    out.push(['erro', `${faltam} canais nao avisam se a camera cair`,
+      `Perda de video esta ligada em ${perda.ligados} de ${perda.total}. Nos outros, a camera pode sumir sem gerar evento nenhum.`]);
+  }
+  const movida = det.movida;
+  if (movida && movida.total && movida.ligados === 0) {
+    out.push(['aviso', `${movida.total} canais sem deteccao de camera movida`,
+      'Ninguem e avisado se alguem girar a camera para o outro lado.']);
+  }
+  (d.discos || []).forEach(disco => {
+    if (disco.erro) out.push(['erro', `Disco ${disco.id} com falha`,
+      'Um disco saiu do conjunto. A retencao cai e o risco de perder imagem sobe.']);
+  });
+  if ((d.resumo || {}).offline) out.push(['erro', `${d.resumo.offline} canal(is) sem imagem`,
+    'A camera esta cadastrada no canal mas nao responde.']);
+  if (d.usuarios === 1) out.push(['erro', 'Um unico usuario no equipamento',
+    'Todo mundo entra como admin: nao da para saber quem mexeu nem revogar acesso de uma pessoa so.']);
+  if (rede.mtu && String(rede.mtu) !== '1500') out.push(['aviso', `MTU em ${esc(rede.mtu)}`,
+    'MTU fora de 1500 em tunel costuma derrubar pacote cheio e travar video sem derrubar o ping.']);
+
+  if (!out.length) out.push(['ok', 'Nada fora do lugar', 'Servicos, deteccao e discos conferidos, sem achado.']);
+  return out;
+}
+
+function deployRecorderPintarXray(d) {
+  const r = d.resumo || {};
+  deployRecorderPintarKpis(d);
+  deployRecorderPintarEquipamento(d);
+  const nome = document.getElementById('deployRecorderEquipNome');
+  const sub = document.getElementById('deployRecorderEquipSub');
+  const eq = d.equipamento || {};
+  if (nome) nome.textContent = [eq.modelo, eq.nome].filter(Boolean).join(' · ') || d.host || 'Gravador';
+  if (sub) sub.textContent = [d.marca, d.host, eq.firmware ? 'firmware ' + eq.firmware : '']
+    .filter(Boolean).join(' · ');
+
+  // --- achados
+  const achados = deployRecorderAchados(d);
+  const elA = _dx('deployRecorderAchados');
+  if (elA) elA.innerHTML = achados.map(([nivel, tit, txt]) => `
+    <div class="recorder-achado ${esc(nivel)}">
+      <i data-lucide="${nivel === 'erro' ? 'alert-circle' : nivel === 'aviso' ? 'alert-triangle' : nivel === 'ok' ? 'check-circle' : 'info'}"></i>
+      <div><b>${esc(tit)}</b><span>${esc(txt)}</span></div>
+    </div>`).join('');
+
+  // --- canais
+  const elC = _dx('deployRecorderCanaisTabela');
+  if (elC) {
+    const linhas = (d.canais || []).map(c => `<tr>
+      <td>${esc(String(c.canal).padStart(2, '0'))}</td>
+      <td><b>${esc(c.nome || '-')}</b></td>
+      <td>${esc(c.ip || '-')}</td>
+      <td>${esc(c.modelo || '-')}</td>
+      <td>${esc(c.resolucao || '-')}</td>
+      <td>${esc(c.fps || '-')}</td>
+      <td>${esc(c.taxa_kbps ? c.taxa_kbps + ' kbps' : '-')}</td>
+      <td>${esc(c.codec || '-')}</td>
+      <td>${esc(c.protocolo || '-')}</td>
+      <td>${c.online === false ? '<span class="recorder-pill erro">offline</span>'
+          : c.ip ? '<span class="recorder-pill ok">ok</span>' : '<span class="recorder-pill neutro">livre</span>'}</td>
+    </tr>`).join('');
+    elC.innerHTML = `<div class="recorder-tabela-rolo"><table class="recorder-tabela">
+      <thead><tr><th>#</th><th>Nome</th><th>IP</th><th>Modelo</th><th>Resolucao</th><th>FPS</th>
+      <th>Taxa</th><th>Codec</th><th>Protocolo</th><th>Estado</th></tr></thead>
+      <tbody>${linhas}</tbody></table></div>`;
+  }
+
+  // --- discos
+  const elD = _dx('deployRecorderStorage');
+  if (elD) {
+    elD.innerHTML = (d.discos || []).length
+      ? (d.discos || []).map(x => `<div${x.erro ? ' class="erro"' : ''}>
+          <span>Disco ${esc(x.id)}${x.tipo ? ' · ' + esc(x.tipo) : ''}</span>
+          <b>${x.total_tb ? esc(x.total_tb) + ' TB' : esc(x.situacao || '-')}</b>
+          <small>${x.erro ? 'com falha' : (x.livre_tb !== undefined ? esc(x.livre_tb) + ' TB livres' : 'em uso')}</small>
+        </div>`).join('')
+      : `<div><span>Discos</span><b>nenhum</b><small>O gravador nao reportou disco: sem gravacao.</small></div>`;
+  }
+
+  // --- gravacao / deteccao
+  const elG = _dx('deployRecorderRecording');
+  if (elG) {
+    const det = d.deteccao || {};
+    elG.innerHTML = Object.entries(det).map(([nome, v]) => {
+      const pct = v.total ? Math.round((v.ligados / v.total) * 100) : 0;
+      const cls = pct === 0 ? ' class="erro"' : pct < 60 ? ' class="aviso"' : '';
+      return `<div${cls}><span>${esc(deployRecorderRotulo(nome))}</span>
+        <b>${v.ligados} de ${v.total}</b><small>canais com a analise ligada</small></div>`;
+    }).join('') || '<div><span>Deteccao</span><b>nao informada</b><small>Este modelo nao expoe as analises.</small></div>';
+  }
+
+  // --- servicos (aba rede)
+  const elS = _dx('deployRecorderServicos');
+  if (elS) {
+    const s = d.servicos || {};
+    const itens = [
+      ['NTP', s.ntp_ligado, s.ntp_servidor || ''],
+      ['HTTPS', s.https_ligado, ''],
+      ['E-mail', s.email_ligado, ''],
+      ['SNMP', s.snmp_ligado, ''],
+      ['NAS', s.nas_ligado, ''],
+    ].filter(([, v]) => v !== undefined);
+    elS.innerHTML = itens.map(([rot, lig, extra]) =>
+      `<div${lig ? '' : ' class="aviso"'}><span>${esc(rot)}</span><b>${lig ? 'ligado' : 'desligado'}</b>
+       <small>${esc(extra || (lig ? 'ativo no equipamento' : 'nao esta em uso'))}</small></div>`).join('');
+  }
+
+  // --- cabecalho de descoberta ganha os numeros reais
+  const elR = _dx('deployRecorderDiscoveryStatus');
+  if (elR) {
+    elR.className = 'recorder-head-status ' + (r.offline || r.discos_com_erro ? 'error' : 'ok');
+    elR.innerHTML = `<i data-lucide="circle-check"></i><span>${esc(d.marca)} · ${r.canais_usados}/${r.canais_total} canais · ${r.discos} disco(s)</span>`;
+  }
+  lucide.createIcons();
+}
+
+function deployRecorderRotulo(chave) {
+  return ({
+    movimento: 'Movimento', perda_video: 'Perda de video', encoberta: 'Camera encoberta',
+    movida: 'Camera movida', audio: 'Audio', VMD: 'Movimento', videoloss: 'Perda de video',
+    fielddetection: 'Invasao de area', linedetection: 'Cruzamento de linha',
+    facedetection: 'Face', faceSnap: 'Captura de face', regionEntrance: 'Entrada em regiao',
+    regionExiting: 'Saida de regiao', personDensityDetection: 'Densidade de pessoas',
+    objectsThrownDetection: 'Objeto abandonado', channelOccupy: 'Canal ocupado',
+  })[chave] || chave;
+}
+
+// ===================== CONSOLE DO GRAVADOR =====================
+// Redesenho aprovado em 01/10/2026. O que mudou e densidade:
+//   - uma barra de contexto de uma linha no lugar de tres blocos repetindo
+//     nome, IP e marca;
+//   - os seis cartoes de numero viraram texto na barra (numero so merece
+//     cartao quando e o assunto da tela; aqui e identificacao);
+//   - navegacao vertical com contador por secao, em vez de pilulas grandes;
+//   - o mosaico ocupa a tela, imagens coladas e sem moldura, como mural de
+//     CFTV.
+let _recSec = 'vivo';
+let _recCols = '4';
+let _recEdit = null;   // canal em edicao
+
+const _REC_SECOES = [
+  ['vivo', 'Ao vivo'], ['achados', 'Achados'], ['canais', 'Canais'],
+  ['discos', 'Discos'], ['deteccao', 'Deteccao'], ['rede', 'Rede'], ['equip', 'Equipamento'],
+];
+
+function recRot(k) {
+  return ({ movimento:'Movimento', perda_video:'Perda de video', encoberta:'Camera encoberta',
+    movida:'Camera movida', audio:'Audio', VMD:'Movimento', videoloss:'Perda de video',
+    fielddetection:'Invasao de area', linedetection:'Cruzamento de linha', facedetection:'Face',
+    faceSnap:'Captura de face', regionEntrance:'Entrada em regiao', regionExiting:'Saida de regiao',
+    personDensityDetection:'Densidade de pessoas', objectsThrownDetection:'Objeto abandonado',
+    channelOccupy:'Canal ocupado', ChannelPassingEvent:'Passagem no canal',
+    disco_cheio:'Disco cheio', disco_falhou:'Disco falhou', sem_disco:'Sem disco',
+    ip_duplicado:'IP duplicado', mac_duplicado:'MAC duplicado', rede_caiu:'Rede caiu',
+    login_falho:'Login falhou', ventoinha:'Ventoinha', diskfull:'Disco cheio',
+    diskerror:'Erro de disco', nicbroken:'Placa de rede', ipconflict:'IP duplicado',
+    illaccess:'Acesso ilegal', recordingfailure:'Falha ao gravar', IO:'Entrada de alarme',
+  })[k] || k;
+}
+
+function recAchadosLista(d) {
+  const out = [], s = d.servicos || {}, det = d.deteccao || {}, r = d.rede || {}, z = d.resumo || {};
+  if (s.ntp_ligado === false) out.push(['erro', 'NTP desligado',
+    'O relogio do gravador anda sozinho, e e ele que carimba a hora da gravacao. Com o tempo, procurar um evento pelo horario devolve o trecho errado.', 'ntp']);
+  const pv = det.perda_video || det.videoloss;
+  if (pv && pv.total && pv.ligados < pv.total) out.push(['erro',
+    `${pv.total - pv.ligados} canais nao avisam se a camera cair`,
+    `Perda de video esta ligada em ${pv.ligados} de ${pv.total}. Nos outros, a camera pode sumir sem gerar evento nenhum.`, '']);
+  if (z.offline) out.push(['erro', `${z.offline} canal(is) sem imagem`,
+    'A camera esta no canal mas nao responde.', '']);
+  (d.discos || []).forEach(x => { if (x.erro) out.push(['erro', `Disco ${x.id} com falha`,
+    'Um disco saiu do conjunto. A retencao cai e o risco de perder imagem sobe.', '']); });
+  if (d.usuarios === 1) out.push(['erro', 'Um unico usuario no equipamento',
+    'Todo mundo entra como admin: nao da para saber quem mexeu nem revogar acesso de uma pessoa so.', '']);
+  const mv = det.movida;
+  if (mv && mv.total && mv.ligados === 0) out.push(['aviso', `${mv.total} canais sem deteccao de camera movida`,
+    'Ninguem e avisado se alguem girar a camera para o outro lado.', '']);
+  if (r.dns === '') out.push(['aviso', 'DNS nao configurado',
+    'Sem DNS o gravador nao resolve nome nenhum: NTP por nome, e-mail e nuvem nao funcionam.', '']);
+  if (r.mtu && String(r.mtu) !== '1500') out.push(['aviso', `MTU em ${r.mtu}`,
+    'MTU fora de 1500 em tunel costuma derrubar pacote cheio e travar video sem derrubar o ping.', '']);
+  if (s.https_ligado === false) out.push(['info', 'HTTPS desligado',
+    'O acesso ao gravador trafega em texto claro na rede do cliente.', '']);
+  if (s.email_ligado === false) out.push(['info', 'E-mail de alerta desligado',
+    'Nenhum aviso sai do gravador quando um alarme dispara.', '']);
+  return out;
+}
+
+// miniatura do canal, vinda do inventario de gravadores (host + canal)
+function recFoto(c, host) {
+  const linha = (_deployStandaloneRecorderSavedItems || [])
+    .flatMap(x => x.rows || [])
+    .find(r => String(r.host || '') === String(host) && Number(r.channel) === Number(c.canal));
+  const bruto = String(linha?.snapshot_url || linha?.imgbb_url || '').trim();
+  if (!bruto) return '';
+  return /^https?:\/\//i.test(bruto) ? bruto : `${API_BASE}${bruto}`;
+}
+
+function recSecVivo(d) {
+  const canais = d.canais || [], host = d.host;
+  const comImagem = canais.filter(c => recFoto(c, host)).length;
+  const caidos = canais.filter(c => c.online === false).length;
+  return `<div class="bloco">
+    <div class="bloco-cab">
+      <div><h2>Ao vivo</h2><p>${comImagem} com imagem${caidos ? ' · ' + caidos + ' sem resposta' : ''}</p></div>
+      <div class="bloco-dir"><div class="seg">
+        <button type="button" data-rec-col="2" aria-pressed="${_recCols === '2'}">Grande</button>
+        <button type="button" data-rec-col="4" aria-pressed="${_recCols === '4'}">Medio</button>
+        <button type="button" data-rec-col="6" aria-pressed="${_recCols === '6'}">Pequeno</button>
+      </div></div>
+    </div>
+    <div class="mosaico" data-col="${_recCols}">${canais.map(c => {
+      const foto = recFoto(c, host), n = String(c.canal).padStart(2, '0');
+      if (!c.ip) return `<div class="cam livre"><div class="vazio">canal ${n} livre</div></div>`;
+      const caiu = c.online === false;
+      return `<div class="cam ${caiu ? 'caiu' : ''}" title="${esc([c.nome, c.ip].filter(Boolean).join(' · '))}">
+        ${foto ? `<img src="${esc(foto)}" alt="" loading="lazy">`
+               : `<div class="vazio">${caiu ? 'sem sinal' : 'sem imagem'}</div>`}
+        <div class="marca"><span class="n">${n}</span>${caiu ? '' : '<span class="rec"><i></i>REC</span>'}</div>
+        <div class="rotulo">${esc(c.nome || c.ip)}</div>
+      </div>`;
+    }).join('')}</div>
+  </div>`;
+}
+
+function recSecAchados(d) {
+  const itens = recAchadosLista(d);
+  if (!itens.length) return `<div class="bloco"><div class="bloco-cab">
+    <div><h2>Nada fora do lugar</h2><p>Servicos, deteccao e discos conferidos, sem achado.</p></div></div></div>`;
+  return `<div class="bloco">
+    <div class="bloco-cab"><div><h2>O que precisa de voce</h2><p>Em ordem de impacto</p></div></div>
+    ${itens.map(([sev, tit, txt]) => `<div class="achado ${esc(sev)}">
+      <span class="sev"></span>
+      <div class="achado-txt"><b>${esc(tit)}</b><span>${esc(txt)}</span></div>
+    </div>`).join('')}
+  </div>`;
+}
+
+function recSecCanais(d) {
+  const canais = d.canais || [];
+  return `<div class="bloco">
+    <div class="bloco-cab"><div><h2>Canais</h2><p>Editar troca os dados sem soltar o canal</p></div>
+      <div class="bloco-dir"><button class="acao forte" type="button" data-rec-add="1">+ Adicionar camera</button></div></div>
+    <div class="rolo"><table>
+      <thead><tr><th>#</th><th>Nome</th><th>IP</th><th>Modelo</th><th>Resolucao</th><th>Codec</th><th>Estado</th><th></th></tr></thead>
+      <tbody>${canais.map(c => `<tr>
+        <td class="n">${String(c.canal).padStart(2, '0')}</td>
+        <td><b>${esc(c.nome || '-')}</b></td>
+        <td class="n">${esc(c.ip || '-')}</td>
+        <td>${esc(c.modelo || '-')}</td>
+        <td class="n">${esc(c.resolucao || '-')}</td>
+        <td>${esc(c.codec || '-')}</td>
+        <td>${!c.ip ? '<span class="tag neutro">livre</span>'
+            : c.online === false ? '<span class="tag erro">offline</span>'
+            : '<span class="tag ok">normal</span>'}</td>
+        <td><span class="linha-acoes">
+          ${c.ip ? `<button class="mini" type="button" data-rec-editar="${c.canal}">Editar</button>
+                    <button class="mini perigo" type="button" data-rec-soltar="${c.canal}">Soltar</button>`
+                 : `<button class="mini" type="button" data-rec-add="${c.canal}">Usar</button>`}
+        </span></td>
+      </tr>`).join('')}</tbody>
+    </table></div>
+  </div>`;
+}
+
+function recSecDiscos(d) {
+  const ds = d.discos || [];
+  const cap = ds.reduce((s, x) => s + (Number(x.total_tb) || 0), 0);
+  return `<div class="bloco">
+    <div class="bloco-cab"><div><h2>Discos</h2>
+      <p>${ds.length} unidade${ds.length === 1 ? '' : 's'}${cap ? ' · ' + cap.toFixed(1) + ' TB' : ''}</p></div></div>
+    <div class="rolo"><table>
+      <thead><tr><th>#</th><th>Capacidade</th><th>Tipo</th><th>Estado</th></tr></thead>
+      <tbody>${ds.length ? ds.map(x => `<tr>
+        <td class="n">${esc(String(x.id).padStart(2, '0'))}</td>
+        <td class="n">${x.total_tb ? esc(x.total_tb) + ' TB' : '-'}</td>
+        <td>${esc(x.tipo || '-')}</td>
+        <td>${x.erro ? '<span class="tag erro">com falha</span>' : '<span class="tag ok">ok</span>'}</td>
+      </tr>`).join('') : '<tr><td colspan="4">O gravador nao reportou disco: sem gravacao.</td></tr>'}</tbody>
+    </table></div>
+  </div>`;
+}
+
+function recSecDeteccao(d) {
+  const det = Object.entries(d.deteccao || {}), al = Object.entries(d.alarmes || {});
+  return `<div class="bloco">
+    <div class="bloco-cab"><div><h2>Deteccao por canal</h2><p>Quantos canais tem cada analise ligada</p></div></div>
+    <div class="rolo"><table>
+      <thead><tr><th>Analise</th><th>Cobertura</th><th>Canais</th></tr></thead>
+      <tbody>${det.length ? det.map(([k, v]) => {
+        const pct = v.total ? Math.round(v.ligados / v.total * 100) : 0;
+        return `<tr><td><b>${esc(recRot(k))}</b></td>
+          <td>${pct === 0 ? '<span class="tag erro">nenhum canal</span>'
+              : pct < 60 ? `<span class="tag" style="background:var(--amber-soft);color:var(--amber)">${pct}%</span>`
+              : `<span class="tag ok">${pct}%</span>`}</td>
+          <td class="n">${v.ligados} de ${v.total}</td></tr>`;
+      }).join('') : '<tr><td colspan="3">Este modelo nao expoe as analises.</td></tr>'}</tbody>
+    </table></div>
+    ${al.length ? `<div class="bloco-cab" style="border-top:1px solid var(--border)">
+      <div><h2>Alarmes do equipamento</h2><p>Falhas que o gravador vigia sozinho</p></div></div>
+    <div class="rolo"><table><tbody>${al.map(([k, on]) => `<tr><td><b>${esc(recRot(k))}</b></td>
+      <td>${on ? '<span class="tag ok">ligado</span>' : '<span class="tag erro">desligado</span>'}</td></tr>`).join('')}</tbody></table></div>` : ''}
+  </div>`;
+}
+
+function recPares(titulo, sub, pares) {
+  return `<div class="bloco">
+    <div class="bloco-cab"><div><h2>${esc(titulo)}</h2><p>${esc(sub)}</p></div></div>
+    <div class="rolo"><table><tbody>${pares.map(([k, v, cls]) =>
+      `<tr><td style="color:var(--muted);width:40%">${esc(k)}</td>
+       <td><b${cls === 'ruim' ? ' style="color:var(--danger)"' : cls === 'bom' ? ' style="color:var(--primary)"' : ''}>${esc(v)}</b></td></tr>`
+    ).join('')}</tbody></table></div>
+  </div>`;
+}
+
+function recSecRede(d) {
+  const r = d.rede || {}, s = d.servicos || {};
+  const linhas = [
+    ['IP', r.ip, ''], ['Mascara', r.mascara, ''], ['Gateway', r.gateway, ''],
+    ['MAC', r.mac, ''], ['MTU', r.mtu, (r.mtu && String(r.mtu) !== '1500') ? 'ruim' : ''],
+    ['DNS', r.dns || 'nao configurado', r.dns ? '' : 'ruim'],
+    ['Enderecamento', r.enderecamento, ''],
+  ].filter(([, v]) => String(v || '').trim());
+  const serv = [['NTP', s.ntp_ligado], ['HTTPS', s.https_ligado], ['E-mail', s.email_ligado],
+                ['SNMP', s.snmp_ligado], ['NAS', s.nas_ligado]].filter(([, v]) => v !== undefined)
+    .map(([k, v]) => [k, v ? 'ligado' : 'desligado', v ? 'bom' : 'ruim']);
+  return recPares('Rede', 'Em vermelho, o que esta faltando ou fora do padrao', linhas)
+       + (serv.length ? recPares('Servicos', 'Lido do equipamento', serv) : '');
+}
+
+function recSecEquip(d) {
+  const eq = d.equipamento || {}, r = d.rede || {};
+  return recPares('Equipamento', 'Identidade e versao', [
+    ['Fabricante', d.marca], ['Modelo', eq.modelo], ['Serial', eq.serial],
+    ['Firmware', eq.firmware], ['Compilacao', eq.compilacao], ['Processador', eq.processador],
+    ['Plataforma', eq.plataforma], ['MAC', eq.mac || r.mac], ['Host', d.host],
+    ['Ligado ha', d.uptime_s ? Math.floor(Number(d.uptime_s) / 86400) + ' dias' : ''],
+    ['Usuarios', d.usuarios],
+  ].filter(([, v]) => String(v || '').trim()).map(([k, v]) => [k, v, '']));
+}
+
+const _REC_SEC_RENDER = { vivo: recSecVivo, achados: recSecAchados, canais: recSecCanais,
+  discos: recSecDiscos, deteccao: recSecDeteccao, rede: recSecRede, equip: recSecEquip };
+
+function recContagem(d, id) {
+  const z = d.resumo || {};
+  if (id === 'achados') { const n = recAchadosLista(d).filter(x => x[0] === 'erro').length; return n || null; }
+  if (id === 'canais') return z.canais_total || null;
+  if (id === 'discos') return z.discos || null;
+  return null;
+}
+
+// Entrar num gravador demora -- no Intelbras sao 23 secoes de configuracao, uns
+// 13 segundos. Sem nada na tela parecia travado, entao o passo corrente fica
+// visivel aqui o tempo todo.
+let _recProgresso = null;
+
+const _REC_PASSOS = [
+  ['Conectando no gravador', 'confere o acesso e a credencial'],
+  ['Lendo a configuracao', 'canais, discos, deteccao, rede e servicos'],
+  ['Montando a tela', 'quase la'],
+];
+
+function recProgresso(host, passo) {
+  _recProgresso = { host: host || '', passo: Number(passo) || 0, erro: '' };
+  recPintarApp();
+}
+
+function recProgressoErro(detalhe) {
+  if (_recProgresso) _recProgresso.erro = String(detalhe || 'nao consegui ler o gravador');
+  recPintarApp();
+}
+
+function recProgressoFim() {
+  _recProgresso = null;
+}
+
+function recPintarProgresso() {
+  const g = _recProgresso || {};
+  if (g.erro) {
+    return `<div class="bloco rec-progresso"><div class="bloco-cab">
+      <div><h2>Nao consegui entrar em ${esc(g.host)}</h2><p>${esc(g.erro)}</p></div>
+      <div class="bloco-dir"><button class="acao" type="button" data-rec-fechar-erro>Fechar</button></div>
+      </div></div>`;
+  }
+  return `<div class="bloco rec-progresso">
+    <div class="rec-prog-cab">
+      <span class="rec-prog-giro" aria-hidden="true"></span>
+      <div><h2>Entrando em ${esc(g.host)}</h2>
+      <p>O gravador responde devagar; isso leva alguns segundos.</p></div>
+    </div>
+    <ol class="rec-prog-passos">${_REC_PASSOS.map(([rot, det], i) => {
+      const estado = i < g.passo ? 'feito' : (i === g.passo ? 'agora' : 'espera');
+      return `<li class="${estado}"><span class="rec-prog-pino"></span>
+        <b>${esc(rot)}</b><span>${esc(det)}</span></li>`;
+    }).join('')}</ol>
+    <div class="rec-prog-esqueleto">
+      <div class="rec-prog-barra"></div><div class="rec-prog-barra"></div>
+      <div class="rec-prog-barra"></div><div class="rec-prog-barra"></div>
+    </div>
+  </div>`;
+}
+
+function recPintarApp() {
+  const app = document.getElementById('deployRecorderApp');
+  if (!app) return;
+  const d = _deployRecorderXray;
+  // Com um gravador aberto, a lista some: a barra ja tem o seletor, e manter
+  // os dois empurrava o conteudo para fora da primeira tela.
+  // A lista de cartoes saiu: nao escala (ha clientes com 64 gravadores).
+  // Quem troca de gravador e o seletor com busca, pelo nome na barra.
+  const lista = document.getElementById('deployRecorderLista');
+  if (lista) lista.hidden = true;
+  // "Entrar em gravador" vive no cabecalho, ao lado de "Cadastrar gravador":
+  // e a acao da pagina inteira, nao do bloco de aviso.
+  const topo = document.getElementById('btnRecEntrarSeletor');
+  if (topo && !topo.dataset.ligado) {
+    topo.dataset.ligado = '1';
+    topo.addEventListener('click', () => recAbrirSeletor());
+  }
+  if (!d && _recProgresso) {
+    app.innerHTML = recPintarProgresso();
+    app.querySelector('[data-rec-fechar-erro]')?.addEventListener('click', () => {
+      _recProgresso = null;
+      recPintarApp();
+    });
+    return;
+  }
+  if (!d) {
+    app.innerHTML = `<div class="bloco"><div class="bloco-cab">
+      <div><h2>Nenhum gravador aberto</h2>
+      <p>Use "Entrar em gravador" ali em cima. A leitura traz canais, discos, deteccao e rede.</p></div>
+      </div></div>`;
+    return;
+  }
+  const eq = d.equipamento || {}, z = d.resumo || {};
+  const cap = (d.discos || []).reduce((s, x) => s + (Number(x.total_tb) || 0), 0);
+  const criticos = recAchadosLista(d).filter(x => x[0] === 'erro').length;
+
+  app.innerHTML = `
+    <div class="barra">
+      <div class="barra-id"><button class="barra-sel" type="button" data-rec-trocar="1">
+        <b>${esc(eq.modelo || d.host)}</b><span>· ${esc(d.host)}</span>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="m6 9 6 6 6-6"/></svg>
+      </button></div>
+      <div class="barra-meta">
+        <span><b>${esc(z.canais_total)}</b> canais</span>
+        ${z.canais_livres ? `<span><b>${esc(z.canais_livres)}</b> livres</span>` : ''}
+        <span><b>${esc(z.discos)}</b> discos</span>
+        ${cap ? `<span><b>${cap.toFixed(1)} TB</b></span>` : ''}
+        <span>${esc([d.marca, eq.firmware].filter(Boolean).join(' · '))}</span>
+      </div>
+      <div class="barra-dir">
+        ${criticos ? `<span class="sinal erro"><i></i>${criticos} achados</span>`
+                   : '<span class="sinal ok"><i></i>sem achado</span>'}
+        <button class="acao" type="button" data-rec-reler="1">Reler</button>
+      </div>
+    </div>
+    <div class="corpo">
+      <nav class="nav" aria-label="Secoes">${_REC_SECOES.map(([id, rot]) => {
+        const n = recContagem(d, id);
+        return `<button type="button" data-rec-sec="${id}" aria-current="${id === _recSec}">
+          <span class="pino"></span>${esc(rot)}
+          ${n != null ? `<span class="conta ${id === 'achados' ? 'alerta' : ''}">${n}</span>` : ''}
+        </button>`;
+      }).join('')}</nav>
+      <div class="conteudo">${(_REC_SEC_RENDER[_recSec] || recSecVivo)(d)}</div>
+    </div>`;
+
+  app.querySelectorAll('[data-rec-sec]').forEach(b =>
+    b.addEventListener('click', () => { _recSec = b.dataset.recSec; recPintarApp(); }));
+  app.querySelectorAll('[data-rec-col]').forEach(b =>
+    b.addEventListener('click', () => { _recCols = b.dataset.recCol; recPintarApp(); }));
+  app.querySelector('[data-rec-reler]')?.addEventListener('click', () => deployRecorderCarregarXray());
+  app.querySelector('[data-rec-trocar]')?.addEventListener('click', () => recAbrirSeletor());
+  app.querySelectorAll('[data-rec-editar]').forEach(b =>
+    b.addEventListener('click', () => recAbrirEdicao('editar', Number(b.dataset.recEditar))));
+  app.querySelectorAll('[data-rec-add]').forEach(b =>
+    b.addEventListener('click', () => recAbrirEdicao('adicionar', Number(b.dataset.recAdd) || 0)));
+  app.querySelectorAll('[data-rec-soltar]').forEach(b =>
+    b.addEventListener('click', () => recAbrirEdicao('excluir', Number(b.dataset.recSoltar))));
+}
+
+// ---- adicionar / editar / soltar canal ----
+// Equipamento vivo: a caixa diz o que vai acontecer ANTES de mandar, e o aviso
+// de impacto aparece em vermelho quando a acao tira algo do ar.
+function recAbrirEdicao(acao, canal) {
+  const d = _deployRecorderXray;
+  if (!d) return;
+  const c = (d.canais || []).find(x => Number(x.canal) === Number(canal)) || { canal };
+  const livres = (d.canais || []).filter(x => !x.ip).map(x => x.canal);
+  const titulos = { adicionar: 'Adicionar camera', editar: 'Editar camera', excluir: 'Soltar canal' };
+  const ehExcluir = acao === 'excluir';
+
+  const corpo = ehExcluir
+    ? `<p style="margin:0 0 10px;font-size:13px">Canal <b>${esc(String(canal).padStart(2, '0'))}</b>${c.nome ? ' · ' + esc(c.nome) : ''}${c.ip ? ' · ' + esc(c.ip) : ''}</p>
+       <div class="rec-perigo">A camera sai do canal na hora e o canal para de gravar. O equipamento nao pergunta de novo.</div>`
+    : `<div class="rec-form">
+        ${acao === 'adicionar' && !canal ? `<label>Canal
+          <select id="recCanal">${livres.map(n => `<option value="${n}">Canal ${String(n).padStart(2, '0')}</option>`).join('')}</select></label>`
+          : `<input type="hidden" id="recCanal" value="${esc(canal)}">`}
+        <label>Nome do canal<input id="recNome" value="${esc(c.nome || '')}" placeholder="Ex: PORTARIA"></label>
+        <label>IP da camera<input id="recIp" value="${esc(c.ip || '')}" placeholder="10.10.9.40"></label>
+        <label>Usuario<input id="recUser" value="admin"></label>
+        <label>Senha<input id="recSenha" type="password" placeholder="senha da camera"></label>
+        <label>Protocolo<select id="recProto">
+          <option value="">Automatico</option>
+          <option value="Private">Private (Intelbras/Dahua)</option>
+          <option value="Onvif">ONVIF (outras marcas)</option>
+          <option value="HIKVISION">Hikvision</option>
+        </select></label>
+      </div>`;
+
+  const tampa = document.getElementById('recTampa') || (() => {
+    const el = document.createElement('div');
+    el.id = 'recTampa';
+    document.body.appendChild(el);
+    return el;
+  })();
+  tampa.innerHTML = `<div class="rec-tampa" role="dialog" aria-modal="true" aria-label="${esc(titulos[acao])}">
+    <div class="rec-caixa">
+      <div class="rec-caixa-cab"><h3>${esc(titulos[acao])}</h3>
+        <p>${esc(d.marca)} · ${esc(d.host)} · canal ${esc(String(canal || '').padStart(2, '0') || 'livre')}</p></div>
+      <div class="rec-caixa-corpo">${corpo}
+        <div id="recResultado" class="rec-resultado" hidden></div>
+      </div>
+      <div class="rec-caixa-pe">
+        <button class="acao" type="button" data-rec-fechar>Cancelar</button>
+        <button class="acao ${ehExcluir ? 'perigo' : 'forte'}" type="button" data-rec-aplicar>
+          ${ehExcluir ? 'Soltar canal' : 'Aplicar no gravador'}</button>
+      </div>
+    </div></div>`;
+
+  const fechar = () => { tampa.innerHTML = ''; };
+  tampa.querySelectorAll('[data-rec-fechar]').forEach(b => b.addEventListener('click', fechar));
+  tampa.querySelector('.rec-tampa').addEventListener('click', ev => {
+    if (ev.target === ev.currentTarget) fechar();
+  });
+  tampa.querySelector('[data-rec-aplicar]').addEventListener('click', async ev => {
+    const botao = ev.currentTarget;
+    const caixa = document.getElementById('recResultado');
+    botao.disabled = true;
+    botao.textContent = 'Enviando...';
+    const p = deployStandaloneRecorderPayload();
+    const corpoReq = {
+      acao,
+      recorder_host: p.recorder_host, recorder_user: p.recorder_user,
+      recorder_password: p.recorder_password, recorder_http_port: p.recorder_http_port,
+      connector_id: p.connector_id || '', site: p.site || '',
+      canal: Number(document.getElementById('recCanal')?.value || canal),
+      nome: document.getElementById('recNome')?.value || '',
+      camera_ip: document.getElementById('recIp')?.value || '',
+      camera_user: document.getElementById('recUser')?.value || 'admin',
+      camera_password: document.getElementById('recSenha')?.value || '',
+      protocolo: document.getElementById('recProto')?.value || '',
+    };
+    try {
+      const res = await api('/api/deployments/recorder-edit', {
+        method: 'POST', body: JSON.stringify(corpoReq),
+      });
+      const data = await res?.json().catch(() => ({}));
+      if (!res?.ok || data?.ok === false) {
+        caixa.hidden = false;
+        caixa.className = 'rec-resultado erro';
+        caixa.textContent = data?.detail || data?.error || 'o gravador recusou';
+        botao.disabled = false;
+        botao.textContent = ehExcluir ? 'Soltar canal' : 'Aplicar no gravador';
+        return;
+      }
+      caixa.hidden = false;
+      caixa.className = 'rec-resultado ok';
+      caixa.textContent = `Feito no gravador (${data.comando}). Relendo...`;
+      showToast('Gravador atualizado.');
+      setTimeout(() => { fechar(); deployRecorderCarregarXray(); }, 900);
+    } catch (e) {
+      caixa.hidden = false;
+      caixa.className = 'rec-resultado erro';
+      caixa.textContent = String(e?.message || e);
+      botao.disabled = false;
+      botao.textContent = ehExcluir ? 'Soltar canal' : 'Aplicar no gravador';
+    }
+  });
+}
+
+// ---- seletor de gravador: busca em vez de lista de cartoes ----
+// Cartao empilhado nao escala: ha clientes com 41 e 64 gravadores, e a lista
+// empurrava a tela inteira para baixo. Aqui e uma caixa com busca, que funciona
+// igual com 1 ou com 100.
+function recAbrirSeletor() {
+  const itens = (_deployStandaloneRecorderSavedItems || []);
+  const tampa = document.getElementById('recTampa') || (() => {
+    const el = document.createElement('div');
+    el.id = 'recTampa';
+    document.body.appendChild(el);
+    return el;
+  })();
+
+  const desenhar = (filtro = '') => {
+    const alvo = filtro.trim().toLowerCase();
+    const vistos = itens.filter(x => !alvo ||
+      [x.name, x.host, x.site].some(v => String(v || '').toLowerCase().includes(alvo)));
+    const porSite = new Map();
+    vistos.forEach(x => {
+      const site = x.site || 'Sem site';
+      if (!porSite.has(site)) porSite.set(site, []);
+      porSite.get(site).push(x);
+    });
+    const lista = document.getElementById('recSeletorLista');
+    if (!lista) return;
+    lista.innerHTML = vistos.length
+      ? [...porSite.entries()].map(([site, linhas]) => `
+          <div class="rec-grupo">${esc(site)}</div>
+          ${linhas.map(x => `<button class="rec-item" type="button" data-rec-escolher="${esc(x.key)}">
+            <b>${esc(x.name || x.host)}</b>
+            <span>${esc(x.host)}${x.totalChannels ? ' · ' + esc(x.usedChannels) + '/' + esc(x.totalChannels) + ' canais' : ''}</span>
+          </button>`).join('')}`).join('')
+      : `<p class="rec-vazio">Nenhum gravador com "${esc(filtro)}".</p>`;
+    // Gravador ja cadastrado entra DIRETO: conector, OLT, porta e senha estao no
+    // cadastro. Abrir o formulario aqui era pedir de novo o que ja se sabe.
+    lista.querySelectorAll('[data-rec-escolher]').forEach(b => b.addEventListener('click', () => {
+      tampa.innerHTML = '';
+      deployStandaloneRecorderUseSaved(b.dataset.recEscolher);
+    }));
+  };
+
+  tampa.innerHTML = `<div class="rec-tampa" role="dialog" aria-modal="true" aria-label="Escolher gravador">
+    <div class="rec-caixa">
+      <div class="rec-caixa-cab">
+        <h3>Escolher gravador</h3>
+        <p>${itens.length} cadastrado${itens.length === 1 ? '' : 's'}</p>
+      </div>
+      <div class="rec-caixa-corpo">
+        <input id="recSeletorBusca" class="rec-busca" placeholder="Buscar por nome, IP ou site" autocomplete="off">
+        <div id="recSeletorLista" class="rec-lista"></div>
+      </div>
+      <div class="rec-caixa-pe">
+        <button class="acao" type="button" data-rec-fechar>Cancelar</button>
+        <button class="acao" type="button" data-rec-novo>Gravador nao cadastrado</button>
+      </div>
+    </div></div>`;
+  desenhar();
+  const busca = document.getElementById('recSeletorBusca');
+  busca?.addEventListener('input', () => desenhar(busca.value));
+  busca?.focus();
+  tampa.querySelectorAll('[data-rec-fechar]').forEach(b =>
+    b.addEventListener('click', () => { tampa.innerHTML = ''; }));
+  tampa.querySelector('[data-rec-novo]')?.addEventListener('click', () => {
+    tampa.innerHTML = '';
+    openDeployStandaloneRecorderModal('entry');
+  });
+  tampa.querySelector('.rec-tampa').addEventListener('click', ev => {
+    if (ev.target === ev.currentTarget) tampa.innerHTML = '';
+  });
+}
+
+function recPedirSenha(item) {
+  // Ultimo caso: o gravador esta cadastrado, mas ninguem nunca salvou a senha
+  // dele. Pergunta so usuario e senha -- conector, OLT, host e porta ja vieram
+  // do cadastro. Depois do login o servidor guarda, e esta tela some pra sempre
+  // neste gravador.
+  const tampa = document.getElementById('recTampa') || (() => {
+    const el = document.createElement('div');
+    el.id = 'recTampa';
+    document.body.appendChild(el);
+    return el;
+  })();
+  const fechar = () => { tampa.innerHTML = ''; };
+
+  tampa.innerHTML = `<div class="rec-tampa" role="dialog" aria-modal="true" aria-label="Senha do gravador">
+    <div class="rec-caixa rec-caixa-estreita">
+      <div class="rec-caixa-cab">
+        <h3>Senha de ${esc(item.name || item.host)}</h3>
+        <p>${esc(item.host)} · a senha fica guardada; so e pedida desta vez.</p>
+      </div>
+      <div class="rec-caixa-corpo">
+        <label class="rec-campo"><span>Usuario</span>
+          <input id="recSenhaUser" autocomplete="off" value="${esc(item.user || 'admin')}"></label>
+        <label class="rec-campo"><span>Senha</span>
+          <input id="recSenhaPass" type="password" autocomplete="new-password"></label>
+        <p class="rec-erro" id="recSenhaErro" hidden></p>
+      </div>
+      <div class="rec-caixa-pe">
+        <button class="acao" type="button" data-rec-fechar>Cancelar</button>
+        <button class="acao forte" type="button" data-rec-ok>Entrar</button>
+      </div>
+    </div></div>`;
+
+  const campoUser = document.getElementById('recSenhaUser');
+  const campoPass = document.getElementById('recSenhaPass');
+  const erro = document.getElementById('recSenhaErro');
+  campoPass?.focus();
+
+  const entrar = () => {
+    const senha = campoPass?.value || '';
+    if (!senha) {
+      if (erro) { erro.hidden = false; erro.textContent = 'Informe a senha do gravador.'; }
+      campoPass?.focus();
+      return;
+    }
+    const u = document.getElementById('deployStandaloneRecorderUser');
+    const p = document.getElementById('deployStandaloneRecorderPassword');
+    if (u) u.value = (campoUser?.value || 'admin').trim() || 'admin';
+    if (p) p.value = senha;
+    fechar();
+    deployStandaloneRecorderSetResult(`Entrando em ${esc(item.host)}...`);
+    deployStandaloneRecorderLogin();
+  };
+
+  tampa.querySelector('[data-rec-ok]')?.addEventListener('click', entrar);
+  tampa.querySelectorAll('[data-rec-fechar]').forEach(b => b.addEventListener('click', fechar));
+  campoPass?.addEventListener('keydown', ev => { if (ev.key === 'Enter') entrar(); });
+  tampa.querySelector('.rec-tampa').addEventListener('click', ev => {
+    if (ev.target === ev.currentTarget) fechar();
+  });
 }

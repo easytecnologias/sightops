@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=1790816802">
+  <link rel="stylesheet" href="styles.css?v=1790877700">
 </head>
 <body>
 
@@ -4381,12 +4381,13 @@
           <div>
             <p class="eyebrow">Implantacao</p>
             <h1>Gravadores</h1>
-            <p>Configure DVR/NVR, valide acesso e grave os canais no inventario.</p>
+            <p>Entre no gravador para ver canais, discos e o que precisa de atencao.</p>
           </div>
           <div class="page-heading-actions">
-            <button class="secondary-action" id="btnDeployStandaloneRecorderOpenEntryModal" type="button"><i data-lucide="log-in"></i> Entrar em gravador</button>
+            <button class="secondary-action" id="btnRecEntrarSeletor" type="button"><i data-lucide="log-in"></i> Entrar em gravador</button>
             <button class="primary-action" id="btnDeployStandaloneRecorderOpenModal" type="button"><i data-lucide="plus"></i> Cadastrar gravador</button>
-            <button class="secondary-action" id="btnDeployStandaloneRecorderClear" type="button"><i data-lucide="rotate-ccw"></i> Limpar formulario</button>
+            <button hidden id="btnDeployStandaloneRecorderOpenEntryModal" type="button"></button>
+            <button hidden id="btnDeployStandaloneRecorderClear" type="button"></button>
           </div>
         </div>
 
@@ -4396,7 +4397,7 @@
               <div>
                 <p class="eyebrow">Implantacao</p>
                 <h2 id="deployStandaloneRecorderModalTitle">Cadastrar gravador</h2>
-                <p id="deployStandaloneRecorderModalSubtitle">Informe site, acesso e quantidade de canais para registrar no inventario.</p>
+                <p id="deployStandaloneRecorderModalSubtitle">Informe o acesso. Modelo, tipo e quantidade de canais vem do proprio gravador.</p>
               </div>
               <button class="icon-button" id="btnDeployStandaloneRecorderCloseModal" type="button" aria-label="Fechar cadastro"><i data-lucide="x"></i></button>
             </div>
@@ -4437,7 +4438,9 @@
                   Escolha Local/VPN do servidor ou um conector online com VPN. Os dados do gravador ficam bloqueados ate definir a origem.
                 </div>
               </div>
-              <div class="form-row recorder-destination-row" data-recorder-modal-mode="create">
+              <details class="recorder-avancado" data-recorder-modal-mode="create">
+                <summary>Mais opcoes <small>site, tipo e destino do inventario</small></summary>
+              <div class="form-row recorder-destination-row">
                 <div class="form-group">
                   <label for="deployStandaloneRecorderSite">Site / local</label>
                   <input id="deployStandaloneRecorderSite" data-recorder-needs-connector="1" list="deployStandaloneRecorderSiteList" placeholder="Site manual ou vindo do conector" disabled>
@@ -4459,6 +4462,7 @@
                   </select>
                 </div>
               </div>
+              </details>
               <div class="form-row deploy-standalone-recorder-host-row" data-recorder-modal-mode="create">
                 <div class="form-group">
                   <label for="deployStandaloneRecorderHost">Host do gravador</label>
@@ -4468,10 +4472,7 @@
                   <label for="deployStandaloneRecorderPort">Porta HTTP</label>
                   <input id="deployStandaloneRecorderPort" data-recorder-needs-connector="1" type="number" value="80" min="1" max="65535" disabled>
                 </div>
-                <div class="form-group">
-                  <label for="deployStandaloneRecorderChannelTotal">Canais</label>
-                  <input id="deployStandaloneRecorderChannelTotal" data-recorder-needs-connector="1" type="number" value="32" min="1" max="256" disabled>
-                </div>
+                <input id="deployStandaloneRecorderChannelTotal" type="hidden">
               </div>
               <div class="form-row deploy-standalone-recorder-login-row recorder-login-fields-only">
                 <div class="form-group">
@@ -4483,13 +4484,8 @@
                   <input id="deployStandaloneRecorderPassword" data-recorder-needs-connector="1" type="password" placeholder="Senha" autocomplete="current-password" disabled>
                 </div>
               </div>
-              <div class="form-row" style="grid-template-columns:1fr" data-recorder-modal-mode="create">
-                <div class="form-group">
-                  <label for="deployStandaloneRecorderName">Nome do gravador (opcional)</label>
-                  <input id="deployStandaloneRecorderName" data-recorder-needs-connector="1" placeholder="Ex: NVR Portaria" disabled>
-                </div>
-              </div>
-              <div id="deployStandaloneRecorderResult" class="deploy-result-box">Entre no gravador para validar modelo, serial e canais.</div>
+              <input id="deployStandaloneRecorderName" type="hidden">
+              <div id="deployStandaloneRecorderResult" class="deploy-result-box">Modelo, tipo e canais vem do proprio gravador.</div>
             </form>
           </div>
             </div>
@@ -4501,159 +4497,43 @@
         </div>
 
         <div class="deployment-grid recorder-deploy-grid recorder-console-only">
-          <div class="panel deployment-side-panel">
-            <div class="panel-header">
-              <div><h2>Console do gravador</h2><p>Descoberta, configuracoes e canais em um fluxo lateral.</p></div>
-            </div>
-            <div class="recorder-config-shell">
-              <aside class="recorder-config-sidebar" aria-label="Configuracoes do gravador">
-                <button class="recorder-config-tab active" data-recorder-config-tab="overview" type="button"><i data-lucide="radar"></i><span>Descoberta</span><small>Modelo, serial e status</small></button>
-                <button class="recorder-config-tab" data-recorder-config-tab="channels" type="button"><i data-lucide="layout-grid"></i><span>Canais</span><small>Ocupados e livres</small></button>
-                <button class="recorder-config-tab" data-recorder-config-tab="quick" type="button"><i data-lucide="zap"></i><span>Rapidas</span><small>NTP, web e reboot</small></button>
-                <button class="recorder-config-tab" data-recorder-config-tab="network" type="button"><i data-lucide="network"></i><span>Rede</span><small>IP, gateway e portas</small></button>
-                <button class="recorder-config-tab" data-recorder-config-tab="recording" type="button"><i data-lucide="calendar-clock"></i><span>Gravacao</span><small>Agenda e modo</small></button>
-                <button class="recorder-config-tab" data-recorder-config-tab="storage" type="button"><i data-lucide="hard-drive"></i><span>HD</span><small>Disco e retencao</small></button>
-                <button class="recorder-config-tab" data-recorder-config-tab="maintenance" type="button"><i data-lucide="wrench"></i><span>Manutencao</span><small>Checklist tecnico</small></button>
-              </aside>
-
-              <div class="recorder-config-content">
-                <section class="recorder-config-panel active" data-recorder-config-panel="overview">
-                  <div class="recorder-config-panel-head">
-                    <div><h3>Descoberta</h3><p>Resumo do gravador depois do login.</p></div>
-                    <div id="deployRecorderDiscoveryStatus" class="recorder-head-status waiting"><i data-lucide="circle"></i><span>Aguardando login</span></div>
-                  </div>
-                  <div id="deployStandaloneRecorderSummary" class="recorder-deploy-summary">
-                    <div class="recorder-discovery-empty">
-                      <i data-lucide="log-in"></i>
-                      <div><b>Aguardando acesso ao gravador</b><span>Clique em Novo gravador, preencha os dados e entre.</span></div>
-                    </div>
-                  </div>
-                </section>
-
-                <section class="recorder-config-panel" data-recorder-config-panel="channels">
-                  <div class="recorder-config-panel-head">
-                    <div><h3>Canais</h3><p>Mapa rapido dos canais ocupados, livres e dados das cameras.</p></div>
-                  </div>
-                  <div class="recorder-channel-toolbar">
-                    <div class="recorder-channel-search"><i data-lucide="search"></i><input id="deployRecorderChannelSearch" placeholder="Buscar canal, titulo, IP ou modelo"></div>
-                    <select id="deployRecorderChannelFilter" aria-label="Filtrar canais">
-                      <option value="all">Todos</option>
-                      <option value="used">Ocupados</option>
-                      <option value="free">Livres</option>
-                      <option value="no_model">Sem modelo</option>
-                      <option value="no_snapshot">Sem snapshot</option>
-                    </select>
-                  </div>
-                  <div id="deployRecorderChannelCounters" class="recorder-channel-counters"></div>
-                  <div id="deployRecorderChannelLayout" class="recorder-channel-layout">
-                    <div id="deployStandaloneRecorderChannels" class="recorder-deploy-channel-grid">
-                      <div class="recorder-deploy-empty">Nenhum canal carregado ainda.</div>
-                    </div>
-                  </div>
-                </section>
-
-                <section class="recorder-config-panel" data-recorder-config-panel="quick">
-                  <div class="recorder-quick-panel">
-                    <div class="recorder-quick-head">
-                      <div>
-                        <h3>Configuracoes rapidas</h3>
-                        <p>Acoes liberadas depois que o login no gravador for confirmado.</p>
-                      </div>
-                      <div class="form-group">
-                        <label for="deployStandaloneRecorderNtpServer">NTP</label>
-                        <input id="deployStandaloneRecorderNtpServer" value="time.cloudflare.com" placeholder="time.cloudflare.com">
-                      </div>
-                    </div>
-                    <div class="recorder-quick-actions">
-                      <button class="secondary-action" id="btnDeployStandaloneRecorderOpenWeb" type="button" disabled><i data-lucide="globe"></i> Web</button>
-                      <button class="secondary-action" id="btnDeployStandaloneRecorderRefreshChannels" type="button" disabled><i data-lucide="refresh-cw"></i> Canais</button>
-                      <button class="secondary-action" id="btnDeployStandaloneRecorderPlayback" type="button" disabled><i data-lucide="film"></i> Reproducao</button>
-                      <button class="secondary-action" id="btnDeployStandaloneRecorderSetNtp" type="button" disabled><i data-lucide="clock"></i> Acertar NTP</button>
-                      <button class="secondary-action danger-action" id="btnDeployStandaloneRecorderReboot" type="button" disabled><i data-lucide="power"></i> Reboot</button>
-                      <button class="secondary-action" id="btnDeployStandaloneRecorderFicha" type="button" disabled><i data-lucide="file-json"></i> Ficha</button>
-                    </div>
-                    <div id="deployStandaloneRecorderQuickResult" class="deploy-result-box muted">Entre no gravador para liberar as configuracoes rapidas.</div>
-                  </div>
-                </section>
-
-                <section class="recorder-config-panel" data-recorder-config-panel="network">
-                  <div class="recorder-config-panel-head">
-                    <div><h3>Rede</h3><p>IP, mascara, gateway, DNS e portas -- lido e gravado direto no gravador.</p></div>
-                    <button class="secondary-action" id="btnDeployStandaloneRecorderNetworkReload" type="button" disabled><i data-lucide="refresh-cw"></i> Consultar</button>
-                  </div>
-                  <div class="recorder-network-form">
-                    <div class="form-group">
-                      <label for="deployStandaloneRecorderNetIp">Endereco IP</label>
-                      <input id="deployStandaloneRecorderNetIp" placeholder="192.168.1.100">
-                    </div>
-                    <div class="form-group">
-                      <label for="deployStandaloneRecorderNetMask">Mascara de sub-rede</label>
-                      <input id="deployStandaloneRecorderNetMask" placeholder="255.255.255.0">
-                    </div>
-                    <div class="form-group">
-                      <label for="deployStandaloneRecorderNetGateway">Gateway</label>
-                      <input id="deployStandaloneRecorderNetGateway" placeholder="192.168.1.1">
-                    </div>
-                    <div class="form-group">
-                      <label for="deployStandaloneRecorderNetDns1">DNS primario</label>
-                      <input id="deployStandaloneRecorderNetDns1" placeholder="8.8.8.8">
-                    </div>
-                    <div class="form-group">
-                      <label for="deployStandaloneRecorderNetDns2">DNS secundario</label>
-                      <input id="deployStandaloneRecorderNetDns2" placeholder="8.8.4.4">
-                    </div>
-                    <div class="form-group">
-                      <label for="deployStandaloneRecorderNetTcpPort">Porta TCP</label>
-                      <input id="deployStandaloneRecorderNetTcpPort" placeholder="37777">
-                    </div>
-                    <div class="form-group">
-                      <label for="deployStandaloneRecorderNetHttpPort">Porta HTTP</label>
-                      <input id="deployStandaloneRecorderNetHttpPort" placeholder="80">
-                    </div>
-                    <div class="form-group">
-                      <label for="deployStandaloneRecorderNetRtspPort">Porta RTSP</label>
-                      <input id="deployStandaloneRecorderNetRtspPort" placeholder="554">
-                    </div>
-                  </div>
-                  <div class="recorder-quick-actions">
-                    <button class="primary-action" id="btnDeployStandaloneRecorderNetworkApply" type="button" disabled><i data-lucide="save"></i> Aplicar rede</button>
-                  </div>
-                  <div id="deployStandaloneRecorderNetworkResult" class="deploy-result-box muted">Entre no gravador e clique em Consultar para carregar a rede atual.</div>
-                </section>
-
-                <section class="recorder-config-panel" data-recorder-config-panel="recording">
-                  <div class="recorder-config-panel-head">
-                    <div><h3>Gravacao</h3><p>Checklist de agenda e modo de gravacao por canal.</p></div>
-                  </div>
-                  <div class="recorder-config-cards">
-                    <div><span>Agenda</span><b>24/7 ou regra local</b><small>Evita canal cadastrado sem gravar.</small></div>
-                    <div><span>Modo</span><b>Continuo / movimento</b><small>Mostra diferenca por canal.</small></div>
-                    <div><span>Retencao</span><b>Dias estimados</b><small>Depende do HD e bitrate.</small></div>
-                  </div>
-                </section>
-
-                <section class="recorder-config-panel" data-recorder-config-panel="storage">
-                  <div class="recorder-config-panel-head">
-                    <div><h3>HD e armazenamento</h3><p>Status de disco, capacidade e sobrescrita.</p></div>
-                  </div>
-                  <div class="recorder-config-cards">
-                    <div><span>HD</span><b>Presente / erro</b><small>Sem HD bom, nao existe gravacao confiavel.</small></div>
-                    <div><span>Espaco</span><b>Total / usado / livre</b><small>Base para retencao.</small></div>
-                    <div><span>Sobrescrita</span><b>Quando cheio</b><small>Padrao recomendado para CFTV.</small></div>
-                  </div>
-                </section>
-
-                <section class="recorder-config-panel" data-recorder-config-panel="maintenance">
-                  <div class="recorder-config-panel-head">
-                    <div><h3>Manutencao</h3><p>Checklist final antes de entregar o gravador.</p></div>
-                  </div>
-                  <div class="recorder-config-cards">
-                    <div><span>Senha</span><b>Validada</b><small>Evitar senha vazia, padrao antiga ou divergente.</small></div>
-                    <div><span>Snapshots</span><b>Atualizar</b><small>Conferir imagem de canais principais.</small></div>
-                    <div><span>Inventario</span><b>Salvar tudo</b><small>Registrar canais, modelo, serial e local.</small></div>
-                  </div>
-                </section>
-              </div>
+          <div class="panel deployment-side-panel recorder-painel-raiz">
+            <div id="deployRecorderLista" class="recorder-lista"></div>
+            <div id="deployRecorderApp"></div>
+            <div hidden id="deployRecorderLegado">
+              <div id="deployRecorderEquipNome"></div>
+              <div id="deployRecorderEquipSub"></div>
+              <div id="deployRecorderDiscoveryStatus"></div>
+              <div id="deployRecorderKpis"></div>
+              <div id="deployRecorderAchados"></div>
+              <div id="deployStandaloneRecorderChannels"></div>
+              <input id="deployRecorderChannelSearch">
+              <select id="deployRecorderChannelFilter"></select>
+              <div id="deployRecorderChannelCounters"></div>
+              <div id="deployRecorderCanaisTabela"></div>
+              <div id="deployRecorderStorage"></div>
+              <div id="deployRecorderRecording"></div>
+              <div id="deployRecorderServicos"></div>
+              <input id="btnDeployStandaloneRecorderNetworkReload">
+              <input id="btnDeployStandaloneRecorderNetworkApply">
+              <input id="deployStandaloneRecorderNetIp">
+              <input id="deployStandaloneRecorderNetMask">
+              <input id="deployStandaloneRecorderNetGateway">
+              <input id="deployStandaloneRecorderNetDns1">
+              <input id="deployStandaloneRecorderNetDns2">
+              <input id="deployStandaloneRecorderNetTcpPort">
+              <input id="deployStandaloneRecorderNetHttpPort">
+              <input id="deployStandaloneRecorderNetRtspPort">
+              <input id="deployStandaloneRecorderNetworkResult">
+              <button id="btnDeployStandaloneRecorderOpenWeb"></button>
+              <button id="btnDeployStandaloneRecorderRefreshChannels"></button>
+              <button id="btnDeployStandaloneRecorderPlayback"></button>
+              <button id="btnDeployStandaloneRecorderFicha"></button>
+              <input id="deployStandaloneRecorderNtpServer">
+              <button id="btnDeployStandaloneRecorderSetNtp"></button>
+              <button id="btnDeployStandaloneRecorderReboot"></button>
+              <div id="deployStandaloneRecorderQuickResult"></div>
+              <div id="deployStandaloneRecorderSummary"></div>
             </div>
           </div>
         </div>
@@ -6745,7 +6625,7 @@
   <script src="js/maintenance.js?v=146"></script>
   <script src="js/analysis.js?v=147"></script>
   <script src="js/network.js?v=158"></script>
-  <script src="js/deploy.js?v=1790819600"></script>
+  <script src="js/deploy.js?v=1790877700"></script>
   <script src="js/cameraActivation.js?v=1790048800"></script>
   <script src="js/deployOlt.js?v=160"></script>
   <script src="js/connectors.js?v=1790804180"></script>

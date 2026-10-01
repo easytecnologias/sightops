@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 import secrets
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -21,6 +22,8 @@ from app.services.camsnapshot.device_info import get_network_config, set_network
 from app.api.endpoints.nvr import _recorder_connector_for_host
 
 router = APIRouter(prefix="/api/deployments", tags=["deployments"])
+
+logger = logging.getLogger(__name__)
 
 # marca ja detectada por gravador (base|usuario) -- evita um probe por acao
 _RECORDER_FAMILY_CACHE: Dict[str, str] = {}
@@ -401,6 +404,37 @@ def _fetch_hik_live_channels(base: str, user: str, password: str, total: int) ->
             dados["title"] = titulo
         used[ch] = dados
     return used, True
+
+
+def _descobrir_total_canais(base: str, user: str, password: str, familia: str) -> int:
+    """Quantos canais o aparelho tem, perguntando a ele.
+
+    Antes a tela pedia esse numero ao tecnico e o padrao era 32 -- num gravador
+    de 16 ela inventava 16 canais que nao existem, e num de 64 escondia metade.
+    O equipamento sabe responder: Hikvision em channels/capabilities, Intelbras
+    na quantidade de ChannelTitle. Devolve 0 quando nao consegue, e ai quem
+    chama mantem o que recebeu.
+    """
+    try:
+        if familia == "hikvision":
+            resp = _try_recorder_request(
+                f"{base}/ISAPI/ContentMgmt/InputProxy/channels/capabilities",
+                user, password, timeout=6.0)
+            if 200 <= resp.status_code < 300:
+                m = re.search(r'<id\s+min="\d+"\s+max="(\d+)"', resp.text or "")
+                if m:
+                    return int(m.group(1))
+        else:
+            resp = _try_recorder_request(
+                f"{base}/cgi-bin/configManager.cgi?action=getConfig&name=ChannelTitle",
+                user, password, timeout=6.0)
+            if 200 <= resp.status_code < 300:
+                achados = re.findall(r"ChannelTitle\[(\d+)\]\.Name", resp.text or "")
+                if achados:
+                    return max(int(x) for x in achados) + 1
+    except Exception:
+        pass
+    return 0
 
 
 def _fetch_recorder_live_channels(base: str, user: str, password: str, total: int) -> Tuple[Dict[int, Dict[str, str]], bool]:
@@ -819,6 +853,68 @@ def _normalize_inventory_mode(value: str) -> str:
     return "olt"
 
 
+def _credencial_gravador(payload: Dict[str, Any]) -> tuple[str, str]:
+    """Usuario e senha do gravador: o que veio na tela, ou o que o servidor ja
+    guardou para este host.
+
+    O inventario de gravador nunca guardou senha, entao a tela era obrigada a
+    pedi-la de novo em todo acesso a um equipamento ja cadastrado. Agora a
+    senha e digitada uma vez, fica cifrada em `recorder_credentials` e e
+    resolvida aqui. Senha em branco no payload nao e erro: e o caso normal de
+    gravador conhecido.
+
+    Quando a senha vem em branco, o usuario salvo vem junto com ela -- senha e
+    usuario sao um par, e aproveitar so metade daria recusa do equipamento.
+    """
+    host = _text(payload.get("recorder_host") or payload.get("host"))
+    porta = payload.get("recorder_http_port") or payload.get("http_port")
+    user = _text(payload.get("recorder_user") or payload.get("user"))
+    password = _text(payload.get("recorder_password") or payload.get("password"))
+    if password:
+        return (user or "admin", password)
+    try:
+        from app.services.recorder_credentials import resolve_recorder_credential
+        salva = resolve_recorder_credential(host, porta)
+    except Exception:
+        logger.exception("Falha ao resolver a credencial salva do gravador %s", host)
+        salva = None
+    if salva and salva.get("password"):
+        return (_text(salva.get("username")) or "admin", str(salva.get("password")))
+    return (user or "admin", "")
+
+
+def _guardar_credencial_gravador(payload: Dict[str, Any], user: str, password: str) -> None:
+    """Lembra a senha DEPOIS do login dar certo -- senha errada nao vira senha
+    salva. Falha aqui nao derruba o login: o acesso ja aconteceu."""
+    if not password:
+        return
+    try:
+        from app.services.recorder_credentials import save_recorder_credential
+        save_recorder_credential(
+            _text(payload.get("recorder_host") or payload.get("host")),
+            payload.get("recorder_http_port") or payload.get("http_port"),
+            user,
+            password,
+        )
+    except Exception:
+        logger.exception("Falha ao guardar a credencial do gravador")
+
+
+@router.get("/recorder-credenciais")
+def api_deployments_recorder_credenciais() -> Dict[str, Any]:
+    """Quais gravadores ja tem senha salva -- so host, porta e usuario.
+
+    A tela usa isso para saber quem entra com um clique e quem ainda precisa
+    da senha. A senha nunca passa por aqui, nem cifrada.
+    """
+    try:
+        from app.services.recorder_credentials import hosts_com_credencial
+        return {"ok": True, "credenciais": hosts_com_credencial()}
+    except Exception:
+        logger.exception("Falha ao listar gravadores com senha salva")
+        return {"ok": True, "credenciais": []}
+
+
 @router.post("/recorder-login")
 def api_deployments_recorder_login(payload: Dict[str, Any]) -> Dict[str, Any]:
     if not isinstance(payload, dict):
@@ -827,12 +923,13 @@ def api_deployments_recorder_login(payload: Dict[str, Any]) -> Dict[str, Any]:
     if source not in ("nvr", "dvr"):
         raise HTTPException(status_code=400, detail="tipo de gravador obrigatorio")
     host = _text(payload.get("recorder_host") or payload.get("host"))
-    user = _text(payload.get("recorder_user") or payload.get("user") or "admin")
-    password = _text(payload.get("recorder_password") or payload.get("password"))
+    user, password = _credencial_gravador(payload)
     if not host:
         raise HTTPException(status_code=400, detail="host do gravador obrigatorio")
-    if not user or not password:
-        raise HTTPException(status_code=400, detail="usuario e senha do gravador obrigatorios")
+    if not password:
+        # 428 e nao 401 de proposito: o helper api() do frontend trata qualquer
+        # 401 como sessao expirada e derruba o usuario pra tela de login.
+        raise HTTPException(status_code=428, detail="SEM_CREDENCIAL")
 
     connector_id = _text(payload.get("connector_id") or payload.get("remote_connector_id"))
     if connector_id:
@@ -882,9 +979,13 @@ def api_deployments_recorder_login(payload: Dict[str, Any]) -> Dict[str, Any]:
                         continue
             model = _recorder_model(info)
             try:
-                channel_total = int(payload.get("recorder_channel_total") or payload.get("channel_total") or 32)
+                channel_total = int(payload.get("recorder_channel_total") or payload.get("channel_total") or 0)
             except Exception:
-                channel_total = 32
+                channel_total = 0
+            # Nao veio da tela: pergunta ao proprio gravador em vez de assumir 32.
+            if channel_total <= 0:
+                channel_total = _descobrir_total_canais(base, user, password, family) or 32
+            _guardar_credencial_gravador(payload, user, password)
             live_used, live_authoritative = _fetch_recorder_live_channels(base, user, password, channel_total)
             if source == "nvr":
                 _capture_recorder_snapshots(base, user, password, host, live_used)
@@ -1241,3 +1342,94 @@ def api_deployments_commit_camera(payload: Dict[str, Any]) -> Dict[str, Any]:
 @router.get("/connectors")
 def api_deployments_connectors() -> Dict[str, Any]:
     return list_connectors(include_token=False)
+
+
+@router.post("/recorder-xray")
+def api_deployments_recorder_xray(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Tudo que o gravador sabe responder, em uma chamada.
+
+    A tela antiga mostrava modelo, serial e uma grade de canais adivinhada. O
+    equipamento responde muito mais -- e foi lendo tudo que apareceu, no NVD
+    7132 de Perucaba, que o NTP estava desligado (o relogio que carimba a
+    gravacao andava sozinho) e que a perda de video so estava ligada em 10 dos
+    32 canais. Nenhum dos dois aparecia em lugar nenhum do sistema.
+
+    So leitura.
+    """
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="payload invalido")
+    host = _text(payload.get("recorder_host") or payload.get("host"))
+    user, password = _credencial_gravador(payload)
+    if not host:
+        raise HTTPException(status_code=400, detail="host do gravador obrigatorio")
+    if not password:
+        raise HTTPException(status_code=428, detail="SEM_CREDENCIAL")
+    connector_id = _text(payload.get("connector_id") or payload.get("remote_connector_id"))
+    porta = payload.get("recorder_http_port") or payload.get("http_port")
+    try:
+        from app.services.recorder_xray import raio_x
+        dados = raio_x(host, user, password, porta, connector_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("Erro no raio-x do gravador %s", host)
+        raise HTTPException(status_code=500, detail=f"Erro ao ler o gravador: {exc}") from exc
+    dados["ok"] = True
+    return dados
+
+
+@router.post("/recorder-edit")
+def api_deployments_recorder_edit(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Adicionar, editar, excluir ou renomear um canal do gravador.
+
+    EQUIPAMENTO VIVO: cada acao daqui muda o gravador do cliente de verdade.
+    A confirmacao vem do proprio equipamento (failedCode na Intelbras,
+    ResponseStatus no Hikvision), nao de adivinhar pelo texto da resposta.
+    """
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="payload invalido")
+    acao = _text(payload.get("acao")).lower()
+    if acao not in ("adicionar", "editar", "excluir", "renomear"):
+        raise HTTPException(status_code=400, detail="acao invalida")
+    host = _text(payload.get("recorder_host") or payload.get("host"))
+    user, password = _credencial_gravador(payload)
+    try:
+        canal = int(_text(payload.get("canal") or payload.get("channel")) or "0")
+    except Exception:
+        canal = 0
+    if not host:
+        raise HTTPException(status_code=400, detail="informe o host do gravador")
+    if not password:
+        raise HTTPException(status_code=428, detail="SEM_CREDENCIAL")
+    if not canal:
+        raise HTTPException(status_code=400, detail="informe o canal")
+
+    from app.services.recorder_write import ErroGravador, executar
+    try:
+        resultado = executar(
+            acao,
+            host=host, user=user, password=password, canal=canal,
+            porta_gravador=payload.get("recorder_http_port") or payload.get("http_port"),
+            connector_id=_text(payload.get("connector_id") or payload.get("remote_connector_id")),
+            ip=_text(payload.get("camera_ip")),
+            cam_user=_text(payload.get("camera_user") or "admin"),
+            cam_senha=_text(payload.get("camera_password")),
+            nome=_text(payload.get("nome") or payload.get("title")),
+            protocolo=_text(payload.get("protocolo")),
+            porta=payload.get("camera_port"),
+            porta_http=payload.get("camera_http_port"),
+            porta_rtsp=payload.get("camera_rtsp_port"),
+        )
+    except ErroGravador as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("Erro ao editar o gravador %s canal %s", host, canal)
+        raise HTTPException(status_code=500, detail=f"Erro no gravador: {exc}") from exc
+
+    log_onu_action(
+        f"recorder_{acao}", olt_id=None, olt_ip=host,
+        site=_text(payload.get("site")), pon=0, onu=canal,
+        serial=_text(payload.get("camera_ip")), vlan="", ok=True,
+        detail=_text(resultado.get("comando"))[:200],
+    ) if "log_onu_action" in globals() else None
+    return resultado
