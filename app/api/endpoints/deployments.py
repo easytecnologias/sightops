@@ -19,6 +19,7 @@ from app.services.connector_service import get_connector, list_connectors, regis
 from app.services import connector_routing_vnat as _vnat
 from app.services.inventory_json import inventory_row_key, load_inventory_json, save_inventory_json
 from app.services.camsnapshot.device_info import get_network_config, set_network_ip, set_channel_title
+from app.services import camera_xray
 from app.api.endpoints.nvr import _recorder_connector_for_host
 
 router = APIRouter(prefix="/api/deployments", tags=["deployments"])
@@ -844,24 +845,62 @@ def api_deployments_apply_camera_ip(payload: Dict[str, Any]) -> Dict[str, Any]:
     if not password:
         raise HTTPException(status_code=400, detail="senha da camera obrigatoria")
 
-    net = get_network_config(ip, user, password)
-    if not net or not net.get("subnet_mask"):
-        raise HTTPException(status_code=502, detail="Nao consegui ler a configuracao de rede atual da camera.")
-
-    result = set_network_ip(ip, user, password, new_ip, net["subnet_mask"], net.get("gateway") or "")
+    # Mesma correcao do titulo: alcance pelo conector e as duas marcas. A
+    # mascara continua sendo LIDA da camera, nunca chutada -- /24 chutado em
+    # rede /23 ja tirou camera do ar, e isso nao se conserta pela rede.
+    try:
+        result = camera_xray.aplicar_ip(
+            ip, user, password, new_ip,
+            payload.get("porta"), _text(payload.get("connector_id")),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
     if not result.get("ok"):
         raise HTTPException(
             status_code=502,
-            detail=f"Falha ao aplicar novo IP na camera: {result.get('response') or result.get('error') or 'sem detalhe'}",
+            detail=f"Falha ao aplicar novo IP na camera: {result.get('response') or 'sem detalhe'}",
         )
-    return {
-        "ok": True,
-        "ip": ip,
-        "new_ip": new_ip,
-        "subnet_mask": net["subnet_mask"],
-        "gateway": net.get("gateway") or "",
-        "response": result.get("response"),
-    }
+    return {"ok": True, **result}
+
+
+@router.post("/camera-xray")
+def api_deployments_camera_xray(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Le a camera: marca, modelo, serial, firmware, rede e titulo.
+
+    Substitui `/api/rescan-single-ip` no assistente CFTV. Aquela rota dispara
+    `tools/inventory_dry.py` como subprocesso, e esse arquivo nao existe -- nem
+    no repositorio, nem na imagem. Ou seja, o botao "Entrar na camera" devolvia
+    HTTP 500 em 100% das vezes, e a tela traduzia para "confira IP/usuario/
+    senha": o tecnico passava a culpar a senha de uma camera acessivel.
+
+    E a rota antiga nao tinha nem campo `connector_id`, entao o IP ia cru para
+    o scanner. Os doze conectores do parque sao isolados: o IP real da camera
+    nao tem rota a partir daqui, so o virtual. Este endpoint recebe o conector
+    e deixa o vnat traduzir, exatamente como o raio-X de gravador ja fazia.
+    """
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="payload invalido")
+    ip = _text(payload.get("ip"))
+    user = _text(payload.get("usuario")) or "admin"
+    senha = _text(payload.get("senha"))
+    if not ip:
+        raise HTTPException(status_code=400, detail="ip da camera obrigatorio")
+    if not senha:
+        raise HTTPException(status_code=400, detail="senha da camera obrigatoria")
+    try:
+        dados = camera_xray.raio_x_camera(
+            ip, user, senha,
+            payload.get("porta"),
+            _text(payload.get("connector_id")),
+        )
+    except ValueError as exc:
+        # Recusa do equipamento: a mensagem dele e melhor que qualquer resumo
+        # nosso, e e ela que o tecnico precisa ler.
+        raise HTTPException(status_code=502, detail=str(exc))
+    except Exception:
+        logger.exception("Falha no raio-X da camera %s", ip)
+        raise HTTPException(status_code=500, detail="erro interno ao ler a camera")
+    return {"ok": True, **dados}
 
 
 @router.post("/save-camera-title")
@@ -880,13 +919,24 @@ def api_deployments_save_camera_title(payload: Dict[str, Any]) -> Dict[str, Any]
     if not password:
         raise HTTPException(status_code=400, detail="senha da camera obrigatoria")
 
-    result = set_channel_title(ip, user, password, title)
+    # `set_channel_title` ia direto no IP real (sem vnat, inalcancavel em
+    # conector isolado) e so falava CGI Dahua/Intelbras -- numa Hikvision
+    # falhava sempre. As cameras da TELHA, onde isto foi testado, sao todas
+    # Hikvision: o titulo nunca chegou em nenhuma delas.
+    try:
+        result = camera_xray.gravar_titulo(
+            ip, user, password, title,
+            payload.get("porta"), _text(payload.get("connector_id")),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
     if not result.get("ok"):
         raise HTTPException(
             status_code=502,
-            detail=f"Falha ao gravar titulo na camera: {result.get('response') or result.get('error') or 'sem detalhe'}",
+            detail=f"Falha ao gravar titulo na camera: {result.get('response') or 'sem detalhe'}",
         )
-    return {"ok": True, "ip": ip, "title": title, "response": result.get("response")}
+    return {"ok": True, "ip": ip, "title": title,
+            "marca": result.get("marca"), "response": result.get("response")}
 
 
 @router.post("")

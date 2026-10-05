@@ -3446,40 +3446,54 @@ async function deployPullCameraInfo() {
   if (!ip) { showToast('Descubra o IP da camera pelo MAC primeiro (etapa acima).', true); return; }
   if (!user || !pass) { showToast('Informe usuario e senha da camera primeiro.', true); return; }
   if (box) box.innerHTML = 'Conectando na camera e trazendo os dados (pode levar alguns segundos)...';
-  const res = await api('/api/rescan-single-ip', {
+  // Era /api/rescan-single-ip, que dispara um script inexistente e nao recebe
+  // o conector -- ver o comentario do endpoint. Agora usa o mesmo raio-X que
+  // a tela de gravador usa, in-process e com traducao vnat.
+  const res = await api('/api/deployments/camera-xray', {
     method: 'POST',
     body: JSON.stringify({
       ip,
       usuario: user,
       senha: pass,
-      inventory_mode: document.getElementById('deployInventoryMode')?.value || 'basic',
-      capture_snapshot: true,
+      connector_id: deploySelectedConnectorId(),
     }),
   });
   const data = await res?.json().catch(() => ({}));
-  if (!res?.ok || data?.ok === false || data?.success === false) {
-    if (box) box.innerHTML = esc(data?.message || data?.stderr || 'Falha ao conectar na camera. Confira IP/usuario/senha.');
+  if (!res?.ok || data?.ok === false) {
+    // A recusa vem da propria camera ("recusou a credencial", "nao respondeu
+    // em http://..."). Repetir isso e mais util que um palpite generico.
+    if (box) box.innerHTML = esc(data?.detail || 'Nao consegui ler a camera.');
     box?.classList.add('error');
     return;
   }
   box?.classList.remove('error');
-  const rows = Array.isArray(data.inventory) ? data.inventory : [];
-  const cam = rows.find(r => (r.ip || '').trim() === ip) || null;
-  if (!cam) {
-    if (box) box.innerHTML = 'Conectou, mas nao consegui identificar os dados da camera na resposta.';
-    return;
-  }
+  const eq = data.equipamento || {};
+  const rede = data.rede || {};
   const fabEl = document.getElementById('deployCameraManufacturer');
   const modEl = document.getElementById('deployCameraModel');
   const titleEl = document.getElementById('deployCameraTitle');
   const ipEl = document.getElementById('deployCameraIp');
-  if (fabEl && cam.fabricante) fabEl.value = cam.fabricante;
-  if (modEl && cam.modelo) modEl.value = cam.modelo;
-  if (titleEl && cam.titulo) titleEl.value = cam.titulo;
-  if (ipEl) ipEl.value = cam.ip || ip;
-  _deployConfirmedCameraIp = cam.ip || ip;
-  if (box) box.innerHTML = 'Dados da camera trazidos com sucesso.';
-  showToast(`Camera encontrada: ${cam.fabricante || ''} ${cam.modelo || ''}`.trim());
+  const macEl = document.getElementById('deployCameraMac');
+  if (fabEl && eq.fabricante) fabEl.value = eq.fabricante;
+  if (modEl && eq.modelo) modEl.value = eq.modelo;
+  // O titulo que ja esta na camera so entra se o tecnico nao digitou nada --
+  // sobrescrever o que ele acabou de escrever seria perder trabalho dele.
+  if (titleEl && !titleEl.value.trim() && data.titulo) titleEl.value = data.titulo;
+  if (ipEl) ipEl.value = rede.ip || ip;
+  if (macEl && !macEl.value.trim() && (rede.mac || eq.mac)) macEl.value = rede.mac || eq.mac;
+  _deployConfirmedCameraIp = rede.ip || ip;
+
+  const achados = Array.isArray(data.achados) ? data.achados : [];
+  const ficha = [
+    eq.modelo ? `<b>${esc(eq.modelo)}</b>` : '',
+    eq.serial ? `serial ${esc(eq.serial)}` : '',
+    eq.firmware ? `firmware ${esc(eq.firmware)}` : '',
+    rede.mascara ? `mascara ${esc(rede.mascara)}` : '',
+    rede.gateway ? `gateway ${esc(rede.gateway)}` : '',
+  ].filter(Boolean).join(' &middot; ');
+  const avisos = achados.map(a => `<div style="margin-top:6px">&#9888; <b>${esc(a[1])}</b> ${esc(a[2])}</div>`).join('');
+  if (box) box.innerHTML = ficha + avisos;
+  showToast(`Camera lida: ${eq.fabricante || ''} ${eq.modelo || ''}`.trim());
   deployRenderSummary();
   deployUpdateStepLocks({ autoAdvance: true });
 }
@@ -3494,7 +3508,7 @@ async function deployPushTitleToCamera(title) {
   if (!ip || !user || !pass) return { ok: false, skipped: true };
   const res = await api('/api/deployments/save-camera-title', {
     method: 'POST',
-    body: JSON.stringify({ ip, usuario: user, senha: pass, title }),
+    body: JSON.stringify({ ip, usuario: user, senha: pass, title, connector_id: deploySelectedConnectorId() }),
   });
   const data = await res?.json().catch(() => ({}));
   if (!res?.ok || data?.ok === false) {
@@ -3540,7 +3554,7 @@ async function deployCheckNewIp() {
   deploySetCheckIpResult('Aplicando novo IP na camera (equipamento vivo, aguarde)...');
   const res = await api('/api/deployments/apply-camera-ip', {
     method: 'POST',
-    body: JSON.stringify({ ip: _deployConfirmedCameraIp, usuario: user, senha: pass, new_ip: newIp }),
+    body: JSON.stringify({ ip: _deployConfirmedCameraIp, usuario: user, senha: pass, new_ip: newIp, connector_id: deploySelectedConnectorId() }),
   });
   const result = await res?.json().catch(() => ({}));
   if (!res?.ok || result?.ok === false) {
