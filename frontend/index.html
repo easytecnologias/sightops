@@ -4775,28 +4775,28 @@
         <div class="deployment-grid">
           <div class="panel deployment-form-panel">
             <div class="panel-header">
-              <div><h2>Assistente tecnico</h2><p>Preencha por etapas. Titulo da camera e IP sao obrigatorios para finalizar.</p></div>
+              <div><h2>Assistente tecnico</h2><p>Uma etapa por vez. No fim so precisa do titulo da camera e do IP -- o resto o sistema descobre.</p></div>
             </div>
             <form id="deployForm" class="deployment-form">
               <details class="onu-step" name="cftvAccordion" id="cftvStep1" open>
                 <summary>
-                  <span><span class="onu-step-title">Conexao com o CFTV</span><span class="onu-step-sub">Conector e site onde o tecnico esta trabalhando agora.</span></span>
+                  <span><span class="onu-step-title">1. Onde voce esta</span><span class="onu-step-sub">Escolha o site. O endereco de acesso e o nome do local preenchem sozinhos.</span></span>
                 </summary>
                 <div class="onu-step-body">
                   <div class="form-row" style="grid-template-columns:1fr">
                     <div class="form-group">
-                      <label for="deployConnector">Conector (MikroTik/Ruijie)</label>
+                      <label for="deployConnector">Site onde voce esta trabalhando</label>
                       <select id="deployConnector" class="filter-select" style="width:100%">
-                        <option value="">Escolha a origem de acesso</option>
+                        <option value="">Escolha o site</option>
                         <option value="__local__">Local / VPN do servidor</option>
                       </select>
                     </div>
                   </div>
                   <div class="form-row" style="grid-template-columns:1fr">
                     <div class="form-group">
-                      <label for="deployOltContext">OLT cadastrada</label>
+                      <label for="deployOltContext">OLT <span style="font-weight:400;color:var(--muted)">(so se a camera for por fibra)</span></label>
                       <select id="deployOltContext" class="filter-select" style="width:100%" disabled>
-                        <option value="">Escolha primeiro o conector</option>
+                        <option value="">Opcional - escolha o site antes</option>
                       </select>
                     </div>
                   </div>
@@ -4806,7 +4806,7 @@
                   <div class="form-row" style="grid-template-columns:1fr">
                     <div class="form-group">
                       <label for="deploySite">Site / local</label>
-                      <input id="deploySite" list="deploySiteList" placeholder="Site manual ou vindo do conector" disabled>
+                      <input id="deploySite" list="deploySiteList" placeholder="Preenchido pelo site escolhido acima" disabled>
                       <datalist id="deploySiteList"></datalist>
                     </div>
                   </div>
@@ -6737,7 +6737,7 @@
   <script src="js/snapshots.js?v=1790019880"></script>
   <script src="js/maintenance.js?v=146"></script>
   <script src="js/analysis.js?v=147"></script>
-  <script src="js/network.js?v=158"></script>
+  <script src="js/network.js?v=1791000117"></script>
   <script src="js/deploy.js?v=1791000103"></script>
   <script src="js/cameraActivation.js?v=1791000111"></script>
   <script src="js/deployOlt.js?v=160"></script>

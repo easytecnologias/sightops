@@ -759,8 +759,12 @@ function deployRenderConnectorStatus() {
   if (!box) return;
   const raw = deployConnectorRawValue();
   if (!raw) {
-    box.innerHTML = 'Escolha Local/VPN do servidor ou um conector online com VPN. Os dados do CFTV ficam bloqueados ate definir a origem.';
-    box.classList.add('error');
+    // Antes isto nascia VERMELHO: a tela abria acusando o tecnico de um erro
+    // que ele ainda nao teve chance de cometer. Enquanto ele nao escolheu, nao
+    // ha erro nenhum -- ha uma instrucao. Vermelho fica para quando algo
+    // realmente deu errado, senao ninguem mais le vermelho nesta tela.
+    box.innerHTML = 'Comece escolhendo o site acima. O resto da tela libera em seguida.';
+    box.classList.remove('error');
     return;
   }
   if (deployIsLocalOrigin()) {
