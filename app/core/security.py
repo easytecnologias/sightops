@@ -90,6 +90,7 @@ class ApiAuthMiddleware(BaseHTTPMiddleware):
             (("POST",), "/api/discovery/run", "operator"),
             (("POST",), "/api/portscan/apply", "operator"),
             (("POST",), "/api/cameras/save", "operator"),
+            (("POST",), "/api/cameras/ocorrencia", "operator"),
             (("POST",), "/api/cameras/ping_many", "operator"),
             (("POST",), "/api/snapshot/save", "operator"),
             (("POST",), "/api/cameras/ptz_move", "operator"),

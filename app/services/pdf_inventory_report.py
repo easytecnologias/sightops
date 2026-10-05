@@ -521,6 +521,7 @@ def _column_set(include_switch: bool, include_olt: bool) -> List[Tuple[str, int]
             ("Switch IP", 190),
             ("Porta", 110),
             ("VLAN", 105),
+            ("Ocorrencia", 420),
         ]
     if include_olt:
         return [
@@ -534,6 +535,7 @@ def _column_set(include_switch: bool, include_olt: bool) -> List[Tuple[str, int]
             ("ONU ID", 95),
             ("ONU Name", 235),
             ("ONU Serial", 285),
+            ("Ocorrencia", 420),
         ]
     return [
         ("IP", 290),
@@ -542,6 +544,7 @@ def _column_set(include_switch: bool, include_olt: bool) -> List[Tuple[str, int]
         ("Local", 260),
         ("Modelo", 330),
         ("MAC", 590),
+        ("Ocorrencia", 620),
     ]
 
 
@@ -684,7 +687,19 @@ def _col_value(r: Dict[str, Any], col_name: str) -> str:
         "ONU ID": _to_text(r.get("onu_id") or r.get("ONU_ID") or r.get("onuid")),
         "ONU Name": _to_text(r.get("onu_name") or r.get("ONU_NAME")),
         "ONU Serial": _to_text(r.get("onu_serial") or r.get("ONU_SERIAL")),
+        # Por que a camera esta assim, escrito por quem foi ate o local. Sem
+        # isso o relatorio entrega "offline" e deixa a pergunta no ar.
+        "Ocorrencia": _ocorrencia_texto(r),
     }.get(col_name, "")
+
+
+def _ocorrencia_texto(r: Dict[str, Any]) -> str:
+    """Ocorrencia com a data, curta o suficiente para caber na celula."""
+    texto = _to_text(r.get("ocorrencia"))
+    if not texto:
+        return ""
+    quando = _to_text(r.get("ocorrencia_em"))[:10]
+    return f"{texto} ({quando})" if quando else texto
 
 
 def _drop_empty_columns(

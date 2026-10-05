@@ -2,14 +2,19 @@
 
 from typing import Any, Dict, List
 import asyncio
+import logging
 import json
 import urllib3
 from urllib3.exceptions import InsecureRequestWarning
 from pathlib import Path
 import shutil
 
-from fastapi import APIRouter, HTTPException
+from datetime import datetime, timezone
+from app.api.endpoints.auth import current_user
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi import Query
+
+logger = logging.getLogger(__name__)
 from app.services.ping_service import ping as ping_with_cache
 from app.services.ws_scan_service import ping_via_connector
 from app.services import connector_routing_vnat as _vnat
@@ -153,7 +158,33 @@ def _camera_row_for_ip(ip: str, connector_id: str = "") -> dict | None:
                 return r
             if fallback is None:
                 fallback = r
-    return fallback
+    if fallback is not None:
+        return fallback
+
+    # Camera que existe so como CANAL de gravador nao esta no inventario de
+    # cameras -- e o caso das UNV da ESCOLA MEDEA, que entraram pelo NVR e
+    # nunca foram varridas na rede. Sem este fallback, resolver a senha delas
+    # devolvia "credential_required" mesmo com a senha guardada.
+    try:
+        from app.services.dashboard_service import _recorder_rows
+    except Exception:
+        return None
+    for fonte in ("nvr", "dvr"):
+        try:
+            linhas = _recorder_rows(fonte) or []
+        except Exception:
+            continue
+        for r in linhas:
+            if not isinstance(r, dict) or str(r.get("camera_ip") or "").strip() != alvo:
+                continue
+            return {
+                "ip": alvo,
+                "mac": r.get("camera_mac") or r.get("mac") or "",
+                "site": r.get("site") or r.get("local") or "",
+                "modelo": r.get("camera_model") or "",
+                "remote_connector_id": r.get("remote_connector_id") or r.get("connector_id") or "",
+            }
+    return None
 
 
 def _ip_in_inventory(ip: str, connector_id: str = "") -> bool:
@@ -214,6 +245,20 @@ class CameraUpdate(BaseModel):
     switch_ip: str | None = None
     switch_port: str | None = None
     switch_vlan: str | None = None
+
+
+def _text_simples(valor: Any) -> str:
+    return str(valor or "").strip()
+
+
+class OcorrenciaRequest(BaseModel):
+    """Por que esta camera esta offline, escrito por quem foi ate la."""
+
+    ip: str
+    texto: str
+    site: str | None = None
+    remote_connector_id: str | None = None
+    connector_id: str | None = None
 
 
 class CamerasSaveRequest(BaseModel):
@@ -331,6 +376,12 @@ def api_cameras(
             "remote_connector_name": r.get("remote_connector_name") or "",
             "site": r.get("site") or "",
             "site_name": r.get("site_name") or "",
+            # Sem isto a ocorrencia ficava gravada no inventario mas NAO voltava
+            # para a tela: este dict e montado campo a campo, entao chave nova
+            # tem que ser declarada aqui ou some no caminho.
+            "ocorrencia": r.get("ocorrencia") or "",
+            "ocorrencia_em": r.get("ocorrencia_em") or "",
+            "ocorrencia_por": r.get("ocorrencia_por") or "",
         }
         ip = str(cam.get("ip") or "").strip()
         if ip:
@@ -571,6 +622,77 @@ def _persist_camera_statuses(status_by_ip: Dict[str, str]) -> Dict[str, Any]:
     # via save_inventory_json) ja cobre o caso de uso real desta rota; status de
     # recorder que vem do Zabbix segue seu proprio fluxo tenant-aware separado.
     return {"camera_rows": camera_rows, "recorder_rows": 0}
+
+
+@router.post("/cameras/ocorrencia")
+def api_cameras_ocorrencia(req: OcorrenciaRequest,
+                           user: Dict[str, Any] = Depends(current_user)) -> Dict[str, Any]:
+    """Registra (ou apaga) a ocorrencia de uma camera.
+
+    Existe porque "offline" sozinho nao serve para entregar relatorio: o cliente
+    quer saber POR QUE. Quem foi ao local sabe -- poste derrubado, fibra
+    rompida, falta de energia -- e esse texto some se ficar so no WhatsApp.
+
+    Fica no proprio inventario, ao lado da camera, com autor e data. Texto vazio
+    limpa a ocorrencia.
+
+    Grava nos tres modos (olt/basic/switch): e a mesma camera, e quem escreveu
+    na visao OLT espera ver o mesmo texto na visao Basico.
+    """
+    ip = (req.ip or "").strip()
+    if not ip:
+        raise HTTPException(status_code=400, detail="ip obrigatorio")
+
+    texto = (req.texto or "").strip()[:1000]
+    quem = _text_simples(user.get("username") or user.get("name") or user.get("email"))
+    agora = datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+    # So filtra por conector/site quando a tela informou -- senao o mesmo IP em
+    # sites diferentes nunca casaria, e a ocorrencia caia em lugar nenhum (404).
+    conector = req.remote_connector_id or req.connector_id or ""
+    chave = ""
+    if conector or (req.site or "").strip():
+        chave = inventory_row_key({
+            "ip": ip,
+            "remote_connector_id": conector,
+            "site": req.site or "",
+            "remote": bool(conector),
+        })
+
+    tocados = 0
+    for modo in ("olt", "basic", "switch"):
+        try:
+            linhas = load_inventory_json(mode=modo) or []
+        except Exception:
+            continue
+        mudou = False
+        for linha in linhas:
+            if (linha.get("ip") or "").strip() != ip:
+                continue
+            # Quando a tela manda conector/site, respeita a chave -- o mesmo IP
+            # existe em sites diferentes.
+            if chave and inventory_row_key(linha) != chave:
+                continue
+            if texto:
+                linha["ocorrencia"] = texto
+                linha["ocorrencia_em"] = agora
+                linha["ocorrencia_por"] = quem
+            else:
+                linha.pop("ocorrencia", None)
+                linha.pop("ocorrencia_em", None)
+                linha.pop("ocorrencia_por", None)
+            mudou = True
+        if mudou:
+            try:
+                save_inventory_json(linhas, mode=modo)
+                tocados += 1
+            except Exception:
+                logger.exception("Falha ao gravar ocorrencia da camera %s no modo %s", ip, modo)
+
+    if not tocados:
+        raise HTTPException(status_code=404, detail="camera nao encontrada no inventario")
+    return {"ok": True, "ip": ip, "ocorrencia": texto,
+            "ocorrencia_em": agora if texto else "", "ocorrencia_por": quem if texto else ""}
 
 
 @router.get("/cameras/ping", summary="Ping (ICMP/TCP) com cache", tags=["cameras"])

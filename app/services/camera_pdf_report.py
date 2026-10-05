@@ -78,6 +78,7 @@ _PESOS: Dict[str, int] = {
     "ONU ID": 10,
     "ONU Name": 24,
     "ONU Serial": 26,
+    "Ocorrencia": 40,
 }
 
 _VAZIO = ("", "-", "--", "n/a", "none", "null")
@@ -90,7 +91,7 @@ def _colunas(include_switch: bool, include_olt: bool, rows: List[Dict[str, Any]]
     Carregar quatro colunas de switch em branco num site que nao tem switch so
     espreme o resto da tabela.
     """
-    base = ["IP", "Titulo", "Status", "Local", "Modelo", "MAC"]
+    base = ["IP", "Titulo", "Status", "Local", "Modelo", "MAC", "Ocorrencia"]
     if include_switch:
         base += ["Switch", "Switch IP", "Porta", "VLAN"]
     elif include_olt:
