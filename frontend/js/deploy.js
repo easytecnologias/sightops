@@ -3735,46 +3735,6 @@ async function deployCheckNewIp() {
   deployRenderSummary();
 }
 
-async function deploySaveCameraInventory() {
-  if (!deployEnsureStepUnlocked('cftvStep2', 'Escolha o site na barra de cima antes de salvar a camera.')) return;
-  const payload = deployPayload();
-  if (!payload.camera_title || !payload.camera_ip) {
-    showToast('IP e titulo da camera sao obrigatorios para salvar no inventario.', true);
-    return;
-  }
-  if (!payload.site) {
-    showToast('Site/local e obrigatorio. Escolha do inventario ou digite um novo.', true);
-    return;
-  }
-  const btn = document.getElementById('btnDeploySaveCameraInventory');
-  if (btn) { btn.disabled = true; btn.innerHTML = '<i data-lucide="loader"></i> Salvando'; lucide.createIcons(); }
-  try {
-    const res = await api('/api/deployments/commit-camera', { method: 'POST', body: JSON.stringify(payload) });
-    const data = await res?.json().catch(() => ({}));
-    if (!res?.ok || data?.ok === false) {
-      showToast(data?.detail || 'Falha ao salvar camera no inventario.', true);
-      return;
-    }
-    _deployCurrentId = data.deployment?.id || _deployCurrentId;
-    const rec = data.recorder_link || {};
-    const recMsg = rec.ok ? ` Gravador ${rec.source?.toUpperCase() || ''} ${rec.host} canal ${rec.channel} -> ${rec.camera_ip}.` : '';
-    showToast(`Camera salva no inventario: ${payload.camera_title}`);
-    deploySetResult(`Camera salva no inventario (${esc(data.inventory_mode || payload.inventory_mode)}). Coordenada: ${esc(payload.location || '-')}.${esc(recMsg)}`);
-    const savedMode = data.inventory_mode || payload.inventory_mode || 'basic';
-    const camMode = savedMode === 'basic' ? 'basico' : savedMode;
-    if (_invCam[camMode]) {
-      await _loadCamForMode(camMode);
-      updateCamTabs();
-      populateCamSiteFilter();
-      if (_currentView === 'inv-olt' && _invOltView === camMode) applyInvOltFilters();
-    }
-    await loadDeployHistory();
-    deployRenderSummary();
-    deployUpdateStepLocks({ autoAdvance: true });
-  } finally {
-    if (btn) { btn.disabled = false; btn.innerHTML = '<i data-lucide="save"></i> Salvar'; lucide.createIcons(); }
-  }
-}
 
 async function deployRecorderLogin() {
   if (!deployEnsureStepUnlocked('cftvStep3', 'Preencha titulo e IP da camera antes de entrar no gravador.')) return;
@@ -3917,6 +3877,14 @@ async function deployCommitCamera(e) {
   const rec = data.recorder_link || {};
   const recMsg = rec.ok ? ` Gravador ${rec.source?.toUpperCase() || ''} ${rec.host} canal ${rec.channel} -> ${rec.camera_ip}.` : '';
   showToast(`Camera registrada: ${payload.camera_title}`);
+  const savedMode = data.inventory_mode || payload.inventory_mode || 'basic';
+  const camMode = savedMode === 'basic' ? 'basico' : savedMode;
+  if (_invCam[camMode]) {
+    await _loadCamForMode(camMode);
+    updateCamTabs();
+    populateCamSiteFilter();
+    if (_currentView === 'inv-olt' && _invOltView === camMode) applyInvOltFilters();
+  }
   deploySetResult(`Camera registrada no inventario (${esc(data.inventory_mode || payload.inventory_mode)}). Chave: ${esc(data.inventory_key || '-')}.${esc(recMsg)}`);
   await loadDeployHistory();
   deployRenderSummary();

@@ -280,7 +280,6 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('btnDeployScanLabel')?.addEventListener('click', deployAbrirScanner);
   document.getElementById('btnDeployCheckNewIp')?.addEventListener('click', deployCheckNewIp);
   document.getElementById('btnDeployGps')?.addEventListener('click', deployPegarGps);
-  document.getElementById('btnDeploySaveCameraInventory')?.addEventListener('click', deploySaveCameraInventory);
   document.getElementById('btnDeployRecorderLogin')?.addEventListener('click', deployRecorderLogin);
   document.getElementById('btnDeployRecorderCredToggle')?.addEventListener('click', deployAlternarCredGravador);
   document.getElementById('deployRecorderType')?.addEventListener('change', deployLoadAvailableRecorders);
