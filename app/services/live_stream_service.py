@@ -38,6 +38,7 @@ codigo fonte dele quando precisou (`internal/streams/api.go`):
 """
 from __future__ import annotations
 
+import re
 import time
 from typing import Any, Dict, List
 from urllib.parse import quote
@@ -80,6 +81,19 @@ def _stream_rtsp_path_for_camera(*, vendor: str = "", model: str = "", subtype: 
             or model_l.startswith("ipc-")
         )
     )
+    # Uniview (UNV): modelo comeca com IPC seguido de digito (IPC2122LB,
+    # IPC6412LR). Nao confundir com o "IPC-" com hifen da Hikvision.
+    # Caminho confirmado por DESCRIBE na IPC2122LB da ESCOLA MEDEA: /media/video1
+    # (principal) e /media/video2 (substream) respondem 200 OK com SDP, enquanto
+    # o /cam/realmonitor da Dahua -- que era o fallback de toda marca
+    # desconhecida -- nao existe nela.
+    is_unv = (
+        not is_intelbras and not is_hikvision
+        and ("uniview" in vendor_l or "unv" in vendor_l
+             or re.match(r"^ipc\d", model_l) is not None)
+    )
+    if is_unv:
+        return f"/media/video{1 if st == 0 else 2}"
     if is_hikvision:
         channel = "101" if st == 0 else "102"
         return f"/Streaming/Channels/{channel}"

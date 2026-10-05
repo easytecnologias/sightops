@@ -122,6 +122,24 @@ def detectar_marca(base: str, user: str, password: str) -> str:
 
 
 # --------------------------------------------------------------- Intelbras
+# Canal vazio da Intelbras NAO vem sem endereco: o equipamento grava
+# 192.168.0.0 como marca-lugar (alguns modelos, 0.0.0.0), com Enable=false.
+# Como a tela decide "livre" pela AUSENCIA de IP, esses canais apareciam
+# ocupados e com estado "normal" -- camera que nao existe, mostrando resolucao
+# e codec do perfil padrao do canal. Visto no NVD 3332 da BARRA: canais 16 a 32
+# davam "normal" com 192.168.0.0.
+#
+# O cadastro ja tratava isso (ver `placeholder_address` em deployments.py); so
+# a leitura do raio-X nao tratava.
+_ENDERECOS_VAZIOS = ("", "0.0.0.0", "192.168.0.0")
+
+
+def _endereco_de_canal(valor: Any) -> str:
+    """Endereco da camera do canal, ou "" quando o canal esta livre."""
+    endereco = str(valor or "").strip()
+    return "" if endereco in _ENDERECOS_VAZIOS else endereco
+
+
 def _cgi_pares(texto: str) -> Dict[str, str]:
     saida: Dict[str, str] = {}
     for linha in (texto or "").splitlines():
@@ -197,7 +215,7 @@ def _xray_intelbras(base: str, user: str, password: str) -> Dict[str, Any]:
     com_dado = {
         i for i, c in cams.items()
         if str(c.get("Type", "")).strip().lower() != "compose"
-        and (str(c.get("DeviceInfo.Address", "")).strip()
+        and (_endereco_de_canal(c.get("DeviceInfo.Address"))
              or any(str(v).strip() for k, v in c.items() if k.startswith("DeviceInfo.")))
     }
     canais: List[Dict[str, Any]] = []
@@ -209,7 +227,7 @@ def _xray_intelbras(base: str, user: str, password: str) -> Dict[str, Any]:
         canais.append({
             "canal": i + 1,
             "nome": titulos.get(i, ""),
-            "ip": cam.get("DeviceInfo.Address", ""),
+            "ip": _endereco_de_canal(cam.get("DeviceInfo.Address")),
             "modelo": cam.get("DeviceInfo.DeviceType", ""),
             "serial": cam.get("DeviceInfo.SerialNo", ""),
             "porta": cam.get("DeviceInfo.Port", ""),
@@ -559,26 +577,230 @@ def _descobrir_dahua(base: str, user: str, password: str, rodadas: int = 3,
     return achados
 
 
+# O que o ISAPI da Hikvision chama de gravador no <deviceType>. Camera devolve
+# IPCamera/IPDome. Conferido nos dois NVR da TELHA (DS-7632NXI e DS-7616NI).
+_TIPOS_GRAVADOR_ISAPI = ("NVR", "DVR", "HVR", "XVR", "HCVR", "DVS")
+
+# Quantos IPs da rede do site vale a pena bater. Site com rede grande demora, e
+# quem procura gravador nao precisa varrer mil enderecos.
+_MAX_IPS_REDE = 160
+
+
+def _porta_para_vincular(marca_gravador: str, fabricante_camera: str) -> str:
+    """Porta de GERENCIA que o gravador usa para falar com a camera.
+
+    Nao e a porta web da camera. Uma camera Hikvision atende o navegador na 80,
+    mas um gravador Hikvision fala com ela na 8000 (SDK proprietario). A 80 so
+    entra quando a conversa e ONVIF -- camera de outra marca, ou gravador de
+    outra marca. Conferido nos 31 canais do DS-7632NXI da TELHA: todos com
+    managePortNo 8000.
+
+    Mostrar 80 para tudo, como a tela fazia, ensinava a porta errada para quem
+    fosse cadastrar a camera na mao.
+    """
+    cam = (fabricante_camera or "").lower()
+    if (marca_gravador or "").lower() == "hikvision":
+        return "8000" if "hik" in cam else "80"
+    if any(t in cam for t in ("intelbras", "dahua", "aebell", "itb")):
+        return "37777"
+    return "80"
+
+
+def _arp_do_conector(connector_id: str) -> List[Tuple[str, str]]:
+    """(ip, mac) que o roteador do site ja viu na rede dele.
+
+    O MikroTik manda a tabela ARP inteira em todo heartbeat, entao esta lista
+    sai de graca e sem varrer nada: na TELHA sao 46 enderecos, e e la que
+    estavam os dois NVR Hikvision que o proprio gravador nao mostrava.
+    """
+    if not connector_id:
+        return []
+    try:
+        from app.services.connector_service import list_connectors
+        linhas = (list_connectors() or {}).get("connectors") or []
+    except Exception:
+        return []
+    for row in linhas:
+        if str(row.get("id") or "") != str(connector_id):
+            continue
+        inv = row.get("inventory") if isinstance(row.get("inventory"), dict) else {}
+        pares: List[Tuple[str, str]] = []
+        for pedaco in str(inv.get("arp_sample") or "").split(";"):
+            pedaco = pedaco.strip()
+            if not pedaco or "|" not in pedaco:
+                continue
+            ip, _, mac = pedaco.partition("|")
+            ip, mac = ip.strip(), mac.strip()
+            if ip and ip != "0.0.0.0":
+                pares.append((ip, mac))
+        return pares
+    return []
+
+
+def _quem_atende(ip: str, mac: str, base: str, user: str, password: str,
+                 so_hikvision: bool) -> Dict[str, Any]:
+    """Bate em um IP da rede e diz o que tem ali -- gravador ou camera.
+
+    UMA tentativa de autenticacao por protocolo, de proposito: equipamento
+    Hikvision bloqueia o usuario depois de algumas falhas seguidas, e esta
+    busca passa por equipamento que nao tem nada a ver com a senha do gravador.
+    """
+    cod, corpo = _pedir(f"{base}/ISAPI/System/deviceInfo", user, password, 8.0)
+    if cod and 200 <= cod < 300 and "<deviceType>" in (corpo or ""):
+        def campo(nome: str) -> str:
+            m = re.search(rf"<{nome}>([^<]*)</{nome}>", corpo or "")
+            return (m.group(1).strip() if m else "")
+        tipo = campo("deviceType").upper()
+        return {
+            "ip": ip, "mac": mac, "modelo": campo("model"),
+            "fabricante": "Hikvision", "serial": campo("serialNumber"),
+            "firmware": campo("firmwareVersion"), "classe": tipo,
+            "porta": "8000", "porta_http": "80", "canais": "",
+            "eh_gravador": any(t in tipo for t in _TIPOS_GRAVADOR_ISAPI),
+        }
+    if cod == 401:
+        # Responde, mas recusou a senha: nao da para saber o que e. NAO entra na
+        # lista -- num site cujas cameras tem outra senha isso encheria a tela
+        # de linhas sem nome. Vira so uma contagem, para a tela poder avisar que
+        # existe equipamento escondido.
+        return {"recusou_senha": True}
+    if so_hikvision:
+        return {}
+
+    cod2, corpo2 = _pedir(
+        f"{base}/cgi-bin/magicBox.cgi?action=getSystemInfo", user, password, 8.0)
+    if cod2 and 200 <= cod2 < 300 and "=" in (corpo2 or ""):
+        def linha(nome: str) -> str:
+            m = re.search(rf"{nome}=([^\r\n]*)", corpo2 or "")
+            return (m.group(1).strip() if m else "")
+        tipo = (linha("deviceType") or "").upper()
+        return {
+            "ip": ip, "mac": mac, "modelo": linha("deviceType"),
+            "fabricante": "Intelbras/Dahua", "serial": linha("serialNumber"),
+            "firmware": "", "classe": tipo, "porta": "37777",
+            "porta_http": "80", "canais": "",
+            "eh_gravador": any(t in tipo for t in CLASSES_GRAVADOR),
+        }
+    return {}
+
+
+def _varrer_rede(connector_id: str, user: str, password: str, so_hikvision: bool,
+                 host_varredor: str = "") -> Dict[str, Any]:
+    """Pergunta a cada endereco da rede do site quem esta ali.
+
+    Existe porque a Hikvision nao entrega a rede: na TELHA o `InputProxy/search`
+    do DS-7632NXI devolveu 7 cameras onde existem 31, e NAO devolveu o DS-7616NI
+    do IP ao lado. A tabela ARP do roteador devolve os 33.
+    """
+    pares = _arp_do_conector(connector_id)
+    if not pares:
+        raise ValueError(
+            "o roteador deste conector ainda nao mandou a lista da rede -- "
+            "espere o proximo heartbeat do conector e tente de novo")
+
+    pares = pares[:_MAX_IPS_REDE]
+    # O IP virtual sai daqui, na thread da requisicao: o contexto do cliente
+    # nao atravessa o ThreadPoolExecutor.
+    alvos = [(ip, mac, _base(ip, None, connector_id)) for ip, mac in pares]
+
+    itens: List[Dict[str, Any]] = []
+    recusaram = 0
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        for item in pool.map(
+                lambda t: _quem_atende(t[0], t[1], t[2], user, password, so_hikvision), alvos):
+            if item.get("recusou_senha"):
+                recusaram += 1
+            elif item:
+                item["ele_mesmo"] = item["ip"] == str(host_varredor)
+                itens.append(item)
+
+    itens.sort(key=lambda c: tuple(int(x) if x.isdigit() else 0 for x in c["ip"].split(".")))
+    return {"itens": itens, "recusaram": recusaram, "testados": len(alvos)}
+
+
+def _ja_em_canal(base: str, marca: str, user: str, password: str) -> set:
+    """IPs que o gravador ja usa em algum canal, para nao oferecer de novo."""
+    if marca == "hikvision":
+        _, corpo = _pedir(f"{base}/ISAPI/ContentMgmt/InputProxy/channels", user, password, 25.0)
+        return {ip.strip().lower()
+                for ip in re.findall(r"<ipAddress>([^<]*)</ipAddress>", corpo or "")
+                if ip.strip()}
+    _, corpo = _pedir(
+        f"{base}/cgi-bin/configManager.cgi?action=getConfig&name=RemoteDevice",
+        user, password, 25.0)
+    return {ip.strip().lower() for ip in re.findall(r"\.Address=([^\r\n]+)", corpo or "")}
+
+
+def _gravadores_pela_rede(connector_id: str, user: str, password: str,
+                          so_hikvision: bool, host_varredor: str = "") -> Dict[str, Any]:
+    """Gravadores achados pela rede do site, sem depender da varredura do equipamento."""
+    varredura = _varrer_rede(connector_id, user, password, so_hikvision, host_varredor)
+    achados = [i for i in varredura["itens"] if i.get("eh_gravador")]
+    return {
+        "marca": "hikvision" if so_hikvision else "varias",
+        "gravadores": achados,
+        "total": len(achados),
+        "origem": "rede",
+        "enderecos_testados": varredura["testados"],
+        "sem_senha": varredura["recusaram"],
+    }
+
+
+def _cameras_pela_rede(connector_id: str, user: str, password: str, so_hikvision: bool,
+                       base: str, marca: str, host_varredor: str = "") -> Dict[str, Any]:
+    """Cameras achadas pela rede do site, com quem ja esta em canal marcado."""
+    varredura = _varrer_rede(connector_id, user, password, so_hikvision, host_varredor)
+    ja = _ja_em_canal(base, marca, user, password)
+    cameras = [i for i in varredura["itens"] if not i.get("eh_gravador")]
+    for c in cameras:
+        c.pop("canais", None)
+        c["no_gravador"] = c["ip"].lower() in ja
+        c["porta_add"] = _porta_para_vincular(marca, c.get("fabricante"))
+    return {
+        "marca": "hikvision" if so_hikvision else "varias",
+        "cameras": cameras,
+        "total": len(cameras),
+        "origem": "rede",
+        "enderecos_testados": varredura["testados"],
+        "sem_senha": varredura["recusaram"],
+        "ja_no_gravador": sorted(ja),
+    }
+
+
 def buscar_gravadores(host: str, user: str, password: str, porta: Any = None,
-                      connector_id: str = "") -> Dict[str, Any]:
-    """Gravadores que ESTE gravador enxerga na rede dele.
+                      connector_id: str = "", marca_busca: str = "auto") -> Dict[str, Any]:
+    """Gravadores que existem na rede do cliente. So leitura.
 
-    Para cadastrar um gravador novo e preciso saber o IP dele, e descobrir isso
-    na mao significa varrer a rede do cliente por fora -- coisa que daqui nem da
-    para fazer. Mas um gravador ja cadastrado esta na mesma LAN e enxerga os
-    vizinhos: na BARRA, um iNVD 5132 achou outros 10 gravadores com IP, modelo e
-    fabricante.
+    Dois caminhos, porque os fabricantes nao se comportam igual:
 
-    E a mesma varredura de `buscar_cameras`, filtrada por classe de equipamento.
-    So leitura.
+    `intelbras` -- pergunta ao gravador o que ele enxerga (`deviceDiscovery`).
+    E o melhor caminho quando existe: traz modelo, serial, canais e firmware de
+    uma vez. Na BARRA um iNVD 5132 achou outros 10 gravadores assim.
+
+    `hikvision` / `outros` -- a Hikvision NAO lista gravador vizinho: o
+    `InputProxy/search` so devolve o que pode virar canal, ou seja camera.
+    Entao a busca passa a ser pela tabela ARP do roteador do site e cada
+    endereco e perguntado direto. Mais lento, mas e o unico que acha DVR
+    Hikvision -- e funciona para marca nenhuma conhecida tambem.
     """
     base = _base(host, porta, connector_id)
     marca = detectar_marca(base, user, password)
+
+    alvo = (marca_busca or "auto").strip().lower()
+    if alvo in ("", "auto"):
+        alvo = "hikvision" if marca == "hikvision" else "intelbras"
+
+    if alvo in ("hikvision", "outros", "qualquer"):
+        dados = _gravadores_pela_rede(
+            connector_id, user, password, so_hikvision=(alvo == "hikvision"),
+            host_varredor=host)
+        dados["varrido_por"] = ""
+        return dados
+
     if marca == "hikvision":
-        # O ISAPI so lista o que pode virar canal (camera). Gravador vizinho nao
-        # aparece la -- por isso o Hikvision nao oferece esta busca.
-        return {"marca": marca, "gravadores": [], "total": 0,
-                "aviso": "o Hikvision nao lista gravadores vizinhos; use um gravador Intelbras para varrer"}
+        return {"marca": marca, "gravadores": [], "total": 0, "origem": "gravador",
+                "aviso": "o gravador aberto e Hikvision, e Hikvision nao lista gravador vizinho -- "
+                         "escolha Hikvision ou Outros para procurar pela rede do site"}
 
     bruto = _descobrir_dahua(base, user, password)
 
@@ -602,11 +824,12 @@ def buscar_gravadores(host: str, user: str, password: str, porta: Any = None,
             "ele_mesmo": ip == str(host),
         })
     achados.sort(key=lambda c: tuple(int(x) if x.isdigit() else 0 for x in c["ip"].split(".")))
-    return {"marca": marca, "gravadores": achados, "total": len(achados)}
+    return {"marca": marca, "gravadores": achados, "total": len(achados),
+            "origem": "gravador"}
 
 
 def buscar_cameras(host: str, user: str, password: str, porta: Any = None,
-                   connector_id: str = "") -> Dict[str, Any]:
+                   connector_id: str = "", marca_busca: str = "auto") -> Dict[str, Any]:
     """Pergunta ao GRAVADOR quais cameras ele enxerga na rede dele.
 
     Quem varre e o proprio equipamento, que esta na mesma rede das cameras --
@@ -619,6 +842,16 @@ def buscar_cameras(host: str, user: str, password: str, porta: Any = None,
     """
     base = _base(host, porta, connector_id)
     marca = detectar_marca(base, user, password)
+
+    # Mesma escolha da busca de gravador, e pela mesma razao: o ISAPI da
+    # Hikvision devolve so parte da rede. Na TELHA foram 7 cameras de 31.
+    alvo = (marca_busca or "auto").strip().lower()
+    if alvo in ("", "auto"):
+        alvo = "hikvision" if marca == "hikvision" else "intelbras"
+    if alvo in ("hikvision", "outros", "qualquer"):
+        return _cameras_pela_rede(
+            connector_id, user, password, so_hikvision=(alvo == "hikvision"),
+            base=base, marca=marca, host_varredor=host)
 
     if marca == "hikvision":
         # A busca do ISAPI e GET (o POST com SearchDescription devolve 401) e o
@@ -654,6 +887,7 @@ def buscar_cameras(host: str, user: str, password: str, porta: Any = None,
                 "serial": campo("serialNumber"),
                 "porta": campo("managePortNo") or "8000",
                 "porta_http": "80",
+                "porta_add": campo("managePortNo") or "8000",
                 "firmware": campo("firmwareVersion"),
                 "inicializada": campo("activated").lower() != "false",
                 "no_gravador": no_gravador,
@@ -689,6 +923,8 @@ def buscar_cameras(host: str, user: str, password: str, porta: Any = None,
             "serial": item.get("SerialNo") or item.get("MachineName", ""),
             "porta": item.get("Port", "37777"),
             "porta_http": item.get("HttpPort", "80"),
+            "porta_add": _porta_para_vincular(
+                marca, item.get("Vendor") or item.get("Manufacturer", "")),
             "firmware": item.get("Version", ""),
             # Init vazio/0 = camera de fabrica, ainda sem senha definida.
             "inicializada": bool((item.get("Init") or "").strip() not in ("", "0")),

@@ -489,6 +489,48 @@ def _fetch_intelbras_live_channels(base: str, user: str, password: str, total: i
     return {ch: data for ch, data in used.items() if 1 <= ch <= max(1, min(total, 128))}, remote_success
 
 
+def _frame_pelo_rtsp(base: str, user: str, password: str, canal: int, hik: bool) -> bytes:
+    """Um quadro do canal pelo RTSP, via go2rtc. Reserva para quando o
+    gravador nao sabe gerar a foto (canal ONVIF).
+
+    Usa o substream de proposito: a foto e miniatura de inventario, nao prova
+    pericial, e o substream pesa uma fracao no link do cliente.
+
+    Devolve b"" em qualquer falha -- quem chama ja trata ausencia de foto.
+    """
+    alcance = re.sub(r"^https?://", "", base).split("/")[0].split(":")[0]
+    if not alcance:
+        return b""
+    try:
+        from app.services.live_stream_service import (
+            GO2RTC_BASE_URL, register_recorder_stream, unregister_recorder_stream,
+        )
+    except Exception:
+        return b""
+
+    marca = "Hikvision" if hik else "Intelbras"
+    nome = ""
+    try:
+        nome = register_recorder_stream(
+            host=alcance, user=user, password=password, canal=int(canal),
+            marca=marca, alta=False,
+        )
+        resp = requests.get(f"{GO2RTC_BASE_URL}/api/frame.jpeg", params={"src": nome}, timeout=25)
+        if resp.status_code == 200 and resp.content[:2] == b"\xff\xd8":
+            return resp.content
+    except Exception:
+        return b""
+    finally:
+        # Stream esquecido no go2rtc guarda a senha RTSP do gravador -- ver
+        # o vazamento de 2026-08-29.
+        if nome:
+            try:
+                unregister_recorder_stream(host=alcance, canal=int(canal), alta=False)
+            except Exception:
+                pass
+    return b""
+
+
 def _capture_recorder_snapshots(
     base: str,
     user: str,
@@ -525,6 +567,24 @@ def _capture_recorder_snapshots(
                 return channel, f"/data/nvr_snapshot/{filename}"
             except Exception:
                 continue
+        # O gravador nao conseguiu gerar a foto deste canal. Acontece com
+        # camera que entrou por ONVIF (as UNV IPC2122LB da ESCOLA MEDEA):
+        # `snapshot.cgi` devolve HTTP 500 depois de 16s, enquanto o canal de
+        # camera Intelbras ao lado responde na hora. Nao e lentidao -- o
+        # equipamento simplesmente nao produz JPEG para esse canal.
+        #
+        # O video, porem, existe: o mesmo canal pelo RTSP devolve quadro em
+        # ~2s. Entao tira-se a foto de la, pelo go2rtc, que ja e o caminho do
+        # "ver ao vivo". Funciona para qualquer marca de camera, porque quem
+        # decodifica e o gravador.
+        quadro = _frame_pelo_rtsp(base, user, password, channel, hik)
+        if quadro:
+            filename = f"deploy_{safe_host}_ch{int(channel):03d}.jpg"
+            try:
+                (snap_dir / filename).write_bytes(quadro)
+                return channel, f"/data/nvr_snapshot/{filename}"
+            except Exception:
+                logger.warning("nao consegui gravar a foto do canal %s de %s", channel, host)
         return channel, ""
 
     with ThreadPoolExecutor(max_workers=min(6, len(channels))) as pool:
@@ -946,19 +1006,35 @@ def api_deployments_recorder_login(payload: Dict[str, Any]) -> Dict[str, Any]:
         ("/cgi-bin/global.cgi?action=getCurrentTime", "intelbras"),
         ("/ISAPI/System/deviceInfo", "hikvision"),
     ]
-    last_error = ""
+    # A ordem das sondas NAO e ordem de importancia. Um gravador Intelbras
+    # devolve 404 na rota do Hikvision, que e a ultima da lista -- e esse 404
+    # apagava o "senha recusada" que as tres sondas anteriores ja tinham dito.
+    # O usuario via "gravador respondeu HTTP 404" e ia procurar problema de
+    # rede, quando o equipamento estava ali e so tinha recusado a senha.
+    # Fica o erro mais informativo, nao o ultimo.
+    PESO_AUTH, PESO_TIMEOUT, PESO_OUTRO = 3, 2, 1
+    erro_peso, last_error = 0, ""
+
+    def _anotar_erro(peso: int, msg: str) -> None:
+        nonlocal erro_peso, last_error
+        if peso > erro_peso:
+            erro_peso, last_error = peso, msg
+
     for path, family in probes:
         url = f"{base}{path}"
         try:
             resp = _try_recorder_request(url, user, password, timeout=5.0)
         except requests.Timeout:
-            last_error = "tempo esgotado ao conectar no gravador"
+            _anotar_erro(PESO_TIMEOUT, "tempo esgotado ao conectar no gravador")
             continue
         except Exception as exc:
-            last_error = str(exc)
+            _anotar_erro(PESO_OUTRO, str(exc))
             continue
         if resp.status_code in (401, 403):
-            last_error = "usuario ou senha recusados pelo gravador"
+            # Recusar a senha prova que o equipamento esta ali e e desta marca.
+            marca = "Hikvision" if family == "hikvision" else "Intelbras"
+            _anotar_erro(PESO_AUTH,
+                         f"usuario ou senha recusados pelo gravador ({marca})")
             continue
         if 200 <= resp.status_code < 300:
             body = resp.text or ""
@@ -1004,7 +1080,7 @@ def api_deployments_recorder_login(payload: Dict[str, Any]) -> Dict[str, Any]:
                 "channels": _recorder_channel_grid(source, host, channel_total, live_used=live_used, live_authoritative=live_authoritative),
                 "message": "Login confirmado no gravador.",
             }
-        last_error = f"gravador respondeu HTTP {resp.status_code}"
+        _anotar_erro(PESO_OUTRO, f"gravador respondeu HTTP {resp.status_code} em {path}")
     raise HTTPException(status_code=400, detail=last_error or "nao foi possivel entrar no gravador")
 
 
@@ -1518,6 +1594,10 @@ def api_deployments_buscar_gravadores(payload: Dict[str, Any]) -> Dict[str, Any]
         raise HTTPException(status_code=400, detail="payload invalido")
     connector_id = _text(payload.get("connector_id") or payload.get("remote_connector_id"))
     site = _text(payload.get("site"))
+    # Marca escolhida na tela. Muda o CAMINHO da busca, nao so um filtro:
+    # Intelbras varre pelo proprio gravador, Hikvision e "outros" varrem pela
+    # rede do site -- ver buscar_gravadores.
+    marca_busca = _text(payload.get("marca") or payload.get("marca_busca")) or "auto"
 
     varredor = _gravador_que_varre(connector_id, site)
     if not varredor:
@@ -1531,6 +1611,7 @@ def api_deployments_buscar_gravadores(payload: Dict[str, Any]) -> Dict[str, Any]
         dados = buscar_gravadores(
             varredor["host"], varredor["user"], varredor["password"],
             varredor.get("porta"), varredor.get("connector_id") or connector_id,
+            marca_busca=marca_busca,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -1574,6 +1655,7 @@ def api_deployments_recorder_buscar_cameras(payload: Dict[str, Any]) -> Dict[str
             host, user, password,
             payload.get("recorder_http_port") or payload.get("http_port"),
             _text(payload.get("connector_id") or payload.get("remote_connector_id")),
+            marca_busca=_text(payload.get("marca") or payload.get("marca_busca")) or "auto",
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

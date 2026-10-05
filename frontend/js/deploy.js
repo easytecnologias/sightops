@@ -4766,7 +4766,7 @@ function recProtocoloPorFabricante(cam) {
       ? 'Private' : 'Onvif';
 }
 
-async function recBuscarCameras(aoEscolher) {
+async function recBuscarCameras(aoEscolher, marcaBusca) {
   // Quem varre a rede e o PROPRIO gravador: ele esta na LAN das cameras, nos
   // nao alcancamos. No NVD de Perucaba isso devolveu 261 cameras, das quais 32
   // ja estavam nos canais.
@@ -4782,11 +4782,31 @@ async function recBuscarCameras(aoEscolher) {
   })();
   const fechar = () => { tampa.innerHTML = ''; };
 
-  const moldura = (miolo, rodape) => `<div class="rec-tampa" role="dialog" aria-modal="true" aria-label="Buscar cameras">
+  // Mesma escolha da busca de gravador, e pela mesma razao: o ISAPI da
+  // Hikvision devolve so parte da rede. Na TELHA foram 7 cameras onde a rede
+  // tem 31. Trocar a marca refaz a busca por outro caminho.
+  const marca = marcaBusca || 'auto';
+  const MARCAS = [
+    { id: 'intelbras', rotulo: 'Intelbras/Dahua' },
+    { id: 'hikvision', rotulo: 'Hikvision' },
+    { id: 'outros', rotulo: 'Outros' },
+  ];
+  const seletorCam = (atual) => `<div class="rec-marcas" role="group" aria-label="Marca da camera">
+    <span class="rec-marcas-rot">Procurar</span>
+    ${MARCAS.map(m => `<button type="button" class="rec-marca${m.id === atual ? ' on' : ''}"
+      data-rec-marca="${m.id}" aria-pressed="${m.id === atual}">${esc(m.rotulo)}</button>`).join('')}
+  </div>`;
+  const ligarMarcasCam = (atual) => {
+    tampa.querySelectorAll('[data-rec-marca]').forEach(b => b.addEventListener('click', () => {
+      if (b.dataset.recMarca !== atual) recBuscarCameras(aoEscolher, b.dataset.recMarca);
+    }));
+  };
+
+  const moldura = (miolo, rodape, sub) => `<div class="rec-tampa" role="dialog" aria-modal="true" aria-label="Buscar cameras">
     <div class="rec-caixa rec-caixa-larga">
       <div class="rec-caixa-cab">
         <h3>Cameras na rede</h3>
-        <p>Quem procura e o gravador ${esc(d.host)}, que esta na mesma rede das cameras.</p>
+        <p>${esc(sub || `Quem procura e o gravador ${d.host}, que esta na mesma rede das cameras.`)}</p>
       </div>
       <div class="rec-caixa-corpo">${miolo}</div>
       <div class="rec-caixa-pe">${rodape}</div>
@@ -4794,15 +4814,16 @@ async function recBuscarCameras(aoEscolher) {
 
   const ligarFechar = () => {
     tampa.querySelectorAll('[data-rec-fechar]').forEach(b => b.addEventListener('click', fechar));
-    tampa.querySelector('.rec-tampa')?.addEventListener('click', ev => {
-      if (ev.target === ev.currentTarget) fechar();
-    });
   };
 
   tampa.innerHTML = moldura(
-    '<p class="rec-vazio">Procurando na rede do gravador... leva alguns segundos.</p>',
+    `${seletorCam(marca === 'auto' ? '' : marca)}
+     <p class="rec-vazio">${marca === 'intelbras' || marca === 'auto'
+      ? 'Procurando na rede do gravador... leva alguns segundos.'
+      : 'Perguntando endereco por endereco na rede do site... leva ate um minuto.'}</p>`,
     '<button class="acao" type="button" data-rec-fechar>Cancelar</button>');
   ligarFechar();
+  ligarMarcasCam(marca);
 
   let dados;
   try {
@@ -4812,15 +4833,18 @@ async function recBuscarCameras(aoEscolher) {
         recorder_host: d.host || p.recorder_host,
         recorder_http_port: p.recorder_http_port,
         connector_id: p.connector_id || '',
+        marca,
       }),
     });
     dados = await res?.json().catch(() => ({}));
     if (!res?.ok || dados?.ok === false) throw new Error(dados?.detail || 'o gravador nao respondeu a busca');
   } catch (err) {
     tampa.innerHTML = moldura(
-      `<p class="rec-vazio">${esc(err?.message || err)}</p>`,
-      '<button class="acao" type="button" data-rec-fechar>Fechar</button>');
+      `${seletorCam(marca === 'auto' ? '' : marca)}
+       <p class="rec-vazio">${esc(err?.message || err)}</p>`,
+      '<button class="acao" type="button" data-rec-fechar>Fechar</button>', 'Nao deu');
     ligarFechar();
+    ligarMarcasCam(marca);
     return;
   }
 
@@ -4839,7 +4863,7 @@ async function recBuscarCameras(aoEscolher) {
     const colunas = [
       { campo: 'ip', rotulo: 'IP' }, { campo: 'modelo', rotulo: 'Modelo' },
       { campo: 'fabricante', rotulo: 'Fabricante' },
-      { campo: 'porta_http', rotulo: 'Porta' }, { campo: 'mac', rotulo: 'MAC' },
+      { campo: 'porta_add', rotulo: 'Porta' }, { campo: 'mac', rotulo: 'MAC' },
       { campo: 'no_gravador', rotulo: 'Estado' },
     ];
     lista.innerHTML = vistas.length
@@ -4848,7 +4872,7 @@ async function recBuscarCameras(aoEscolher) {
             <td class="n">${esc(c.ip)}</td>
             <td><b>${esc(c.modelo || '-')}</b></td>
             <td>${esc(c.fabricante || '-')}</td>
-            <td class="n" title="HTTP ${esc(c.porta_http || '')} - midia ${esc(c.porta || '')}">${esc(c.porta_http || '-')}</td>
+            <td class="n" title="porta de gerencia, que o gravador usa para falar com a camera - a web da camera e ${esc(c.porta_http || '80')}">${esc(c.porta_add || c.porta_http || '-')}</td>
             <td class="n fraco">${esc(c.mac || '-')}</td>
             <td>${c.no_gravador ? '<em class="rec-tag">ja no gravador</em>'
               : (c.inicializada ? '<em class="rec-tag novo">livre</em>'
@@ -4873,14 +4897,28 @@ async function recBuscarCameras(aoEscolher) {
     }));
   };
 
+  // Qual caminho o servidor acabou usando -- com "auto" quem decide e ele.
+  const usada = dados.origem === 'gravador' ? 'intelbras'
+    : (dados.marca === 'hikvision' ? 'hikvision' : 'outros');
+  const recados = [];
+  if (dados.aviso) recados.push(`<p class="rec-recado">${esc(dados.aviso)}</p>`);
+  if (dados.sem_senha) {
+    recados.push(`<p class="rec-dica">${esc(dados.sem_senha)} equipamento(s) responderam mas recusaram esta senha.</p>`);
+  }
+  const sub = dados.origem === 'rede'
+    ? `Procurei endereco por endereco na rede do site (${esc(dados.enderecos_testados || 0)} testados).`
+    : `Quem procura e o gravador ${esc(d.host)}, que esta na mesma rede das cameras.`;
+
   tampa.innerHTML = moldura(`
+    ${seletorCam(usada)}
+    ${recados.join('')}
     <div class="rec-busca-linha">
       <input id="recCamBusca" class="rec-busca" placeholder="Buscar por IP, modelo, fabricante ou MAC" autocomplete="off">
       <label class="rec-check"><input type="checkbox" id="recCamSoNovas" checked> So as que faltam</label>
     </div>
     <p class="rec-dica">${esc(_recCamerasAchadas.length)} na rede - ${esc(novas)} fora do gravador</p>
     <div id="recCamLista" class="rec-lista rec-lista-alta"></div>`,
-    '<button class="acao" type="button" data-rec-fechar>Fechar</button>');
+    '<button class="acao" type="button" data-rec-fechar>Fechar</button>', sub);
 
   const campo = document.getElementById('recCamBusca');
   const soNovas = document.getElementById('recCamSoNovas');
@@ -4888,15 +4926,24 @@ async function recBuscarCameras(aoEscolher) {
   if (campo) campo.addEventListener('input', repintar);
   if (soNovas) soNovas.addEventListener('change', repintar);
   ligarFechar();
+  ligarMarcasCam(usada);
   repintar();
   if (campo) campo.focus();
 }
 
 async function recBuscarGravadores() {
-  // Cadastrar um gravador exigia saber o IP de cor. Quem sabe os IPs da rede do
-  // cliente e um gravador que ja esta nela: o backend escolhe um cadastrado
-  // deste conector e pede a varredura a ele, filtrando por classe de
-  // equipamento (NVR/DVR) -- camera nao aparece aqui.
+  // Cadastrar um gravador exigia saber o IP de cor. Quem conhece os IPs da rede
+  // do cliente ja esta nela -- mas o CAMINHO depende da marca, e por isso a
+  // marca e escolhida aqui em vez de adivinhada:
+  //
+  //   Intelbras/Dahua  o proprio gravador varre e entrega modelo, serial,
+  //                    canais e firmware de uma vez.
+  //   Hikvision        nao lista gravador vizinho: o InputProxy/search so
+  //                    devolve o que pode virar canal, ou seja camera. Medido
+  //                    na TELHA: o DS-7632NXI devolveu as 7 cameras e NAO
+  //                    devolveu o DS-7616NI do IP ao lado. Entao a busca passa
+  //                    a ser pela tabela ARP do roteador do site.
+  //   Outros           mesma varredura pela rede, testando os dois protocolos.
   const p = deployStandaloneRecorderPayload();
   const tampa = document.getElementById('recTampa') || (() => {
     const el = document.createElement('div');
@@ -4916,34 +4963,23 @@ async function recBuscarGravadores() {
     </div></div>`;
   const ligarFechar = () => {
     tampa.querySelectorAll('[data-rec-fechar]').forEach(b => b.addEventListener('click', fechar));
-    tampa.querySelector('.rec-tampa')?.addEventListener('click', ev => {
-      if (ev.target === ev.currentTarget) fechar();
-    });
   };
 
-  tampa.innerHTML = moldura(
-    '<p class="rec-vazio">Pedindo a varredura a um gravador deste conector... leva alguns segundos.</p>',
-    '<button class="acao" type="button" data-rec-fechar>Cancelar</button>');
-  ligarFechar();
-
-  let dados;
-  try {
-    const res = await api('/api/deployments/buscar-gravadores', {
-      method: 'POST',
-      body: JSON.stringify({ connector_id: p.connector_id || '', site: p.site || '' }),
-    });
-    dados = await res?.json().catch(() => ({}));
-    if (!res?.ok || dados?.ok === false) throw new Error(dados?.detail || 'nao consegui varrer a rede');
-  } catch (err) {
-    tampa.innerHTML = moldura(
-      `<p class="rec-vazio">${esc(err?.message || err)}</p>`,
-      '<button class="acao" type="button" data-rec-fechar>Fechar</button>', 'Nao deu');
-    ligarFechar();
-    return;
-  }
-
-  const lista = Array.isArray(dados.gravadores) ? dados.gravadores : [];
-  const novos = lista.filter(g => !g.cadastrado && !g.ele_mesmo).length;
+  const MARCAS = [
+    { id: 'intelbras', rotulo: 'Intelbras/Dahua' },
+    { id: 'hikvision', rotulo: 'Hikvision' },
+    { id: 'outros', rotulo: 'Outros' },
+  ];
+  const seletor = (atual) => `<div class="rec-marcas" role="group" aria-label="Marca do gravador">
+    <span class="rec-marcas-rot">Procurar</span>
+    ${MARCAS.map(m => `<button type="button" class="rec-marca${m.id === atual ? ' on' : ''}"
+      data-rec-marca="${m.id}" aria-pressed="${m.id === atual}">${esc(m.rotulo)}</button>`).join('')}
+  </div>`;
+  const ligarMarcas = (atual) => {
+    tampa.querySelectorAll('[data-rec-marca]').forEach(b => b.addEventListener('click', () => {
+      if (b.dataset.recMarca !== atual) rodar(b.dataset.recMarca);
+    }));
+  };
 
   const colunas = [
     { campo: 'ip', rotulo: 'IP' }, { campo: 'modelo', rotulo: 'Modelo' },
@@ -4951,73 +4987,124 @@ async function recBuscarGravadores() {
     { campo: 'porta_http', rotulo: 'Porta' }, { campo: 'mac', rotulo: 'MAC' },
     { campo: 'cadastrado', rotulo: 'Estado' },
   ];
-  const ord = { campo: 'ip', desc: false };
 
-  const desenhar = (filtro, soNovos) => {
-    const alvo = String(filtro || '').trim().toLowerCase();
-    let vistos = lista.filter(g =>
-      (!soNovos || (!g.cadastrado && !g.ele_mesmo))
-      && (!alvo || [g.ip, g.modelo, g.fabricante, g.mac, g.serial]
-        .some(v => String(v || '').toLowerCase().includes(alvo))));
-    vistos = _recOrdenar(vistos, ord.campo, ord.desc);
-    const el = document.getElementById('recGravLista');
-    if (!el) return;
-    el.innerHTML = vistos.length
-      ? `<table class="rec-tabela">${_recCabecalhoOrd(colunas, ord)}<tbody>${vistos.map(g => `
-          <tr data-rec-grav="${esc(g.ip)}">
-            <td class="n">${esc(g.ip)}</td>
-            <td><b>${esc(g.modelo || '-')}</b></td>
-            <td>${esc(g.fabricante || '-')}</td>
-            <td class="n" title="HTTP ${esc(g.porta_http || '')} - midia ${esc(g.porta || '')}">${esc(g.porta_http || '-')}</td>
-            <td class="n fraco">${esc(g.mac || '-')}</td>
-            <td>${g.ele_mesmo ? '<em class="rec-tag">quem varreu</em>'
-              : (g.cadastrado ? '<em class="rec-tag">ja cadastrado</em>'
-                              : '<em class="rec-tag novo">novo</em>')}</td>
-          </tr>`).join('')}</tbody></table>`
-      : `<p class="rec-vazio">Nenhum gravador com "${esc(filtro)}".</p>`;
-    el.querySelectorAll('[data-rec-ord]').forEach(th => th.addEventListener('click', () => {
-      const campo = th.dataset.recOrd;
-      // Mesma coluna inverte; coluna nova comeca crescente.
-      if (ord.campo === campo) ord.desc = !ord.desc;
-      else { ord.campo = campo; ord.desc = false; }
-      desenhar(filtro, soNovos);
-    }));
-    el.querySelectorAll('[data-rec-grav]').forEach(b => b.addEventListener('click', () => {
-      const g = lista.find(x => x.ip === b.dataset.recGrav);
-      if (!g) return;
-      fechar();
-      const host = document.getElementById('deployStandaloneRecorderHost');
-      const porta = document.getElementById('deployStandaloneRecorderPort');
-      const nome = document.getElementById('deployStandaloneRecorderName');
-      if (host) host.value = g.ip;
-      if (porta && g.porta_http) porta.value = g.porta_http;
-      if (nome && !nome.value && g.modelo) nome.value = g.modelo;
-      const senha = document.getElementById('deployStandaloneRecorderPassword');
-      if (senha) senha.focus();
-      showToast(`${g.ip} - ${g.modelo || 'gravador'}. Informe a senha e valide.`);
-    }));
-  };
+  async function rodar(marca) {
+    tampa.innerHTML = moldura(
+      `${seletor(marca === 'auto' ? '' : marca)}
+       <p class="rec-vazio">${marca === 'intelbras' || marca === 'auto'
+        ? 'Pedindo a varredura a um gravador deste conector... leva alguns segundos.'
+        : 'Perguntando endereco por endereco na rede do site... leva ate um minuto.'}</p>`,
+      '<button class="acao" type="button" data-rec-fechar>Cancelar</button>');
+    ligarFechar();
+    ligarMarcas(marca);
 
-  tampa.innerHTML = moldura(`
-    <div class="rec-busca-linha">
-      <input id="recGravBusca" class="rec-busca" placeholder="Buscar por IP, modelo, fabricante ou MAC" autocomplete="off">
-      <label class="rec-check"><input type="checkbox" id="recGravSoNovos" checked> So os que faltam</label>
-    </div>
-    <p class="rec-dica">${esc(lista.length)} na rede - ${esc(novos)} fora do inventario</p>
-    <div id="recGravLista" class="rec-lista rec-lista-alta"></div>`,
-    '<button class="acao" type="button" data-rec-fechar>Fechar</button>',
-    `Quem procurou foi o gravador ${dados.varrido_por || ''}, que esta na mesma rede.`);
+    let dados;
+    try {
+      const res = await api('/api/deployments/buscar-gravadores', {
+        method: 'POST',
+        body: JSON.stringify({ connector_id: p.connector_id || '', site: p.site || '', marca }),
+      });
+      dados = await res?.json().catch(() => ({}));
+      if (!res?.ok || dados?.ok === false) throw new Error(dados?.detail || 'nao consegui varrer a rede');
+    } catch (err) {
+      tampa.innerHTML = moldura(
+        `${seletor(marca === 'auto' ? '' : marca)}
+         <p class="rec-vazio">${esc(err?.message || err)}</p>`,
+        '<button class="acao" type="button" data-rec-fechar>Fechar</button>', 'Nao deu');
+      ligarFechar();
+      ligarMarcas(marca);
+      return;
+    }
 
-  const campo = document.getElementById('recGravBusca');
-  const soNovos = document.getElementById('recGravSoNovos');
-  const repintar = () => desenhar(campo && campo.value, !!(soNovos && soNovos.checked));
-  if (campo) campo.addEventListener('input', repintar);
-  if (soNovos) soNovos.addEventListener('change', repintar);
-  ligarFechar();
-  repintar();
-  if (campo) campo.focus();
+    // Qual caminho o servidor acabou usando -- com "auto" quem decide e ele.
+    const usada = dados.origem === 'gravador' ? 'intelbras'
+      : (dados.marca === 'hikvision' ? 'hikvision' : 'outros');
+    const lista = Array.isArray(dados.gravadores) ? dados.gravadores : [];
+    const novos = lista.filter(g => !g.cadastrado && !g.ele_mesmo).length;
+    const ord = { campo: 'ip', desc: false };
+
+    const desenhar = (filtro, soNovos) => {
+      const alvo = String(filtro || '').trim().toLowerCase();
+      let vistos = lista.filter(g =>
+        (!soNovos || (!g.cadastrado && !g.ele_mesmo))
+        && (!alvo || [g.ip, g.modelo, g.fabricante, g.mac, g.serial]
+          .some(v => String(v || '').toLowerCase().includes(alvo))));
+      vistos = _recOrdenar(vistos, ord.campo, ord.desc);
+      const el = document.getElementById('recGravLista');
+      if (!el) return;
+      el.innerHTML = vistos.length
+        ? `<table class="rec-tabela">${_recCabecalhoOrd(colunas, ord)}<tbody>${vistos.map(g => `
+            <tr data-rec-grav="${esc(g.ip)}">
+              <td class="n">${esc(g.ip)}</td>
+              <td><b>${esc(g.modelo || '-')}</b></td>
+              <td>${esc(g.fabricante || '-')}</td>
+              <td class="n" title="HTTP ${esc(g.porta_http || '')} - midia ${esc(g.porta || '')}">${esc(g.porta_http || '-')}</td>
+              <td class="n fraco">${esc(g.mac || '-')}</td>
+              <td>${g.ele_mesmo ? '<em class="rec-tag">quem varreu</em>'
+                : (g.cadastrado ? '<em class="rec-tag">ja cadastrado</em>'
+                                : '<em class="rec-tag novo">novo</em>')}</td>
+            </tr>`).join('')}</tbody></table>`
+        : `<p class="rec-vazio">Nenhum gravador${alvo ? ` com "${esc(filtro)}"` : ' nesta busca'}.</p>`;
+      el.querySelectorAll('[data-rec-ord]').forEach(th => th.addEventListener('click', () => {
+        const campo = th.dataset.recOrd;
+        // Mesma coluna inverte; coluna nova comeca crescente.
+        if (ord.campo === campo) ord.desc = !ord.desc;
+        else { ord.campo = campo; ord.desc = false; }
+        desenhar(filtro, soNovos);
+      }));
+      el.querySelectorAll('[data-rec-grav]').forEach(b => b.addEventListener('click', () => {
+        const g = lista.find(x => x.ip === b.dataset.recGrav);
+        if (!g) return;
+        fechar();
+        const host = document.getElementById('deployStandaloneRecorderHost');
+        const porta = document.getElementById('deployStandaloneRecorderPort');
+        const nome = document.getElementById('deployStandaloneRecorderName');
+        if (host) host.value = g.ip;
+        if (porta && g.porta_http) porta.value = g.porta_http;
+        if (nome && !nome.value && g.modelo) nome.value = g.modelo;
+        const senha = document.getElementById('deployStandaloneRecorderPassword');
+        if (senha) senha.focus();
+        showToast(`${g.ip} - ${g.modelo || 'gravador'}. Informe a senha e valide.`);
+      }));
+    };
+
+    // O aviso do servidor era engolido: a tela mostrava "0 na rede" e deixava o
+    // usuario achando que nao existe gravador nenhum.
+    const recados = [];
+    if (dados.aviso) recados.push(`<p class="rec-recado">${esc(dados.aviso)}</p>`);
+    if (dados.sem_senha) {
+      recados.push(`<p class="rec-dica">${esc(dados.sem_senha)} equipamento(s) responderam mas recusaram esta senha -- `
+        + 'se o gravador que voce procura esta entre eles, cadastre pelo IP.</p>');
+    }
+
+    const sub = dados.origem === 'rede'
+      ? `Procurei endereco por endereco na rede do site (${esc(dados.enderecos_testados || 0)} testados).`
+      : `Quem procurou foi o gravador ${esc(dados.varrido_por || '')}, que esta na mesma rede.`;
+
+    tampa.innerHTML = moldura(`
+      ${seletor(usada)}
+      ${recados.join('')}
+      <div class="rec-busca-linha">
+        <input id="recGravBusca" class="rec-busca" placeholder="Buscar por IP, modelo, fabricante ou MAC" autocomplete="off">
+        <label class="rec-check"><input type="checkbox" id="recGravSoNovos" checked> So os que faltam</label>
+      </div>
+      <p class="rec-dica">${esc(lista.length)} na rede - ${esc(novos)} fora do inventario</p>
+      <div id="recGravLista" class="rec-lista rec-lista-alta"></div>`,
+      '<button class="acao" type="button" data-rec-fechar>Fechar</button>', sub);
+
+    const campo = document.getElementById('recGravBusca');
+    const soNovos = document.getElementById('recGravSoNovos');
+    const repintar = () => desenhar(campo && campo.value, !!(soNovos && soNovos.checked));
+    if (campo) campo.addEventListener('input', repintar);
+    if (soNovos) soNovos.addEventListener('change', repintar);
+    ligarFechar();
+    ligarMarcas(usada);
+    repintar();
+    if (campo) campo.focus();
+  }
+
+  await rodar('auto');
 }
-
 function recAbrirEdicao(acao, canal) {
   const d = _deployRecorderXray;
   if (!d) return;

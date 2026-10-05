@@ -793,8 +793,18 @@ function openRecPanelLive() {
 }
 
 async function startRecPanelLive() {
+  // Este painel e de um CANAL DE GRAVADOR, entao o video vem do gravador, nao
+  // da camera. Antes ele tentava falar direto com a camera pelo RTSP dela, o
+  // que exigia acertar duas coisas por marca: o caminho (a UNV nao atende o
+  // /cam/realmonitor da Dahua) e a senha da propria camera. Na ESCOLA MEDEA as
+  // UNV respondiam 401 e a tela dizia "mse: stream not found".
+  //
+  // Pelo gravador nao ha isso: ele ja autentica e decodifica a camera, e a
+  // senha dele o servidor ja guarda.
   const ip = _recActive?.camera_ip;
-  if (!ip) return;
+  const host = _recActive?.host || _recActive?.ip;
+  const canal = Number(_recActive?.channel || 0);
+  if (!host || canal <= 0) return;
   const user = document.getElementById('rpLiveUser')?.value.trim() || 'admin';
   const pass = document.getElementById('rpLivePass')?.value || '';
   if (pass && typeof _camLiveCredSave === 'function') _camLiveCredSave(user, pass);
@@ -810,8 +820,25 @@ async function startRecPanelLive() {
   video.srcObject = null;
   video.classList.remove('hidden');
   const hint = (typeof cameraStreamHint === 'function') ? cameraStreamHint(ip, _recActive) : { vendor: '', model: '' };
+  const alvoGravador = {
+    recorder_host: host,
+    canal,
+    http_port: _recActive?.http_port || '',
+    connector_id: _recActive?.remote_connector_id || _recActive?.connector_id || '',
+    marca: _recActive?.nvr_model || _recActive?.modelo || '',
+    alta: 0,
+  };
   _rpLiveHandle = mountLiveStream(video, {
-    ip, user, pass, subtype: 1, vendor: hint.vendor, model: hint.model,
+    ip: host, user, pass, subtype: 1, vendor: hint.vendor, model: hint.model,
+    registrar: async () => {
+      const res = await api('/api/deployments/recorder-live-stream', {
+        method: 'POST', body: JSON.stringify(alvoGravador),
+      });
+      const d = await res?.json().catch(() => ({}));
+      if (res?.status === 428) throw new Error('Este gravador nao tem senha guardada. Entre nele uma vez em Implantacao > Gravadores.');
+      if (!res?.ok || !d?.stream_name) throw new Error(d?.detail || 'nao consegui preparar o video deste canal');
+      return d.stream_name;
+    },
     onStatus: (texto) => {
       if (texto === 'credential_required') {
         status.classList.add('hidden');
