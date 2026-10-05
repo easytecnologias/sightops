@@ -18,6 +18,14 @@ roda em bridge e nao enxerga as interfaces `wgc<N>` do host. Provado em
 2026-09-25 no conector CANAPI -- o SDK rodou dentro do `sightops-v3-api` e
 enxergou as cameras pelo IP virtual sem nenhum agente no host.
 
+ISOLAMENTO: erro dentro desta lib C nao vira excecao Python, vira **segfault**,
+e levaria junto o processo da API -- todos os clientes, nao so a ativacao. Em
+02/10/2026 isso aconteceu de verdade numa varredura do conector TELHA: o SDK
+devolveu 0x90002002 e o processo morreu com core dump. Por isso existem
+`search_devices_isolado` e `init_device_isolado`, que rodam o SDK em outro
+processo (`python -m app.services.intelbras_netsdk`). Quem chama de fora deve
+usar SEMPRE as versoes isoladas; as diretas ficam para o worker e para teste.
+
 A lib nao vem no repo (50MB+). O Dockerfile copia de `deploy/netsdk/` para
 `NETSDK_LIB_DIR`; sem ela o modulo carrega normalmente e `available()` devolve
 False -- a tela avisa em vez de quebrar.
@@ -26,7 +34,10 @@ False -- a tela avisa em vez de quebrar.
 from __future__ import annotations
 
 import ctypes
+import json
 import os
+import subprocess
+import sys
 import threading
 import time
 from ctypes import (
@@ -301,3 +312,55 @@ def init_device(
         if not ok:
             return {"ok": False, "error": f"CLIENT_InitDevAccountByIP falhou ({_last_error(lib)})"}
         return {"ok": True, "ip": ip, "mac": mac_n, "username": _text(username) or "admin"}
+
+
+# --------------------------------------------------------------- isolamento
+def _em_subprocesso(pedido: Dict[str, Any], timeout: float) -> Dict[str, Any]:
+    """Roda uma acao do SDK em outro processo.
+
+    O SDK escreve em stdout por conta propria ("loop[2] find 2 mac..."), entao a
+    resposta vai na ULTIMA linha e a leitura e de tras para frente.
+    """
+    try:
+        r = subprocess.run(
+            [sys.executable, "-m", "app.services.intelbras_netsdk"],
+            input=json.dumps(pedido), capture_output=True, text=True,
+            timeout=timeout, cwd="/app",
+        )
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "error": "a operacao passou do tempo e foi cancelada"}
+    for linha in reversed((r.stdout or "").strip().splitlines()):
+        try:
+            return json.loads(linha)
+        except Exception:
+            continue
+    if r.returncode and r.returncode < 0:
+        # Negativo = morreu por sinal. E o caso que este isolamento existe para
+        # conter: antes, isso derrubava a API inteira.
+        return {"ok": False,
+                "error": f"o SDK da Intelbras quebrou (sinal {-r.returncode}) -- "
+                         "nada foi alterado no equipamento"}
+    return {"ok": False, "error": (r.stderr or "o SDK nao respondeu nada").strip()[:300]}
+
+
+def search_devices_isolado(ips: List[str], wait_ms: int = 6000) -> Dict[str, Any]:
+    return _em_subprocesso({"acao": "search", "ips": list(ips), "wait_ms": wait_ms},
+                           timeout=max(30.0, wait_ms / 1000.0 + 25.0))
+
+
+def init_device_isolado(**kwargs: Any) -> Dict[str, Any]:
+    return _em_subprocesso({"acao": "init", **kwargs}, timeout=90.0)
+
+
+if __name__ == "__main__":
+    try:
+        pedido = json.loads(sys.stdin.read() or "{}")
+        if str(pedido.get("acao")) == "search":
+            resposta = search_devices(pedido.get("ips") or [],
+                                      int(pedido.get("wait_ms") or 6000))
+        else:
+            pedido.pop("acao", None)
+            resposta = init_device(**pedido)
+    except Exception as exc:
+        resposta = {"ok": False, "error": f"falha no worker do SDK: {exc}"}
+    print(json.dumps(resposta))
