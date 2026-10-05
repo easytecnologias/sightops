@@ -301,8 +301,58 @@ def _load_jobs() -> List[Dict[str, Any]]:
     return data if isinstance(data, list) else []
 
 
+# Quanto historico de job terminado vale guardar. O conector pede trabalho a
+# cada ~10s; com 10 conectores sao ~60 leituras E escritas do arquivo inteiro
+# por minuto. Em 05/10/2026 ele tinha 12.229 jobs acumulados desde 15/09 e
+# pesava 24 MB -- cada consulta reparsava e regravava 24 MB, num disco
+# mecanico. Era a lentidao que o usuario estava sentindo.
+JOBS_HISTORICO_HORAS = 48
+JOBS_MAXIMO = 1500
+
+
+def _podar_jobs(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Tira job terminado que ja nao serve para nada.
+
+    Nunca descarta o que ainda pode andar (queued/running): so o que ja
+    terminou ha mais de JOBS_HISTORICO_HORAS, e com teto de JOBS_MAXIMO
+    guardando os mais recentes.
+    """
+    if len(rows) <= JOBS_MAXIMO:
+        corte_necessario = False
+    else:
+        corte_necessario = True
+
+    limite = time.time() - JOBS_HISTORICO_HORAS * 3600
+
+    def momento(job: Dict[str, Any]) -> float:
+        for campo in ("finished_at", "picked_at", "created_at"):
+            bruto = _text(job.get(campo))
+            if not bruto:
+                continue
+            try:
+                return datetime.fromisoformat(bruto.replace("Z", "+00:00")).timestamp()
+            except Exception:
+                continue
+        return 0.0
+
+    vivos, terminados = [], []
+    for job in rows:
+        if _text(job.get("status")) in ("queued", "running"):
+            vivos.append(job)
+        else:
+            terminados.append(job)
+
+    recentes = [j for j in terminados if momento(j) >= limite]
+    if corte_necessario or len(recentes) != len(terminados):
+        recentes.sort(key=momento)
+        sobra = max(0, JOBS_MAXIMO - len(vivos))
+        recentes = recentes[-sobra:] if sobra else []
+        return vivos + recentes
+    return rows
+
+
 def _save_jobs(rows: List[Dict[str, Any]]) -> None:
-    _write_json(CONNECTOR_JOBS_PATH, rows)
+    _write_json(CONNECTOR_JOBS_PATH, _podar_jobs(rows))
 
 
 def _mark_stale_running_jobs(jobs: List[Dict[str, Any]], timeout_seconds: int = 180) -> bool:
@@ -862,7 +912,7 @@ def poll_job(connector_id: str, token: str) -> Dict[str, Any]:
     with _lock:
         _auth_connector(connector_id, token)
         jobs = _load_jobs()
-        _mark_stale_running_jobs(jobs)
+        mudou = _mark_stale_running_jobs(jobs)
         selected = None
         now = _now()
         for job in jobs:
@@ -871,7 +921,11 @@ def poll_job(connector_id: str, token: str) -> Dict[str, Any]:
                 job["picked_at"] = now
                 selected = job
                 break
-        _save_jobs(jobs)
+        # Regravar so quando ALGO mudou. Antes salvava sempre -- e, como quase
+        # toda consulta nao tem trabalho para entregar, o arquivo inteiro era
+        # reescrito por nada, dezenas de vezes por minuto.
+        if selected is not None or mudou:
+            _save_jobs(jobs)
     return {"ok": True, "job": selected}
 
 
