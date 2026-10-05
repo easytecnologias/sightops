@@ -638,6 +638,17 @@ def _upload_imgbb_for_dvr_rows(rows: List[Dict[str, Any]]) -> tuple[List[Dict[st
     return rows, changed, err_msg
 
 
+def _agora_iso() -> str:
+    """Quando a leitura foi feita. Sem isso o status nao tem idade.
+
+    `status_efetivo` so consegue dizer "sem leitura recente" se a linha contar
+    QUANDO foi medida. Ate 05/10/2026 a linha de gravador guardava so o status,
+    entao um "online" podia ser de minutos ou de meses atras e ninguem tinha
+    como saber -- a tela repetia com a mesma confianca nos dois casos.
+    """
+    from datetime import datetime, timezone
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
 @router.get("/imgbb/progress")
 def api_dvr_imgbb_progress() -> Dict[str, Any]:
     st = _imgbb_progress_get()
@@ -1540,6 +1551,7 @@ def _api_dvr_scan_impl(req: DVRScanRequest) -> Dict[str, Any]:
                 "title": title,
                 "local": row_local,
                 "status": status,
+                "status_checked_at": _agora_iso(),
                 "video_loss": (ch in video_loss),
                 "snapshot_dark": bool(snap_dark),
                 "snapshot_url": snap_url,
@@ -1631,6 +1643,7 @@ def api_dvr_snapshot_update(req: DVRSnapshotUpdateRequest) -> Dict[str, Any]:
         "equip_serial": meta.get("equip_serial") or "",
         "title": title,
         "status": status,
+        "status_checked_at": _agora_iso(),
         "video_loss": (ch in video_loss),
         "snapshot_dark": bool(snap_dark),
         "snapshot_url": snap_url,
