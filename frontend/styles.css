@@ -10616,115 +10616,127 @@ table.recorder-tabela tbody tr:hover { background: var(--surface-soft); }
 }
 
 
-/* === CFTV: densidade e hierarquia (#deployForm) ======================
-   A etapa 2 tinha nove controles de 46px empilhados em coluna unica, todos
-   com o mesmo peso visual, intercalados por tres caixas cinzas de instrucao
-   do tamanho de um campo. Nada disso estava errado isoladamente; somado,
-   obrigava a rolar e a ler tudo para achar os dois campos que importam.
+/* === CFTV com a lingua do console de gravador (#deployForm) ==========
+   O console de gravador (redesenho aprovado em 01/10/2026) ja resolveu este
+   mesmo problema: equipamento no topo como CONTEXTO, secoes a esquerda,
+   conteudo em .bloco. A tela CFTV seguia o vocabulario antigo -- acordeao
+   empilhado, campos de 46px, caixas cinzas -- e por isso destoava do resto.
 
-   Escopado em #deployForm de proposito: estas mesmas classes servem a tela
-   de gravador avulso (#deployStandaloneRecorderForm), que tem ritmo proprio
-   e ja define as larguras dela.
+   Aqui nao se inventa desenho novo: repete-se aquele, com os mesmos valores
+   (12px de raio, 13.5px no titulo de bloco, 12.5px no apoio, 9px no pino),
+   para que as duas telas sejam reconhecidamente o mesmo produto.
    ==================================================================== */
 
-#deployForm .onu-step-body { gap: 10px; }
+#deployForm { padding: 14px; display: grid; gap: 13px; }
+
+/* --- barra de contexto: era a etapa 1 ------------------------------- */
+#deployForm .barra {
+  display: flex; align-items: flex-end; gap: 14px; flex-wrap: wrap;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 12px; padding: 11px 15px;
+}
+#deployForm .cftv-ctx { display: grid; gap: 4px; min-width: 0; flex: 0 1 210px; }
+#deployForm .cftv-ctx label { font-size: 11px; color: var(--muted); font-weight: 500; }
+#deployForm .cftv-ctx .op { font-weight: 400; }
+#deployForm .barra-dir {
+  margin-left: auto; flex: 1 1 240px; min-width: 0;
+  display: flex; justify-content: flex-end; align-items: center;
+}
+#deployForm .barra-dir .deploy-result-box { text-align: right; }
+
+/* --- etapas a esquerda ---------------------------------------------- */
+#deployForm .corpo { display: grid; gap: 13px; grid-template-columns: 1fr; }
+@media (min-width: 980px) { #deployForm .corpo { grid-template-columns: 172px minmax(0, 1fr); } }
+#deployForm .cftv-nav { display: flex; gap: 4px; overflow-x: auto; padding-bottom: 2px; }
+@media (min-width: 980px) {
+  #deployForm .cftv-nav { flex-direction: column; overflow: visible; position: sticky; top: 12px; align-self: start; }
+}
+#deployForm .cftv-nav button {
+  display: flex; align-items: center; gap: 9px; width: 100%; text-align: left;
+  border: 1px solid transparent; background: transparent; color: var(--muted);
+  border-radius: 9px; padding: 8px 11px; font: inherit; font-size: 13px;
+  cursor: pointer; white-space: nowrap;
+}
+#deployForm .cftv-nav button:hover { background: var(--surface-soft); color: var(--text); }
+#deployForm .cftv-nav button[aria-current="true"] {
+  background: var(--surface); border-color: var(--border); color: var(--text); font-weight: 600;
+}
+#deployForm .cftv-nav .pino { width: 3px; height: 14px; border-radius: 2px; background: transparent; flex: 0 0 auto; }
+#deployForm .cftv-nav button[aria-current="true"] .pino { background: var(--primary); }
+#deployForm .cftv-nav .conta { margin-left: auto; font-size: 11px; font-weight: 600; color: var(--muted); }
+#deployForm .cftv-nav button[aria-current="true"] .conta { color: var(--primary); }
+/* Etapa travada continua legivel: botao apagado nao explica o que falta. */
+#deployForm .cftv-nav button.onu-step-locked { opacity: .55; cursor: not-allowed; }
+#deployForm .conteudo { min-width: 0; display: grid; gap: 13px; }
+
+/* --- blocos ---------------------------------------------------------- */
+#deployForm .bloco { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; }
+#deployForm .bloco-cab {
+  display: flex; align-items: center; gap: 11px; flex-wrap: wrap;
+  padding: 11px 15px; border-bottom: 1px solid var(--border);
+}
+#deployForm .bloco-cab h2 { margin: 0; font-size: 13.5px; font-weight: 600; }
+#deployForm .bloco-cab h2 .op { font-weight: 400; font-size: 12px; color: var(--muted); }
+#deployForm .bloco-cab p { margin: 1px 0 0; font-size: 12px; color: var(--muted); }
+#deployForm .onu-step-body { padding: 14px 15px; display: grid; gap: 13px; border-top: 0; }
+
+/* --- grupos dentro do bloco ------------------------------------------ */
+#deployForm .cftv-grupo { display: grid; gap: 9px; min-width: 0; }
+#deployForm .cftv-grupo + .cftv-grupo { margin-top: 3px; padding-top: 13px; border-top: 1px solid var(--border); }
+#deployForm .cftv-grupo-tit {
+  font-size: 10.5px; font-weight: 600; letter-spacing: .05em;
+  text-transform: uppercase; color: var(--muted);
+}
+
+/* --- controles: 34px, a densidade do console ------------------------- */
 #deployForm .form-group { gap: 4px; }
-#deployForm label { font-size: 12px; }
+#deployForm label { font-size: 11.5px; color: var(--muted); }
+#deployForm input, #deployForm select {
+  height: 34px; padding: 0 10px; font-size: 13px;
+  border: 1px solid var(--border); border-radius: 8px;
+}
+#deployForm input:focus, #deployForm select:focus { outline: 2px solid var(--primary); outline-offset: -1px; }
+#deployForm .primary-action, #deployForm .secondary-action {
+  height: 34px; min-height: 34px; padding: 0 12px; border-radius: 8px;
+  font-size: 12.5px; box-sizing: border-box; justify-content: center;
+  white-space: nowrap; width: 100%;
+}
+#deployForm .deployment-actions .primary-action,
+#deployForm .deployment-actions .secondary-action { width: auto; min-width: 160px; }
 
-/* 46px e altura de botao, nao de campo de texto. */
-#deployForm input,
-#deployForm select {
-  height: 38px;
-  padding: 8px 10px;
-  font-size: 13px;
-}
-#deployForm .deploy-camera-mac-row .secondary-action,
-#deployForm .deploy-camera-login-row .primary-action,
-#deployForm .deploy-camera-title-ip-row .secondary-action,
-#deployForm .deploy-camera-save-row .secondary-action,
-#deployForm .deploy-recorder-login-row .primary-action {
-  height: 38px;
-  min-height: 38px;
-  font-size: 13px;
-  width: 100%;
-  box-sizing: border-box;
-  justify-content: center;
-  white-space: nowrap;
-}
+/* Largura de campo proporcional ao que cabe dentro: um MAC tem 17
+   caracteres e ocupava a linha inteira. */
+#deployForm .deploy-camera-mac-row { grid-template-columns: minmax(0, 300px) 140px; justify-content: start; }
+#deployForm .deploy-camera-login-row { grid-template-columns: minmax(0, 180px) minmax(0, 210px) 120px; justify-content: start; align-items: start; }
+#deployForm .deploy-camera-title-ip-row { grid-template-columns: minmax(0, 1fr) minmax(0, 180px) 150px; }
+#deployForm .deploy-camera-save-row { grid-template-columns: minmax(0, 1fr) 170px; }
+#deployForm .deploy-recorder-login-row { grid-template-columns: minmax(0, 170px) minmax(0, 190px) 120px; }
+#deployForm .deploy-recorder-add-row .primary-action { width: auto; min-width: 180px; }
 
-/* Largura de campo e promessa do que se espera dentro dele. Um MAC tem 17
-   caracteres e ocupava 730px; um IP tem 15. Campo largo demais promete texto
-   longo e ainda espalha a tela na horizontal a toa. */
-#deployForm .deploy-camera-mac-row {
-  grid-template-columns: minmax(0, 320px) 150px;
-  justify-content: start;
-}
-#deployForm .deploy-camera-login-row {
-  grid-template-columns: minmax(0, 190px) minmax(0, 220px) 130px;
-  justify-content: start;
-  align-items: start;
-}
-#deployForm .deploy-camera-title-ip-row {
-  grid-template-columns: minmax(0, 1fr) minmax(0, 190px) 170px;
-}
-#deployForm .deploy-camera-save-row {
-  grid-template-columns: minmax(0, 1fr) 190px;
-}
-
-/* Instrucao nao e resultado. Essas caixas passam 90% do tempo mostrando um
-   texto de ajuda que so vale antes do clique, com o mesmo peso de um campo.
-   Viram nota discreta; quando ha algo a ANUNCIAR -- um erro, ou a lista de
-   candidatos clicaveis do MAC -- a caixa volta com fundo e borda. */
+/* --- recados: instrucao nao e resultado ------------------------------ */
 #deployForm .deploy-result-box {
-  min-height: 0;
-  padding: 2px 0 2px 10px;
-  border: 0;
-  border-left: 2px solid var(--border);
-  border-radius: 0;
-  background: none;
-  font-size: 12px;
+  min-height: 0; padding: 0; border: 0; border-radius: 0; background: none;
+  font-size: 12px; color: var(--muted);
 }
+#deployForm .conteudo .deploy-result-box { padding-left: 10px; border-left: 2px solid var(--border); }
 #deployForm .deploy-result-box.error,
 #deployForm .deploy-result-box:has(.deploy-match) {
-  padding: 10px 12px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--surface-soft);
-  font-size: 13px;
+  padding: 9px 12px; border: 1px solid var(--border); border-radius: 8px;
+  background: var(--surface-soft); font-size: 12.5px; text-align: left;
 }
-#deployForm .deploy-result-box.error {
-  border-color: #fecaca;
-  background: var(--danger-soft);
-  color: var(--danger);
-}
+#deployForm .deploy-result-box.error { border-color: #f3c6c6; background: var(--danger-soft); color: var(--danger); }
 
-/* Agrupamento por PROXIMIDADE, nao por caixa: a etapa ja e um cartao, e
-   cartao dentro de cartao e exatamente o que deixa a tela pesada. Um rotulo
-   pequeno e um fio bastam para o olho separar os blocos. */
-#deployForm .cftv-grupo {
-  display: grid;
-  gap: 10px;
-  min-width: 0;
-}
-#deployForm .cftv-grupo + .cftv-grupo {
-  margin-top: 4px;
-  padding-top: 14px;
-  border-top: 1px solid var(--border);
-}
-#deployForm .cftv-grupo-tit {
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: .06em;
-  text-transform: uppercase;
-  color: var(--muted);
+#deployForm .deployment-actions {
+  display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap;
+  padding: 0; border-top: 0;
 }
 
 @media (max-width: 860px) {
   #deployForm .deploy-camera-mac-row,
   #deployForm .deploy-camera-login-row,
   #deployForm .deploy-camera-title-ip-row,
-  #deployForm .deploy-camera-save-row {
-    grid-template-columns: 1fr;
-    justify-content: stretch;
-  }
+  #deployForm .deploy-camera-save-row,
+  #deployForm .deploy-recorder-login-row { grid-template-columns: 1fr; justify-content: stretch; }
+  #deployForm .barra-dir { justify-content: flex-start; }
+  #deployForm .barra-dir .deploy-result-box { text-align: left; }
 }

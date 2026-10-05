@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=1791000119">
+  <link rel="stylesheet" href="styles.css?v=1791000120">
 </head>
 <body>
 
@@ -4774,49 +4774,53 @@
 
         <div class="deployment-grid">
           <div class="panel deployment-form-panel">
-            <div class="panel-header">
-              <div><h2>Assistente tecnico</h2><p>Uma etapa por vez. No fim so precisa do titulo da camera e do IP -- o resto o sistema descobre.</p></div>
-            </div>
             <form id="deployForm" class="deployment-form">
-              <details class="onu-step" name="cftvAccordion" id="cftvStep1" open>
-                <summary>
-                  <span><span class="onu-step-title">1. Onde voce esta</span><span class="onu-step-sub">Escolha o site. O endereco de acesso e o nome do local preenchem sozinhos.</span></span>
-                </summary>
-                <div class="onu-step-body">
-                  <div class="form-row" style="grid-template-columns:1fr">
-                    <div class="form-group">
-                      <label for="deployConnector">Site onde voce esta trabalhando</label>
-                      <select id="deployConnector" class="filter-select" style="width:100%">
-                        <option value="">Escolha o site</option>
-                        <option value="__local__">Local / VPN do servidor</option>
-                      </select>
-                    </div>
-                  </div>
-                  <div class="form-row" style="grid-template-columns:1fr">
-                    <div class="form-group">
-                      <label for="deployOltContext">OLT <span style="font-weight:400;color:var(--muted)">(so se a camera for por fibra)</span></label>
-                      <select id="deployOltContext" class="filter-select" style="width:100%" disabled>
-                        <option value="">Opcional - escolha o site antes</option>
-                      </select>
-                    </div>
-                  </div>
-                  <div id="deployConnectorStatus" class="deploy-result-box error" style="padding:10px 12px;margin:0 0 12px;font-size:13px">
-                    Escolha Local/VPN do servidor ou um conector online com VPN. Os dados do CFTV ficam bloqueados ate definir a origem.
-                  </div>
-                  <div class="form-row" style="grid-template-columns:1fr">
-                    <div class="form-group">
-                      <label for="deploySite">Site / local</label>
-                      <input id="deploySite" list="deploySiteList" placeholder="Preenchido pelo site escolhido acima" disabled>
-                      <datalist id="deploySiteList"></datalist>
-                    </div>
+              <div class="barra cftv-barra">
+                <div class="cftv-ctx">
+                  <label for="deployConnector">Site</label>
+                  <select id="deployConnector" class="filter-select">
+                    <option value="">Escolha o site</option>
+                    <option value="__local__">Local / VPN do servidor</option>
+                  </select>
+                </div>
+                <div class="cftv-ctx">
+                  <label for="deploySite">Nome do local</label>
+                  <input id="deploySite" list="deploySiteList" placeholder="Vem do site escolhido" disabled>
+                  <datalist id="deploySiteList"></datalist>
+                </div>
+                <div class="cftv-ctx">
+                  <label for="deployOltContext">OLT <span class="op">(so na fibra)</span></label>
+                  <select id="deployOltContext" class="filter-select" disabled>
+                    <option value="">Opcional</option>
+                  </select>
+                </div>
+                <div class="barra-dir">
+                  <div id="deployConnectorStatus" class="deploy-result-box">Comece escolhendo o site. O resto da tela libera em seguida.</div>
+                </div>
+              </div>
+
+              <div class="corpo">
+                <nav class="cftv-nav" aria-label="Etapas">
+                  <button type="button" data-passo="cftvStep2" aria-current="true">
+                    <span class="pino" aria-hidden="true"></span>
+                    <span class="rot">A camera</span>
+                    <span class="conta">obrigatoria</span>
+                  </button>
+                  <button type="button" data-passo="cftvStep3">
+                    <span class="pino" aria-hidden="true"></span>
+                    <span class="rot">O gravador</span>
+                    <span class="conta">opcional</span>
+                  </button>
+                </nav>
+
+                <div class="conteudo">
+              <section class="bloco cftv-painel" id="cftvStep2">
+                <div class="bloco-cab">
+                  <div>
+                    <h2>A camera</h2>
+                    <p>So titulo e IP sao seus. O MAC acha o IP, e entrar na camera traz fabricante e modelo.</p>
                   </div>
                 </div>
-              </details>
-
-              <details class="onu-step" name="cftvAccordion" id="cftvStep2">
-                <summary>
-                  <span><span class="onu-step-title">2. Camera</span><span class="onu-step-sub">So titulo e IP sao seus. O MAC acha o IP, e entrar na camera traz fabricante e modelo.</span></span>
-                </summary>
                 <div class="onu-step-body">
                   <div class="cftv-grupo">
                     <span class="cftv-grupo-tit">Encontrar a camera</span>
@@ -4894,12 +4898,15 @@
                   </div>
                   </div>
                 </div>
-              </details>
+              </section>
 
-              <details class="onu-step" name="cftvAccordion" id="cftvStep3">
-                <summary>
-                  <span><span class="onu-step-title">3. Gravador</span><span class="onu-step-sub">Opcional. So se esta camera tambem vai aparecer num NVR ou DVR.</span></span>
-                </summary>
+              <section class="bloco cftv-painel" id="cftvStep3" hidden>
+                <div class="bloco-cab">
+                  <div>
+                    <h2>O gravador <span class="op">opcional</span></h2>
+                    <p>So se esta camera tambem vai aparecer num NVR ou DVR.</p>
+                  </div>
+                </div>
                 <div class="onu-step-body">
                   <div class="form-row">
                     <div class="form-group">
@@ -4961,11 +4968,13 @@
                     </button>
                   </div>
                 </div>
-              </details>
+              </section>
 
               <div class="deployment-actions">
                 <button class="secondary-action" id="btnDeploySave" type="button"><i data-lucide="save"></i> Salvar rascunho</button>
                 <button class="primary-action" id="btnDeployCommitCamera" type="submit"><i data-lucide="check-circle-2"></i> Registrar camera</button>
+              </div>
+                </div>
               </div>
             </form>
           </div>
@@ -6755,7 +6764,7 @@
   <script src="js/maintenance.js?v=146"></script>
   <script src="js/analysis.js?v=147"></script>
   <script src="js/network.js?v=1791000117"></script>
-  <script src="js/deploy.js?v=1791000118"></script>
+  <script src="js/deploy.js?v=1791000120"></script>
   <script src="js/cameraActivation.js?v=1791000111"></script>
   <script src="js/deployOlt.js?v=160"></script>
   <script src="js/connectors.js?v=1790804180"></script>

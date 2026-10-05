@@ -154,25 +154,37 @@ function deployStepState() {
   };
 }
 
-function deploySetStepState(id, { locked = false, complete = false, ready = false } = {}) {
-  const el = document.getElementById(id);
-  if (!el) return;
-  el.classList.toggle('onu-step-locked', locked);
-  el.classList.toggle('onu-step-complete', complete);
-  el.classList.toggle('onu-step-ready', ready && !locked && !complete);
-  const summary = el.querySelector(':scope > summary');
-  if (summary) {
-    summary.setAttribute('aria-disabled', locked ? 'true' : 'false');
-    summary.tabIndex = locked ? -1 : 0;
-  }
-  if (locked) el.open = false;
+function deployAbaDaEtapa(id) {
+  return document.querySelector('#deployForm .cftv-nav [data-passo="' + id + '"]');
 }
 
-function deployOpenStep(id) {
+function deploySetStepState(id, { locked = false, complete = false, ready = false } = {}) {
+  // O estado agora mora em DOIS lugares: o painel e a aba que o seleciona.
+  // A aba e o unico sinal visivel quando o painel esta escondido -- se ela
+  // nao refletisse o estado, o tecnico nao teria como saber que a etapa 3
+  // destravou sem clicar nela para descobrir.
   const el = document.getElementById(id);
-  if (!el || el.classList.contains('onu-step-locked')) return;
-  document.querySelectorAll('#deployForm .onu-step').forEach(step => {
-    step.open = step === el;
+  const aba = deployAbaDaEtapa(id);
+  [el, aba].forEach(n => {
+    if (!n) return;
+    n.classList.toggle('onu-step-locked', locked);
+    n.classList.toggle('onu-step-complete', complete);
+    n.classList.toggle('onu-step-ready', ready && !locked && !complete);
+  });
+  if (aba) aba.setAttribute('aria-disabled', locked ? 'true' : 'false');
+}
+
+function deployOpenStep(id, { forcar = false } = {}) {
+  // `forcar` existe para um caso so: quando NADA esta liberado, alguma coisa
+  // ainda precisa aparecer. Um acordeao podia ficar todo fechado; uma area de
+  // conteudo em branco seria a tela quebrada. Entao a etapa 2 aparece travada,
+  // com o recado da barra dizendo o que falta.
+  const alvo = document.getElementById(id);
+  if (!alvo) return;
+  if (!forcar && alvo.classList.contains('onu-step-locked')) return;
+  document.querySelectorAll('#deployForm .cftv-painel').forEach(p => { p.hidden = p !== alvo; });
+  document.querySelectorAll('#deployForm .cftv-nav [data-passo]').forEach(b => {
+    b.setAttribute('aria-current', b.dataset.passo === id ? 'true' : 'false');
   });
 }
 
@@ -181,11 +193,6 @@ function deployUpdateStepLocks({ autoAdvance = false } = {}) {
   const wasStep2Locked = document.getElementById('cftvStep2')?.classList.contains('onu-step-locked');
   const wasStep3Locked = document.getElementById('cftvStep3')?.classList.contains('onu-step-locked');
 
-  deploySetStepState('cftvStep1', {
-    locked: false,
-    complete: state.step1Done,
-    ready: !state.step1Done,
-  });
   deploySetStepState('cftvStep2', {
     locked: !state.step2Unlocked,
     complete: state.step2Done,
@@ -197,8 +204,14 @@ function deployUpdateStepLocks({ autoAdvance = false } = {}) {
     ready: state.step3Unlocked && !state.step3Done,
   });
 
+  // A etapa 1 saiu: virou a barra de contexto, sempre visivel. Sobrou decidir
+  // qual painel mostrar, e ha sempre um -- diferente do acordeao, que podia
+  // ficar inteiro fechado.
+  const aberto = document.querySelector('#deployForm .cftv-painel:not([hidden])');
   if (!state.step2Unlocked) {
-    deployOpenStep('cftvStep1');
+    deployOpenStep('cftvStep2', { forcar: true });
+  } else if (!aberto || aberto.classList.contains('onu-step-locked')) {
+    deployOpenStep('cftvStep2');
   } else if (autoAdvance && wasStep2Locked) {
     deployOpenStep('cftvStep2');
   } else if (autoAdvance && state.step3Unlocked && wasStep3Locked) {
@@ -222,17 +235,22 @@ function deployEnsureStepUnlocked(stepId, message) {
 }
 
 function deployBindStepGuards() {
-  ['cftvStep2', 'cftvStep3'].forEach(id => {
-    const step = document.getElementById(id);
-    const summary = step?.querySelector(':scope > summary');
-    if (!summary || summary.dataset.deployGuardBound === '1') return;
-    summary.dataset.deployGuardBound = '1';
-    summary?.addEventListener('click', (ev) => {
+  document.querySelectorAll('#deployForm .cftv-nav [data-passo]').forEach(aba => {
+    if (aba.dataset.deployGuardBound === '1') return;
+    aba.dataset.deployGuardBound = '1';
+    aba.addEventListener('click', () => {
       deployUpdateStepLocks();
-      if (step.classList.contains('onu-step-locked')) {
-        ev.preventDefault();
-        showToast(id === 'cftvStep2' ? 'Conclua a etapa 1 para liberar a camera.' : 'Conclua a etapa 2 para liberar o gravador.', true);
+      const id = aba.dataset.passo;
+      const painel = document.getElementById(id);
+      if (painel?.classList.contains('onu-step-locked')) {
+        // A etapa 1 nao existe mais como etapa, entao a recusa nao pode mais
+        // mandar "conclua a etapa 1": tem que apontar para onde a coisa esta.
+        showToast(id === 'cftvStep2'
+          ? 'Escolha o site na barra de cima para liberar a camera.'
+          : 'Preencha titulo e IP da camera para liberar o gravador.', true);
+        return;
       }
+      deployOpenStep(id);
     });
   });
 }
@@ -400,7 +418,7 @@ async function loadDeployNew() {
       return `<option value="${esc(deployConnectorKey(c))}" ${disabled}>${esc(deployConnectorLabel(c))}${suffix}</option>`;
     })
     .join('');
-  sel.innerHTML = `<option value="">Escolha a origem de acesso</option><option value="${DEPLOY_LOCAL_ORIGIN}">Local / VPN do servidor</option>${connectorOptions}`;
+  sel.innerHTML = `<option value="">Escolha o site</option><option value="${DEPLOY_LOCAL_ORIGIN}">Local / VPN do servidor</option>${connectorOptions}`;
   sel.value = '';
   deployLoadOltContextOptions(oltData);
   deploymentApplyPreferredInventoryMode();
@@ -408,7 +426,7 @@ async function loadDeployNew() {
   deploySetResult('Aguardando consulta no conector.');
   deployRenderConnectorStatus();
   deployRenderSummary();
-  deployOpenStep('cftvStep1');
+  deployOpenStep('cftvStep2', { forcar: true });
   await loadDeployHistory();
   bindAccordionExclusive('#viewDeployNew');
   deployBindStepGuards();
@@ -3359,7 +3377,7 @@ async function onuConfirmDelete() {
 
 
 async function deployLookupMac() {
-  if (!deployEnsureStepUnlocked('cftvStep2', 'Conclua a etapa 1 antes de procurar a camera.')) return;
+  if (!deployEnsureStepUnlocked('cftvStep2', 'Escolha o site na barra de cima antes de procurar a camera.')) return;
   const p = deployPayload();
   if (!p.connector_id) {
     deploySetResult('Busca por MAC exige um conector MikroTik. No modo Local, preencha o IP da camera e clique em Entrar.', true);
@@ -3417,7 +3435,7 @@ async function deployLookupMac() {
 }
 
 async function deployPullCameraInfo() {
-  if (!deployEnsureStepUnlocked('cftvStep2', 'Conclua a etapa 1 antes de entrar na camera.')) return;
+  if (!deployEnsureStepUnlocked('cftvStep2', 'Escolha o site na barra de cima antes de entrar na camera.')) return;
   // IP pra conectar vem do que foi selecionado na busca de MAC (Mikrotik),
   // ou do valor ja confirmado no campo (de um pull anterior) -- nunca de
   // digitacao manual, ja que o campo visivel fica travado.
@@ -3493,7 +3511,7 @@ function deploySetCheckIpResult(html, isError = false) {
 }
 
 async function deployCheckNewIp() {
-  if (!deployEnsureStepUnlocked('cftvStep2', 'Conclua a etapa 1 antes de checar IP.')) return;
+  if (!deployEnsureStepUnlocked('cftvStep2', 'Escolha o site na barra de cima antes de checar IP.')) return;
   const p = deployPayload();
   const newIp = document.getElementById('deployCameraIp')?.value.trim() || '';
   if (!newIp) { showToast('Informe o IP a checar.', true); return; }
@@ -3550,7 +3568,7 @@ async function deploySaveDraft() {
 }
 
 async function deploySaveCameraInventory() {
-  if (!deployEnsureStepUnlocked('cftvStep2', 'Conclua a etapa 1 antes de salvar a camera.')) return;
+  if (!deployEnsureStepUnlocked('cftvStep2', 'Escolha o site na barra de cima antes de salvar a camera.')) return;
   const payload = deployPayload();
   if (!payload.camera_title || !payload.camera_ip) {
     showToast('IP e titulo da camera sao obrigatorios para salvar no inventario.', true);
@@ -3591,7 +3609,7 @@ async function deploySaveCameraInventory() {
 }
 
 async function deployRecorderLogin() {
-  if (!deployEnsureStepUnlocked('cftvStep3', 'Conclua a etapa 2 antes de entrar no gravador.')) return;
+  if (!deployEnsureStepUnlocked('cftvStep3', 'Preencha titulo e IP da camera antes de entrar no gravador.')) return;
   const payload = deployPayload();
   if (!payload.recorder_type) {
     deploySetRecorderLoginResult('Escolha o tipo do gravador antes de entrar.', true);
@@ -3630,7 +3648,7 @@ async function deployRecorderLogin() {
 }
 
 async function deployRecorderAddCamera() {
-  if (!deployEnsureStepUnlocked('cftvStep3', 'Conclua a etapa 2 antes de adicionar no gravador.')) return;
+  if (!deployEnsureStepUnlocked('cftvStep3', 'Preencha titulo e IP da camera antes de adicionar no gravador.')) return;
   const payload = deployPayload();
   if (!payload.recorder_type || !payload.recorder_host || !payload.recorder_user || !payload.recorder_password) {
     deploySetRecorderLoginResult('Entre no gravador antes de adicionar a camera.', true);
@@ -3680,7 +3698,7 @@ async function deployRecorderAddCamera() {
 
 async function deployCommitCamera(e) {
   e?.preventDefault();
-  if (!deployEnsureStepUnlocked('cftvStep2', 'Conclua a etapa 1 antes de registrar a camera.')) return;
+  if (!deployEnsureStepUnlocked('cftvStep2', 'Escolha o site na barra de cima antes de registrar a camera.')) return;
   const payload = deployPayload();
   if (!payload.camera_title || !payload.camera_ip) {
     showToast('IP e titulo da camera sao obrigatorios.', true);
@@ -3734,7 +3752,7 @@ function deployClear() {
   deploySetRecorderLoginResult();
   deployRenderRecorderChannels();
   deployRenderSummary();
-  deployOpenStep('cftvStep1');
+  deployOpenStep('cftvStep2', { forcar: true });
 }
 
 //  Conectores SaaS 
