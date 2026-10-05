@@ -15,8 +15,8 @@ export function Login({ aoEntrar }: { aoEntrar: () => void }) {
       await entrar(usuario.trim(), senha);
       aoEntrar();
     } catch (e) {
-      // A recusa do servidor e mais util que qualquer resumo nosso; so o
-      // caso "nem chegou la" precisa de traducao.
+      // A recusa do servidor e mais util que qualquer resumo nosso; so o caso
+      // "nem chegou la" precisa de traducao.
       const m = e instanceof Error ? e.message : '';
       setErro(m && m !== 'Failed to fetch' ? m : 'Sem conexao com o servidor.');
     } finally {
@@ -28,10 +28,10 @@ export function Login({ aoEntrar }: { aoEntrar: () => void }) {
     <section className="login">
       <div className="login-card">
         <div className="login-marca">
-          <span className="brand-mark">S</span>
+          <span className="viva" />
           <div>
-            <strong>SightOps</strong>
-            <span>Rua · aplicativo do tecnico</span>
+            SightOps
+            <small>Rua &middot; aplicativo do tecnico</small>
           </div>
         </div>
 

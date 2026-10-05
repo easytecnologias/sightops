@@ -6,31 +6,24 @@ import { useEu } from './lib/dados';
 import { Shell } from './ui/Shell';
 import { Carregando } from './ui/pecas';
 import { Login } from './screens/Login';
-import { Dashboard } from './screens/Dashboard';
-import { Site } from './screens/Site';
-import { Projeto } from './screens/Projeto';
-import { ExigeSinal } from './screens/ExigeSinal';
+import { Inicio } from './screens/Inicio';
+import { Cameras } from './screens/Cameras';
+import { Implantar } from './screens/Implantar';
+import { Alertas } from './screens/Alertas';
+import { Rede } from './screens/Rede';
 
 function Dentro({ aoSair }: { aoSair: () => void }) {
   const eu = useEu();
-  const cliente = eu.data?.tenant_name || eu.data?.tenant || eu.data?.username || '';
+  const operador = eu.data?.full_name || eu.data?.username || '';
 
   return (
-    <Shell cliente={cliente} onSair={aoSair}>
+    <Shell operador={operador} onSair={aoSair}>
       <Routes>
-        <Route path="/" element={<Dashboard />} />
-        <Route path="/site" element={<Site />} />
-        <Route path="/projeto" element={<Projeto />} />
-        <Route path="/onu" element={
-          <ExigeSinal titulo="Ativar ONU" descricao="Autorizar ONU nova na PON, pela OLT." />} />
-        <Route path="/ativar" element={
-          <ExigeSinal titulo="Ativar camera" descricao="Camera de fabrica, ainda sem senha." />} />
-        <Route path="/instalar" element={
-          <ExigeSinal titulo="Instalar camera" descricao="Achar na rede, nomear e registrar." />} />
-        <Route path="/gravador" element={
-          <ExigeSinal titulo="Gravador" descricao="Canais e troca de camera de canal." />} />
-        <Route path="/camera" element={
-          <ExigeSinal titulo="Camera" descricao="Trocar IP, titulo e reiniciar." />} />
+        <Route path="/" element={<Inicio />} />
+        <Route path="/cameras" element={<Cameras />} />
+        <Route path="/implantar" element={<Implantar />} />
+        <Route path="/alertas" element={<Alertas />} />
+        <Route path="/rede" element={<Rede />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Shell>
@@ -38,9 +31,9 @@ function Dentro({ aoSair }: { aoSair: () => void }) {
 }
 
 export function App() {
-  // 'checando' existe porque ler o token e async (Preferences no nativo).
-  // Sem esse estado o app pisca a tela de login antes de descobrir que a
-  // sessao esta viva.
+  // 'checando' existe porque ler o token e assincrono (Preferences no app
+  // nativo). Sem esse estado a tela de login pisca antes de o app descobrir
+  // que a sessao ja estava viva.
   const [estado, setEstado] = useState<'checando' | 'fora' | 'dentro'>('checando');
   const qc = useQueryClient();
 
@@ -54,8 +47,8 @@ export function App() {
         });
         setEstado('dentro');
       } catch {
-        // Sem rede o /me falha mesmo com sessao boa. Se ha dado em cache, o
-        // app abre offline: e justamente para isso que o cache existe.
+        // Sem rede o /me falha mesmo com sessao boa. Havendo copia guardada o
+        // app abre offline: e exatamente para isso que o cache existe.
         const temCache = qc.getQueryData(['resumo']) || qc.getQueryData(['cameras']);
         setEstado(temCache ? 'dentro' : 'fora');
       }

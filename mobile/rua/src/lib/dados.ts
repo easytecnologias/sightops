@@ -134,3 +134,25 @@ export function useEu() {
     retry: false,
   });
 }
+
+export type ResumoAlerta = { open?: number; new?: number; latest_new_id?: string };
+
+/**
+ * Contagem de alertas abertos, para o sino da barra de baixo.
+ *
+ * O endpoint tambem devolve `duress` (coacao). Esse campo NUNCA e lido aqui e
+ * nao pode aparecer em tela nenhuma: coacao e um pedido de socorro silencioso,
+ * e mostrar que ele existe entrega quem o acionou.
+ */
+export function useAlertas() {
+  return useQuery({
+    queryKey: ['alertas'],
+    queryFn: async () => {
+      const d = await obter<ResumoAlerta>('/api/alert/summary');
+      return { open: d.open ?? 0, novos: d.new ?? 0 };
+    },
+    // O sino precisa estar certo agora, nao daqui a dois minutos.
+    staleTime: 30_000,
+    refetchInterval: 60_000,
+  });
+}

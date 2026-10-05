@@ -1,12 +1,12 @@
 import { useMemo, useState } from 'react';
 import { estadoDa, siteDa, tituloDa, useCameras, type Camera, type Estado } from '../lib/dados';
 import { useOnline } from '../lib/rede';
-import { useSite } from './Site';
-import { Badge, Carregando, Icone, Linha, PageHeading, Panel, PanelHeader, Procedencia, Vazio } from '../ui/pecas';
+import { useSite } from '../lib/site';
+import { Carregando, Cartao, Icone, Item, Procedencia, Titulo, Vazio } from '../ui/pecas';
 
 type Filtro = 'todas' | 'offline' | 'sem';
 
-export function Projeto() {
+export function Cameras() {
   const online = useOnline();
   const { site, pronto } = useSite();
   const q = useCameras();
@@ -19,7 +19,7 @@ export function Projeto() {
     return todas.filter((c) => siteDa(c).toLowerCase() === site.toLowerCase());
   }, [q.data, site]);
 
-  const contagem = useMemo(() => ({
+  const conta = useMemo(() => ({
     todas: doSite.length,
     offline: doSite.filter((c) => estadoDa(c) === 'offline').length,
     sem: doSite.filter((c) => estadoDa(c) === 'sem').length,
@@ -28,16 +28,16 @@ export function Projeto() {
   const lista = useMemo(() => {
     let l = doSite;
     if (filtro !== 'todas') l = l.filter((c) => estadoDa(c) === (filtro as Estado));
-    const termo = busca.trim().toLowerCase();
-    if (termo) {
+    const t = busca.trim().toLowerCase();
+    if (t) {
       l = l.filter((c) => [c.titulo, c.title, c.ip, c.mac, c.modelo, c.recorder_channel]
-        .some((v) => String(v ?? '').toLowerCase().includes(termo)));
+        .some((v) => String(v ?? '').toLowerCase().includes(t)));
     }
     return l;
   }, [doSite, filtro, busca]);
 
   // Agrupar por gravador: e como o tecnico pensa o site. Camera sem gravador
-  // vai para um grupo proprio em vez de sumir no meio das outras.
+  // ganha grupo proprio em vez de sumir no meio das outras.
   const grupos = useMemo(() => {
     const m = new Map<string, Camera[]>();
     for (const c of lista) {
@@ -52,11 +52,11 @@ export function Projeto() {
 
   return (
     <>
-      <PageHeading eyebrow="Consulta" titulo="Projeto do site"
-                   sub={`${site ?? 'Todos os sites'} · ${doSite.length} cameras`} />
-
-      <div className="barra-acao">
-        <Procedencia buscando={q.isFetching} atualizadoEm={q.dataUpdatedAt} online={online} />
+      <div className="linha-topo">
+        <Titulo titulo="Cameras" sub={`${site ?? 'Todos os sites'} · ${doSite.length} no projeto`} />
+        <span style={{ marginLeft: 'auto' }}>
+          <Procedencia buscando={q.isFetching} atualizadoEm={q.dataUpdatedAt} online={online} />
+        </span>
       </div>
 
       <div className="busca">
@@ -67,38 +67,35 @@ export function Projeto() {
       </div>
 
       <div className="abas">
-        {([['todas', `Todas ${contagem.todas}`],
-           ['offline', `Fora do ar ${contagem.offline}`],
-           ['sem', `Sem leitura ${contagem.sem}`]] as const).map(([v, rot]) => (
+        {([['todas', `Todas ${conta.todas}`],
+           ['offline', `Fora do ar ${conta.offline}`],
+           ['sem', `Sem leitura ${conta.sem}`]] as const).map(([v, rot]) => (
           <button key={v} type="button" className="aba"
-                  aria-pressed={filtro === v} onClick={() => setFiltro(v)}>
-            {rot}
-          </button>
+                  aria-pressed={filtro === v} onClick={() => setFiltro(v)}>{rot}</button>
         ))}
       </div>
 
       {grupos.length === 0 ? (
-        <Panel><Vazio>Nada com esse filtro.</Vazio></Panel>
+        <Cartao><Vazio>Nada com esse filtro.</Vazio></Cartao>
       ) : grupos.map(([host, cams]) => (
-        <Panel key={host}>
-          <PanelHeader
-            titulo={host === '\u0000sem' ? 'Sem gravador' : host}
-            sub={`${cams.length} camera${cams.length === 1 ? '' : 's'}`} />
+        <Cartao key={host}>
+          <h2>{host === '\u0000sem' ? 'Sem gravador' : host}</h2>
+          <p className="sub-h2">{cams.length} camera{cams.length === 1 ? '' : 's'}</p>
           {cams.map((c, i) => {
             const e = estadoDa(c);
             return (
-              <Linha key={`${c.ip}-${i}`} icone={Icone.camera}
-                     titulo={tituloDa(c)}
-                     sub={[c.ip, c.modelo].filter(Boolean).join(' · ')}
-                     direita={
-                       <Badge cor={e === 'online' ? 'green' : e === 'offline' ? 'red' : 'amber'}>
-                         {c.recorder_channel ? `CH ${c.recorder_channel}`
-                           : e === 'online' ? 'ok' : e === 'offline' ? 'fora' : '?'}
-                       </Badge>
-                     } />
+              <Item key={`${c.ip}-${i}`}
+                    ponto={e === 'online' ? 'verde' : e === 'offline' ? 'vermelho' : 'ambar'}
+                    titulo={tituloDa(c)}
+                    sub={[c.ip, c.modelo].filter(Boolean).join(' · ')}
+                    direita={
+                      <span className={`selo ${e === 'online' ? 'verde' : e === 'offline' ? 'ambar' : 'cinza'}`}>
+                        {c.recorder_channel ? `CH ${c.recorder_channel}` : e === 'online' ? 'ok' : e === 'offline' ? 'fora' : '?'}
+                      </span>
+                    } />
             );
           })}
-        </Panel>
+        </Cartao>
       ))}
     </>
   );
