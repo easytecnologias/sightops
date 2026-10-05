@@ -748,13 +748,23 @@ function deployOriginReady() {
 
 function deployApplyOriginFields() {
   const site = document.getElementById('deploySite');
+  const sel = document.getElementById('deploySiteEscolha');
   const raw = deployConnectorRawValue();
   const conn = deploySelectedConnector();
   if (!site) return;
-  site.disabled = !raw;
   site.readOnly = false;
-  if (!raw) site.value = '';
+  if (sel) sel.disabled = !raw;
+  if (!raw) {
+    site.value = '';
+    site.hidden = true;
+    if (sel) sel.innerHTML = '<option value="">Escolha o site acima</option>';
+    return;
+  }
+  // O conector ja sabe o site dele: chega preenchido, e a lista continua
+  // disponivel para o caso de o tecnico estar num local novo do mesmo
+  // conector.
   if (conn && !deployIsLocalOrigin()) site.value = deployConnectorSite(conn);
+  if (typeof deployPreencherSites === 'function') deployPreencherSites(site.value);
 }
 
 function deploySelectedConnector() {

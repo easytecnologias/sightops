@@ -314,6 +314,7 @@ document.addEventListener('DOMContentLoaded', () => {
   });
   document.getElementById('deployStandaloneRecorderOlt')?.addEventListener('change', deployStandaloneRecorderApplyOlt);
   document.getElementById('deployOltContext')?.addEventListener('change', deployApplyOltContext);
+  document.getElementById('deploySiteEscolha')?.addEventListener('change', deployAplicarSiteEscolhido);
   document.getElementById('deploySite')?.addEventListener('input', () => {
     deployRenderSummary();
     deployUpdateStepLocks({ autoAdvance: true });

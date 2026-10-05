@@ -322,6 +322,18 @@ function deployUpdateStepLocks({ autoAdvance = false } = {}) {
     deployOpenStep('cftvStep3');
   }
 
+  // Etapa travada tinha a aparencia de travada e o comportamento de aberta:
+  // dava para digitar MAC, titulo e IP antes de existir um site, e so no
+  // final uma mensagem dizia que faltava escolher. Campo editavel e um
+  // convite; travar de verdade evita o trabalho perdido.
+  document.querySelectorAll('#deployForm .cftv-painel').forEach(painel => {
+    const travado = painel.classList.contains('onu-step-locked');
+    painel.querySelectorAll('input, select, textarea, button').forEach(el => {
+      if (el.dataset.semTrava === '1') return;
+      el.disabled = travado;
+    });
+  });
+
   const commitBtn = document.getElementById('btnDeployCommitCamera');
   if (commitBtn) commitBtn.disabled = !state.step2Done;
 }
@@ -443,6 +455,46 @@ async function loadDeploySites() {
   });
   _deploySites = [...sites].sort((a, b) => a.localeCompare(b, 'pt-BR'));
   list.innerHTML = _deploySites.map(site => `<option value="${esc(site)}"></option>`).join('');
+  deployPreencherSites();
+}
+
+const DEPLOY_SITE_NOVO = '__novo__';
+
+function deployPreencherSites(selecionado) {
+  // O nome do local era digitado livre, com um datalist de sugestao que
+  // ninguem abre. Site digitado a mao e como nasce "PERUCABA", "Perucaba" e
+  // "PERUCABA " como tres locais distintos no inventario -- e depois ninguem
+  // acha a camera filtrando por site.
+  const sel = document.getElementById('deploySiteEscolha');
+  const campo = document.getElementById('deploySite');
+  if (!sel) return;
+  const atual = selecionado !== undefined ? selecionado : (campo?.value || sel.value || '');
+  const conhecidos = [...new Set([...(_deploySites || []), atual].filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b, 'pt-BR'));
+  sel.innerHTML = '<option value="">Escolha o site</option>'
+    + conhecidos.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join('')
+    + `<option value="${DEPLOY_SITE_NOVO}">+ Criar site novo...</option>`;
+  sel.value = atual && conhecidos.includes(atual) ? atual : '';
+  if (campo && sel.value !== DEPLOY_SITE_NOVO) campo.hidden = true;
+}
+
+function deployAplicarSiteEscolhido() {
+  const sel = document.getElementById('deploySiteEscolha');
+  const campo = document.getElementById('deploySite');
+  if (!sel || !campo) return;
+  if (sel.value === DEPLOY_SITE_NOVO) {
+    // O campo livre so aparece em modo "criar": ele continua sendo a unica
+    // fonte da verdade do site, mas agora digitar e uma decisao, nao o padrao.
+    campo.hidden = false;
+    campo.value = '';
+    campo.focus();
+  } else {
+    campo.hidden = true;
+    campo.value = sel.value;
+  }
+  deployRenderSummary();
+  deployUpdateStepLocks({ autoAdvance: true });
+  deployScheduleAvailableRecorders();
 }
 
 let _deployOltRows = [];
