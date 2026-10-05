@@ -5547,3 +5547,65 @@ async function deployAbrirScanner() {
     showToast('Nao consegui carregar o leitor de codigo. Digite o MAC a mao.', true);
   }
 }
+
+
+// ─────────────────────────────────────────────────────────────────────────
+// Acesso da camera em modal
+//
+// Usuario e senha ficavam ocupando uma linha da etapa o tempo todo, mesmo
+// antes de existir uma camera escolhida -- e o tecnico ainda tinha que
+// descobrir sozinho que o "Entrar" ali embaixo dependia da escolha la em
+// cima. Pedir credencial no momento em que ela e usada deixa a etapa com
+// menos campos e torna a ordem obvia: escolhe a camera, clica Entrar,
+// informa o acesso.
+//
+// Os campos vivem no modal mas NAO sao recriados a cada abertura: o titulo
+// gravado na camera e a troca de IP releem a senha depois, e um modal
+// destruido levaria a senha junto.
+// ─────────────────────────────────────────────────────────────────────────
+
+function deployAbrirLoginCamera() {
+  if (!deployEnsureStepUnlocked('cftvStep2', 'Escolha o site na barra de cima antes de entrar na camera.')) return;
+  const ip = _deployPullTargetIp || document.getElementById('deployCameraIp')?.value.trim() || '';
+  if (!ip) {
+    showToast('Escolha a camera na lista (ou informe o IP) antes de entrar.', true);
+    return;
+  }
+  const alvo = document.getElementById('deployLoginAlvo');
+  if (alvo) alvo.textContent = `Acesso da camera em ${ip}.`;
+  deploySetLoginModalResult('A senha so sai daqui para a propria camera -- nao fica salva na tela.');
+  document.getElementById('modalDeployCameraLogin')?.classList.remove('hidden');
+  const senha = document.getElementById('deployCameraPassword');
+  senha?.focus();
+  senha?.select();
+}
+
+function deployFecharLoginCamera() {
+  document.getElementById('modalDeployCameraLogin')?.classList.add('hidden');
+}
+
+function deploySetLoginModalResult(html, erro = false) {
+  const box = document.getElementById('deployLoginModalResult');
+  if (!box) return;
+  box.innerHTML = html;
+  box.classList.toggle('error', !!erro);
+}
+
+async function deployEntrarNaCamera() {
+  const user = document.getElementById('deployCameraUser')?.value.trim() || '';
+  const pass = document.getElementById('deployCameraPassword')?.value || '';
+  if (!user || !pass) {
+    deploySetLoginModalResult('Informe usuario e senha da camera.', true);
+    return;
+  }
+  deploySetLoginModalResult('Conectando na camera...');
+  await deployPullCameraInfo();
+  // Quem sabe se deu certo e a propria caixa de resultado da etapa: ela ja
+  // recebe `.error` na falha. Repetir a decisao aqui criaria duas verdades.
+  const caixa = document.getElementById('deployPullCameraResult');
+  if (caixa && caixa.classList.contains('error')) {
+    deploySetLoginModalResult(caixa.innerHTML, true);
+    return;
+  }
+  deployFecharLoginCamera();
+}

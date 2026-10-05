@@ -4833,21 +4833,10 @@
                     </div>
                   </div>
                   <div id="deployLookupResult" class="deploy-result-box">Aguardando consulta no conector.</div>
-                  <div class="deploy-camera-login-row">
-                    <div class="form-group">
-                      <label for="deployCameraUser">Usuario</label>
-                      <input id="deployCameraUser" placeholder="admin" autocomplete="username">
-                    </div>
-                    <div class="form-group">
-                      <label for="deployCameraPassword">Senha</label>
-                      <input id="deployCameraPassword" type="password" placeholder="Senha" autocomplete="new-password">
-                    </div>
-                    <div class="form-group deploy-button-field">
-                      <label aria-hidden="true">&nbsp;</label>
-                      <button class="primary-action" id="btnDeployPullCamera" type="button"><i data-lucide="log-in"></i> Entrar</button>
-                    </div>
+                  <div class="deploy-entrar-linha">
+                    <button class="primary-action" id="btnDeployOpenLogin" type="button"><i data-lucide="log-in"></i> Entrar na camera</button>
                   </div>
-                  <div id="deployPullCameraResult" class="deploy-result-box">Descubra o IP pelo MAC (acima), preencha usuario/senha, depois clique para trazer os dados reais da camera.</div>
+                  <div id="deployPullCameraResult" class="deploy-result-box">Escolha a camera na lista acima e clique em Entrar.</div>
                   </div>
                   <div class="cftv-grupo">
                     <span class="cftv-grupo-tit">Identificacao</span>
@@ -4989,6 +4978,34 @@
               <div><h2>Historico recente</h2><p>Ultimas implantacoes salvas.</p></div>
             </div>
             <div id="deployHistory" class="deployment-history">Carregando...</div>
+          </div>
+        </div>
+
+        <div id="modalDeployCameraLogin" class="modal-backdrop hidden" style="z-index:70">
+          <div class="modal" style="max-width:430px">
+            <div class="modal-header">
+              <div>
+                <p class="eyebrow">Camera</p>
+                <h2>Entrar na camera</h2>
+                <p id="deployLoginAlvo">Informe o acesso da camera.</p>
+              </div>
+              <button class="icon-button" id="btnDeployLoginClose" type="button" aria-label="Fechar"><i data-lucide="x"></i></button>
+            </div>
+            <div class="modal-body">
+              <div class="form-group">
+                <label for="deployCameraUser">Usuario</label>
+                <input id="deployCameraUser" placeholder="admin" value="admin" autocomplete="username">
+              </div>
+              <div class="form-group">
+                <label for="deployCameraPassword">Senha</label>
+                <input id="deployCameraPassword" type="password" placeholder="Senha" autocomplete="current-password">
+              </div>
+              <div id="deployLoginModalResult" class="deploy-result-box">A senha so sai daqui para a propria camera -- nao fica salva na tela.</div>
+            </div>
+            <div class="modal-actions">
+              <button class="secondary-action" id="btnDeployLoginCancel" type="button">Cancelar</button>
+              <button class="primary-action" id="btnDeployPullCamera" type="button"><i data-lucide="log-in"></i> Entrar</button>
+            </div>
           </div>
         </div>
       </section>
@@ -6765,7 +6782,7 @@
   <script src="js/maintenance.js?v=146"></script>
   <script src="js/analysis.js?v=147"></script>
   <script src="js/network.js?v=1791000122"></script>
-  <script src="js/deploy.js?v=1791000123"></script>
+  <script src="js/deploy.js?v=1791000124"></script>
   <script src="js/cameraActivation.js?v=1791000111"></script>
   <script src="js/deployOlt.js?v=160"></script>
   <script src="js/connectors.js?v=1790804180"></script>
@@ -6777,6 +6794,6 @@
   <script src="js/accessWhatsappTriage.js?v=3"></script>
   <script src="js/messenger.js?v=5"></script>
   <script src="js/alert.js?v=1789901000"></script>
-  <script src="js/bootstrap.js?v=1791000123"></script>
+  <script src="js/bootstrap.js?v=1791000124"></script>
 </body>
 </html>
