@@ -110,6 +110,35 @@ async function deployLoadAvailableRecorders() {
   deployResetRecorderLogin();
 }
 
+function deployRecorderPortaSelecionada() {
+  // A porta vem do INVENTARIO, nao de um campo: quem cadastrou o gravador ja
+  // informou, e no poste o tecnico nao tem como saber que aquele NVR atende
+  // em 8086.
+  const host = document.getElementById('deployRecorderHost')?.value.trim() || '';
+  if (!host) return null;
+  const row = (_deployAvailableRecorders || []).find(item => item.host === host);
+  const porta = Number(row?.http_port || row?.port || 0);
+  return Number.isFinite(porta) && porta > 0 ? porta : null;
+}
+
+function deployErroGravadorLegivel(bruto, payload) {
+  // O erro cru do requests ("HTTPConnectionPool(host=..., port=80): Max
+  // retries exceeded ... [Errno 111] Connection refused") e verdadeiro e
+  // inutil: diz o IP VIRTUAL, que o tecnico nunca viu, e nao sugere nada.
+  const texto = String(bruto || '');
+  const alvo = `${payload.recorder_host || '?'}${payload.recorder_http_port ? ':' + payload.recorder_http_port : ''}`;
+  if (/Connection refused|Max retries|NewConnectionError|Errno 111/i.test(texto)) {
+    return `O gravador nao atendeu em ${alvo}. Confira a porta HTTP cadastrada dele (a tela Gravadores mostra e corrige).`;
+  }
+  if (/timed out|Read timed out|ConnectTimeout/i.test(texto)) {
+    return `Sem resposta de ${alvo} dentro do tempo. O equipamento pode estar fora do ar.`;
+  }
+  if (/401|403|credencial|senha|unauthor/i.test(texto)) {
+    return `${alvo} recusou a credencial. Informe usuario e senha de novo.`;
+  }
+  return texto || 'Falha ao entrar no gravador.';
+}
+
 function deployApplySelectedRecorder() {
   const host = document.getElementById('deployRecorderHost')?.value || '';
   const row = _deployAvailableRecorders.find(item => item.host === host);
@@ -3680,7 +3709,7 @@ async function deployRecorderLogin() {
       // Recusa pode ser senha trocada no proprio equipamento depois de salva.
       // Reabrir os campos da ao tecnico como resolver sem sair da tela.
       document.querySelector('#cftvStep3 .deploy-recorder-login-row')?.removeAttribute('hidden');
-      const detail = data?.detail || data?.message || 'Falha ao entrar no gravador. Confira usuario e senha.';
+      const detail = deployErroGravadorLegivel(data?.detail || data?.message, payload);
       deploySetRecorderLoginResult(esc(detail), true);
       showToast(detail, true);
       return;

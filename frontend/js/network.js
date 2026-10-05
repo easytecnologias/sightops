@@ -684,6 +684,12 @@ function deployPayload() {
     inventory_mode: document.getElementById('deployInventoryMode')?.value || 'basic',
     recorder_type: document.getElementById('deployRecorderType')?.value || '',
     recorder_host: document.getElementById('deployRecorderHost')?.value.trim() || '',
+    // Sem isto o backend assumia 80. O NVR da RESERVA PERUCABA atende em
+    // 8086, entao dava "Connection refused" -- e, pior, `_credencial_gravador`
+    // procura a senha salva por (host, PORTA): com 80 ele nao achava a
+    // credencial guardada em 8086 e ainda pedia senha. Um esquecimento, dois
+    // sintomas que pareciam problemas diferentes.
+    recorder_http_port: deployRecorderPortaSelecionada(),
     recorder_user: document.getElementById('deployRecorderUser')?.value.trim() || '',
     recorder_password: document.getElementById('deployRecorderPassword')?.value || '',
     recorder_channel: document.getElementById('deployRecorderChannel')?.value.trim() || '',
