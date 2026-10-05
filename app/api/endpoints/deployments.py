@@ -1225,8 +1225,7 @@ def api_deployments_recorder_channels(payload: Dict[str, Any]) -> Dict[str, Any]
         total = int(payload.get("recorder_channel_total") or payload.get("channel_total") or 32)
     except Exception:
         total = 32
-    user = _text(payload.get("recorder_user") or payload.get("user") or "admin")
-    password = _text(payload.get("recorder_password") or payload.get("password"))
+    user, password = _credencial_gravador(payload)
     connector_id = _text(payload.get("connector_id") or payload.get("remote_connector_id"))
     live_used: Dict[int, Dict[str, str]] = {}
     live_authoritative = False
@@ -1247,8 +1246,7 @@ def api_deployments_recorder_add_camera(payload: Dict[str, Any]) -> Dict[str, An
     if source not in ("nvr", "dvr"):
         raise HTTPException(status_code=400, detail="tipo de gravador obrigatorio")
     host = _text(payload.get("recorder_host") or payload.get("host"))
-    user = _text(payload.get("recorder_user") or payload.get("user") or "admin")
-    password = _text(payload.get("recorder_password") or payload.get("password"))
+    user, password = _credencial_gravador(payload)
     camera_ip = _text(payload.get("recorder_camera_ip") or payload.get("camera_ip"))
     camera_user = _text(payload.get("camera_user") or "admin")
     camera_password = _text(payload.get("camera_password"))
@@ -1261,8 +1259,13 @@ def api_deployments_recorder_add_camera(payload: Dict[str, Any]) -> Dict[str, An
         total = int(payload.get("recorder_channel_total") or payload.get("channel_total") or 32)
     except Exception:
         total = 32
-    if not host or not user or not password:
-        raise HTTPException(status_code=400, detail="entre no gravador informando host, usuario e senha")
+    if not host:
+        raise HTTPException(status_code=400, detail="escolha o gravador")
+    if not password:
+        raise HTTPException(
+            status_code=400,
+            detail="sem senha guardada para este gravador -- entre nele uma vez informando usuario e senha",
+        )
     if not channel:
         raise HTTPException(status_code=400, detail="selecione um canal livre")
     if not camera_ip:
@@ -1388,10 +1391,14 @@ def api_deployments_recorder_remove_camera(payload: Dict[str, Any]) -> Dict[str,
     if source not in ("nvr", "dvr"):
         raise HTTPException(status_code=400, detail="tipo de gravador obrigatorio")
     host = _text(payload.get("recorder_host") or payload.get("host"))
-    user = _text(payload.get("recorder_user") or payload.get("user") or "admin")
-    password = _text(payload.get("recorder_password") or payload.get("password"))
-    if not host or not user or not password:
-        raise HTTPException(status_code=400, detail="entre no gravador informando host, usuario e senha")
+    user, password = _credencial_gravador(payload)
+    if not host:
+        raise HTTPException(status_code=400, detail="escolha o gravador")
+    if not password:
+        raise HTTPException(
+            status_code=400,
+            detail="sem senha guardada para este gravador -- entre nele uma vez informando usuario e senha",
+        )
     try:
         channel = int(_text(payload.get("recorder_channel") or payload.get("channel")) or "0")
     except Exception:

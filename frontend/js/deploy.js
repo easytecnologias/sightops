@@ -219,9 +219,10 @@ function deployApplySelectedRecorder() {
   //
   // Entao: com senha guardada, escolher ja entra. Sem ela, os campos aparecem
   // -- e so nesse caso, porque ai a pergunta e legitima.
-  const linha = document.querySelector('#cftvStep3 .deploy-recorder-login-row');
+  // Os campos ficam SEMPRE visiveis: o usuario pediu assim, e faz sentido --
+  // sao a saida quando a senha guardada envelheceu. Esconder transformava um
+  // caso comum em beco sem saida.
   const temSenha = !!host && recTemSenhaSalva(host);
-  if (linha) linha.hidden = temSenha;
   if (!host) return;
   if (temSenha) {
     deployRecorderLogin();
@@ -3761,8 +3762,7 @@ async function deployRecorderLogin() {
     return;
   }
   if (!payload.recorder_password && !recTemSenhaSalva(payload.recorder_host)) {
-    document.querySelector('#cftvStep3 .deploy-recorder-login-row')?.removeAttribute('hidden');
-    deploySetRecorderLoginResult('Este gravador ainda nao tem senha guardada. Informe usuario e senha.', true);
+    deploySetRecorderLoginResult('Este gravador ainda nao tem senha guardada. Informe usuario e senha ao lado.', true);
     return;
   }
   const btn = document.getElementById('btnDeployRecorderLogin');
@@ -3774,7 +3774,6 @@ async function deployRecorderLogin() {
     if (!res?.ok || data?.ok === false) {
       // Recusa pode ser senha trocada no proprio equipamento depois de salva.
       // Reabrir os campos da ao tecnico como resolver sem sair da tela.
-      document.querySelector('#cftvStep3 .deploy-recorder-login-row')?.removeAttribute('hidden');
       const detail = deployErroGravadorLegivel(data?.detail || data?.message, payload);
       deploySetRecorderLoginResult(esc(detail), true);
       showToast(detail, true);
