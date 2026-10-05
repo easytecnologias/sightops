@@ -10734,7 +10734,7 @@ table.recorder-tabela tbody tr:hover { background: var(--surface-soft); }
 #deployForm .deploy-camera-login-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; align-items: end; }
 #deployForm .deploy-camera-title-ip-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; align-items: end; }
 #deployForm .deploy-camera-meta-row { grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: end; }
-#deployForm .deploy-camera-save-row { grid-template-columns: minmax(0, 1fr) auto; align-items: end; }
+#deployForm .deploy-camera-save-row { grid-template-columns: minmax(0, 1fr); }
 #deployForm .deploy-recorder-login-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; align-items: end; }
 #deployForm .deploy-recorder-channel-row { grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: end; }
 #deployForm .form-row { grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); }

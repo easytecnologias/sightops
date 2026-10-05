@@ -268,7 +268,6 @@ document.addEventListener('DOMContentLoaded', () => {
   // Implantacao
   document.getElementById('btnDeployClear')?.addEventListener('click', deployClear);
   document.getElementById('deployForm')?.addEventListener('submit', deployCommitCamera);
-  document.getElementById('btnDeploySave')?.addEventListener('click', deploySaveDraft);
   document.getElementById('btnDeployLookupMac')?.addEventListener('click', deployLookupMac);
   // O botao de confirmar do modal: valida, chama o raio-X e so fecha se deu certo.
   document.getElementById('btnDeployPullCamera')?.addEventListener('click', deployEntrarNaCamera);

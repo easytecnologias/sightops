@@ -3735,20 +3735,6 @@ async function deployCheckNewIp() {
   deployRenderSummary();
 }
 
-async function deploySaveDraft() {
-  const payload = deployPayload();
-  const res = await api('/api/deployments', { method: 'POST', body: JSON.stringify(payload) });
-  const data = await res?.json().catch(() => ({}));
-  if (!res?.ok || data?.ok === false) {
-    showToast(data?.detail || 'Falha ao salvar rascunho.', true);
-    return;
-  }
-  _deployCurrentId = data.deployment?.id || _deployCurrentId;
-  showToast('Rascunho de implantacao salvo.');
-  await loadDeployHistory();
-  deployRenderSummary();
-}
-
 async function deploySaveCameraInventory() {
   if (!deployEnsureStepUnlocked('cftvStep2', 'Escolha o site na barra de cima antes de salvar a camera.')) return;
   const payload = deployPayload();
