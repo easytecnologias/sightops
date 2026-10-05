@@ -18,20 +18,16 @@ let _deployCanaisFiltro = 'livres';
 
 function deployRenderRecorderChannels(channels = []) {
   const input = document.getElementById('deployRecorderChannel');
-  const toggle = document.getElementById('deployRecorderChannelButton');
-  const labelEl = document.getElementById('deployRecorderChannelLabel');
-  if (!input || !toggle || !labelEl) return;
+  if (!input) return;
   const previous = input.value;
   _deployCanais = Array.isArray(channels) ? channels : [];
 
   if (!_deployCanais.length) {
     input.value = '';
-    labelEl.textContent = 'Entre no gravador';
-    toggle.disabled = true;
+    deployAtualizarRotuloCanal();
     deployFecharCanais();
     return;
   }
-  toggle.disabled = false;
 
   const livres = _deployCanais.filter(item => !item.used);
   const mantem = livres.some(item => String(item.channel) === String(previous));
@@ -43,16 +39,11 @@ function deployRenderRecorderChannels(channels = []) {
 }
 
 function deployAtualizarRotuloCanal() {
-  const input = document.getElementById('deployRecorderChannel');
-  const btn = document.getElementById('deployRecorderChannelButton');
-  if (!input || !btn) return;
+  const link = document.getElementById('btnDeployVerCanais');
+  if (!link) return;
+  link.hidden = !_deployCanais.length;
   const livres = _deployCanais.filter(item => !item.used).length;
-  let texto;
-  if (!_deployCanais.length) texto = 'Entre no gravador';
-  else if (livres) texto = 'Escolher canal e adicionar';
-  else texto = 'Sem canal livre - ver quem ocupa';
-  btn.innerHTML = `<i data-lucide="layout-grid"></i> <span id="deployRecorderChannelLabel">${esc(texto)}</span>`;
-  try { lucide.createIcons(); } catch {}
+  link.textContent = livres ? 'Ver canais do gravador' : 'Ver quem ocupa os canais';
 }
 
 function deployAbrirCanais() {
@@ -3790,6 +3781,9 @@ async function deployRecorderLogin() {
     deployRenderRecorderChannels(Array.isArray(data.channels) ? data.channels : []);
     deploySetRecorderLoginResult(msg);
     showToast('Login do gravador confirmado.');
+    // Entrar no gravador so existe para escolher um canal. Parar aqui e
+    // exigir mais um clique num botao que leva ao unico lugar possivel.
+    deployAbrirCanais();
   } catch (err) {
     const detail = err?.detail || err?.message || 'Falha ao entrar no gravador.';
     deploySetRecorderLoginResult(esc(detail), true);
@@ -3831,9 +3825,6 @@ async function deployRecorderAddCamera() {
     showToast('Informe usuario e senha da camera.', true);
     return;
   }
-  const btn = document.getElementById('deployRecorderChannelButton');
-  const rotuloAntes = btn ? btn.innerHTML : '';
-  if (btn) { btn.disabled = true; btn.innerHTML = '<i data-lucide="loader"></i> Adicionando'; lucide.createIcons(); }
   deploySetRecorderLoginResult(`Adicionando ${esc(payload.recorder_camera_ip)} no canal ${esc(payload.recorder_channel)}...`);
   try {
     const res = await api('/api/deployments/recorder-add-camera', { method: 'POST', body: JSON.stringify(payload) });
@@ -3854,15 +3845,7 @@ async function deployRecorderAddCamera() {
     deploySetRecorderLoginResult(esc(detail), true);
     showToast(detail, true);
   } finally {
-    if (btn) {
-      btn.disabled = false;
-      btn.innerHTML = rotuloAntes;
-      // `deployRenderRecorderChannels` ja reescreveu o rotulo com o estado
-      // novo quando a adicao deu certo; aqui so devolve o que havia antes
-      // para o caso de falha.
-      deployAtualizarRotuloCanal();
-      lucide.createIcons();
-    }
+    deployAtualizarRotuloCanal();
   }
 }
 

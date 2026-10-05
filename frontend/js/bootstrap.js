@@ -287,7 +287,7 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('deployRecorderHost')?.addEventListener('change', deployApplySelectedRecorder);
   document.getElementById('deployRecorderUser')?.addEventListener('input', deployResetRecorderLogin);
   document.getElementById('deployRecorderPassword')?.addEventListener('input', deployResetRecorderLogin);
-  document.getElementById('deployRecorderChannelButton')?.addEventListener('click', deployAbrirCanais);
+  document.getElementById('btnDeployVerCanais')?.addEventListener('click', deployAbrirCanais);
   document.getElementById('btnDeployCanaisClose')?.addEventListener('click', deployFecharCanais);
   document.getElementById('modalDeployCanais')?.addEventListener('click', (ev) => {
     if (ev.target === ev.currentTarget) deployFecharCanais();
