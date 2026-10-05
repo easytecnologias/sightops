@@ -10977,3 +10977,15 @@ table.recorder-tabela tbody tr:hover { background: var(--surface-soft); }
   #deployForm .deploy-cred-campos { grid-template-columns: 1fr; }
   #deployForm .deploy-cred-campos .secondary-action { width: 100%; }
 }
+
+
+/* === CFTV: coordenada da camera ===================================== */
+#deployForm .deploy-gps-linha {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center;
+}
+#deployForm .deploy-gps-recado { margin: 5px 0 0; font-size: 11.5px; color: var(--muted); }
+#deployForm .deploy-gps-recado.ruim { color: var(--amber); }
+#deployForm .deploy-gps-recado.erro { color: var(--danger); }
+@media (max-width: 760px) {
+  #deployForm .deploy-gps-linha { grid-template-columns: 1fr; }
+}

@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=1791000133">
+  <link rel="stylesheet" href="styles.css?v=1791000136">
 </head>
 <body>
 
@@ -4878,8 +4878,12 @@
                   </div>
                   <div class="deploy-camera-save-row">
                     <div class="form-group">
-                      <label for="deployCameraLocation">Localizacao da camera</label>
-                      <input id="deployCameraLocation" placeholder="Cole a coordenada do GPS do celular: -9.755000, -36.660000">
+                      <label for="deployCameraLocation">Localizacao da camera <span style="font-weight:400;color:var(--muted)">(latitude, longitude)</span></label>
+                      <div class="deploy-gps-linha">
+                        <input id="deployCameraLocation" placeholder="-9.755000, -36.660000">
+                        <button class="secondary-action" id="btnDeployGps" type="button" title="Usar o GPS deste aparelho"><i data-lucide="crosshair"></i> Pegar GPS</button>
+                      </div>
+                      <p id="deployGpsRecado" class="deploy-gps-recado" hidden></p>
                     </div>
                     <div class="form-group deploy-button-field">
                       <label aria-hidden="true">&nbsp;</label>
@@ -6782,7 +6786,7 @@
   <script src="js/maintenance.js?v=146"></script>
   <script src="js/analysis.js?v=147"></script>
   <script src="js/network.js?v=1791000135"></script>
-  <script src="js/deploy.js?v=1791000135"></script>
+  <script src="js/deploy.js?v=1791000136"></script>
   <script src="js/cameraActivation.js?v=1791000111"></script>
   <script src="js/deployOlt.js?v=160"></script>
   <script src="js/connectors.js?v=1790804180"></script>
@@ -6794,6 +6798,6 @@
   <script src="js/accessWhatsappTriage.js?v=3"></script>
   <script src="js/messenger.js?v=5"></script>
   <script src="js/alert.js?v=1789901000"></script>
-  <script src="js/bootstrap.js?v=1791000135"></script>
+  <script src="js/bootstrap.js?v=1791000136"></script>
 </body>
 </html>

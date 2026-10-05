@@ -5815,3 +5815,72 @@ function deployAlternarCredGravador() {
   const bloco = document.getElementById('deployRecorderCred');
   deployMostrarCredGravador(!!bloco?.hidden);
 }
+
+
+// ─────────────────────────────────────────────────────────────────────────
+// Coordenada da camera pelo GPS do aparelho
+//
+// O backend ja guardava `physical_location`, `lat` e `lon` no inventario --
+// so nao havia como PEGAR a coordenada sem sair do sistema. O tecnico
+// abria o mapa do celular, copiava e colava, ou ninguem anotava nada e
+// depois alguem ia atras do KMZ para descobrir onde a camera estava.
+//
+// Digitar continua valendo: nem todo registro e feito no poste, e as vezes
+// a coordenada vem de um projeto.
+// ─────────────────────────────────────────────────────────────────────────
+
+function deployGpsRecado(texto, classe = '') {
+  const el = document.getElementById('deployGpsRecado');
+  if (!el) return;
+  el.hidden = !texto;
+  el.textContent = texto || '';
+  el.className = 'deploy-gps-recado' + (classe ? ' ' + classe : '');
+}
+
+function deployPegarGps() {
+  const campo = document.getElementById('deployCameraLocation');
+  const btn = document.getElementById('btnDeployGps');
+  if (!campo) return;
+  if (!navigator.geolocation) {
+    deployGpsRecado('Este aparelho nao oferece GPS ao navegador. Digite a coordenada.', 'erro');
+    return;
+  }
+  deployGpsRecado('Procurando sinal de GPS...');
+  if (btn) { btn.disabled = true; btn.innerHTML = '<i data-lucide="loader"></i> Procurando'; lucide.createIcons(); }
+
+  const devolver = () => {
+    if (!btn) return;
+    btn.disabled = false;
+    btn.innerHTML = '<i data-lucide="crosshair"></i> Pegar GPS';
+    try { lucide.createIcons(); } catch {}
+  };
+
+  navigator.geolocation.getCurrentPosition(
+    (pos) => {
+      devolver();
+      const { latitude, longitude, accuracy } = pos.coords;
+      // Seis casas = ~11 cm. Mais que isso e ruido, e o backend corta zeros.
+      campo.value = `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`;
+      const m = Math.round(accuracy || 0);
+      // A precisao importa de verdade: numa rua com postes a cada 30 m, uma
+      // leitura de +-80 m aponta o poste errado. Melhor dizer e deixar o
+      // tecnico repetir do que gravar um numero que parece exato.
+      if (m && m > 30) {
+        deployGpsRecado(`Coordenada com precisao de cerca de ${m} m -- fraca para achar o poste. Saia de baixo de cobertura e pegue de novo.`, 'ruim');
+      } else {
+        deployGpsRecado(`Coordenada pega com precisao de cerca de ${m || '?'} m.`);
+      }
+      deployRenderSummary();
+    },
+    (err) => {
+      devolver();
+      const motivo = {
+        1: 'Permissao de localizacao negada. Libere o acesso ao GPS para este site no navegador.',
+        2: 'Sem sinal de GPS agora. Tente a ceu aberto.',
+        3: 'O GPS demorou demais para responder. Tente de novo.',
+      }[err?.code] || 'Nao consegui ler o GPS deste aparelho.';
+      deployGpsRecado(motivo + ' Voce pode digitar a coordenada a mao.', 'erro');
+    },
+    { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 },
+  );
+}
