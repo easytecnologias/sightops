@@ -482,6 +482,16 @@ function navigateTo(view) {
     try { recSair(); } catch (_) {}
   }
 
+  // Sair do CFTV limpa o assistente. Ele guarda IP, MAC, titulo, coordenada e
+  // a SENHA de uma camera -- deixar isso preenchido ao voltar faz o tecnico
+  // registrar a proxima camera com restos da anterior, e pior: com a troca de
+  // cliente, com dados de outro cliente na tela. Mesmo motivo do `recSair`
+  // logo acima.
+  if (_currentView === 'deploy-new' && view !== 'deploy-new'
+      && typeof deployClear === 'function') {
+    try { deployClear(); } catch (_) {}
+  }
+
   // Esconde todas as views
   document.querySelectorAll('[id^="view"]').forEach(el => el.classList.add('hidden'));
 

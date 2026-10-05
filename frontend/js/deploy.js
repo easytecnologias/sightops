@@ -3895,22 +3895,50 @@ function deployClear() {
   _deployCurrentId = '';
   _deployPullTargetIp = '';
   _deployConfirmedCameraIp = '';
+  _deployTituloDaCamera = '';
+  _deployCanais = [];
   document.getElementById('deployForm')?.reset();
+
+  // `form.reset()` nao alcanca o que esta FORA do <form>. O modal de acesso
+  // da camera foi posto fora de proposito (para o Enter nao disparar o
+  // submit), entao usuario e senha sobreviviam a limpeza -- e, pior, a troca
+  // de tela: a senha de uma camera de um cliente continuava no campo quando o
+  // tecnico abria outro site.
+  const credenciais = {
+    deployCameraUser: 'admin', deployCameraPassword: '',
+    deployRecorderUser: 'admin', deployRecorderPassword: '',
+  };
+  Object.entries(credenciais).forEach(([id, padrao]) => {
+    const el = document.getElementById(id);
+    if (el) el.value = padrao;
+  });
+  deployFecharLoginCamera();
+  deployFecharCanais();
+  deployFecharScanner();
+  deployMostrarCredGravador(false);
+  deployGpsRecado('');
+
   const connEl = document.getElementById('deployConnector');
   if (connEl) connEl.value = '';
+  const siteSel = document.getElementById('deploySiteEscolha');
+  if (siteSel) siteSel.value = '';
+  const siteCampo = document.getElementById('deploySite');
+  if (siteCampo) { siteCampo.value = ''; siteCampo.hidden = true; }
+
   deployRenderOltContextForOrigin();
   deployApplyOriginFields();
   deploySetResult('Aguardando consulta no conector.');
   deployRenderConnectorStatus();
   const pullBox = document.getElementById('deployPullCameraResult');
   if (pullBox) {
-    pullBox.innerHTML = 'Descubra o IP pelo MAC (acima), preencha usuario/senha, depois clique para trazer os dados reais da camera.';
+    pullBox.innerHTML = 'Escolha a camera na lista acima: o acesso e pedido na hora.';
     pullBox.classList.remove('error');
   }
   deploySetCheckIpResult();
   deploySetRecorderLoginResult();
   deployRenderRecorderChannels();
   deployRenderSummary();
+  deployUpdateStepLocks();
   deployOpenStep('cftvStep2', { forcar: true });
 }
 
