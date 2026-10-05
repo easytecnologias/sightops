@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#13252d">
+<title>SightOps Rua</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="app.css?v=1">
+</head>
+<body>
+
+<!-- ───────────────────────────── LOGIN ───────────────────────────── -->
+<section id="telaLogin" class="login">
+  <div class="login-card">
+    <div class="login-marca">
+      <span class="brand-mark">S</span>
+      <div>
+        <strong>SightOps</strong>
+        <span>Rua &middot; aplicativo do tecnico</span>
+      </div>
+    </div>
+    <form id="formLogin" class="login-form">
+      <div class="campo">
+        <label for="loginUser">Usuario</label>
+        <input id="loginUser" autocomplete="username" autocapitalize="none" spellcheck="false" required>
+      </div>
+      <div class="campo">
+        <label for="loginPass">Senha</label>
+        <input id="loginPass" type="password" autocomplete="current-password" required>
+      </div>
+      <p id="loginErro" class="login-erro" hidden></p>
+      <button type="submit" class="acao-forte" id="btnEntrar">Entrar</button>
+    </form>
+  </div>
+</section>
+
+<!-- ───────────────────────────── APP ───────────────────────────── -->
+<div id="app" class="app" hidden>
+
+  <header class="topbar">
+    <button type="button" class="icon-button" id="btnMenu" aria-label="Abrir menu">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+    </button>
+    <span class="tb-titulo" id="tbTitulo">Dashboard</span>
+    <span class="chip" id="chipRede" title="Estado da conexao"><i class="ponto"></i><span>…</span></span>
+  </header>
+
+  <main class="scroll" id="conteudo"><!-- a view entra aqui --></main>
+
+  <nav class="bottom" aria-label="Principal">
+    <button type="button" data-view="dashboard" aria-current="page">
+      <span class="pill"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" aria-hidden="true"><rect x="3" y="3" width="7" height="8" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="11" width="7" height="10" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/></svg></span>
+      Dashboard
+    </button>
+    <button type="button" data-view="site">
+      <span class="pill"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" aria-hidden="true"><path d="M12 21s7-5.6 7-11a7 7 0 1 0-14 0c0 5.4 7 11 7 11Z"/><circle cx="12" cy="10" r="2.4"/></svg></span>
+      Site
+    </button>
+    <button type="button" data-view="projeto">
+      <span class="pill"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" aria-hidden="true"><path d="M4 5.5A1.5 1.5 0 0 1 5.5 4H10l2 2.5h6.5A1.5 1.5 0 0 1 20 8v10a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 18Z"/></svg></span>
+      Projeto
+    </button>
+    <button type="button" data-view="menu">
+      <span class="pill"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg></span>
+      Menu
+    </button>
+  </nav>
+</div>
+
+<!-- Gaveta: a barra lateral do SightOps, que no celular abre pelo hamburguer -->
+<div id="gavetaFundo" class="gaveta-fundo" hidden></div>
+<aside id="gaveta" class="gaveta" hidden aria-label="Menu">
+  <div class="gaveta-topo">
+    <span class="brand-mark">S</span>
+    <div>
+      <strong>SightOps</strong>
+      <span id="gavetaCliente">—</span>
+    </div>
+  </div>
+  <nav id="gavetaNav" class="gaveta-nav"></nav>
+  <div class="gaveta-pe">
+    <div class="amb"><i class="ponto ok"></i><span id="gavetaAmbiente">Producao</span></div>
+    <button type="button" class="acao" id="btnSair">Sair</button>
+  </div>
+</aside>
+
+<div id="aviso" class="aviso" hidden></div>
+
+<script src="app.js?v=1"></script>
+</body>
+</html>
