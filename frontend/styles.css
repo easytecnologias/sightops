@@ -10892,3 +10892,41 @@ table.recorder-tabela tbody tr:hover { background: var(--surface-soft); }
   text-decoration: underline; cursor: pointer; padding: 2px 0; justify-self: start; width: auto;
 }
 #deployForm .deploy-cred-link:hover { color: var(--text); }
+
+
+/* === CFTV: alinhamento das acoes ====================================
+   Tudo dentro do cartao se alinha pela esquerda -- rotulos, campos, link,
+   recado. O botao de canal era o unico empurrado para a direita
+   (`justify-content: flex-end` herdado), entao ficava sozinho, sem nada
+   acima nem abaixo para se alinhar: a borda esquerda do bloco simplesmente
+   parava de existir na ultima linha.
+
+   Agora cada acao tem um papel declarado:
+   - acao DENTRO da etapa (escolher canal) acompanha a coluna, pela esquerda;
+   - acao que FECHA a etapa (registrar camera) vira rodape de verdade, com
+     fio em cima e alinhada a direita, que e como rodape de formulario se
+     comporta em qualquer lugar.
+   ==================================================================== */
+
+#deployForm .deploy-recorder-add-row {
+  display: flex; justify-content: flex-start; margin: 0;
+}
+#deployForm .deploy-recorder-add-row .primary-action { min-width: 0; }
+
+/* Ritmo: o corpo da etapa ja separa os blocos com 13px de gap. As margens
+   proprias que sobravam somavam por cima disso e abriam vaos de tamanhos
+   diferentes entre link, recado e botao. */
+#deployForm .deploy-cred-link { margin: 0; }
+#deployForm #deployRecorderCred { margin: 0; }
+
+#deployForm .deployment-actions {
+  display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap;
+  margin: 4px 0 0; padding: 13px 0 0; border-top: 1px solid var(--border);
+}
+
+@media (max-width: 760px) {
+  /* Numa coluna so, botao alinhado a esquerda de largura automatica fica
+     perdido: ocupa a linha. */
+  #deployForm .deploy-recorder-add-row { display: grid; }
+  #deployForm .deployment-actions > * { flex: 1 1 100%; }
+}
