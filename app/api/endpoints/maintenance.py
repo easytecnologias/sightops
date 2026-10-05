@@ -721,11 +721,23 @@ def _camera_fala_isapi(ip: str, timeout: float = 5.0) -> bool:
     https (porta 443 fechada na camera) e mostrava ao operador o erro do
     https, que nao tem nada a ver com a causa.
     """
-    try:
-        r = requests.get(f"http://{_reach(ip)}/ISAPI/System/deviceInfo", timeout=timeout, verify=False)
-        return int(r.status_code) in (200, 401, 403)
-    except Exception:
-        return False
+    # DUAS tentativas, nao uma. Uma camera atras do tunel as vezes demora a
+    # primeira resposta, e nesta rotina um unico timeout virava "nao e
+    # Hikvision" -- a troca caia no caminho Dahua, tentava configManager.cgi em
+    # https:443 (porta fechada) e mostrava ao operador um erro de conexao que
+    # nao tem nada a ver com a causa. Foi exatamente o que aconteceu com a
+    # CAMERA 01 da TELHA, que e Hikvision e responde ISAPI normalmente.
+    for tentativas in range(2):
+        try:
+            r = requests.get(f"http://{_reach(ip)}/ISAPI/System/deviceInfo",
+                             timeout=timeout, verify=False)
+            if int(r.status_code) in (200, 401, 403):
+                return True
+            if int(r.status_code) == 404:
+                return False          # rota nao existe: e Dahua/Intelbras mesmo
+        except Exception:
+            pass
+    return False
 
 
 _HIK_MOTIVOS = {
@@ -910,6 +922,20 @@ def _hik_trocar_ip(ip: str, new_ip: str, mask: str, gateway: str, dns1: str, dns
         return False, "usuario ou senha recusados pela camera"
     if _hik_response_ok(resp):
         return True, ""
+
+    # rebootrequired nao e recusa: a camera GRAVOU a mudanca e so passa a usar
+    # o endereco novo depois de reiniciar. Tratar isso como falha fazia a tela
+    # dizer "a camera recusou a troca" enquanto a troca tinha dado certo -- foi
+    # o que aconteceu com a CAMERA 01 da TELHA, que reiniciou sozinha e assumiu
+    # 10.50.11.32 com a tela ainda mostrando erro, e o inventario ficou no IP
+    # velho porque a gravacao nunca rodou.
+    #
+    # Seguir em frente leva ao caminho que ja existe: espera o IP novo
+    # responder; se responder, e sucesso; se nao, o aviso de "pendente" manda
+    # reiniciar pelo botao Reboot.
+    if "rebootrequired" in (resp.text or "").replace(" ", "").lower():
+        return True, "rebootrequired"
+
     return False, f"A camera recusou a troca: {_hik_motivo(resp.text or '')}."
 
 
@@ -954,10 +980,12 @@ def _aplica_ip_na_camera(
             return {
                 "ok": False, "ip": ip, "new_ip": new_ip, "via": "isapi",
                 "rede_atual": atual,
-                "error": "Nao troquei: voce pediu " + " e ".join(divergentes)
-                         + ". A camera funciona hoje com os valores dela; mudar isso "
-                           "junto com o IP costuma deixa-la inalcancavel. Corrija os "
-                           "campos, ou confirme que a rede mudou de verdade.",
+                "precisa_confirmar": True,
+                "error": "Nao troquei ainda: " + " e ".join(divergentes)
+                         + ". Se a camera esta MUDANDO DE FAIXA de rede, isso e "
+                           "esperado -- marque \u201cEstou mudando a camera de faixa\u201d "
+                           "e confirme. Se nao for o caso, corrija os campos: gateway "
+                           "errado deixa a camera inalcancavel sem dar erro na hora.",
             }
 
         ok, err = _hik_trocar_ip(ip, new_ip, _as_str(mask), _as_str(gateway),
@@ -1032,8 +1060,11 @@ def _aplica_ip_na_camera(
         "ip": ip,
         "new_ip": new_ip,
         "via": "cgi",
-        "error": (last_err or "falha ao trocar IP")
-        + " -- a camera nao respondeu nem na API Hikvision (ISAPI) nem na Dahua/Intelbras (configManager.cgi)",
+        "error": "Nao consegui falar com a camera para trocar o IP. Ela nao "
+                 f"respondeu em {alvo} nem como Hikvision (ISAPI) nem como "
+                 "Intelbras/Dahua (configManager.cgi). Confira se ela esta online "
+                 "e se o usuario e a senha estao certos."
+                 + (f" Detalhe tecnico: {last_err}" if last_err else ""),
     }
 
 

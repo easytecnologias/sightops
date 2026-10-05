@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=1790996500">
+  <link rel="stylesheet" href="styles.css?v=1791000113">
 </head>
 <body>
 
@@ -486,6 +486,13 @@
                 <span id="cpSnapshotTime">-</span>
               </div>
             </div>
+            <div id="cpOcorrenciaAviso" class="cam-ocorrencia hidden">
+              <i data-lucide="file-pen-line"></i>
+              <div>
+                <strong id="cpOcorrenciaTexto"></strong>
+                <span id="cpOcorrenciaQuem"></span>
+              </div>
+            </div>
             <div class="cam-actions">
               <button class="cam-btn cam-btn-primary" id="cpBtnAtualizar">
                 <i data-lucide="refresh-cw"></i> Atualizar snapshot
@@ -497,6 +504,7 @@
                 <button class="cam-btn cam-btn-secondary" id="cpBtnDataHora"><i data-lucide="clock"></i> Data/hora</button>
                 <button class="cam-btn cam-btn-secondary" id="cpBtnReboot"><i data-lucide="power"></i> Reboot</button>
                 <button class="cam-btn cam-btn-secondary" id="cpBtnWeb"><i data-lucide="globe"></i> Web</button>
+                <button class="cam-btn cam-btn-secondary" id="cpBtnOcorrencia"><i data-lucide="file-pen-line"></i> Ocorrencia</button>
               </div>
               <button class="cam-btn cam-btn-map" id="cpBtnMapa"><i data-lucide="map-pin"></i> Ver no mapa</button>
               <button class="cam-btn cam-btn-ping" id="cpBtnPing"><i data-lucide="activity"></i> Testar ping</button>
@@ -4605,6 +4613,14 @@
                 <input id="activationSite" placeholder="Onde a senha fica guardada">
               </div>
               <div>
+                <label for="activationMarca">Procurar</label>
+                <select id="activationMarca">
+                  <option value="todas">Todas as marcas</option>
+                  <option value="intelbras">So Intelbras/Dahua</option>
+                  <option value="hikvision">So Hikvision</option>
+                </select>
+              </div>
+              <div>
                 <label for="activationRange">Faixa manual (opcional)</label>
                 <input id="activationRange" placeholder="Ex.: 172.28.1.200-172.28.1.254">
               </div>
@@ -4693,6 +4709,43 @@
                   <label for="activationPassword2">Repetir a senha</label>
                   <input id="activationPassword2" type="password" autocomplete="new-password">
                 </div>
+              </div>
+              <div id="activationHikExtras" class="hidden">
+                <p class="activation-hint">
+                  Hikvision: a camera exige 3 perguntas de recuperacao. Ela guarda
+                  so o <b>numero</b> da pergunta -- o texto fica na ferramenta da
+                  Hikvision. O que importa e a resposta, que fica registrada aqui.
+                </p>
+                <div class="activation-filters" style="grid-template-columns:auto minmax(0,1fr)">
+                <div>
+                  <label for="activationQ1">Pergunta 1</label>
+                  <select id="activationQ1"><option value="1" selected>Pergunta 1</option><option value="2">Pergunta 2</option><option value="3">Pergunta 3</option><option value="4">Pergunta 4</option><option value="5">Pergunta 5</option><option value="6">Pergunta 6</option><option value="7">Pergunta 7</option><option value="8">Pergunta 8</option><option value="9">Pergunta 9</option><option value="10">Pergunta 10</option><option value="11">Pergunta 11</option><option value="12">Pergunta 12</option><option value="13">Pergunta 13</option><option value="14">Pergunta 14</option><option value="15">Pergunta 15</option></select>
+                </div>
+                <div>
+                  <label for="activationA1">Resposta 1</label>
+                  <input id="activationA1" autocomplete="off" placeholder="o que voce vai lembrar depois">
+                </div>
+                <div>
+                  <label for="activationQ2">Pergunta 2</label>
+                  <select id="activationQ2"><option value="1">Pergunta 1</option><option value="2" selected>Pergunta 2</option><option value="3">Pergunta 3</option><option value="4">Pergunta 4</option><option value="5">Pergunta 5</option><option value="6">Pergunta 6</option><option value="7">Pergunta 7</option><option value="8">Pergunta 8</option><option value="9">Pergunta 9</option><option value="10">Pergunta 10</option><option value="11">Pergunta 11</option><option value="12">Pergunta 12</option><option value="13">Pergunta 13</option><option value="14">Pergunta 14</option><option value="15">Pergunta 15</option></select>
+                </div>
+                <div>
+                  <label for="activationA2">Resposta 2</label>
+                  <input id="activationA2" autocomplete="off" placeholder="o que voce vai lembrar depois">
+                </div>
+                <div>
+                  <label for="activationQ3">Pergunta 3</label>
+                  <select id="activationQ3"><option value="1">Pergunta 1</option><option value="2">Pergunta 2</option><option value="3" selected>Pergunta 3</option><option value="4">Pergunta 4</option><option value="5">Pergunta 5</option><option value="6">Pergunta 6</option><option value="7">Pergunta 7</option><option value="8">Pergunta 8</option><option value="9">Pergunta 9</option><option value="10">Pergunta 10</option><option value="11">Pergunta 11</option><option value="12">Pergunta 12</option><option value="13">Pergunta 13</option><option value="14">Pergunta 14</option><option value="15">Pergunta 15</option></select>
+                </div>
+                <div>
+                  <label for="activationA3">Resposta 3</label>
+                  <input id="activationA3" autocomplete="off" placeholder="o que voce vai lembrar depois">
+                </div>
+                </div>
+                <label class="activation-check">
+                  <input type="checkbox" id="activationDhcp" checked>
+                  Pegar o endereco do DHCP do roteador (vale no proximo boot da camera)
+                </label>
               </div>
               <p class="activation-hint" id="activationTargetsHint">-</p>
             </div>
@@ -5328,6 +5381,14 @@
         </div>
         <p id="trocarIpNetworkHint" style="font-size:12px;color:var(--muted);margin:0"></p>
         <p style="font-size:12px;color:var(--amber);margin:0"><i data-lucide="triangle-alert" style="width:13px;vertical-align:middle"></i> Confirme mascara e gateway antes de aplicar. A camera pode ficar offline temporariamente.</p>
+        <label id="trocarIpForcarLinha" class="trocar-ip-forcar">
+          <input type="checkbox" id="trocarIpForcarRede">
+          <span>
+            <strong>Estou mudando a camera de faixa</strong>
+            Aplica a mascara e o gateway novos. So marque se a camera realmente vai
+            para outra rede -- gateway errado deixa a camera inalcancavel.
+          </span>
+        </label>
         <p id="trocarIpErro" class="login-error" hidden></p>
       </div>
       <div class="modal-actions">
@@ -6291,6 +6352,33 @@
     </div>
   </div>
 
+  <div id="modalCamOcorrencia" class="modal-backdrop hidden" style="z-index:96">
+    <div class="modal" style="max-width:520px">
+      <div class="modal-header">
+        <div>
+          <p class="eyebrow">Inventario</p>
+          <h2>Ocorrencia da camera</h2>
+          <p id="ocorrSub">Por que esta camera esta assim. Sai no relatorio.</p>
+        </div>
+        <button class="icon-button" id="ocorrFechar" type="button" aria-label="Fechar"><i data-lucide="x"></i></button>
+      </div>
+      <div class="modal-body">
+        <p id="ocorrAnterior" class="cam-ocorrencia-antes hidden"></p>
+        <label for="ocorrTexto" style="display:block;font-size:12px;color:var(--muted);margin-bottom:6px">
+          O que aconteceu
+        </label>
+        <textarea id="ocorrTexto" rows="4" maxlength="1000"
+          placeholder="Ex.: poste derrubado na rodovia, sem previsao da concessionaria"
+          style="width:100%;box-sizing:border-box;font:inherit;font-size:14px;padding:10px;border:1px solid var(--border);border-radius:8px;resize:vertical"></textarea>
+      </div>
+      <div class="modal-actions">
+        <button class="secondary-action" id="ocorrCancelar" type="button">Cancelar</button>
+        <button class="secondary-action" id="ocorrRemover" type="button">Remover</button>
+        <button class="primary-action" id="ocorrSalvar" type="button"><i data-lucide="check"></i> Salvar</button>
+      </div>
+    </div>
+  </div>
+
   <!-- --- TOAST --- -->
   <div id="toast" class="toast"><i data-lucide="circle-check"></i><span id="toastMsg">Ok</span></div>
 
@@ -6641,15 +6729,15 @@
   <script src="js/core.js?v=1790956900"></script>
   <script src="js/dashboard.js?v=1790978500"></script>
   <script src="js/liveStream.js?v=1790960500"></script>
-  <script src="js/cameras.js?v=1790982100"></script>
-  <script src="js/recorders.js?v=1790935300"></script>
+  <script src="js/cameras.js?v=1791000113"></script>
+  <script src="js/recorders.js?v=1791000100"></script>
   <script src="js/windows.js?v=142"></script>
   <script src="js/snapshots.js?v=1790019880"></script>
   <script src="js/maintenance.js?v=146"></script>
   <script src="js/analysis.js?v=147"></script>
   <script src="js/network.js?v=158"></script>
-  <script src="js/deploy.js?v=1790989300"></script>
-  <script src="js/cameraActivation.js?v=1790048800"></script>
+  <script src="js/deploy.js?v=1791000103"></script>
+  <script src="js/cameraActivation.js?v=1791000111"></script>
   <script src="js/deployOlt.js?v=160"></script>
   <script src="js/connectors.js?v=1790804180"></script>
   <script src="js/monitoring.js?v=1790812440"></script>
@@ -6660,6 +6748,6 @@
   <script src="js/accessWhatsappTriage.js?v=3"></script>
   <script src="js/messenger.js?v=5"></script>
   <script src="js/alert.js?v=1789901000"></script>
-  <script src="js/bootstrap.js?v=1790985700"></script>
+  <script src="js/bootstrap.js?v=1791000113"></script>
 </body>
 </html>

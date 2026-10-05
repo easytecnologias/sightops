@@ -9869,7 +9869,9 @@ body.shell-owner .nav-item.active { box-shadow: inset 3px 0 #c9962c; }
 
 .activation-filters {
   display: grid;
-  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) minmax(0, 1fr);
+  /* Quatro campos numa linha so. Com tres colunas o ultimo quebrava para
+     baixo e a barra ficava com cara de formulario pela metade. */
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr) minmax(0, .9fr) minmax(0, 1.1fr);
   gap: 12px;
   align-items: end;
 }
@@ -9967,6 +9969,10 @@ body.shell-owner .nav-item.active { box-shadow: inset 3px 0 #c9962c; }
   gap: 8px;
   padding: 14px 20px;
   border-top: 1px solid var(--border);
+}
+
+@media (max-width: 1250px) {
+  .activation-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 @media (max-width: 900px) {
@@ -10336,6 +10342,12 @@ table.recorder-tabela tbody tr:hover { background: var(--surface-soft); }
 #recTampa .rec-lista-alta{max-height:52vh}
 #recTampa .rec-busca-linha{display:flex;gap:10px;align-items:center}
 #recTampa .rec-busca-linha .rec-busca{flex:1;min-width:0}
+#recTampa .rec-marcas{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin:0 0 12px}
+#recTampa .rec-marcas-rot{font-size:11.5px;color:var(--muted);margin-right:2px}
+#recTampa .rec-marca{min-height:32px;padding:0 12px;border:1px solid var(--border);border-radius:999px;background:var(--card);color:var(--text);font:inherit;font-size:12px;font-weight:600;cursor:pointer}
+#recTampa .rec-marca:hover{border-color:var(--accent)}
+#recTampa .rec-marca.on{background:var(--accent);border-color:var(--accent);color:#fff}
+#recTampa .rec-recado{margin:0 0 10px;padding:9px 11px;border-radius:8px;background:rgba(240,180,41,.12);border:1px solid rgba(240,180,41,.35);font-size:12px;line-height:1.45}
 #recTampa .rec-check{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);white-space:nowrap}
 #recTampa .rec-item-cam{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:8px}
 #recTampa .rec-item-cam b{grid-column:1}
@@ -10573,3 +10585,22 @@ table.recorder-tabela tbody tr:hover { background: var(--surface-soft); }
 #recTampa .rec-item b{display:block;font-size:13px;font-weight:600}
 #recTampa .rec-item span{font-size:11.5px;color:var(--muted);font-variant-numeric:tabular-nums}
 #recTampa .rec-vazio{margin:14px 2px;color:var(--muted);font-size:13px}
+
+.activation-check{display:flex;align-items:center;gap:8px;margin-top:12px;font-size:13px;color:var(--muted)}
+.activation-check input{width:auto}
+
+.cam-ocorrencia{display:flex;gap:10px;align-items:flex-start;margin:0 16px 12px;padding:10px 12px;
+  border:1px solid rgba(240,180,41,.35);background:rgba(240,180,41,.10);border-radius:10px}
+.cam-ocorrencia i{width:16px;height:16px;flex:0 0 auto;margin-top:2px}
+.cam-ocorrencia div{display:flex;flex-direction:column;gap:2px;min-width:0}
+.cam-ocorrencia strong{font-size:12.5px;font-weight:600;line-height:1.4}
+.cam-ocorrencia span{font-size:11px;color:var(--muted)}
+.cam-ocorrencia-antes{margin:0 0 12px;padding:9px 11px;border-radius:8px;background:var(--bg);
+  font-size:12px;color:var(--muted);line-height:1.45}
+
+.trocar-ip-forcar{display:flex;gap:9px;align-items:flex-start;padding:10px 12px;border-radius:8px;
+  border:1px solid var(--border);background:var(--bg);cursor:pointer}
+.trocar-ip-forcar input{width:auto;margin-top:2px;flex:0 0 auto}
+.trocar-ip-forcar span{display:flex;flex-direction:column;gap:2px;font-size:11.5px;color:var(--muted);line-height:1.4}
+.trocar-ip-forcar strong{font-size:12.5px;color:var(--text);font-weight:600}
+.trocar-ip-forcar.destaque{border-color:var(--amber);background:rgba(240,180,41,.10)}

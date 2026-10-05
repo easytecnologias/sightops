@@ -2061,6 +2061,7 @@ function destacarLinhaCamAtiva() {
 
 function openCamPanel(cam) {
   _invOltActive = cam;
+  pintarOcorrenciaNoPainel(cam);
   stopPing();
   closeCamPanelLive();
 
@@ -2632,6 +2633,9 @@ async function camAction(action) {
     document.getElementById('trocarIpUser').value  = 'admin';
     document.getElementById('trocarIpPass').value  = '';
     document.getElementById('trocarIpErro').hidden = true;
+    const forcar = document.getElementById('trocarIpForcarRede');
+    if (forcar) forcar.checked = false;
+    document.getElementById('trocarIpForcarLinha')?.classList.remove('destaque');
     _fillTrocarIpNetwork(cam.ip, true);
     document.getElementById('modalTrocarIp').classList.remove('hidden');
     setTimeout(() => document.getElementById('trocarIpNovo').focus(), 50);
@@ -2794,3 +2798,81 @@ document.addEventListener('click', function fecharMenusDeCamada(ev) {
 document.addEventListener('scroll', () => {
   document.querySelectorAll('.map-layer-menu').forEach(m => { m.hidden = true; });
 }, true);
+
+
+// ---------------------------------------------------------------- ocorrencia
+// "offline" sozinho nao serve para entregar relatorio: o cliente quer saber por
+// que. Quem foi ate o poste sabe, e esse texto se perde no WhatsApp. Aqui ele
+// fica junto da camera e sai no PDF.
+function _ocorrenciaDataLocal(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  return isNaN(d) ? '' : d.toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
+}
+
+function pintarOcorrenciaNoPainel(cam) {
+  const caixa = document.getElementById('cpOcorrenciaAviso');
+  if (!caixa) return;
+  const texto = (cam && cam.ocorrencia) || '';
+  caixa.classList.toggle('hidden', !texto);
+  if (!texto) return;
+  document.getElementById('cpOcorrenciaTexto').textContent = texto;
+  const quem = [cam.ocorrencia_por, _ocorrenciaDataLocal(cam.ocorrencia_em)].filter(Boolean).join(' - ');
+  document.getElementById('cpOcorrenciaQuem').textContent = quem;
+  if (window.lucide) lucide.createIcons();
+}
+
+function abrirOcorrencia() {
+  const cam = _invOltActive;
+  if (!cam) { showToast('Abra uma camera primeiro.', true); return; }
+  document.getElementById('ocorrSub').textContent =
+    `${cam.ip}${cam.titulo ? ' - ' + cam.titulo : ''}. Sai no relatorio.`;
+  document.getElementById('ocorrTexto').value = cam.ocorrencia || '';
+  const antes = document.getElementById('ocorrAnterior');
+  if (cam.ocorrencia_por || cam.ocorrencia_em) {
+    antes.textContent = `Registrada por ${cam.ocorrencia_por || 'alguem'} em ${_ocorrenciaDataLocal(cam.ocorrencia_em) || '-'}.`;
+    antes.classList.remove('hidden');
+  } else {
+    antes.classList.add('hidden');
+  }
+  document.getElementById('ocorrRemover').style.display = cam.ocorrencia ? '' : 'none';
+  document.getElementById('modalCamOcorrencia').classList.remove('hidden');
+  if (window.lucide) lucide.createIcons();
+  document.getElementById('ocorrTexto').focus();
+}
+
+function fecharOcorrencia() {
+  document.getElementById('modalCamOcorrencia')?.classList.add('hidden');
+}
+
+async function salvarOcorrencia(limpar) {
+  const cam = _invOltActive;
+  if (!cam) return;
+  const texto = limpar ? '' : (document.getElementById('ocorrTexto')?.value || '').trim();
+  const botao = document.getElementById(limpar ? 'ocorrRemover' : 'ocorrSalvar');
+  if (botao) botao.disabled = true;
+  try {
+    const res = await api('/api/cameras/ocorrencia', {
+      method: 'POST',
+      body: JSON.stringify({
+        ip: cam.ip,
+        texto,
+        site: cam.site || cam.local || '',
+        remote_connector_id: cam.remote_connector_id || cam.connector_id || '',
+      }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data?.detail || 'nao consegui salvar');
+    // Atualiza a camera em memoria para a tela nao precisar de nova varredura.
+    cam.ocorrencia = data.ocorrencia || '';
+    cam.ocorrencia_em = data.ocorrencia_em || '';
+    cam.ocorrencia_por = data.ocorrencia_por || '';
+    pintarOcorrenciaNoPainel(cam);
+    fecharOcorrencia();
+    showToast(texto ? 'Ocorrencia registrada.' : 'Ocorrencia removida.');
+  } catch (err) {
+    showToast(err?.message || 'falha ao salvar a ocorrencia', true);
+  } finally {
+    if (botao) botao.disabled = false;
+  }
+}

@@ -398,6 +398,11 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('cpBtnDataHora')?.addEventListener('click', () => camAction('data-hora'));
   document.getElementById('cpBtnReboot')?.addEventListener('click', () => camAction('reboot'));
   document.getElementById('cpBtnWeb')?.addEventListener('click', () => camAction('web'));
+  document.getElementById('cpBtnOcorrencia')?.addEventListener('click', () => abrirOcorrencia());
+  document.getElementById('ocorrFechar')?.addEventListener('click', () => fecharOcorrencia());
+  document.getElementById('ocorrCancelar')?.addEventListener('click', () => fecharOcorrencia());
+  document.getElementById('ocorrSalvar')?.addEventListener('click', () => salvarOcorrencia(false));
+  document.getElementById('ocorrRemover')?.addEventListener('click', () => salvarOcorrencia(true));
   document.getElementById('cpBtnMapa')?.addEventListener('click', () => focusCameraOnMap(_invOltActive));
   document.getElementById('cpBtnPing')?.addEventListener('click', startPing);
   document.getElementById('cpSnapshotWrap')?.addEventListener('click', openCamPanelLive);
@@ -752,7 +757,12 @@ document.addEventListener('DOMContentLoaded', () => {
       return;
     }
     if (!pass) { erro.textContent = 'Informe a senha atual da camera.'; erro.hidden = false; return; }
-    const payload = { ip, new_ip: novo, user, pass, mask, gateway: gw };
+    // Mudanca de faixa e uma decisao do operador, nao um palpite do sistema: o
+    // servidor recusa mascara/gateway diferentes dos que a camera usa hoje, a
+    // menos que venha esta confirmacao. Sem ela, mover uma camera de rede era
+    // impossivel pela tela.
+    const forcar = !!document.getElementById('trocarIpForcarRede')?.checked;
+    const payload = { ip, new_ip: novo, user, pass, mask, gateway: gw, forcar_rede: forcar };
 
     // A troca demora: o servidor espera a camera ASSUMIR o IP novo (e reinicia
     // ela se preciso), o que leva dezenas de segundos. Sem retorno na tela o
@@ -788,6 +798,13 @@ document.addEventListener('DOMContentLoaded', () => {
       const detail = data?.detail || data?.error || data?.msg || data?.message || 'Erro ao trocar IP.';
       erro.textContent = detail;
       erro.hidden = false;
+      // O servidor pediu confirmacao de mudanca de faixa: destaca a caixa em
+      // vez de deixar o operador procurar o que fazer com a mensagem.
+      if (data?.precisa_confirmar) {
+        const linha = document.getElementById('trocarIpForcarLinha');
+        linha?.classList.add('destaque');
+        linha?.scrollIntoView({ block: 'nearest' });
+      }
       // Camera reiniciando: ja avisou o que fazer, entao recarrega a lista
       // pra ela aparecer no IP novo assim que voltar.
       if (data?.pendente) loadInvOlt();
