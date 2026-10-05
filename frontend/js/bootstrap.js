@@ -287,16 +287,22 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('deployRecorderHost')?.addEventListener('change', deployApplySelectedRecorder);
   document.getElementById('deployRecorderUser')?.addEventListener('input', deployResetRecorderLogin);
   document.getElementById('deployRecorderPassword')?.addEventListener('input', deployResetRecorderLogin);
-  document.getElementById('deployRecorderChannelButton')?.addEventListener('click', deployToggleRecorderChannelDropdown);
-  document.getElementById('deployRecorderChannelGrid')?.addEventListener('click', (ev) => {
-    const btn = ev.target.closest?.('.deploy-channel-pill');
-    if (btn) deploySelectRecorderChannel(btn.dataset.channel);
+  document.getElementById('deployRecorderChannelButton')?.addEventListener('click', deployAbrirCanais);
+  document.getElementById('btnDeployCanaisClose')?.addEventListener('click', deployFecharCanais);
+  document.getElementById('modalDeployCanais')?.addEventListener('click', (ev) => {
+    if (ev.target === ev.currentTarget) deployFecharCanais();
   });
-  document.addEventListener('click', (ev) => {
-    const dropdown = document.getElementById('deployRecorderChannelDropdown');
-    if (!dropdown || dropdown.contains(ev.target)) return;
-    document.getElementById('deployRecorderChannelGrid')?.classList.add('hidden');
+  document.getElementById('deployCanaisGrade')?.addEventListener('click', (ev) => {
+    const card = ev.target.closest?.('.deploy-canal-card');
+    if (card && !card.disabled) deploySelectRecorderChannel(card.dataset.channel);
   });
+  document.getElementById('deployCanaisFiltro')?.addEventListener('click', (ev) => {
+    const btn = ev.target.closest?.('button[data-filtro]');
+    if (!btn) return;
+    _deployCanaisFiltro = btn.dataset.filtro;
+    deployPintarCanais();
+  });
+  document.getElementById('deployCanaisBusca')?.addEventListener('input', deployPintarCanais);
   document.getElementById('deployConnector')?.addEventListener('change', () => {
     deployRenderOltContextForOrigin();
     deployApplyOltContext();

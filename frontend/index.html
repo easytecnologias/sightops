@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=1791000123">
+  <link rel="stylesheet" href="styles.css?v=1791000128">
 </head>
 <body>
 
@@ -4930,15 +4930,10 @@
                     <div class="form-group">
                       <label for="deployRecorderChannel">Canal</label>
                       <input id="deployRecorderChannel" type="hidden">
-                      <div id="deployRecorderChannelDropdown" class="deploy-channel-dropdown disabled">
-                        <button id="deployRecorderChannelButton" class="deploy-channel-toggle" type="button" disabled>
-                          <span id="deployRecorderChannelLabel">Entre no gravador</span>
-                          <i data-lucide="chevron-down"></i>
-                        </button>
-                        <div id="deployRecorderChannelGrid" class="deploy-channel-grid hidden">
-                          <span class="deploy-channel-empty">Entre no gravador para carregar os canais.</span>
-                        </div>
-                      </div>
+                      <button id="deployRecorderChannelButton" class="deploy-canal-abrir" type="button" disabled>
+                        <span id="deployRecorderChannelLabel">Entre no gravador</span>
+                        <i data-lucide="layout-grid"></i>
+                      </button>
                     </div>
                     <div class="form-group">
                       <label for="deployRecorderCameraIp">IP da camera</label>
@@ -4975,6 +4970,29 @@
               <div><h2>Historico recente</h2><p>Ultimas implantacoes salvas.</p></div>
             </div>
             <div id="deployHistory" class="deployment-history">Carregando...</div>
+          </div>
+        </div>
+
+        <div id="modalDeployCanais" class="modal-backdrop hidden" style="z-index:70">
+          <div class="modal" style="max-width:760px">
+            <div class="modal-header">
+              <div>
+                <p class="eyebrow">Gravador</p>
+                <h2>Escolher canal</h2>
+                <p id="deployCanaisResumo">-</p>
+              </div>
+              <button class="icon-button" id="btnDeployCanaisClose" type="button" aria-label="Fechar"><i data-lucide="x"></i></button>
+            </div>
+            <div class="modal-body">
+              <div class="deploy-canais-barra">
+                <div class="deploy-canais-seg" id="deployCanaisFiltro">
+                  <button type="button" data-filtro="livres" aria-pressed="true">So livres</button>
+                  <button type="button" data-filtro="todos" aria-pressed="false">Todos</button>
+                </div>
+                <input id="deployCanaisBusca" placeholder="Procurar por titulo ou IP da camera">
+              </div>
+              <div id="deployCanaisGrade" class="deploy-canais-grade"></div>
+            </div>
           </div>
         </div>
 
@@ -6779,7 +6797,7 @@
   <script src="js/maintenance.js?v=146"></script>
   <script src="js/analysis.js?v=147"></script>
   <script src="js/network.js?v=1791000127"></script>
-  <script src="js/deploy.js?v=1791000127"></script>
+  <script src="js/deploy.js?v=1791000128"></script>
   <script src="js/cameraActivation.js?v=1791000111"></script>
   <script src="js/deployOlt.js?v=160"></script>
   <script src="js/connectors.js?v=1790804180"></script>
@@ -6791,6 +6809,6 @@
   <script src="js/accessWhatsappTriage.js?v=3"></script>
   <script src="js/messenger.js?v=5"></script>
   <script src="js/alert.js?v=1789901000"></script>
-  <script src="js/bootstrap.js?v=1791000125"></script>
+  <script src="js/bootstrap.js?v=1791000128"></script>
 </body>
 </html>

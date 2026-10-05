@@ -12,52 +12,104 @@ function deploySetRecorderLoginResult(html, isError = false) {
   box.classList.toggle('error', !!isError);
 }
 
+let _deployCanais = [];
+let _deployCanaisFiltro = 'livres';
+
 function deployRenderRecorderChannels(channels = []) {
   const input = document.getElementById('deployRecorderChannel');
-  const grid = document.getElementById('deployRecorderChannelGrid');
   const toggle = document.getElementById('deployRecorderChannelButton');
   const labelEl = document.getElementById('deployRecorderChannelLabel');
-  const dropdown = document.getElementById('deployRecorderChannelDropdown');
-  if (!input || !grid || !toggle || !labelEl || !dropdown) return;
+  if (!input || !toggle || !labelEl) return;
   const previous = input.value;
-  if (!channels.length) {
+  _deployCanais = Array.isArray(channels) ? channels : [];
+
+  if (!_deployCanais.length) {
     input.value = '';
     labelEl.textContent = 'Entre no gravador';
     toggle.disabled = true;
-    dropdown.classList.add('disabled');
-    grid.innerHTML = '<span class="deploy-channel-empty">Entre no gravador para carregar os canais.</span>';
-    grid.classList.add('hidden');
+    deployFecharCanais();
     return;
   }
   toggle.disabled = false;
-  dropdown.classList.remove('disabled');
-  grid.innerHTML = channels.map(item => {
-    const ch = Number(item.channel || 0);
-    const used = !!item.used;
-    const detail = [item.title, item.camera_ip].filter(Boolean).join(' - ');
-    const selected = !used && String(ch) === String(previous);
-    const label = String(ch).padStart(2, '0');
-    const title = used ? `Canal ${label} em uso${detail ? `: ${detail}` : ''}` : `Canal ${label} livre`;
-    return `<button type="button" class="deploy-channel-pill ${used ? 'used' : 'free'} ${selected ? 'selected' : ''}" data-channel="${esc(ch)}" ${used ? 'disabled' : ''} title="${esc(title)}">${esc(label)}</button>`;
-  }).join('');
-  const free = channels.filter(item => !item.used);
-  const canKeep = free.some(item => String(item.channel) === String(previous));
-  if (canKeep) {
-    input.value = previous;
-  } else {
-    input.value = free[0]?.channel ? String(free[0].channel) : '';
-  }
-  labelEl.textContent = input.value ? `Canal ${String(input.value).padStart(2, '0')}` : 'Sem canal livre';
-  grid.querySelectorAll('.deploy-channel-pill').forEach(btn => {
-    btn.classList.toggle('selected', btn.dataset.channel === input.value);
-  });
+
+  const livres = _deployCanais.filter(item => !item.used);
+  const mantem = livres.some(item => String(item.channel) === String(previous));
+  input.value = mantem ? previous : (livres[0]?.channel ? String(livres[0].channel) : '');
+  // Com o gravador cheio o filtro abre em "todos": mostrar uma lista vazia
+  // seria esconder justamente a informacao que resolve o problema.
+  _deployCanaisFiltro = livres.length ? 'livres' : 'todos';
+  deployAtualizarRotuloCanal();
 }
 
-function deployToggleRecorderChannelDropdown() {
-  const toggle = document.getElementById('deployRecorderChannelButton');
-  const grid = document.getElementById('deployRecorderChannelGrid');
-  if (!toggle || !grid || toggle.disabled) return;
-  grid.classList.toggle('hidden');
+function deployAtualizarRotuloCanal() {
+  const input = document.getElementById('deployRecorderChannel');
+  const labelEl = document.getElementById('deployRecorderChannelLabel');
+  if (!input || !labelEl) return;
+  const livres = _deployCanais.filter(item => !item.used).length;
+  if (input.value) {
+    labelEl.textContent = `Canal ${String(input.value).padStart(2, '0')}`;
+  } else if (_deployCanais.length) {
+    labelEl.textContent = livres ? 'Escolher canal' : 'Sem canal livre - ver ocupados';
+  } else {
+    labelEl.textContent = 'Entre no gravador';
+  }
+}
+
+function deployAbrirCanais() {
+  if (!_deployCanais.length) return;
+  document.getElementById('modalDeployCanais')?.classList.remove('hidden');
+  deployPintarCanais();
+  document.getElementById('deployCanaisBusca')?.focus();
+}
+
+function deployFecharCanais() {
+  document.getElementById('modalDeployCanais')?.classList.add('hidden');
+}
+
+function deployPintarCanais() {
+  const grade = document.getElementById('deployCanaisGrade');
+  const resumo = document.getElementById('deployCanaisResumo');
+  if (!grade) return;
+  const escolhido = document.getElementById('deployRecorderChannel')?.value || '';
+  const busca = (document.getElementById('deployCanaisBusca')?.value || '').trim().toLowerCase();
+
+  document.querySelectorAll('#deployCanaisFiltro button').forEach(b => {
+    b.setAttribute('aria-pressed', b.dataset.filtro === _deployCanaisFiltro ? 'true' : 'false');
+  });
+
+  const livres = _deployCanais.filter(item => !item.used).length;
+  if (resumo) {
+    resumo.textContent = livres
+      ? `${livres} de ${_deployCanais.length} canais livres.`
+      : `Nenhum canal livre: os ${_deployCanais.length} estao em uso. Veja o que ocupa cada um para decidir qual substituir.`;
+  }
+
+  const visiveis = _deployCanais.filter(item => {
+    if (_deployCanaisFiltro === 'livres' && item.used) return false;
+    if (!busca) return true;
+    return [item.title, item.camera_ip, String(item.channel)]
+      .filter(Boolean).some(v => String(v).toLowerCase().includes(busca));
+  });
+
+  if (!visiveis.length) {
+    grade.innerHTML = '<div class="deploy-canais-vazio">Nenhum canal com esse filtro.</div>';
+    return;
+  }
+
+  grade.innerHTML = visiveis.map(item => {
+    const ch = Number(item.channel || 0);
+    const usado = !!item.used;
+    const rotulo = String(ch).padStart(2, '0');
+    const quem = [item.title, item.camera_ip].filter(Boolean).join(' - ');
+    return `<button type="button"
+      class="deploy-canal-card ${usado ? 'ocupado' : 'livre'}"
+      data-channel="${esc(ch)}" ${usado ? 'disabled' : ''}
+      aria-pressed="${!usado && String(ch) === String(escolhido) ? 'true' : 'false'}">
+      <span class="num">${esc(rotulo)}</span>
+      <span class="est">${usado ? 'Ocupado' : 'Livre'}</span>
+      <span class="quem">${esc(quem || (usado ? 'camera sem titulo' : 'disponivel'))}</span>
+    </button>`;
+  }).join('');
 }
 
 function deployResetRecorderLogin() {
@@ -304,15 +356,12 @@ function deployBindStepGuards() {
 
 function deploySelectRecorderChannel(channel) {
   const input = document.getElementById('deployRecorderChannel');
-  const grid = document.getElementById('deployRecorderChannelGrid');
-  const labelEl = document.getElementById('deployRecorderChannelLabel');
-  if (!input || !grid || !channel) return;
-  const btn = grid.querySelector(`.deploy-channel-pill[data-channel="${CSS.escape(String(channel))}"]`);
-  if (!btn || btn.disabled) return;
+  if (!input || !channel) return;
+  const alvo = _deployCanais.find(item => String(item.channel) === String(channel));
+  if (!alvo || alvo.used) return;
   input.value = String(channel);
-  if (labelEl) labelEl.textContent = `Canal ${String(channel).padStart(2, '0')}`;
-  grid.querySelectorAll('.deploy-channel-pill').forEach(item => item.classList.toggle('selected', item === btn));
-  grid.classList.add('hidden');
+  deployAtualizarRotuloCanal();
+  deployFecharCanais();
   deployRenderSummary();
 }
 
