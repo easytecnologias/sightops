@@ -13,13 +13,33 @@ let _activationPendingTargets = [];    // o que o modal vai ativar ao confirmar
 let _activationFilter = 'todas';       // todas | fabrica | ativas
 
 function activationKey(dev) {
-  return String(dev?.mac || '').toLowerCase();
+  // Cai no IP quando nao ha MAC: camera Hikvision JA ativada nao entrega o MAC
+  // sem senha, e com a chave vazia todas as linhas viravam a mesma -- marcar
+  // uma marcava o site inteiro.
+  return String(dev?.mac || dev?.ip || '').toLowerCase();
 }
 
 function activationEstado(dev) {
+  // 403 sem desafio Digest tambem acontece em equipamento BLOQUEADO por
+  // tentativa de senha errada -- e ai ativar vai falhar ate o bloqueio cair
+  // (uns 30 min) ou alguem tirar e por a energia. Melhor avisar do que deixar
+  // o tecnico tentando.
+  if (dev.travada) {
+    return { classe: 'badge-gray', texto: 'Travada',
+             dica: 'A camera esta recusando tudo (403), entao nao da para saber se e nova ou nao. Costuma ser bloqueio por tentativa de senha errada: espere uns 30 min ou tire e ponha a energia dela.' };
+  }
   if (dev.needs_activation) return { classe: 'badge-amber', texto: 'De fabrica' };
+  // Hikvision nao conta pelo HTTP se esta ativada ou nao -- de fabrica ela
+  // responde igual a uma ativada. Em vez de chutar "ja ativada" e esconder a
+  // camera nova, a tela assume a duvida e deixa tentar.
+  if (dev.estado_indefinido) return { classe: 'badge-gray', texto: 'Indefinido' };
   if (dev.init_status === 2) return { classe: 'badge-green', texto: 'Ja ativada' };
   return { classe: 'badge-gray', texto: 'Modelo antigo' };
+}
+
+// Quem pode ser oferecida para ativar: a de fabrica confirmada e a indefinida.
+function podeAtivar(dev) {
+  return !!(dev?.needs_activation || dev?.pode_tentar);
 }
 
 function activationRecuperacao(dev) {
@@ -30,8 +50,8 @@ function activationRecuperacao(dev) {
 }
 
 function activationVisiveis() {
-  if (_activationFilter === 'fabrica') return _activationDevices.filter(d => d.needs_activation);
-  if (_activationFilter === 'ativas') return _activationDevices.filter(d => !d.needs_activation);
+  if (_activationFilter === 'fabrica') return _activationDevices.filter(d => podeAtivar(d));
+  if (_activationFilter === 'ativas') return _activationDevices.filter(d => !podeAtivar(d));
   return _activationDevices;
 }
 
@@ -100,7 +120,12 @@ async function activationScan() {
     const ips = activationExpandRange(document.getElementById('activationRange')?.value);
     const res = await api('/api/deployments/activation/scan', {
       method: 'POST',
-      body: JSON.stringify({ connector_id: connectorId, ips }),
+      body: JSON.stringify({
+        connector_id: connectorId, ips,
+        // Qual pilha sondar. "todas" faz as duas; escolher uma corta o tempo
+        // pela metade e nao encosta no equipamento da outra marca.
+        marca: document.getElementById('activationMarca')?.value || 'todas',
+      }),
     });
     const data = await res.json().catch(() => null);
     if (!res.ok) throw new Error(data?.detail || 'falha na varredura');
@@ -109,7 +134,7 @@ async function activationScan() {
     _activationSelected = new Set();
     // Quem abre a tela quer ver o que falta ativar; se nao ha nada de fabrica,
     // mostrar a lista vazia seria confuso, entao cai pra "todas".
-    _activationFilter = _activationDevices.some(d => d.needs_activation) ? 'fabrica' : 'todas';
+    _activationFilter = _activationDevices.some(d => podeAtivar(d)) ? 'fabrica' : 'todas';
     activationRender(data);
     if (!_activationDevices.length) {
       showToast(data.detail || 'Nenhuma camera respondeu nos enderecos sondados.', true);
@@ -127,7 +152,8 @@ function activationRender(data) {
   const vazio = document.getElementById('activationEmpty');
   if (!corpo) return;
 
-  const pendentes = _activationDevices.filter(d => d.needs_activation).length;
+  const pendentes = _activationDevices.filter(d => podeAtivar(d)).length;
+  const indefinidos = _activationDevices.filter(d => d.estado_indefinido).length;
   const total = _activationDevices.length;
   document.getElementById('activationCountAll').textContent = total;
   document.getElementById('activationCountPending').textContent = pendentes;
@@ -137,8 +163,9 @@ function activationRender(data) {
   if (resumo) {
     resumo.textContent = total
       ? `${total} equipamentos responderam de ${data?.scanned ?? '?'} enderecos sondados -- ` +
-        `${pendentes} de fabrica, ${total - pendentes} ja ativados. ` +
-        `Origem: ${data?.source === 'manual' ? 'faixa informada' : 'ARP/DHCP do MikroTik'}.`
+        `${pendentes - indefinidos} de fabrica, ${total - pendentes} ja ativados` +
+        (indefinidos ? `, ${indefinidos} Hikvision sem como saber (tente ativar: se ja tiver senha, ela recusa)` : '') +
+        `. Origem: ${data?.source === 'manual' ? 'faixa informada' : 'ARP/DHCP do MikroTik'}.`
       : 'Escolha o site e clique em Varrer site.';
   }
 
@@ -157,11 +184,11 @@ function activationRender(data) {
 
   corpo.innerHTML = visiveis.map(dev => {
     const k = activationKey(dev);
-    const pode = !!dev.needs_activation;
+    const pode = podeAtivar(dev);
     const est = activationEstado(dev);
     return `<tr class="${pode ? '' : 'activation-row-done'}">
       <td><input type="checkbox" class="activation-check" data-mac="${esc(k)}" ${pode ? '' : 'disabled'} ${_activationSelected.has(k) ? 'checked' : ''}></td>
-      <td><span class="badge ${est.classe}">${est.texto}</span></td>
+      <td><span class="badge ${est.classe}"${est.dica ? ` title="${esc(est.dica)}"` : ''}>${est.texto}</span></td>
       <td class="activation-mono">${esc(dev.ip || '')}</td>
       <td class="activation-mono">${esc(dev.mac || '')}</td>
       <td>${esc(dev.model || '')}</td>
@@ -197,7 +224,7 @@ function activationUpdateBatchButton() {
 }
 
 function activationOpenModal(macs) {
-  const alvos = _activationDevices.filter(d => macs.includes(activationKey(d)) && d.needs_activation);
+  const alvos = _activationDevices.filter(d => macs.includes(activationKey(d)) && podeAtivar(d));
   if (!alvos.length) { showToast('Nenhuma camera de fabrica selecionada.', true); return; }
   _activationPendingTargets = alvos;
 
@@ -211,6 +238,11 @@ function activationOpenModal(macs) {
   const exigeEmail = alvos.some(d => d.needs_email);
   const campoEmail = document.getElementById('activationEmail');
   if (campoEmail) campoEmail.placeholder = exigeEmail ? 'obrigatorio nestes modelos' : 'opcional';
+
+  // Perguntas de recuperacao e DHCP so existem no caminho Hikvision: a
+  // Intelbras usa celular/e-mail, que ja tem campo proprio acima.
+  const temHik = alvos.some(d => String(d.vendor || '').toLowerCase() === 'hikvision');
+  document.getElementById('activationHikExtras')?.classList.toggle('hidden', !temHik);
 
   document.getElementById('modalActivationCredentials')?.classList.remove('hidden');
   if (window.lucide) lucide.createIcons();
@@ -231,6 +263,30 @@ async function activationConfirm() {
 
   if (!senha) { showToast('Defina a senha.', true); return; }
   if (senha !== senha2) { showToast('As duas senhas nao batem.', true); return; }
+
+  const temHik = _activationPendingTargets.some(
+    d => String(d.vendor || '').toLowerCase() === 'hikvision');
+
+  // Limite do proprio SDK da Hikvision (PASSWD_LEN = 16, com o terminador).
+  if (temHik && senha.length > 15) {
+    showToast('Para Hikvision a senha vai ate 15 caracteres.', true); return;
+  }
+
+  const perguntas = [];
+  if (temHik) {
+    for (const i of [1, 2, 3]) {
+      const id = document.getElementById(`activationQ${i}`)?.value;
+      const resposta = document.getElementById(`activationA${i}`)?.value?.trim() || '';
+      if (!resposta) {
+        showToast('A Hikvision exige as 3 respostas de recuperacao.', true); return;
+      }
+      perguntas.push({ id: Number(id), resposta });
+    }
+    if (new Set(perguntas.map(q => q.id)).size !== perguntas.length) {
+      showToast('As 3 perguntas tem que ser diferentes.', true); return;
+    }
+  }
+  const dhcp = temHik && !!document.getElementById('activationDhcp')?.checked;
   if (_activationPendingTargets.some(d => d.needs_email) && !email) {
     showToast('Estes modelos exigem e-mail de recuperacao.', true); return;
   }
@@ -244,8 +300,13 @@ async function activationConfirm() {
       body: JSON.stringify({
         connector_id: connectorId,
         usuario, senha, email, site,
+        // `vendor` precisa ir junto: e ele que escolhe o caminho no servidor
+        // (NetSDK da Intelbras x ISAPI da Hikvision). Sem ele a camera
+        // Hikvision caia na regra do SDK e era recusada por nao ter MAC.
+        perguntas, dhcp,
         targets: _activationPendingTargets.map(d => ({
-          ip: d.ip, mac: d.mac, model: d.model, pwd_reset_way: d.pwd_reset_way,
+          ip: d.ip, mac: d.mac, model: d.model, vendor: d.vendor,
+          pwd_reset_way: d.pwd_reset_way,
         })),
       }),
     });
@@ -312,6 +373,8 @@ function bindCameraActivation() {
   });
   document.getElementById('btnActivationSelectPending')?.addEventListener('click', () => {
     _activationSelected = new Set(_activationDevices.filter(d => d.needs_activation).map(activationKey));
+    // "Selecionar de fabrica" nunca marca as indefinidas: sao dezenas num site
+    // ja implantado, e marcar todas tentaria ativar o parque inteiro.
     if (!_activationSelected.size) { showToast('Nenhuma camera de fabrica nesta lista.', true); return; }
     _activationFilter = 'fabrica';
     activationRender();

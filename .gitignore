@@ -38,3 +38,7 @@ tmp/
 *.engine
 
 .DS_Store
+
+# SDKs de fabricante: binarios grandes, vivem na imagem Docker
+deploy/hiksdk/
+deploy/netsdk/
