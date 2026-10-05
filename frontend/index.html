@@ -4814,12 +4814,14 @@
               </details>
 
               <details class="onu-step" name="cftvAccordion" id="cftvStep2">
-                <summary><span class="onu-step-title">2. Camera</span></summary>
+                <summary>
+                  <span><span class="onu-step-title">2. Camera</span><span class="onu-step-sub">So titulo e IP sao seus. O MAC acha o IP, e entrar na camera traz fabricante e modelo.</span></span>
+                </summary>
                 <div class="onu-step-body">
                   <div class="form-group deploy-camera-mac-group">
-                    <label for="deployCameraMac">MAC da camera</label>
+                    <label for="deployCameraMac">MAC da camera <span style="font-weight:400;color:var(--muted)">(se nao tiver, pule e digite o IP abaixo)</span></label>
                     <div class="deploy-control-line deploy-camera-mac-row">
-                      <input id="deployCameraMac" placeholder="MAC visto no MikroTik">
+                      <input id="deployCameraMac" placeholder="Cole o MAC e clique em Procurar">
                       <button class="secondary-action" id="btnDeployLookupMac" type="button"><i data-lucide="search"></i> Procurar</button>
                     </div>
                   </div>
@@ -4837,7 +4839,7 @@
                   <div id="deployPullCameraResult" class="deploy-result-box">Descubra o IP pelo MAC (acima), preencha usuario/senha, depois clique para trazer os dados reais da camera.</div>
                   <div class="deploy-camera-title-ip-row">
                     <div class="form-group">
-                      <label for="deployCameraTitle">Titulo obrigatorio</label>
+                      <label for="deployCameraTitle">Titulo da camera <span style="font-weight:400;color:var(--muted)">(obrigatorio)</span></label>
                       <input id="deployCameraTitle" required placeholder="01 - ENTRADA">
                     </div>
                     <div class="form-group">
@@ -4852,26 +4854,26 @@
                   <div id="deployCheckIpResult" class="deploy-result-box">Se trocar o IP e clicar em "Checar novo IP", confiro disponibilidade e pergunto se quer aplicar na camera.</div>
                   <div class="deploy-camera-meta-row">
                     <div class="form-group">
-                      <label for="deployCameraManufacturer">Fabricante</label>
-                      <input id="deployCameraManufacturer" placeholder="Preenchido ao puxar dados, ou digite">
+                      <label for="deployCameraManufacturer">Fabricante <span style="font-weight:400;color:var(--muted)">(a camera informa)</span></label>
+                      <input id="deployCameraManufacturer" placeholder="Vem ao entrar na camera">
                     </div>
                     <div class="form-group">
-                      <label for="deployCameraModel">Modelo</label>
-                      <input id="deployCameraModel" placeholder="Preenchido ao puxar dados, ou digite">
+                      <label for="deployCameraModel">Modelo <span style="font-weight:400;color:var(--muted)">(a camera informa)</span></label>
+                      <input id="deployCameraModel" placeholder="Vem ao entrar na camera">
                     </div>
                     <div class="form-group">
-                      <label for="deployInventoryMode">Tipo de inventario</label>
+                      <label for="deployInventoryMode">Como a camera chega na rede</label>
                       <select id="deployInventoryMode" class="deployment-inventory-mode">
-                        <option value="basic">Basico</option>
-                        <option value="olt">OLT (camera atras de ONU/PON)</option>
-                        <option value="switch">Switch</option>
+                        <option value="basic">Cabo de rede direto (padrao)</option>
+                        <option value="olt">Fibra - a camera fica atras de uma ONU</option>
+                        <option value="switch">Switch no meio do caminho</option>
                       </select>
                     </div>
                   </div>
                   <div class="deploy-camera-save-row">
                     <div class="form-group">
                       <label for="deployCameraLocation">Localizacao da camera</label>
-                      <input id="deployCameraLocation" placeholder="Coordenada: -9.755000, -36.660000">
+                      <input id="deployCameraLocation" placeholder="Cole a coordenada do GPS do celular: -9.755000, -36.660000">
                     </div>
                     <div class="form-group deploy-button-field">
                       <label aria-hidden="true">&nbsp;</label>
@@ -4882,19 +4884,21 @@
               </details>
 
               <details class="onu-step" name="cftvAccordion" id="cftvStep3">
-                <summary><span class="onu-step-title">3. Gravador</span></summary>
+                <summary>
+                  <span><span class="onu-step-title">3. Gravador</span><span class="onu-step-sub">Opcional. So se esta camera tambem vai aparecer num NVR ou DVR.</span></span>
+                </summary>
                 <div class="onu-step-body">
                   <div class="form-row">
                     <div class="form-group">
-                      <label for="deployRecorderType">Tipo</label>
+                      <label for="deployRecorderType">Tipo de gravador</label>
                       <select id="deployRecorderType">
-                        <option value="">Nao vincular agora</option>
+                        <option value="">Nao vincular a gravador nenhum</option>
                         <option value="nvr">NVR IP</option>
                         <option value="dvr">DVR analogico / iMHDX</option>
                       </select>
                     </div>
                     <div class="form-group">
-                      <label for="deployRecorderHost">Host do gravador</label>
+                      <label for="deployRecorderHost">Qual gravador</label>
                       <select id="deployRecorderHost">
                         <option value="">Escolha um gravador do inventario</option>
                       </select>
@@ -4935,7 +4939,7 @@
                     </div>
                     <div class="form-group">
                       <label for="deployRecorderTitle">Titulo no gravador</label>
-                      <input id="deployRecorderTitle" placeholder="Mesmo titulo da camera">
+                      <input id="deployRecorderTitle" placeholder="Copiado do titulo da etapa 2">
                     </div>
                   </div>
                   <div class="deploy-recorder-add-row">
