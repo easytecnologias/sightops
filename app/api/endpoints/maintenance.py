@@ -2630,27 +2630,36 @@ def api_cameras_rename(payload: Dict[str, Any]) -> Dict[str, Any]:
                 continue
 
             base = f"{scheme}://{ip}:{p}"
-            _add_attempt(
-                "hikvision_isapi_videoinput",
-                "PUT",
-                f"{base}/ISAPI/System/Video/inputs/channels/{int(channel)}",
-                hik_xml,
-                "application/xml",
-            )
-            _add_attempt(
-                "hikvision_isapi_inputproxy",
-                "PUT",
-                f"{base}/ISAPI/ContentMgmt/InputProxy/channels/{int(channel)}",
-                hik_proxy_xml,
-                "application/xml",
-            )
+            # Marca conhecida que NAO e Hikvision nem tenta ISAPI. O trecho
+            # acima ja pulava o read-modify-write por isso, mas aqui as
+            # tentativas continuavam sendo geradas: ate 8 requisicoes para um
+            # protocolo que a camera nao implementa, cada uma esperando o
+            # timeout.
+            if not nao_e_hik:
+                _add_attempt(
+                    "hikvision_isapi_videoinput",
+                    "PUT",
+                    f"{base}/ISAPI/System/Video/inputs/channels/{int(channel)}",
+                    hik_xml,
+                    "application/xml",
+                )
+                _add_attempt(
+                    "hikvision_isapi_inputproxy",
+                    "PUT",
+                    f"{base}/ISAPI/ContentMgmt/InputProxy/channels/{int(channel)}",
+                    hik_proxy_xml,
+                    "application/xml",
+                )
 
-            # Dahua/Intelbras style rename (also used as fallback)
-            _add_attempt(
-                "dahua_configmanager",
-                "GET",
-                f"{base}/cgi-bin/configManager.cgi?action=setConfig&ChannelTitle[{idx0}].Name={q_title}",
-            )
+            # Dahua/Intelbras style rename (also used as fallback). So em http:
+            # o CGI delas nao atende em 443, e a tentativa https so rendia um
+            # "connection refused" que ia parar na tela do usuario.
+            if scheme == "http":
+                _add_attempt(
+                    "dahua_configmanager",
+                    "GET",
+                    f"{base}/cgi-bin/configManager.cgi?action=setConfig&ChannelTitle[{idx0}].Name={q_title}",
+                )
 
     # Try family-specific path first, then generic fallback.
     if is_hik:
@@ -2658,7 +2667,14 @@ def api_cameras_rename(payload: Dict[str, Any]) -> Dict[str, Any]:
     else:
         attempts.sort(key=lambda a: 0 if str(a.get("name", "")).startswith("dahua_") else 1)
 
-    last_err = ""
+    # A versao anterior guardava so o erro da ULTIMA tentativa. Como a lista
+    # termina sempre nas combinacoes menos provaveis, o tecnico lia
+    # "hikvision_isapi_inputproxy ... port=443 ... Connection refused" numa
+    # camera Intelbras -- um protocolo e uma porta que ela nao usa. A causa
+    # real (senha recusada, por exemplo) ficava escondida atras de um palpite.
+    familia = "dahua_" if nao_e_hik else "hikvision_"
+    erros: list[tuple[int, str]] = []
+
     for at in attempts:
         method = str(at.get("method") or "GET").upper()
         url = str(at.get("url") or "")
@@ -2673,9 +2689,24 @@ def api_cameras_rename(payload: Dict[str, Any]) -> Dict[str, Any]:
         if r is not None and r.status_code in (200, 201, 202, 204):
             _persist_inventory_title()
             return {"ok": True, "status": r.status_code, "url": url, "method": name}
-        last_err = f"{name}: HTTP {r.status_code}" if r is not None else f"{name}: {err}"
 
-    return {"ok": False, "error": last_err or "Falha ao renomear", "inventory_updated": False}
+        # Credencial recusada e sempre a explicacao mais util: o equipamento
+        # respondeu, entende o protocolo, e so disse que a senha esta errada.
+        if r is not None and r.status_code in (401, 403):
+            erros.append((0, f"A camera recusou usuario/senha (HTTP {r.status_code})."))
+        elif r is not None:
+            erros.append((1 if name.startswith(familia) else 2, f"{name}: HTTP {r.status_code}"))
+        else:
+            erros.append((1 if name.startswith(familia) else 2, f"{name}: {err}"))
+
+    # Ordenacao estavel: dentro da mesma prioridade vale a primeira tentativa,
+    # que e a da familia certa (a lista ja foi ordenada por familia acima).
+    erros.sort(key=lambda item: item[0])
+    return {
+        "ok": False,
+        "error": erros[0][1] if erros else "Falha ao renomear",
+        "inventory_updated": False,
+    }
 
 
 # ── Novos endpoints batch ─────────────────────────────────────────────────────
