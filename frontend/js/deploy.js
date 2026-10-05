@@ -128,7 +128,22 @@ function deployScheduleAvailableRecorders() {
 function deployStepState() {
   const p = deployPayload();
   const step1Done = Boolean(deployOriginReady() && p.site);
-  const step2Done = step1Done && Boolean(p.camera_ip && p.camera_title && p.camera_user && p.camera_password);
+  // O portao tem que ser o MESMO que o registro cobra, senao o botao morre sem
+  // dizer por que. `deployCommitCamera` exige titulo, IP e site -- nunca a
+  // senha da camera. Mas aqui a senha entrava na conta, entao
+  // `btnDeployCommitCamera.disabled` ficava ligado e o tecnico olhava um botao
+  // apagado sem nenhuma mensagem explicando o que faltava.
+  //
+  // Senha da camera serve para TRAZER dados (fabricante, modelo, gravar o
+  // titulo nela) -- e `deployPushTitleToCamera` ja trata a falta dela como
+  // "skipped", sem erro. Camera com senha trocada, sem senha anotada ou fora do
+  // ar segue sendo camera que precisa estar no inventario.
+  //
+  // De tabela, isso tambem destravava a etapa 3 cedo demais... na verdade
+  // tarde demais: vincular no NVR usa a senha do GRAVADOR (etapa 3) e o IP da
+  // camera, nunca a senha da camera. O tecnico ficava sem conseguir abrir a
+  // etapa 3 por causa de uma credencial que aquela etapa nao usa.
+  const step2Done = step1Done && Boolean(p.camera_ip && p.camera_title);
   const step3Done = step2Done && Boolean(p.recorder_type && p.recorder_host && p.recorder_channel);
   return {
     step1Done,
