@@ -7,24 +7,92 @@ function _dashNaoVerificado(online, offline) {
   return r => !online(r) && !offline(r);
 }
 
-function _drawerFilterBar(statusFilters, activeStatusKey, sites, activeSite, onStatusSelect, onSiteSelect) {
+// Filtro em cascata: CONECTOR -> SITE -> GRAVADOR.
+//
+// Um "site" sozinho nao bastava para achar as coisas: o parque tem dezenas de
+// sites espalhados por varios conectores, e o gravador e a terceira pergunta
+// que o operador faz ("qual DVR?"). Cada nivel so oferece o que existe DENTRO
+// da escolha do nivel anterior -- escolher um conector e continuar vendo sites
+// de outro cliente seria pior do que nao filtrar.
+//
+// Nivel com uma opcao so fica escondido: um seletor que nao escolhe nada e
+// ruido na tela.
+function _drawerCascata(linhas, niveis, escolhas) {
+  const saida = [];
+  let base = linhas;
+  for (const nivel of niveis) {
+    const vistos = new Map();
+    base.forEach(r => {
+      const valor = String(nivel.valor(r) || '').trim();
+      if (!valor) return;
+      if (!vistos.has(valor)) vistos.set(valor, nivel.rotuloDe ? nivel.rotuloDe(r, valor) : valor);
+    });
+    const opcoes = [...vistos.entries()]
+      .map(([valor, rotulo]) => ({ valor, rotulo }))
+      .sort((a, b) => a.rotulo.localeCompare(b.rotulo, 'pt', { numeric: true }));
+
+    let ativo = escolhas[nivel.id] || '';
+    if (ativo && !opcoes.some(o => o.valor === ativo)) ativo = '';   // escolha virou invalida
+    escolhas[nivel.id] = ativo || null;
+    if (ativo) base = base.filter(r => String(nivel.valor(r) || '').trim() === ativo);
+
+    saida.push({ ...nivel, opcoes, ativo });
+  }
+  return { seletores: saida, linhas: base };
+}
+
+function _drawerFilterBar(statusFilters, activeStatusKey, seletores, onStatusSelect, onFiltroSelect, _legado) {
+  // Aceita as DUAS formas. A forma antiga -- (filtros, ativo, sites[], site,
+  // aoStatus, aoSite) -- continua viva em Controle de Acesso, Monitoramento e
+  // na gaveta de ONU, que nao precisam de cascata. Converter aqui evita mexer
+  // em tres telas que estao funcionando so para acompanhar uma assinatura.
+  if (Array.isArray(seletores) && typeof _legado === 'function') {
+    const sites = seletores;
+    const siteAtivo = onStatusSelect;
+    const aoStatus = onFiltroSelect;
+    const aoSite = _legado;
+    seletores = [{ id: 'site', rotulo: 'Site', icone: 'map-pin', todos: 'Todos os sites',
+                   opcoes: sites.map(x => ({ valor: x, rotulo: x })), ativo: siteAtivo || '' }];
+    onStatusSelect = aoStatus;
+    onFiltroSelect = (_nivel, valor) => aoSite(valor);
+  }
   const el = document.getElementById('dashDrawerFilters');
   const statusHtml = `<div class="drawer-filter-row">` +
     statusFilters.map(f =>
       `<button class="drawer-filter-btn${f.key === activeStatusKey ? ' active' : ''}" data-filter="${f.key}">${f.label}${f.count != null ? ` (${f.count})` : ''}</button>`
     ).join('') + `</div>`;
-  const siteHtml = sites.length
-    ? `<div class="drawer-site-filter">
-        <label for="dashDrawerSiteSelect"><i data-lucide="map-pin"></i><span>Site</span></label>
-        <select id="dashDrawerSiteSelect" class="drawer-site-select">
-          <option value="">Todos os sites</option>
-          ${sites.map(s => `<option value="${esc(s)}"${s === activeSite ? ' selected' : ''}>${esc(s)}</option>`).join('')}
-        </select>
-      </div>`
+
+  const visiveis = (seletores || []).filter(x => x.opcoes.length > 1 || x.ativo);
+  const selectsHtml = visiveis.length
+    ? `<div class="drawer-filter-selects">` + visiveis.map(x => `
+        <div class="drawer-site-filter">
+          <label for="drawerSel_${x.id}"><i data-lucide="${x.icone || 'map-pin'}"></i><span>${esc(x.rotulo)}</span></label>
+          <select id="drawerSel_${x.id}" class="drawer-site-select" data-nivel="${esc(x.id)}">
+            <option value="">${esc(x.todos)}</option>
+            ${x.opcoes.map(o => `<option value="${esc(o.valor)}"${o.valor === x.ativo ? ' selected' : ''}>${esc(o.rotulo)}</option>`).join('')}
+          </select>
+        </div>`).join('') + `</div>`
     : '';
-  el.innerHTML = statusHtml + siteHtml;
-  el.querySelectorAll('.drawer-filter-btn[data-filter]').forEach(btn => btn.addEventListener('click', () => onStatusSelect(btn.dataset.filter)));
-  el.querySelector('#dashDrawerSiteSelect')?.addEventListener('change', event => onSiteSelect(event.target.value || null));
+
+  el.innerHTML = statusHtml + selectsHtml;
+  el.querySelectorAll('.drawer-filter-btn[data-filter]').forEach(btn =>
+    btn.addEventListener('click', () => onStatusSelect(btn.dataset.filter)));
+  el.querySelectorAll('select[data-nivel]').forEach(sel =>
+    sel.addEventListener('change', ev => onFiltroSelect(sel.dataset.nivel, ev.target.value || null)));
+}
+
+// Nome do conector em vez do id. O id e um hash que nao diz nada a quem opera.
+let _drawerConectores = null;
+async function _nomesDeConector() {
+  if (_drawerConectores) return _drawerConectores;
+  try {
+    const data = await apiJson('/api/connectors');
+    _drawerConectores = {};
+    (data?.connectors || []).forEach(c => { if (c?.id) _drawerConectores[c.id] = c.name || c.client || c.id; });
+  } catch {
+    _drawerConectores = {};
+  }
+  return _drawerConectores;
 }
 
 function _drawerRenderRows(html) {
@@ -32,9 +100,38 @@ function _drawerRenderRows(html) {
   lucide.createIcons();
 }
 
-async function openDashDrawerIp(filterKey, activeSite) {
-  filterKey  = filterKey  || 'all';
-  activeSite = activeSite || null;
+// Camera -> gravador que a usa. O inventario de camera nao guarda esse vinculo;
+// quem sabe e o canal do gravador, que registra o IP da camera. Monta uma vez
+// e reaproveita, usando o mesmo nome de gravador que a tela Gravadores mostra.
+let _drawerGravadorPorIp = null;
+async function _gravadorPorCameraIp() {
+  if (_drawerGravadorPorIp) return _drawerGravadorPorIp;
+  _drawerGravadorPorIp = {};
+  try {
+    const partes = await Promise.all([
+      apiJson('/api/nvr/inventory').catch(() => ({ inventory: [] })),
+      apiJson('/api/dvr/inventory').catch(() => ({ inventory: [] })),
+    ]);
+    const linhas = partes.flatMap(p => p?.inventory || []);
+    const nomePorHost = {};
+    linhas.forEach(r => {
+      const host = r.host || '';
+      if (host && !nomePorHost[host]) nomePorHost[host] = r.recorder_name || host;
+    });
+    linhas.forEach(r => {
+      const ip = String(r.camera_ip || '').trim();
+      if (ip && !_drawerGravadorPorIp[ip]) _drawerGravadorPorIp[ip] = nomePorHost[r.host] || r.host || '';
+    });
+  } catch {
+    // Sem o vinculo o nivel "Gravador" simplesmente nao aparece na camera.
+  }
+  return _drawerGravadorPorIp;
+}
+
+async function openDashDrawerIp(filterKey, filtros) {
+  filterKey = filterKey || 'all';
+  // Compat: chamadas antigas passavam so o site como segundo argumento.
+  filtros = (typeof filtros === 'string') ? { site: filtros } : { ...(filtros || {}) };
   _openDashDrawer('Inventario', 'Cameras IP');
   if (!_dashDrawerData?.ip) {
     const [basicRes, oltRes, switchRes] = await Promise.all([
@@ -55,9 +152,18 @@ async function openDashDrawerIp(filterKey, activeSite) {
   const noSnap    = r => !r.snapshot_url && !r.imgbb_url;
   const rowSite   = r => String(r.local || r.site || r.site_name || '').trim();
 
-  const sites = [...new Set(rows.map(rowSite).filter(Boolean))].sort((a,b) => a.localeCompare(b,'pt'));
-  if (activeSite && !sites.includes(activeSite)) activeSite = null;
-  const siteRows = activeSite ? rows.filter(r => rowSite(r) === activeSite) : rows;
+  const conectores = await _nomesDeConector();
+  // Qual gravador usa esta camera: vem do inventario dos gravadores, casando
+  // pelo IP da camera. A linha de camera nao guarda esse vinculo.
+  const gravadorPorIp = await _gravadorPorCameraIp();
+  const { seletores, linhas: siteRows } = _drawerCascata(rows, [
+    { id:'conector', rotulo:'Conector', icone:'plug', todos:'Todos os conectores',
+      valor: r => String(r.remote_connector_id || r.connector_id || ''),
+      rotuloDe: (r, v) => r.remote_connector_name || conectores[v] || v },
+    { id:'site', rotulo:'Site', icone:'map-pin', todos:'Todos os sites', valor: rowSite },
+    { id:'gravador', rotulo:'Gravador', icone:'hard-drive', todos:'Todos os gravadores',
+      valor: r => gravadorPorIp[String(r.ip || '').trim()] || '' },
+  ], filtros);
   const semInfo = _dashNaoVerificado(isOnline, isOffline);
   const counts = { all: siteRows.length, online: siteRows.filter(isOnline).length, offline: siteRows.filter(isOffline).length,
                    nao_verificado: siteRows.filter(semInfo).length, no_snap: siteRows.filter(noSnap).length };
@@ -67,9 +173,9 @@ async function openDashDrawerIp(filterKey, activeSite) {
      { key:'offline', label:' Offline', count:counts.offline },
      { key:'nao_verificado', label:'Nao verificado', count:counts.nao_verificado },
      { key:'no_snap', label:'Sem snapshot', count:counts.no_snap }],
-    filterKey, sites, activeSite,
-    k => openDashDrawerIp(k, activeSite),
-    s => openDashDrawerIp(filterKey, s)
+    filterKey, seletores,
+    k => openDashDrawerIp(k, filtros),
+    (nivel, valor) => openDashDrawerIp(filterKey, { ...filtros, [nivel]: valor })
   );
 
   let filtered = siteRows;
@@ -112,9 +218,10 @@ async function refreshDashboardLiveCameraStatus() {
   await loadDashboard();
 }
 
-async function openDashDrawerRecorder(source, filterKey, activeSite) {
-  filterKey  = filterKey  || 'all';
-  activeSite = activeSite || null;
+async function openDashDrawerRecorder(source, filterKey, filtros) {
+  filterKey = filterKey || 'all';
+  // Compat: chamadas antigas passavam so o site como terceiro argumento.
+  filtros = (typeof filtros === 'string') ? { site: filtros } : { ...(filtros || {}) };
   const sources = source === 'all' ? ['dvr', 'nvr'] : [source === 'dvr' ? 'dvr' : 'nvr'];
   const label = source === 'all' ? 'DVR/NVR' : (source === 'dvr' ? 'DVR' : 'NVR');
   _openDashDrawer('Gravadores', `Canais ${label}`);
@@ -164,9 +271,15 @@ async function openDashDrawerRecorder(source, filterKey, activeSite) {
     return `Camera ${String(r.channel || 0).padStart(2, '0')}`;
   };
 
-  const sites = [...new Set(rows.map(rowSite).filter(Boolean))].sort((a,b) => a.localeCompare(b,'pt'));
-  if (activeSite && !sites.includes(activeSite)) activeSite = null;
-  const siteRows = activeSite ? rows.filter(r => rowSite(r) === activeSite) : rows;
+  const conectores = await _nomesDeConector();
+  const { seletores, linhas: siteRows } = _drawerCascata(rows, [
+    { id:'conector', rotulo:'Conector', icone:'plug', todos:'Todos os conectores',
+      valor: r => String(r.remote_connector_id || r.connector_id || ''),
+      rotuloDe: (r, v) => r.remote_connector_name || conectores[v] || v },
+    { id:'site', rotulo:'Site', icone:'map-pin', todos:'Todos os sites', valor: rowSite },
+    { id:'gravador', rotulo:'Gravador', icone:'hard-drive', todos:'Todos os gravadores',
+      valor: r => dvrNameByHost[r.host || r.ip || ''] || String(r.host || '') },
+  ], filtros);
   const semInfo = _dashNaoVerificado(isOnline, isOffline);
   const counts = { all: siteRows.length, online: siteRows.filter(isOnline).length,
                    offline: siteRows.filter(isOffline).length, nao_verificado: siteRows.filter(semInfo).length };
@@ -175,9 +288,9 @@ async function openDashDrawerRecorder(source, filterKey, activeSite) {
     [{ key:'all', label:'Todos', count:counts.all }, { key:'online', label:' Online', count:counts.online },
      { key:'offline', label:' Offline', count:counts.offline },
      { key:'nao_verificado', label:'Nao verificado', count:counts.nao_verificado }],
-    filterKey, sites, activeSite,
-    k => openDashDrawerRecorder(source, k, activeSite),
-    s => openDashDrawerRecorder(source, filterKey, s)
+    filterKey, seletores,
+    k => openDashDrawerRecorder(source, k, filtros),
+    (nivel, valor) => openDashDrawerRecorder(source, filterKey, { ...filtros, [nivel]: valor })
   );
 
   let filtered = siteRows;
