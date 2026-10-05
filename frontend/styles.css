@@ -10883,3 +10883,12 @@ table.recorder-tabela tbody tr:hover { background: var(--surface-soft); }
   background: var(--surface-soft); border: 1px solid var(--border);
   font-size: 12.5px; color: var(--muted);
 }
+
+/* Saida de emergencia, nao campo do fluxo: a entrada no gravador e
+   automatica pela senha guardada. Este link so existe para o dia em que
+   alguem trocou a senha no proprio equipamento. */
+#deployForm .deploy-cred-link {
+  border: 0; background: none; color: var(--muted); font: inherit; font-size: 12px;
+  text-decoration: underline; cursor: pointer; padding: 2px 0; justify-self: start; width: auto;
+}
+#deployForm .deploy-cred-link:hover { color: var(--text); }

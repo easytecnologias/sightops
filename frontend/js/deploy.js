@@ -225,8 +225,10 @@ function deployApplySelectedRecorder() {
   const temSenha = !!host && recTemSenhaSalva(host);
   if (!host) return;
   if (temSenha) {
+    deployMostrarCredGravador(false);
     deployRecorderLogin();
   } else {
+    deployMostrarCredGravador(true);
     deploySetRecorderLoginResult('Este gravador ainda nao tem senha guardada. Informe usuario e senha uma vez: as proximas entradas serao diretas.');
   }
 }
@@ -3762,7 +3764,8 @@ async function deployRecorderLogin() {
     return;
   }
   if (!payload.recorder_password && !recTemSenhaSalva(payload.recorder_host)) {
-    deploySetRecorderLoginResult('Este gravador ainda nao tem senha guardada. Informe usuario e senha ao lado.', true);
+    deployMostrarCredGravador(true);
+    deploySetRecorderLoginResult('Este gravador ainda nao tem senha guardada. Informe usuario e senha acima.', true);
     return;
   }
   const btn = document.getElementById('btnDeployRecorderLogin');
@@ -3774,6 +3777,9 @@ async function deployRecorderLogin() {
     if (!res?.ok || data?.ok === false) {
       // Recusa pode ser senha trocada no proprio equipamento depois de salva.
       // Reabrir os campos da ao tecnico como resolver sem sair da tela.
+      // Recusa pode ser senha trocada no proprio equipamento depois de salva.
+      // Abrir os campos da ao tecnico como resolver sem sair da tela.
+      deployMostrarCredGravador(true);
       const detail = deployErroGravadorLegivel(data?.detail || data?.message, payload);
       deploySetRecorderLoginResult(esc(detail), true);
       showToast(detail, true);
@@ -5753,4 +5759,23 @@ async function deployEntrarNaCamera() {
     return;
   }
   deployFecharLoginCamera();
+}
+
+
+// Credencial do gravador: fechada por padrao, aberta quando faz falta.
+function deployMostrarCredGravador(mostrar) {
+  const bloco = document.getElementById('deployRecorderCred');
+  const link = document.getElementById('btnDeployRecorderCredToggle');
+  if (!bloco) return;
+  bloco.hidden = !mostrar;
+  if (link) {
+    link.textContent = mostrar ? 'Usar a senha guardada' : 'Entrar com outra senha';
+    // Sem senha guardada o link nao e alternativa: e o unico caminho.
+    link.hidden = mostrar && !recTemSenhaSalva(document.getElementById('deployRecorderHost')?.value || '');
+  }
+}
+
+function deployAlternarCredGravador() {
+  const bloco = document.getElementById('deployRecorderCred');
+  deployMostrarCredGravador(!!bloco?.hidden);
 }

@@ -282,6 +282,7 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('btnDeployCheckNewIp')?.addEventListener('click', deployCheckNewIp);
   document.getElementById('btnDeploySaveCameraInventory')?.addEventListener('click', deploySaveCameraInventory);
   document.getElementById('btnDeployRecorderLogin')?.addEventListener('click', deployRecorderLogin);
+  document.getElementById('btnDeployRecorderCredToggle')?.addEventListener('click', deployAlternarCredGravador);
   document.getElementById('deployRecorderType')?.addEventListener('change', deployLoadAvailableRecorders);
   document.getElementById('deployRecorderHost')?.addEventListener('change', deployApplySelectedRecorder);
   document.getElementById('deployRecorderUser')?.addEventListener('input', deployResetRecorderLogin);
