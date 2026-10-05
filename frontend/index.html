@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=1791000132">
+  <link rel="stylesheet" href="styles.css?v=1791000133">
 </head>
 <body>
 
@@ -4915,23 +4915,22 @@
                       </select>
                     </div>
                   </div>
-                  <div id="deployRecorderCred" hidden>
-                    <div class="form-row deploy-recorder-login-row">
+                  <button type="button" id="btnDeployRecorderCredToggle" class="deploy-cred-link"
+                          aria-expanded="false" aria-controls="deployRecorderCred">Entrar com outra senha</button>
+                  <div id="deployRecorderCred" class="deploy-cred-bloco" hidden>
+                    <div class="deploy-cred-campos">
                       <div class="form-group">
-                        <label for="deployRecorderUser">Usuario do gravador</label>
+                        <label for="deployRecorderUser">Usuario</label>
                         <input id="deployRecorderUser" value="admin" autocomplete="username">
                       </div>
                       <div class="form-group">
-                        <label for="deployRecorderPassword">Senha do gravador</label>
-                        <input id="deployRecorderPassword" type="password" placeholder="Senha" autocomplete="new-password">
+                        <label for="deployRecorderPassword">Senha</label>
+                        <input id="deployRecorderPassword" type="password" placeholder="Senha do gravador" autocomplete="current-password">
                       </div>
-                      <div class="form-group deploy-button-field">
-                        <label aria-hidden="true">&nbsp;</label>
-                        <button class="secondary-action" id="btnDeployRecorderLogin" type="button"><i data-lucide="log-in"></i> Entrar</button>
-                      </div>
+                      <button class="secondary-action" id="btnDeployRecorderLogin" type="button"><i data-lucide="log-in"></i> Entrar</button>
                     </div>
+                    <p class="deploy-cred-nota">Fica guardada cifrada no servidor: nas proximas vezes a entrada e direta.</p>
                   </div>
-                  <button type="button" id="btnDeployRecorderCredToggle" class="deploy-cred-link">Entrar com outra senha</button>
                   <div id="deployRecorderLoginResult" class="deploy-result-box">Escolha o gravador acima: se a senha ja estiver guardada, a entrada e direta.</div>
                   <input id="deployRecorderChannel" type="hidden">
                   <div class="deploy-recorder-add-row">
@@ -6784,7 +6783,7 @@
   <script src="js/maintenance.js?v=146"></script>
   <script src="js/analysis.js?v=147"></script>
   <script src="js/network.js?v=1791000129"></script>
-  <script src="js/deploy.js?v=1791000131"></script>
+  <script src="js/deploy.js?v=1791000133"></script>
   <script src="js/cameraActivation.js?v=1791000111"></script>
   <script src="js/deployOlt.js?v=160"></script>
   <script src="js/connectors.js?v=1790804180"></script>

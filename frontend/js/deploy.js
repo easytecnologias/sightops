@@ -5769,6 +5769,7 @@ function deployMostrarCredGravador(mostrar) {
   if (!bloco) return;
   bloco.hidden = !mostrar;
   if (link) {
+    link.setAttribute('aria-expanded', mostrar ? 'true' : 'false');
     link.textContent = mostrar ? 'Usar a senha guardada' : 'Entrar com outra senha';
     // Sem senha guardada o link nao e alternativa: e o unico caminho.
     link.hidden = mostrar && !recTemSenhaSalva(document.getElementById('deployRecorderHost')?.value || '');
