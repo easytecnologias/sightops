@@ -272,7 +272,6 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('btnDeployLookupMac')?.addEventListener('click', deployLookupMac);
   // O botao de confirmar do modal: valida, chama o raio-X e so fecha se deu certo.
   document.getElementById('btnDeployPullCamera')?.addEventListener('click', deployEntrarNaCamera);
-  document.getElementById('btnDeployOpenLogin')?.addEventListener('click', deployAbrirLoginCamera);
   document.getElementById('btnDeployLoginClose')?.addEventListener('click', deployFecharLoginCamera);
   document.getElementById('btnDeployLoginCancel')?.addEventListener('click', deployFecharLoginCamera);
   // Enter na senha entra na camera. Fora de <form>, nao ha submit para brigar.

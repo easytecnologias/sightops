@@ -3419,13 +3419,16 @@ async function deployLookupMac() {
       if (el.dataset.mac) document.getElementById('deployCameraMac').value = el.dataset.mac;
       showToast(`Selecionado: ${el.dataset.ip || el.dataset.mac}`);
       deployRenderSummary();
+      // Escolher a camera E dizer "quero esta": nao existe motivo para um
+      // segundo clique num botao separado so para confirmar o que o clique
+      // anterior ja disse. Com a senha ja digitada entra direto; sem ela, o
+      // modal pergunta na hora.
       const userEl = document.getElementById('deployCameraUser');
       const passEl = document.getElementById('deployCameraPassword');
       if (userEl?.value && passEl?.value) {
         deployPullCameraInfo();
       } else {
-        const box = document.getElementById('deployPullCameraResult');
-        if (box) box.innerHTML = `IP ${esc(el.dataset.ip || '')} selecionado (via Mikrotik). Preencha usuario/senha da camera e clique em "Puxar dados da camera" pra confirmar.`;
+        deployAbrirLoginCamera();
       }
     };
     el.addEventListener('click', selectMatch);
