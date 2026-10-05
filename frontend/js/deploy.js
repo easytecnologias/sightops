@@ -118,6 +118,24 @@ function deployApplySelectedRecorder() {
   deployResetRecorderLogin();
   deployRenderSummary();
   deployUpdateStepLocks({ autoAdvance: true });
+
+  // Gravador escolhido da lista do inventario ja teve a senha digitada uma
+  // vez e guardada cifrada no servidor (`recorder_credentials`). Pedi-la de
+  // novo e pedir ao tecnico que prove algo que o sistema ja sabe -- e no
+  // poste, de celular, ele frequentemente NAO sabe: quem cadastrou foi outra
+  // pessoa, meses atras.
+  //
+  // Entao: com senha guardada, escolher ja entra. Sem ela, os campos aparecem
+  // -- e so nesse caso, porque ai a pergunta e legitima.
+  const linha = document.querySelector('#cftvStep3 .deploy-recorder-login-row');
+  const temSenha = !!host && recTemSenhaSalva(host);
+  if (linha) linha.hidden = temSenha;
+  if (!host) return;
+  if (temSenha) {
+    deployRecorderLogin();
+  } else {
+    deploySetRecorderLoginResult('Este gravador ainda nao tem senha guardada. Informe usuario e senha uma vez: as proximas entradas serao diretas.');
+  }
 }
 
 function deployScheduleAvailableRecorders() {
@@ -427,6 +445,7 @@ async function loadDeployNew() {
   deployRenderConnectorStatus();
   deployRenderSummary();
   deployOpenStep('cftvStep2', { forcar: true });
+  await recCarregarSenhasSalvas();
   await loadDeployHistory();
   bindAccordionExclusive('#viewDeployNew');
   deployBindStepGuards();
@@ -3638,9 +3657,17 @@ async function deployRecorderLogin() {
     showToast('Escolha NVR IP ou DVR analogico.', true);
     return;
   }
-  if (!payload.recorder_host || !payload.recorder_user || !payload.recorder_password) {
-    deploySetRecorderLoginResult('Informe host, usuario e senha do gravador.', true);
-    showToast('Informe host, usuario e senha do gravador.', true);
+  // Senha em branco NAO e erro: o backend resolve pela credencial guardada
+  // (`_credencial_gravador`), e sempre resolveu. Era esta checagem no
+  // frontend -- e so ela -- que obrigava a redigitar.
+  if (!payload.recorder_host) {
+    deploySetRecorderLoginResult('Escolha o gravador antes de entrar.', true);
+    showToast('Escolha o gravador.', true);
+    return;
+  }
+  if (!payload.recorder_password && !recTemSenhaSalva(payload.recorder_host)) {
+    document.querySelector('#cftvStep3 .deploy-recorder-login-row')?.removeAttribute('hidden');
+    deploySetRecorderLoginResult('Este gravador ainda nao tem senha guardada. Informe usuario e senha.', true);
     return;
   }
   const btn = document.getElementById('btnDeployRecorderLogin');
@@ -3650,7 +3677,10 @@ async function deployRecorderLogin() {
     const res = await api('/api/deployments/recorder-login', { method: 'POST', body: JSON.stringify(payload) });
     const data = await res?.json().catch(() => ({}));
     if (!res?.ok || data?.ok === false) {
-      const detail = data?.detail || data?.message || 'Falha ao entrar no gravador. Confira host, usuario e senha.';
+      // Recusa pode ser senha trocada no proprio equipamento depois de salva.
+      // Reabrir os campos da ao tecnico como resolver sem sair da tela.
+      document.querySelector('#cftvStep3 .deploy-recorder-login-row')?.removeAttribute('hidden');
+      const detail = data?.detail || data?.message || 'Falha ao entrar no gravador. Confira usuario e senha.';
       deploySetRecorderLoginResult(esc(detail), true);
       showToast(detail, true);
       return;
