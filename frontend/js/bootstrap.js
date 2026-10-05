@@ -282,7 +282,6 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('btnDeployCheckNewIp')?.addEventListener('click', deployCheckNewIp);
   document.getElementById('btnDeploySaveCameraInventory')?.addEventListener('click', deploySaveCameraInventory);
   document.getElementById('btnDeployRecorderLogin')?.addEventListener('click', deployRecorderLogin);
-  document.getElementById('btnDeployRecorderAddCamera')?.addEventListener('click', deployRecorderAddCamera);
   document.getElementById('deployRecorderType')?.addEventListener('change', deployLoadAvailableRecorders);
   document.getElementById('deployRecorderHost')?.addEventListener('change', deployApplySelectedRecorder);
   document.getElementById('deployRecorderUser')?.addEventListener('input', deployResetRecorderLogin);
@@ -320,8 +319,8 @@ document.addEventListener('DOMContentLoaded', () => {
     deployScheduleAvailableRecorders();
   });
   document.getElementById('deployCameraTitle')?.addEventListener('input', () => {
-    const recTitle = document.getElementById('deployRecorderTitle');
-    if (recTitle && !recTitle.value) recTitle.value = document.getElementById('deployCameraTitle')?.value || '';
+    // O titulo do gravador nao e mais um campo proprio: o payload le o da
+    // camera direto, entao nao ha nada para copiar.
     deployRenderSummary();
     deployUpdateStepLocks({ autoAdvance: true });
   });

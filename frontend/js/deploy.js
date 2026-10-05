@@ -12,6 +12,7 @@ function deploySetRecorderLoginResult(html, isError = false) {
   box.classList.toggle('error', !!isError);
 }
 
+let _deployTituloDaCamera = '';
 let _deployCanais = [];
 let _deployCanaisFiltro = 'livres';
 
@@ -43,16 +44,15 @@ function deployRenderRecorderChannels(channels = []) {
 
 function deployAtualizarRotuloCanal() {
   const input = document.getElementById('deployRecorderChannel');
-  const labelEl = document.getElementById('deployRecorderChannelLabel');
-  if (!input || !labelEl) return;
+  const btn = document.getElementById('deployRecorderChannelButton');
+  if (!input || !btn) return;
   const livres = _deployCanais.filter(item => !item.used).length;
-  if (input.value) {
-    labelEl.textContent = `Canal ${String(input.value).padStart(2, '0')}`;
-  } else if (_deployCanais.length) {
-    labelEl.textContent = livres ? 'Escolher canal' : 'Sem canal livre - ver ocupados';
-  } else {
-    labelEl.textContent = 'Entre no gravador';
-  }
+  let texto;
+  if (!_deployCanais.length) texto = 'Entre no gravador';
+  else if (livres) texto = 'Escolher canal e adicionar';
+  else texto = 'Sem canal livre - ver quem ocupa';
+  btn.innerHTML = `<i data-lucide="layout-grid"></i> <span id="deployRecorderChannelLabel">${esc(texto)}</span>`;
+  try { lucide.createIcons(); } catch {}
 }
 
 function deployAbrirCanais() {
@@ -76,6 +76,17 @@ function deployPintarCanais() {
   document.querySelectorAll('#deployCanaisFiltro button').forEach(b => {
     b.setAttribute('aria-pressed', b.dataset.filtro === _deployCanaisFiltro ? 'true' : 'false');
   });
+
+  const aviso = document.getElementById('deployCanaisAviso');
+  if (aviso) {
+    const p = deployPayload();
+    const quem = [p.camera_title, p.camera_ip].filter(Boolean).join(' - ');
+    // O clique grava num equipamento vivo. Dizer o que vai acontecer ANTES
+    // e o que torna o clique unico aceitavel.
+    aviso.textContent = quem
+      ? `Ao escolher um canal livre, ${quem} entra nele agora.`
+      : 'Preencha titulo e IP da camera na etapa anterior antes de escolher o canal.';
+  }
 
   const livres = _deployCanais.filter(item => !item.used).length;
   if (resumo) {
@@ -319,8 +330,6 @@ function deployUpdateStepLocks({ autoAdvance = false } = {}) {
 
   const commitBtn = document.getElementById('btnDeployCommitCamera');
   if (commitBtn) commitBtn.disabled = !state.step2Done;
-  const recorderAddBtn = document.getElementById('btnDeployRecorderAddCamera');
-  if (recorderAddBtn) recorderAddBtn.disabled = !state.step3Unlocked;
 }
 
 function deployEnsureStepUnlocked(stepId, message) {
@@ -363,6 +372,10 @@ function deploySelectRecorderChannel(channel) {
   deployAtualizarRotuloCanal();
   deployFecharCanais();
   deployRenderSummary();
+  // Escolher o canal E a ordem de adicionar. Guardar a escolha e esperar um
+  // segundo clique num botao separado nao protegia de nada: o modal ja diz,
+  // antes do clique, qual camera entra em qual canal.
+  deployRecorderAddCamera();
 }
 
 async function deployLoadRecorderChannels() {
@@ -384,7 +397,6 @@ async function deployLoadRecorderChannels() {
 }
 
 function deployRenderSummary() {
-  deploySyncRecorderCameraIp();
   const p = deployPayload();
   const conn = deploySelectedConnector();
   const rows = [
@@ -3574,6 +3586,11 @@ async function deployPullCameraInfo() {
   box?.classList.remove('error');
   const eq = data.equipamento || {};
   const rede = data.rede || {};
+  // O titulo que a propria camera carrega. Serve de origem para o canal do
+  // gravador quando o tecnico nao digitou nada -- o que ele digitou tem
+  // precedencia, senao um nome de fabrica ("IP CAMERA") sobrescreveria o
+  // nome correto que ele acabou de escolher.
+  _deployTituloDaCamera = data.titulo || '';
   const fabEl = document.getElementById('deployCameraManufacturer');
   const modEl = document.getElementById('deployCameraModel');
   const titleEl = document.getElementById('deployCameraTitle');
@@ -3780,7 +3797,16 @@ async function deployRecorderLogin() {
 async function deployRecorderAddCamera() {
   if (!deployEnsureStepUnlocked('cftvStep3', 'Preencha titulo e IP da camera antes de adicionar no gravador.')) return;
   const payload = deployPayload();
-  if (!payload.recorder_type || !payload.recorder_host || !payload.recorder_user || !payload.recorder_password) {
+  // Mesma armadilha da entrada: senha vazia NAO e erro quando o servidor ja
+  // guarda a credencial. Sem este ajuste, o login automatico passava e a
+  // adicao morria aqui, dizendo "entre no gravador" para quem ja estava
+  // dentro.
+  if (!payload.recorder_type || !payload.recorder_host) {
+    deploySetRecorderLoginResult('Escolha o gravador antes de adicionar a camera.', true);
+    showToast('Escolha o gravador.', true);
+    return;
+  }
+  if (!payload.recorder_password && !recTemSenhaSalva(payload.recorder_host)) {
     deploySetRecorderLoginResult('Entre no gravador antes de adicionar a camera.', true);
     showToast('Entre no gravador antes de adicionar a camera.', true);
     return;
@@ -3800,7 +3826,8 @@ async function deployRecorderAddCamera() {
     showToast('Informe usuario e senha da camera.', true);
     return;
   }
-  const btn = document.getElementById('btnDeployRecorderAddCamera');
+  const btn = document.getElementById('deployRecorderChannelButton');
+  const rotuloAntes = btn ? btn.innerHTML : '';
   if (btn) { btn.disabled = true; btn.innerHTML = '<i data-lucide="loader"></i> Adicionando'; lucide.createIcons(); }
   deploySetRecorderLoginResult(`Adicionando ${esc(payload.recorder_camera_ip)} no canal ${esc(payload.recorder_channel)}...`);
   try {
@@ -3822,7 +3849,15 @@ async function deployRecorderAddCamera() {
     deploySetRecorderLoginResult(esc(detail), true);
     showToast(detail, true);
   } finally {
-    if (btn) { btn.disabled = false; btn.innerHTML = '<i data-lucide="plus-circle"></i> Adicionar no NVR'; lucide.createIcons(); }
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = rotuloAntes;
+      // `deployRenderRecorderChannels` ja reescreveu o rotulo com o estado
+      // novo quando a adicao deu certo; aqui so devolve o que havia antes
+      // para o caso de falha.
+      deployAtualizarRotuloCanal();
+      lucide.createIcons();
+    }
   }
 }
 

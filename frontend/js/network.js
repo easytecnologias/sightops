@@ -693,16 +693,18 @@ function deployPayload() {
     recorder_user: document.getElementById('deployRecorderUser')?.value.trim() || '',
     recorder_password: document.getElementById('deployRecorderPassword')?.value || '',
     recorder_channel: document.getElementById('deployRecorderChannel')?.value.trim() || '',
-    recorder_camera_ip: document.getElementById('deployRecorderCameraIp')?.value.trim() || document.getElementById('deployCameraIp')?.value.trim() || '',
-    recorder_title: document.getElementById('deployRecorderTitle')?.value.trim() || '',
+    // Os campos proprios do gravador sairam da tela: o IP e o titulo da camera
+    // JA foram decididos na etapa 2, e repetir a pergunta so criava duas
+    // respostas possiveis para a mesma coisa -- e um jeito de o canal do NVR
+    // ficar com nome diferente do inventario.
+    recorder_camera_ip: document.getElementById('deployCameraIp')?.value.trim() || '',
+    // Vem da CAMERA. O campo da etapa 2 e preenchido com o titulo lido dela
+    // ao entrar, e e ele que tambem sera gravado nela no "Registrar camera" --
+    // entao canal do NVR e inventario nascem com o mesmo nome. `_deployTituloDaCamera`
+    // cobre o caso de o campo ainda estar vazio.
+    recorder_title: document.getElementById('deployCameraTitle')?.value.trim()
+      || (typeof _deployTituloDaCamera !== 'undefined' ? _deployTituloDaCamera : '') || '',
   };
-}
-
-function deploySyncRecorderCameraIp() {
-  const el = document.getElementById('deployRecorderCameraIp');
-  if (!el) return;
-  const ip = document.getElementById('deployCameraIp')?.value.trim() || _deployConfirmedCameraIp || _deployPullTargetIp || '';
-  el.value = ip;
 }
 
 function deployConnectorKey(conn) {

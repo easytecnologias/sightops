@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=1791000128">
+  <link rel="stylesheet" href="styles.css?v=1791000129">
 </head>
 <body>
 
@@ -4926,27 +4926,10 @@
                     </div>
                   </div>
                   <div id="deployRecorderLoginResult" class="deploy-result-box">Escolha o gravador acima: se a senha ja estiver guardada, a entrada e direta.</div>
-                  <div class="form-row deploy-recorder-channel-row">
-                    <div class="form-group">
-                      <label for="deployRecorderChannel">Canal</label>
-                      <input id="deployRecorderChannel" type="hidden">
-                      <button id="deployRecorderChannelButton" class="deploy-canal-abrir" type="button" disabled>
-                        <span id="deployRecorderChannelLabel">Entre no gravador</span>
-                        <i data-lucide="layout-grid"></i>
-                      </button>
-                    </div>
-                    <div class="form-group">
-                      <label for="deployRecorderCameraIp">IP da camera</label>
-                      <input id="deployRecorderCameraIp" placeholder="Preenchido pela etapa 2" readonly>
-                    </div>
-                    <div class="form-group">
-                      <label for="deployRecorderTitle">Titulo no gravador</label>
-                      <input id="deployRecorderTitle" placeholder="Copiado do titulo da etapa 2">
-                    </div>
-                  </div>
+                  <input id="deployRecorderChannel" type="hidden">
                   <div class="deploy-recorder-add-row">
-                    <button class="primary-action" id="btnDeployRecorderAddCamera" type="button">
-                      <i data-lucide="plus-circle"></i> Adicionar no NVR
+                    <button id="deployRecorderChannelButton" class="primary-action" type="button" disabled>
+                      <i data-lucide="layout-grid"></i> <span id="deployRecorderChannelLabel">Entre no gravador</span>
                     </button>
                   </div>
                 </div>
@@ -4992,6 +4975,7 @@
                 <input id="deployCanaisBusca" placeholder="Procurar por titulo ou IP da camera">
               </div>
               <div id="deployCanaisGrade" class="deploy-canais-grade"></div>
+              <p id="deployCanaisAviso" class="deploy-canais-aviso"></p>
             </div>
           </div>
         </div>
@@ -6796,8 +6780,8 @@
   <script src="js/snapshots.js?v=1790019880"></script>
   <script src="js/maintenance.js?v=146"></script>
   <script src="js/analysis.js?v=147"></script>
-  <script src="js/network.js?v=1791000127"></script>
-  <script src="js/deploy.js?v=1791000128"></script>
+  <script src="js/network.js?v=1791000129"></script>
+  <script src="js/deploy.js?v=1791000129"></script>
   <script src="js/cameraActivation.js?v=1791000111"></script>
   <script src="js/deployOlt.js?v=160"></script>
   <script src="js/connectors.js?v=1790804180"></script>
@@ -6809,6 +6793,6 @@
   <script src="js/accessWhatsappTriage.js?v=3"></script>
   <script src="js/messenger.js?v=5"></script>
   <script src="js/alert.js?v=1789901000"></script>
-  <script src="js/bootstrap.js?v=1791000128"></script>
+  <script src="js/bootstrap.js?v=1791000129"></script>
 </body>
 </html>
