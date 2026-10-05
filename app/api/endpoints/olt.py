@@ -158,9 +158,41 @@ def _registered_request(req: Any) -> Any:
 # na hora de falar com o equipamento.
 
 
+def _olt_com_estado_efetivo(itens: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Mesma honestidade do inventario de cameras, agora na OLT.
+
+    A OLT guarda `last_test_status` com `last_tested_at`, entao aqui as DUAS
+    perguntas valem: o conector dela ainda esta de pe, e ha quanto tempo foi o
+    ultimo teste. Sem isso, conector fora do ar deixava a OLT verde na tela --
+    exatamente o que o usuario relatou em 05/10/2026.
+
+    Copias: a lista vem do registro e os caminhos de escrita releem a mesma
+    fonte; marcar o original gravaria "unknown" e apagaria o ultimo teste.
+    """
+    try:
+        from app.services.status_efetivo import aplicar_em_linha, conectores_offline_cache
+    except Exception:
+        return itens
+    if not itens:
+        return itens
+    try:
+        offline = conectores_offline_cache()
+    except Exception:
+        return itens
+    saida: List[Dict[str, Any]] = []
+    for linha in itens:
+        if not isinstance(linha, dict):
+            saida.append(linha)
+            continue
+        saida.append(aplicar_em_linha(
+            dict(linha), offline,
+            campo_status="last_test_status", campo_data="last_tested_at"))
+    return saida
+
+
 @router.get("/olt/registry")
 def api_olt_registry_list() -> Dict[str, Any]:
-    itens: List[Dict[str, Any]] = olt_registry.list_olts()
+    itens: List[Dict[str, Any]] = _olt_com_estado_efetivo(olt_registry.list_olts())
     return {"ok": True, "items": itens, "total": len(itens)}
 
 

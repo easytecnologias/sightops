@@ -2230,6 +2230,43 @@ def _snapshot_for_channel(base: str, auth: Any, timeout: float, channel: int, ou
     return "", False
 
 
+def _com_estado_efetivo(rows):
+    """Aplica a mesma honestidade que o inventario de cameras ja tem.
+
+    `status_efetivo` responde duas perguntas antes de repetir um status
+    guardado: a fonte da medicao ainda esta de pe, e ha quanto tempo foi medido.
+    Se o conector caiu ou a leitura envelheceu, o status vira "unknown" com o
+    motivo -- nunca "offline", porque o sistema nao sabe se caiu; sabe que nao
+    sabe.
+
+    Isso nasceu em 28/09/2026, quando o conector de SANTANA caiu e as cameras
+    seguiram verdes, e foi aplicado SO em camera. Gravador e OLT continuaram
+    repetindo o ultimo valor bom: conector fora do ar e o equipamento verde na
+    tela. Este e o mesmo remedio, no mesmo formato.
+
+    Trabalha sobre COPIAS de proposito. As linhas vem do inventario, e os
+    caminhos de escrita releem a mesma fonte: marcar o original gravaria
+    "unknown" no arquivo e apagaria o ultimo estado conhecido.
+    """
+    try:
+        from app.services.status_efetivo import aplicar_em_linha, conectores_offline_cache
+    except Exception:
+        return rows
+    if not rows:
+        return rows
+    try:
+        offline = conectores_offline_cache()
+    except Exception:
+        return rows
+    saida = []
+    for linha in rows:
+        if isinstance(linha, dict):
+            saida.append(aplicar_em_linha(dict(linha), offline))
+        else:
+            saida.append(linha)
+    return saida
+
+
 @router.get("/inventory")
 def api_dvr_inventory(site: str = "") -> Dict[str, Any]:
     # Tenant com arquivo proprio: essa e a UNICA fonte que /save, /delete e
@@ -2250,13 +2287,13 @@ def api_dvr_inventory(site: str = "") -> Dict[str, Any]:
                 ]
                 return any(v.lower() == site_norm for v in vals if v)
             rows = [r for r in rows if isinstance(r, dict) and _matches(r)]
-        return {"ok": True, "inventory": rows}
+        return {"ok": True, "inventory": _com_estado_efetivo(rows)}
 
     rows = legacy_rows_from_db("nvr", site=site)
     if not rows:
         rows = _read_rows()
         rows = decorate_legacy_rows("nvr", rows, site=site)
-    return {"ok": True, "inventory": rows}
+    return {"ok": True, "inventory": _com_estado_efetivo(rows)}
 
 
 @router.post("/save")

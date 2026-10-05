@@ -58,6 +58,10 @@ function statusBadge(status) {
   if (s === 'ok' || s === 'online' || s === 'acessivel') return '<span class="badge badge-green">Online</span>';
   if (s === 'fail' || s === 'offline' || s === 'erro') return '<span class="badge badge-red">Offline</span>';
   if (s === 'warn' || s === 'warning') return '<span class="badge badge-amber">Atencao</span>';
+  // "unknown" nao e um status a mais: e o sistema admitindo que nao sabe --
+  // conector caido ou leitura velha demais. Mostrar o texto cru assustava sem
+  // explicar; mostrar "Offline" seria a mentira ao contrario.
+  if (s === 'unknown' || s === 'desconhecido') return '<span class="badge badge-amber">Sem informacao</span>';
   return `<span class="badge badge-gray">${esc(status)}</span>`;
 }
 

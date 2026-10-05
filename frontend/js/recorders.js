@@ -477,10 +477,16 @@ function populateNvrFilters() {
 
   const rows   = _currentNvrRows();
   const online = rows.filter(r => r.status==='online').length;
+  // "nao verificado" NAO pode entrar na conta de offline. Offline afirma que o
+  // equipamento caiu; unknown diz que o sistema nao conseguiu medir (conector
+  // fora do ar, leitura velha). Somar os dois mandaria tecnico a campo atras
+  // de gravador que esta funcionando.
+  const semInfo = rows.filter(r => String(r.status||'').toLowerCase()==='unknown').length;
   const vloss  = rows.filter(recTemVideoLoss).length;
   setText('nvrTotal',   rows.length);
   setText('nvrOnline',  online);
-  setText('nvrOffline', rows.length - online);
+  setText('nvrOffline', rows.length - online - semInfo);
+  setText('nvrDesconhecido', semInfo);
   setText('nvrVloss',   vloss);
 }
 
