@@ -10614,3 +10614,117 @@ table.recorder-tabela tbody tr:hover { background: var(--surface-soft); }
      conector/gravador saia cortado ("BARRA DE SA...", "NVR - BARRA..."). */
   .drawer-filter-selects .drawer-site-filter{grid-template-columns:minmax(0,1fr);gap:4px}
 }
+
+
+/* === CFTV: densidade e hierarquia (#deployForm) ======================
+   A etapa 2 tinha nove controles de 46px empilhados em coluna unica, todos
+   com o mesmo peso visual, intercalados por tres caixas cinzas de instrucao
+   do tamanho de um campo. Nada disso estava errado isoladamente; somado,
+   obrigava a rolar e a ler tudo para achar os dois campos que importam.
+
+   Escopado em #deployForm de proposito: estas mesmas classes servem a tela
+   de gravador avulso (#deployStandaloneRecorderForm), que tem ritmo proprio
+   e ja define as larguras dela.
+   ==================================================================== */
+
+#deployForm .onu-step-body { gap: 10px; }
+#deployForm .form-group { gap: 4px; }
+#deployForm label { font-size: 12px; }
+
+/* 46px e altura de botao, nao de campo de texto. */
+#deployForm input,
+#deployForm select {
+  height: 38px;
+  padding: 8px 10px;
+  font-size: 13px;
+}
+#deployForm .deploy-camera-mac-row .secondary-action,
+#deployForm .deploy-camera-login-row .primary-action,
+#deployForm .deploy-camera-title-ip-row .secondary-action,
+#deployForm .deploy-camera-save-row .secondary-action,
+#deployForm .deploy-recorder-login-row .primary-action {
+  height: 38px;
+  min-height: 38px;
+  font-size: 13px;
+  width: 100%;
+  box-sizing: border-box;
+  justify-content: center;
+  white-space: nowrap;
+}
+
+/* Largura de campo e promessa do que se espera dentro dele. Um MAC tem 17
+   caracteres e ocupava 730px; um IP tem 15. Campo largo demais promete texto
+   longo e ainda espalha a tela na horizontal a toa. */
+#deployForm .deploy-camera-mac-row {
+  grid-template-columns: minmax(0, 320px) 150px;
+  justify-content: start;
+}
+#deployForm .deploy-camera-login-row {
+  grid-template-columns: minmax(0, 190px) minmax(0, 220px) 130px;
+  justify-content: start;
+  align-items: start;
+}
+#deployForm .deploy-camera-title-ip-row {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 190px) 170px;
+}
+#deployForm .deploy-camera-save-row {
+  grid-template-columns: minmax(0, 1fr) 190px;
+}
+
+/* Instrucao nao e resultado. Essas caixas passam 90% do tempo mostrando um
+   texto de ajuda que so vale antes do clique, com o mesmo peso de um campo.
+   Viram nota discreta; quando ha algo a ANUNCIAR -- um erro, ou a lista de
+   candidatos clicaveis do MAC -- a caixa volta com fundo e borda. */
+#deployForm .deploy-result-box {
+  min-height: 0;
+  padding: 2px 0 2px 10px;
+  border: 0;
+  border-left: 2px solid var(--border);
+  border-radius: 0;
+  background: none;
+  font-size: 12px;
+}
+#deployForm .deploy-result-box.error,
+#deployForm .deploy-result-box:has(.deploy-match) {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-soft);
+  font-size: 13px;
+}
+#deployForm .deploy-result-box.error {
+  border-color: #fecaca;
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+/* Agrupamento por PROXIMIDADE, nao por caixa: a etapa ja e um cartao, e
+   cartao dentro de cartao e exatamente o que deixa a tela pesada. Um rotulo
+   pequeno e um fio bastam para o olho separar os blocos. */
+#deployForm .cftv-grupo {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+#deployForm .cftv-grupo + .cftv-grupo {
+  margin-top: 4px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+#deployForm .cftv-grupo-tit {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+@media (max-width: 860px) {
+  #deployForm .deploy-camera-mac-row,
+  #deployForm .deploy-camera-login-row,
+  #deployForm .deploy-camera-title-ip-row,
+  #deployForm .deploy-camera-save-row {
+    grid-template-columns: 1fr;
+    justify-content: stretch;
+  }
+}
