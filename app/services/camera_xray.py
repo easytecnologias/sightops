@@ -24,6 +24,44 @@ modulo reaproveita as primitivas dele em vez de reescreve-las:
 
 O formato de saida tambem imita o do gravador (`equipamento`, `rede`,
 `achados`), para que a tela trate os dois do mesmo jeito.
+
+Validado em equipamento real (05/10/2026), as duas marcas, sempre com o IP
+REAL na entrada e a traducao vnat por conta do `_base`:
+
+    Hikvision  10.50.11.1  (TELHA, conector isolado)
+               IPC-B121H-C, firmware V5.8.10, mascara 255.255.254.0
+               gravar_titulo -> statusCode 1 OK
+
+    Intelbras  10.10.9.20  (Easy Tecnologias, via conector PERUCABA)
+               VIP-1130-B-G2, serial LR7J430462731
+               firmware 2.800.00IB006.0.T, mascara 255.255.252.0
+               gravar_titulo -> HTTP 200 "OK"
+
+Nos dois casos o titulo foi regravado com o MESMO valor de proposito: prova o
+caminho de escrita sem alterar camera de cliente.
+
+A mascara da Intelbras ali e 255.255.252.0, um /22. E a razao de `aplicar_ip`
+LER a mascara da camera em vez de assumir /24: o chute teria tirado essa
+camera da rede, e camera sem rota nao se conserta remotamente.
+
+Por que nao o NetSDK
+--------------------
+A pergunta foi levantada e vale deixar respondida. As libs existem no
+container (`/opt/netsdk/lib`, `/opt/hiksdk/lib`), mas neste projeto o SDK so
+e usado para ATIVACAO de fabrica -- `CLIENT_SearchDevicesByIPs` e
+`CLIENT_InitDevAccountByIP`, mais o equivalente Hikvision. Nao ha login nem
+leitura de configuracao por SDK.
+
+Nao foi preciso escrever: o HTTP cobriu tudo que o assistente precisa, nas
+duas marcas, com as medicoes acima. E o SDK cobra caro por isso -- chamado
+dentro do processo da API ele DERRUBA o processo (exit 139, core dumped,
+reproduzido em 05/10/2026 logo apos `available()` retornar ok). Por isso
+`intelbras_netsdk.py` ja o executa em subprocesso isolado. Trocar requisicao
+HTTP por biblioteca C que segfalha, para obter o mesmo dado, seria piorar.
+
+O SDK continua sendo o caminho certo para o que o HTTP realmente nao faz:
+ativar camera de fabrica. Se um firmware Intelbras aparecer sem os CGI usados
+aqui, o fallback por SDK (em subprocesso) e a saida -- nao antes disso.
 """
 
 from __future__ import annotations
