@@ -771,26 +771,103 @@ def _inventory_sources(inv: Dict[str, Any]) -> List[Dict[str, Any]]:
     return rows
 
 
+_IPV4_INTEIRO = re.compile(r"^\d{1,3}(?:\.\d{1,3}){3}$")
+
+
+def _mac_completo(mac_norm: str) -> bool:
+    """`_norm_mac` tambem aceita IP: troca "." por ":" e todos os digitos de
+    "10.10.9.20" sao hexadecimais validos, entao sai "10:10:9:20". Um MAC de
+    verdade tem seis grupos de dois."""
+    pedacos = (mac_norm or "").split(":")
+    return len(pedacos) == 6 and all(len(p) == 2 for p in pedacos)
+
+
 def _lookup_in_connector(connector_id: str, query: str = "") -> Dict[str, Any]:
+    """Procura um dispositivo no DHCP/ARP/neighbors que o roteador reportou.
+
+    Endereco COMPLETO e pedido exato, nao prefixo. A versao anterior casava por
+    substring em qualquer campo, entao digitar `10.10.9.20` trazia tambem
+    `10.10.9.200` e `10.10.9.206` -- o tecnico pedia um endereco e recebia a
+    vizinhanca, com o agravante de que a lista e clicavel: um clique torto
+    cadastra a camera errada.
+
+    Busca parcial continua valendo (`10.10.9.` ou um pedaco do MAC): so deixa
+    de valer quando o que foi digitado JA e um endereco inteiro, porque ai nao
+    ha o que completar.
+    """
     data = _connector_inventory(connector_id)
     q = _text(query)
     q_mac = _norm_mac(q)
     q_low = q.lower()
+    ip_exato = bool(_IPV4_INTEIRO.match(q))
+    mac_exato = _mac_completo(q_mac)
+
     matches: List[Dict[str, Any]] = []
     for item in _inventory_sources(data["inventory"]):
-        values = [
-            _text(item.get("ip")),
-            _text(item.get("address")),
-            _text(item.get("host")),
-            _text(item.get("identity")),
-            _text(item.get("platform")),
-            _text(item.get("mac")),
-            _text(item.get("mac_address")),
-            _text(item.get("mac_norm")),
-        ]
-        if not q or any(q_low and q_low in value.lower() for value in values) or (q_mac and q_mac == item.get("mac_norm")):
+        ips = [_text(item.get("ip")), _text(item.get("address"))]
+        mac_item = _text(item.get("mac_norm"))
+        if not q:
+            serve = True
+        elif ip_exato:
+            serve = any(valor == q for valor in ips)
+        elif mac_exato:
+            serve = mac_item == q_mac
+        else:
+            livres = ips + [
+                _text(item.get("host")),
+                _text(item.get("identity")),
+                _text(item.get("platform")),
+                _text(item.get("mac")),
+                _text(item.get("mac_address")),
+                mac_item,
+            ]
+            serve = any(q_low in valor.lower() for valor in livres if valor)
+        if serve:
             matches.append(item)
-    return {"ok": True, "connector": data["connector"], "matches": matches[:100], "count": len(matches)}
+
+    return {
+        "ok": True,
+        "connector": data["connector"],
+        **_juntar_fontes(matches),
+    }
+
+
+def _juntar_fontes(linhas: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Uma linha por (ip, mac), com as fontes somadas.
+
+    O roteador reporta a mesma maquina em DHCP e em ARP, e a lista mostrava as
+    duas como se fossem dispositivos diferentes -- `10.10.9.206` aparecia
+    duas vezes seguidas, identico.
+
+    Quando o MESMO IP aparece com MACs diferentes, isso nao e repeticao: ou ha
+    conflito de endereco, ou a reserva de DHCP ficou velha apontando para
+    equipamento que nao esta mais ali. As duas linhas continuam na lista,
+    marcadas, porque escolher a errada cadastra a camera errada.
+    """
+    juntas: Dict[Any, Dict[str, Any]] = {}
+    for item in linhas:
+        chave = (_text(item.get("ip")), _text(item.get("mac_norm")))
+        alvo = juntas.get(chave)
+        if alvo is None:
+            alvo = dict(item)
+            alvo["fontes"] = []
+            juntas[chave] = alvo
+        fonte = _text(item.get("source"))
+        if fonte and fonte not in alvo["fontes"]:
+            alvo["fontes"].append(fonte)
+
+    saida = list(juntas.values())
+    macs_por_ip: Dict[str, set] = {}
+    for item in saida:
+        ip = _text(item.get("ip"))
+        mac = _text(item.get("mac_norm"))
+        if ip and mac:
+            macs_por_ip.setdefault(ip, set()).add(mac)
+    for item in saida:
+        item["source"] = " + ".join(item.get("fontes") or [])
+        item["conflito_ip"] = len(macs_por_ip.get(_text(item.get("ip")), ())) > 1
+
+    return {"matches": saida[:100], "count": len(saida)}
 
 
 def _ip_in_use(ip: str, connector_id: str = "", site: str = "") -> Dict[str, Any]:

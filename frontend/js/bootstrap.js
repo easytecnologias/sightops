@@ -271,6 +271,7 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('btnDeploySave')?.addEventListener('click', deploySaveDraft);
   document.getElementById('btnDeployLookupMac')?.addEventListener('click', deployLookupMac);
   document.getElementById('btnDeployPullCamera')?.addEventListener('click', deployPullCameraInfo);
+  document.getElementById('btnDeployScanLabel')?.addEventListener('click', deployAbrirScanner);
   document.getElementById('btnDeployCheckNewIp')?.addEventListener('click', deployCheckNewIp);
   document.getElementById('btnDeploySaveCameraInventory')?.addEventListener('click', deploySaveCameraInventory);
   document.getElementById('btnDeployRecorderLogin')?.addEventListener('click', deployRecorderLogin);

@@ -10770,3 +10770,52 @@ table.recorder-tabela tbody tr:hover { background: var(--surface-soft); }
   #deployForm .deploy-recorder-channel-row { grid-template-columns: 1fr; }
   #deployForm .primary-action, #deployForm .secondary-action { width: 100%; }
 }
+
+
+/* === CFTV: leitor de etiqueta e conflito de IP ======================= */
+
+/* Agora sao dois botoes ao lado do campo. */
+#deployForm .deploy-camera-mac-row { grid-template-columns: minmax(0, 1fr) auto auto; }
+
+/* Mesmo IP com MACs diferentes nao e repeticao: ou ha conflito de endereco,
+   ou a reserva de DHCP envelheceu. A lista e clicavel, entao escolher a linha
+   errada cadastra a camera errada -- isso precisa saltar aos olhos. */
+#deployLookupResult .deploy-match.conflito {
+  border-left: 3px solid var(--amber);
+  padding-left: 9px;
+  background: var(--amber-soft);
+  border-radius: 6px;
+}
+#deployLookupResult .marca-conflito {
+  display: inline-block; margin-left: 6px; padding: 0 6px; border-radius: 999px;
+  background: var(--amber); color: #fff; font-size: 10px; font-weight: 700;
+}
+
+/* Camera do celular ocupando a tela, para ler a etiqueta no poste. */
+#scanTampa {
+  position: fixed; inset: 0; z-index: 9999; background: #000;
+  display: flex; flex-direction: column;
+}
+#scanTampa video { flex: 1; width: 100%; object-fit: cover; background: #000; }
+#scanTampa .scan-topo {
+  display: flex; align-items: center; gap: 12px; padding: 14px 16px;
+  color: #fff; background: rgba(0, 0, 0, .78);
+  padding-top: calc(14px + env(safe-area-inset-top, 0px));
+}
+#scanTampa .scan-topo b { font-size: 14px; }
+#scanTampa .scan-topo p { margin: 2px 0 0; font-size: 12px; color: #c9d3ce; }
+#scanTampa .scan-fechar {
+  margin-left: auto; border: 1px solid rgba(255, 255, 255, .35); background: none;
+  color: #fff; border-radius: 8px; padding: 7px 14px; font: inherit; font-size: 13px; cursor: pointer;
+}
+/* Mira: a etiqueta da camera e pequena e o tecnico esta de capacete e luva --
+   sem um alvo ele varre a parede inteira tentando focar. */
+#scanTampa .scan-mira {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  width: min(74vw, 320px); aspect-ratio: 1.7; border: 2px solid rgba(255, 255, 255, .9);
+  border-radius: 12px; box-shadow: 0 0 0 100vmax rgba(0, 0, 0, .45); pointer-events: none;
+}
+#scanTampa .scan-pe {
+  padding: 12px 16px calc(14px + env(safe-area-inset-bottom, 0px));
+  background: rgba(0, 0, 0, .78); color: #e7edea; font-size: 12.5px; text-align: center;
+}

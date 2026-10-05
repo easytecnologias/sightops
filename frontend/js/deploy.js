@@ -3394,9 +3394,14 @@ async function deployLookupMac() {
   }
   const first = matches[0];
   if (first.mac && !document.getElementById('deployCameraMac')?.value) document.getElementById('deployCameraMac').value = first.mac;
-  deploySetResult(matches.slice(0, 5).map(m => `
-    <div class="deploy-match deploy-cam-pick" data-ip="${esc(m.ip || '')}" data-mac="${esc(m.mac || '')}" role="button" tabindex="0" aria-label="Selecionar IP ${esc(m.ip || '')}">
-      <b>${esc(m.ip || '-')}</b>
+  const temConflito = matches.some(m => m.conflito_ip);
+  const aviso = temConflito
+    ? '<div style="margin-bottom:8px;font-size:12.5px;color:var(--amber)"><b>Atencao:</b> o mesmo IP aparece com MACs diferentes. '
+      + 'Ou ha conflito de endereco na rede, ou a reserva de DHCP ficou velha. Confira o MAC na etiqueta antes de escolher.</div>'
+    : '';
+  deploySetResult(aviso + matches.slice(0, 8).map(m => `
+    <div class="deploy-match deploy-cam-pick${m.conflito_ip ? ' conflito' : ''}" data-ip="${esc(m.ip || '')}" data-mac="${esc(m.mac || '')}" role="button" tabindex="0" aria-label="Selecionar IP ${esc(m.ip || '')}">
+      <b>${esc(m.ip || '-')}${m.conflito_ip ? '<span class="marca-conflito">!</span>' : ''}</b>
       <span>${esc(m.mac || '-')}</span>
       <small><span class="deploy-pick-source">${esc(m.source || '-')} ${m.host ? `- ${esc(m.host)}` : ''}</span><strong class="deploy-pick-action">Clique para selecionar</strong></small>
     </div>
@@ -5403,4 +5408,142 @@ function recPedirSenha(item) {
   tampa.querySelector('.rec-tampa').addEventListener('click', ev => {
     if (ev.target === ev.currentTarget) fechar();
   });
+}
+
+
+// ─────────────────────────────────────────────────────────────────────────
+// Ler a etiqueta da camera (codigo de barras / QR)
+//
+// Digitar MAC a mao no poste, de luva, e onde nasce erro de cadastro: um
+// digito trocado e a camera entra no inventario com identidade de outra.
+// A etiqueta ja traz o dado; so faltava deixar a camera do celular le-la.
+//
+// Prefere o BarcodeDetector NATIVO: e o que existe no Chrome do Android, que
+// e onde o tecnico esta, e nao baixa nada. So cai para a biblioteca quando o
+// navegador nao tem -- e ai carrega sob demanda, no clique, para nao pesar o
+// carregamento de quem nunca vai usar.
+// ─────────────────────────────────────────────────────────────────────────
+
+let _scanParar = null;
+
+function deployFecharScanner() {
+  try { _scanParar?.(); } catch {}
+  _scanParar = null;
+  document.getElementById('scanTampa')?.remove();
+}
+
+function _macDoTexto(texto) {
+  // A etiqueta pode trazer so o MAC, ou um QR com varios campos
+  // (SN=..., MAC=..., P/N=...). Vale o primeiro que PARECE MAC; se nao
+  // houver nenhum, devolve o texto cru para a busca tentar por serial.
+  const t = String(texto || '').trim();
+  const comSeparador = t.match(/\b([0-9A-Fa-f]{2}([:-])(?:[0-9A-Fa-f]{2}\2){4}[0-9A-Fa-f]{2})\b/);
+  if (comSeparador) return comSeparador[1].toUpperCase().replace(/-/g, ':');
+  const cru = t.match(/\b([0-9A-Fa-f]{12})\b/);
+  if (cru) return cru[1].toUpperCase().match(/../g).join(':');
+  return t;
+}
+
+async function _lerComBiblioteca(video, aoLer) {
+  // ZXing pelo unpkg -- a mesma origem de onde o app ja traz Leaflet e Lucide.
+  if (!window.ZXing) {
+    await new Promise((ok, erro) => {
+      const tag = document.createElement('script');
+      tag.src = 'https://unpkg.com/@zxing/library@0.21.3/umd/index.min.js';
+      tag.onload = ok;
+      tag.onerror = () => erro(new Error('nao consegui carregar o leitor'));
+      document.head.appendChild(tag);
+    });
+  }
+  const leitor = new window.ZXing.BrowserMultiFormatReader();
+  await leitor.decodeFromVideoElement(video, (resultado) => {
+    if (resultado) aoLer(resultado.getText());
+  });
+  return () => { try { leitor.reset(); } catch {} };
+}
+
+async function deployAbrirScanner() {
+  if (!navigator.mediaDevices?.getUserMedia) {
+    showToast('Este navegador nao da acesso a camera. Digite o MAC a mao.', true);
+    return;
+  }
+  deployFecharScanner();
+
+  const tampa = document.createElement('div');
+  tampa.id = 'scanTampa';
+  tampa.innerHTML = `
+    <div class="scan-topo">
+      <div><b>Ler etiqueta da camera</b><p>Aponte para o codigo de barras ou QR</p></div>
+      <button type="button" class="scan-fechar" data-scan-fechar>Cancelar</button>
+    </div>
+    <video playsinline muted autoplay></video>
+    <div class="scan-mira"></div>
+    <div class="scan-pe" id="scanRecado">Procurando a camera do aparelho...</div>`;
+  document.body.appendChild(tampa);
+  tampa.querySelector('[data-scan-fechar]')?.addEventListener('click', deployFecharScanner);
+
+  const video = tampa.querySelector('video');
+  const recado = tampa.querySelector('#scanRecado');
+  let stream = null;
+
+  const aoLer = (texto) => {
+    if (!texto) return;
+    const mac = _macDoTexto(texto);
+    const campo = document.getElementById('deployCameraMac');
+    if (campo) campo.value = mac;
+    deployFecharScanner();
+    showToast(`Etiqueta lida: ${mac}`);
+    // Ler so serve se buscar em seguida -- e o que o tecnico faria agora.
+    deployLookupMac();
+  };
+
+  try {
+    // `environment` = camera de tras. Sem isso o celular abre a frontal e o
+    // tecnico fica se filmando em vez de ler a etiqueta.
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: 'environment' } }, audio: false,
+    });
+    video.srcObject = stream;
+    await video.play().catch(() => {});
+  } catch (e) {
+    deployFecharScanner();
+    showToast('Nao consegui abrir a camera do aparelho. Permita o acesso ou digite o MAC.', true);
+    return;
+  }
+
+  const pararCamera = () => { try { stream?.getTracks().forEach(t => t.stop()); } catch {} };
+
+  const Detector = window.BarcodeDetector;
+  if (Detector) {
+    let formatos = ['qr_code', 'code_128', 'code_39', 'ean_13', 'data_matrix'];
+    try {
+      const aceitos = await Detector.getSupportedFormats();
+      formatos = formatos.filter(f => aceitos.includes(f));
+    } catch {}
+    const detector = new Detector(formatos.length ? { formats: formatos } : undefined);
+    if (recado) recado.textContent = 'Aponte o codigo dentro da moldura.';
+    let vivo = true;
+    const laco = async () => {
+      if (!vivo || !document.getElementById('scanTampa')) return;
+      try {
+        const achados = await detector.detect(video);
+        if (achados && achados.length) { aoLer(achados[0].rawValue); return; }
+      } catch {}
+      requestAnimationFrame(laco);
+    };
+    _scanParar = () => { vivo = false; pararCamera(); };
+    requestAnimationFrame(laco);
+    return;
+  }
+
+  if (recado) recado.textContent = 'Carregando o leitor...';
+  try {
+    const parar = await _lerComBiblioteca(video, aoLer);
+    _scanParar = () => { parar(); pararCamera(); };
+    if (recado) recado.textContent = 'Aponte o codigo dentro da moldura.';
+  } catch (e) {
+    _scanParar = pararCamera;
+    deployFecharScanner();
+    showToast('Nao consegui carregar o leitor de codigo. Digite o MAC a mao.', true);
+  }
 }
