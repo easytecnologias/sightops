@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
-import { estadoDa, siteDa, tituloDa, useCameras, type Camera, type Estado } from '../lib/dados';
+import { useNavigate } from 'react-router-dom';
+import { chaveDa, estadoDa, siteDa, tituloDa, useCameras, type Camera, type Estado } from '../lib/dados';
 import { useOnline } from '../lib/rede';
 import { useSite } from '../lib/site';
 import { Carregando, Cartao, Icone, Item, Procedencia, Titulo, Vazio } from '../ui/pecas';
@@ -12,6 +13,7 @@ export function Cameras() {
   const q = useCameras();
   const [filtro, setFiltro] = useState<Filtro>('todas');
   const [busca, setBusca] = useState('');
+  const ir = useNavigate();
 
   const doSite = useMemo(() => {
     const todas = q.data ?? [];
@@ -88,6 +90,7 @@ export function Cameras() {
                     ponto={e === 'online' ? 'verde' : e === 'offline' ? 'vermelho' : 'ambar'}
                     titulo={tituloDa(c)}
                     sub={[c.ip, c.modelo].filter(Boolean).join(' · ')}
+                    onClick={() => ir(`/cameras/${chaveDa(c)}`)}
                     direita={
                       <span className={`selo ${e === 'online' ? 'verde' : e === 'offline' ? 'ambar' : 'cinza'}`}>
                         {c.recorder_channel ? `CH ${c.recorder_channel}` : e === 'online' ? 'ok' : e === 'offline' ? 'fora' : '?'}

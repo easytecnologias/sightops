@@ -8,6 +8,7 @@ import { Carregando } from './ui/pecas';
 import { Login } from './screens/Login';
 import { Inicio } from './screens/Inicio';
 import { Cameras } from './screens/Cameras';
+import { CameraDetalhe } from './screens/CameraDetalhe';
 import { Implantar } from './screens/Implantar';
 import { Alertas } from './screens/Alertas';
 import { Rede } from './screens/Rede';
@@ -21,6 +22,7 @@ function Dentro({ aoSair }: { aoSair: () => void }) {
       <Routes>
         <Route path="/" element={<Inicio />} />
         <Route path="/cameras" element={<Cameras />} />
+        <Route path="/cameras/:chave" element={<CameraDetalhe />} />
         <Route path="/implantar" element={<Implantar />} />
         <Route path="/alertas" element={<Alertas />} />
         <Route path="/rede" element={<Rede />} />

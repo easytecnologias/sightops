@@ -101,7 +101,15 @@ def _intelbras_corpo(canal: int, ip: str, user: str, senha: str,
             "HttpPort": int(porta_http or 80),
             "RtspPort": int(porta_rtsp or 554),
         },
-        "cameras": [{"uniqueChannel": int(canal)}],
+        # BASE 0. Conferido no proprio equipamento (NVD 1408, firmware
+        # 4.001.00IB000.0.R): o getCameraAll devolve
+        #     camera[0].UniqueChannel=0   -> canal 01 da tela
+        #     camera[1].UniqueChannel=1   -> canal 02 da tela
+        # Mandando o numero da tela, a acao caia sempre UM CANAL ADIANTE: pedir
+        # o canal 7 escrevia no 8. O renomear logo abaixo ja descontava 1, e o
+        # vinculo do assistente CFTV tambem (idx = channel - 1 em
+        # deployments.py) -- so estas duas chamadas ficaram para tras.
+        "cameras": [{"uniqueChannel": int(canal) - 1}],
     }]})
 
 
@@ -132,7 +140,12 @@ def _intelbras_editar(base, user, password, **k) -> Dict[str, Any]:
 
 
 def _intelbras_excluir(base, user, password, canal: int, **_) -> Dict[str, Any]:
-    corpo = json.dumps({"group": [{"uniqueChannels": [int(canal)]}]})
+    # O canal precisa existir para ser solto. Sem esta checagem o equipamento
+    # responde "HTTP 400: Error Bad Request!", que nao diz nada a quem esta no
+    # campo.
+    # Mesma base 0 do addCameraByGroup. Aqui o erro era o mais caro dos tres:
+    # "soltar o canal 1" apontava para o identificador do canal 2.
+    corpo = json.dumps({"group": [{"uniqueChannels": [int(canal) - 1]}]})
     cod, txt = _req("POST", f"{base}/cgi-bin/api/LogicDeviceManager/deleteCameraByGroup",
                     user, password, corpo, "application/json")
     erro = _intelbras_falhou(txt) if cod and 200 <= cod < 300 else f"HTTP {cod}: {txt[:120]}"

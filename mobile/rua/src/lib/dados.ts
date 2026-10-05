@@ -22,7 +22,19 @@ export type Camera = {
   physical_location?: string;
   lat?: string;
   lon?: string;
+  snapshot_url?: string;
+  status_checked_at?: string;
+  ocorrencia?: string;
+  ocorrencia_em?: string;
+  ocorrencia_por?: string;
+  inventory_mode?: string;
 };
+
+/** Chave de uma camera na navegacao. IP sozinho repete entre sites; com o
+ *  MAC junto o endereco deixa de ser ambiguo. */
+export function chaveDa(c: Camera): string {
+  return encodeURIComponent(`${c.ip ?? ''}|${c.mac ?? ''}`);
+}
 
 export type Conector = {
   id?: string;

@@ -1,5 +1,5 @@
 import { useNavigate } from 'react-router-dom';
-import { estadoDa, siteDa, useAlertas, useCameras, useResumo } from '../lib/dados';
+import { chaveDa, estadoDa, siteDa, useAlertas, useCameras, useResumo } from '../lib/dados';
 import { useOnline } from '../lib/rede';
 import { useSite } from '../lib/site';
 import { Bloco, Carregando, Cartao, Icone, Item, Pilula, Procedencia, Vazio } from '../ui/pecas';
@@ -113,7 +113,7 @@ export function Inicio() {
                     titulo={c.titulo || c.title || c.ip || '—'}
                     sub={[c.ip, c.recorder_channel ? `CH ${c.recorder_channel}` : null]
                       .filter(Boolean).join(' · ')}
-                    onClick={() => ir('/cameras')} />
+                    onClick={() => ir(`/cameras/${chaveDa(c)}`)} />
             ))}
         </Cartao>
       )}

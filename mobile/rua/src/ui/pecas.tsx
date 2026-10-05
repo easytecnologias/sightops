@@ -25,6 +25,7 @@ export const Icone = {
   onu: P('<path d="M5 12a7 7 0 0 1 14 0"/><path d="M8.5 12a3.5 3.5 0 0 1 7 0"/><circle cx="12" cy="17" r="1.6"/>'),
   raio: P('<path d="M13 3 5 13.5h6L10.5 21 19 10.5h-6Z"/>'),
   engrenagem: P('<circle cx="12" cy="12" r="3"/><path d="M12 3v2.5M12 18.5V21M21 12h-2.5M5.5 12H3"/>'),
+  volta: P('<path d="m15 6-6 6 6 6"/>'),
   sair: P('<path d="M15 4h3a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1h-3"/><path d="M10 16 6 12l4-4"/><path d="M6 12h9"/>'),
 };
 
