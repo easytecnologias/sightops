@@ -2883,7 +2883,7 @@ a { color: inherit; text-decoration: none; }
 /* Drawer lateral */
 .dash-drawer-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.35); z-index: 200; transition: opacity .2s; }
 .dash-drawer-overlay.hidden { display: none; }
-.dash-drawer { position: fixed; top: 0; right: 0; bottom: 0; width: 520px; max-width: 96vw; background: var(--bg); border-left: 1px solid var(--border); z-index: 201; display: flex; flex-direction: column; box-shadow: -6px 0 32px rgba(0,0,0,.14); transform: translateX(100%); transition: transform .25s cubic-bezier(.4,0,.2,1); }
+.dash-drawer { position: fixed; top: 0; right: 0; bottom: 0; width: 760px; max-width: 96vw; background: var(--bg); border-left: 1px solid var(--border); z-index: 201; display: flex; flex-direction: column; box-shadow: -6px 0 32px rgba(0,0,0,.14); transform: translateX(100%); transition: transform .25s cubic-bezier(.4,0,.2,1); }
 .dash-drawer.hidden { display: none; }
 .dash-drawer.open { transform: translateX(0); }
 .dash-drawer-header { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
@@ -10605,8 +10605,12 @@ table.recorder-tabela tbody tr:hover { background: var(--surface-soft); }
 .trocar-ip-forcar strong{font-size:12.5px;color:var(--text);font-weight:600}
 .trocar-ip-forcar.destaque{border-color:var(--amber);background:rgba(240,180,41,.10)}
 
-.drawer-filter-selects{display:flex;flex-direction:column;gap:6px}
-.drawer-filter-selects .drawer-site-filter{margin:0}
-@media (min-width: 560px){
-  .drawer-filter-selects{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:8px}
+.drawer-filter-selects{display:flex;flex-direction:column;gap:8px;margin-top:8px;padding-top:10px;
+  border-top:1px solid var(--border)}
+.drawer-filter-selects .drawer-site-filter{margin:0;padding:0;border-top:0}
+@media (min-width: 620px){
+  .drawer-filter-selects{display:grid;grid-template-columns:repeat(auto-fit,minmax(215px,1fr));gap:10px}
+  /* Rotulo em cima: lado a lado ele roubava a largura do select e nome de
+     conector/gravador saia cortado ("BARRA DE SA...", "NVR - BARRA..."). */
+  .drawer-filter-selects .drawer-site-filter{grid-template-columns:minmax(0,1fr);gap:4px}
 }
