@@ -781,13 +781,26 @@ function deployRenderConnectorStatus() {
   const online = deployConnectorOnline(conn);
   const vpnReady = deployConnectorVpnReady(conn);
   const inv = conn.inventory || {};
-  const counts = [
-    inv.dhcp_leases != null ? `${esc(inv.dhcp_leases)} DHCP` : '',
-    inv.arp_entries != null ? `${esc(inv.arp_entries)} ARP` : '',
-    inv.neighbors != null ? `${esc(inv.neighbors)} vizinhos` : '',
-  ].filter(Boolean).join(' / ');
   const lastSeen = conn.last_seen ? esc(formatDateTimeShort(conn.last_seen)) : 'nunca';
-  box.classList.toggle('error', !online || !vpnReady);
-  box.innerHTML = `<b style="color:${online && vpnReady ? 'var(--primary)' : 'var(--danger)'}">${online ? '● Online' : '○ Offline'}</b> -- ${esc(deployConnectorLabel(conn))} - ${vpnReady ? 'VPN pronta' : 'sem VPN configurada'} - Ultimo sinal: ${lastSeen} - ${counts || 'sem inventario recebido ainda'}`;
+  // Pilula de estado + numeros soltos, como na barra do console de gravador.
+  // O texto corrido anterior repetia o nome do site -- que esta no seletor
+  // logo acima -- e ainda enfileirava tudo com hifens numa linha so.
+  //
+  // `.error` fica reservado para erro NOSSO (conector sumido da lista). Estado
+  // do equipamento quem diz e a pilula: pintar a faixa inteira de vermelho
+  // alem dela seria dizer a mesma coisa duas vezes.
+  box.classList.remove('error');
+  const pilula = online && vpnReady ? 'ok' : (online ? 'aviso' : 'erro');
+  const estado = online ? (vpnReady ? 'Online' : 'Online, sem VPN') : 'Offline';
+  const meta = [
+    `Ultimo sinal <b>${lastSeen}</b>`,
+    inv.dhcp_leases != null ? `<b>${esc(inv.dhcp_leases)}</b> DHCP` : '',
+    inv.arp_entries != null ? `<b>${esc(inv.arp_entries)}</b> ARP` : '',
+    inv.neighbors != null ? `<b>${esc(inv.neighbors)}</b> vizinhos` : '',
+  ].filter(Boolean);
+  box.innerHTML = `<span class="barra-status">`
+    + `<span class="sinal ${pilula}"><i></i>${esc(estado)}</span>`
+    + `<span class="barra-meta">${meta.map(x => `<span>${x}</span>`).join('')}</span>`
+    + `</span>`;
 }
 

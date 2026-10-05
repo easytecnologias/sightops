@@ -10630,19 +10630,40 @@ table.recorder-tabela tbody tr:hover { background: var(--surface-soft); }
 #deployForm { padding: 14px; display: grid; gap: 13px; }
 
 /* --- barra de contexto: era a etapa 1 ------------------------------- */
+/* Grade, nao flex. Com `flex: 0 1 210px` os tres campos paravam em 210px e
+   sobrava um vao morto a direita, enquanto a linha de status era empurrada
+   para baixo e ficava sozinha numa faixa inteira. Em `auto-fit` + `1fr` as
+   colunas DIVIDEM a largura disponivel: nao sobra nada, e quando a tela
+   encolhe a grade reduz o numero de colunas sozinha. */
 #deployForm .barra {
-  display: flex; align-items: flex-end; gap: 14px; flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 10px 14px; align-items: end;
   background: var(--surface); border: 1px solid var(--border);
   border-radius: 12px; padding: 11px 15px;
 }
-#deployForm .cftv-ctx { display: grid; gap: 4px; min-width: 0; flex: 0 1 210px; }
+#deployForm .cftv-ctx { display: grid; gap: 4px; min-width: 0; }
 #deployForm .cftv-ctx label { font-size: 11px; color: var(--muted); font-weight: 500; }
 #deployForm .cftv-ctx .op { font-weight: 400; }
-#deployForm .barra-dir {
-  margin-left: auto; flex: 1 1 240px; min-width: 0;
-  display: flex; justify-content: flex-end; align-items: center;
+/* O status ocupa a linha inteira em vez de disputar espaco com os campos. */
+#deployForm .barra-dir { grid-column: 1 / -1; min-width: 0; margin: 0; }
+
+/* Status no mesmo formato da barra do console de gravador: pilula de estado
+   + numeros soltos. O texto corrido repetia o nome do site, que ja esta no
+   seletor logo acima. */
+#deployForm .barra-status { display: flex; align-items: center; gap: 8px 14px; flex-wrap: wrap; }
+#deployForm .barra-status .barra-meta {
+  display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--muted);
 }
-#deployForm .barra-dir .deploy-result-box { text-align: right; }
+#deployForm .barra-status .barra-meta b { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
+#deployForm .sinal {
+  display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px;
+  border-radius: 999px; font-size: 12px; font-weight: 600; white-space: nowrap;
+}
+#deployForm .sinal i { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+#deployForm .sinal.ok { background: var(--primary-soft); color: var(--primary); }
+#deployForm .sinal.erro { background: var(--danger-soft); color: var(--danger); }
+#deployForm .sinal.aviso { background: var(--amber-soft); color: var(--amber); }
 
 /* --- etapas a esquerda ---------------------------------------------- */
 #deployForm .corpo { display: grid; gap: 13px; grid-template-columns: 1fr; }
@@ -10697,20 +10718,26 @@ table.recorder-tabela tbody tr:hover { background: var(--surface-soft); }
 }
 #deployForm input:focus, #deployForm select:focus { outline: 2px solid var(--primary); outline-offset: -1px; }
 #deployForm .primary-action, #deployForm .secondary-action {
-  height: 34px; min-height: 34px; padding: 0 12px; border-radius: 8px;
+  height: 34px; min-height: 34px; padding: 0 14px; border-radius: 8px;
   font-size: 12.5px; box-sizing: border-box; justify-content: center;
-  white-space: nowrap; width: 100%;
+  white-space: nowrap; width: auto;
 }
 #deployForm .deployment-actions .primary-action,
 #deployForm .deployment-actions .secondary-action { width: auto; min-width: 160px; }
 
-/* Largura de campo proporcional ao que cabe dentro: um MAC tem 17
-   caracteres e ocupava a linha inteira. */
-#deployForm .deploy-camera-mac-row { grid-template-columns: minmax(0, 300px) 140px; justify-content: start; }
-#deployForm .deploy-camera-login-row { grid-template-columns: minmax(0, 180px) minmax(0, 210px) 120px; justify-content: start; align-items: start; }
-#deployForm .deploy-camera-title-ip-row { grid-template-columns: minmax(0, 1fr) minmax(0, 180px) 150px; }
-#deployForm .deploy-camera-save-row { grid-template-columns: minmax(0, 1fr) 170px; }
-#deployForm .deploy-recorder-login-row { grid-template-columns: minmax(0, 170px) minmax(0, 190px) 120px; }
+/* Tudo em fracoes: os campos dividem a largura e nao sobra vao morto. O
+   padrao `1fr 1fr auto` se repete de proposito -- assim usuario/senha,
+   titulo/IP e as linhas do gravador caem nas MESMAS colunas, e as bordas se
+   alinham verticalmente de uma linha para a outra. O botao fica em `auto`,
+   do tamanho do proprio texto. */
+#deployForm .deploy-camera-mac-row { grid-template-columns: minmax(0, 1fr) auto; }
+#deployForm .deploy-camera-login-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; align-items: end; }
+#deployForm .deploy-camera-title-ip-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; align-items: end; }
+#deployForm .deploy-camera-meta-row { grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: end; }
+#deployForm .deploy-camera-save-row { grid-template-columns: minmax(0, 1fr) auto; align-items: end; }
+#deployForm .deploy-recorder-login-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; align-items: end; }
+#deployForm .deploy-recorder-channel-row { grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: end; }
+#deployForm .form-row { grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); }
 #deployForm .deploy-recorder-add-row .primary-action { width: auto; min-width: 180px; }
 
 /* --- recados: instrucao nao e resultado ------------------------------ */
@@ -10731,12 +10758,15 @@ table.recorder-tabela tbody tr:hover { background: var(--surface-soft); }
   padding: 0; border-top: 0;
 }
 
-@media (max-width: 860px) {
+@media (max-width: 760px) {
+  /* Uma coluna so, e o botao passa a ocupar a largura: meio botao sozinho
+     numa linha fica pior que botao largo. */
   #deployForm .deploy-camera-mac-row,
   #deployForm .deploy-camera-login-row,
   #deployForm .deploy-camera-title-ip-row,
+  #deployForm .deploy-camera-meta-row,
   #deployForm .deploy-camera-save-row,
-  #deployForm .deploy-recorder-login-row { grid-template-columns: 1fr; justify-content: stretch; }
-  #deployForm .barra-dir { justify-content: flex-start; }
-  #deployForm .barra-dir .deploy-result-box { text-align: left; }
+  #deployForm .deploy-recorder-login-row,
+  #deployForm .deploy-recorder-channel-row { grid-template-columns: 1fr; }
+  #deployForm .primary-action, #deployForm .secondary-action { width: 100%; }
 }
