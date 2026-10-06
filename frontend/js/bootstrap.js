@@ -808,6 +808,14 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     }
 
+    // Hikvision: a camera gravou o IP novo e so o assume ao reiniciar. Nao e
+    // erro -- vira uma pergunta com o botao de reiniciar, em vez do texto
+    // vermelho que fazia parecer que a troca tinha falhado.
+    if (data?.pendente) {
+      document.getElementById('modalTrocarIp').classList.add('hidden');
+      _abrirReinicioTrocaIp({ ip, novo, user, pass });
+      return;
+    }
     if (!res?.ok || !data?.ok) {
       const detail = data?.detail || data?.error || data?.msg || data?.message || 'Erro ao trocar IP.';
       erro.textContent = detail;
@@ -819,9 +827,6 @@ document.addEventListener('DOMContentLoaded', () => {
         linha?.classList.add('destaque');
         linha?.scrollIntoView({ block: 'nearest' });
       }
-      // Camera reiniciando: ja avisou o que fazer, entao recarrega a lista
-      // pra ela aparecer no IP novo assim que voltar.
-      if (data?.pendente) loadInvOlt();
       return;
     }
     document.getElementById('modalTrocarIp').classList.add('hidden');
@@ -2079,4 +2084,98 @@ document.addEventListener('DOMContentLoaded', () => {
     if (profile) showApp();
     else showLoginScreen();
   })();
+});
+
+// --- Troca de IP pendente (Hikvision): reiniciar e acompanhar ---
+// A camera gravou o IP novo mas so o assume ao reiniciar. O modal pergunta
+// se pode reiniciar agora; se sim, manda o reboot no IP antigo e fica
+// conferindo o IP novo ate a camera atender com a mesma senha -- so entao o
+// servidor grava a troca no inventario (/change_ip/confirmar).
+let _reinicioTrocaIp = null;
+
+function _abrirReinicioTrocaIp(ctx) {
+  _reinicioTrocaIp = ctx;
+  document.getElementById('reinicioIpNovo').textContent = ctx.novo;
+  document.getElementById('reinicioIpAtual').textContent = ctx.ip;
+  document.getElementById('reinicioIpStatus').hidden = true;
+  const btn = document.getElementById('btnReinicioIpAgora');
+  btn.disabled = false;
+  btn.hidden = false;
+  document.getElementById('btnReinicioIpDepois').textContent = 'Depois';
+  document.getElementById('modalReinicioTrocaIp').classList.remove('hidden');
+  try { lucide.createIcons(); } catch {}
+}
+
+function _fecharReinicioTrocaIp() {
+  document.getElementById('modalReinicioTrocaIp').classList.add('hidden');
+  _reinicioTrocaIp = null;
+  loadInvOlt();
+}
+
+async function _reiniciarParaTrocaIp() {
+  const ctx = _reinicioTrocaIp;
+  if (!ctx) return;
+  const btn = document.getElementById('btnReinicioIpAgora');
+  const status = document.getElementById('reinicioIpStatus');
+  const dizer = (txt) => { status.textContent = txt; status.hidden = false; };
+  btn.disabled = true;
+
+  const res = await api('/api/maintenance/batch/reboot', {
+    method: 'POST',
+    body: JSON.stringify({ ips: [ctx.ip], user: ctx.user, pass: ctx.pass }),
+  });
+  const data = await res?.json().catch(() => ({}));
+  if (!res?.ok || data?.ok === false) {
+    const first = (data?.results || []).find(r => !r.ok) || {};
+    dizer(`Nao consegui reiniciar: ${data?.error || first.error || 'sem detalhe'}. Use o botao Reboot da camera.`);
+    btn.disabled = false;
+    return;
+  }
+
+  btn.hidden = true;
+  const fechar = document.getElementById('btnReinicioIpDepois');
+  fechar.textContent = 'Fechar';
+  // Relogio proprio, de 1 em 1 segundo: antes o tempo so andava a cada
+  // tentativa de confirmar, e cada tentativa espera a camera -- o "(0s)"
+  // ficava parado e parecia travado.
+  const inicio = Date.now();
+  const relogio = setInterval(() => {
+    if (_reinicioTrocaIp !== ctx) { clearInterval(relogio); return; }
+    const seg = Math.round((Date.now() - inicio) / 1000);
+    dizer(`Reiniciando... aguardando a camera voltar em ${ctx.novo} (${seg}s)`);
+  }, 1000);
+  dizer(`Reiniciando... aguardando a camera voltar em ${ctx.novo} (0s)`);
+
+  // Ate 3 minutos: a Hikvision leva perto de 1 minuto e meio para voltar.
+  let voltou = false;
+  while (_reinicioTrocaIp === ctx && Date.now() - inicio < 180000) {
+    await new Promise(r => setTimeout(r, 10000));
+    if (_reinicioTrocaIp !== ctx) break;
+    const conf = await api('/api/maintenance/change_ip/confirmar', {
+      method: 'POST',
+      body: JSON.stringify({ ip: ctx.ip, new_ip: ctx.novo, user: ctx.user, pass: ctx.pass }),
+    });
+    const r = await conf?.json().catch(() => ({}));
+    if (r?.ok) { voltou = true; break; }
+  }
+  clearInterval(relogio);
+  if (_reinicioTrocaIp !== ctx) return;
+
+  if (voltou) {
+    // Fica na tela ate o operador ver: o toast sozinho passava despercebido.
+    const seg = Math.round((Date.now() - inicio) / 1000);
+    status.innerHTML = `<span style="color:var(--green);font-weight:600">&#10003; Pronto! A camera voltou em ${ctx.novo}</span>`
+      + ` <span style="color:var(--muted)">(${seg}s). A lista ja foi atualizada.</span>`;
+    status.hidden = false;
+    fechar.textContent = 'OK';
+    showToast(`Pronto: a camera voltou em ${ctx.novo}.`);
+    loadInvOlt();
+    return;
+  }
+  dizer(`A camera ainda nao respondeu em ${ctx.novo} depois de 3 minutos. Ela pode estar demorando a subir; confira a lista em alguns minutos.`);
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('btnReinicioIpAgora')?.addEventListener('click', _reiniciarParaTrocaIp);
+  document.getElementById('btnReinicioIpDepois')?.addEventListener('click', _fecharReinicioTrocaIp);
 });

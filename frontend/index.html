@@ -5443,6 +5443,35 @@
     </div>
   </div>
 
+  <!-- --- MODAL: TROCA DE IP PENDENTE (reiniciar) --- -->
+  <div id="modalReinicioTrocaIp" class="modal-backdrop hidden">
+    <div class="modal" style="max-width:440px">
+      <div class="modal-header">
+        <div>
+          <p class="eyebrow">Trocar IP</p>
+          <h2>Falta so reiniciar</h2>
+        </div>
+        <button class="icon-button" onclick="_fecharReinicioTrocaIp()"><i data-lucide="x"></i></button>
+      </div>
+      <div class="modal-body">
+        <p style="margin:0 0 10px">
+          <i data-lucide="circle-check" style="width:16px;vertical-align:middle;color:var(--green)"></i>
+          A camera ja gravou o IP <strong id="reinicioIpNovo"></strong>.
+        </p>
+        <p style="margin:0;color:var(--muted);font-size:13px">
+          Este modelo so passa a usar o endereco novo depois de reiniciar. Ela fica
+          fora do ar por 1 a 2 minutos. Ate la, continua funcionando em
+          <span id="reinicioIpAtual"></span>.
+        </p>
+        <p id="reinicioIpStatus" style="margin:12px 0 0;font-size:13px" hidden></p>
+      </div>
+      <div class="modal-actions">
+        <button class="secondary-action" id="btnReinicioIpDepois">Depois</button>
+        <button class="primary-action" id="btnReinicioIpAgora"><i data-lucide="power"></i> Reiniciar agora</button>
+      </div>
+    </div>
+  </div>
+
   <!-- --- MODAL: TROCAR SENHA --- -->
   <div id="modalTenantModules" class="modal-backdrop hidden">
     <div class="modal" style="max-width:560px">
@@ -6793,6 +6822,6 @@
   <script src="js/accessWhatsappTriage.js?v=3"></script>
   <script src="js/messenger.js?v=5"></script>
   <script src="js/alert.js?v=1789901000"></script>
-  <script src="js/bootstrap.js?v=1791000138"></script>
+  <script src="js/bootstrap.js?v=1791000143"></script>
 </body>
 </html>

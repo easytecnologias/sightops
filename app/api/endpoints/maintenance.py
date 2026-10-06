@@ -1512,6 +1512,64 @@ def maintenance_change_ip(payload: Dict[str, Any]) -> Dict[str, Any]:
     )
 
 
+@router.post("/maintenance/change_ip/confirmar")
+def maintenance_change_ip_confirmar(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Fecha a troca que ficou `pendente` depois do reboot.
+
+    Este firmware grava o IP novo e so o assume ao reiniciar; o `change_ip`
+    devolve `pendente` e a tela oferece "Reiniciar agora". Depois do reboot
+    a tela chama isto de tempos em tempos ate a camera responder no IP novo.
+    So grava no inventario quando a camera ATENDE no IP novo com a mesma
+    credencial -- responder ping nao basta, outro equipamento pode estar ali.
+    """
+    ip = _as_str(payload.get("ip"))
+    new_ip = _as_str(payload.get("new_ip"))
+    user = _as_str(payload.get("user"))
+    password = _as_str(payload.get("pass"))
+    if not _valid_ipv4(ip) or not _valid_ipv4(new_ip) or ip == new_ip:
+        return {"ok": False, "error": "ip e new_ip invalidos"}
+    if not user or not password:
+        return {"ok": False, "error": "user e pass sao obrigatorios"}
+
+    # O caminho ate o IP novo sai do conector da linha ANTIGA. O IP novo ainda
+    # nao tem linha no inventario e, quando a faixa (ex. 10.200.0.0/23) existe
+    # em mais de um cliente, `_reach(new_ip)` nao tem como saber o conector e
+    # devolve o IP real -- inalcancavel de dentro do container. Foi o que
+    # deixou a SIERRA com a camera no IP novo e a tabela no antigo.
+    linha = _camera_row_for_ip(ip) or {}
+    cid = _connector_for(ip)
+    alvo = (_vnat.virtual_ip_for(cid, new_ip) if cid else "") or new_ip
+    mac_esperado = _as_str(linha.get("mac")).lower().replace("-", ":")
+
+    from requests.auth import HTTPDigestAuth, HTTPBasicAuth
+    atende = False
+    for auth in (HTTPDigestAuth(user, password), HTTPBasicAuth(user, password)):
+        try:
+            r = requests.get(f"http://{alvo}/ISAPI/System/deviceInfo",
+                             auth=auth, timeout=6, verify=False)
+            if r.status_code == 200 and "<DeviceInfo" in (r.text or ""):
+                mac = re.search(r"<macAddress>([^<]*)</macAddress>", r.text or "")
+                mac_lido = (mac.group(1).strip().lower() if mac else "")
+                # Outro equipamento no IP novo nao pode virar esta camera.
+                if mac_esperado and mac_lido and mac_lido != mac_esperado:
+                    return {"ok": False, "ip": ip, "new_ip": new_ip,
+                            "error": f"{new_ip} responde, mas e outro equipamento ({mac_lido})"}
+                atende = True
+                break
+            r = requests.get(f"http://{alvo}/cgi-bin/magicBox.cgi?action=getSoftwareVersion",
+                             auth=auth, timeout=6, verify=False)
+            if r.status_code == 200 and "version=" in (r.text or ""):
+                atende = True
+                break
+        except Exception:
+            continue
+    if not atende:
+        return {"ok": False, "aguardando": True, "ip": ip, "new_ip": new_ip}
+
+    _persist_ip_change(ip, new_ip)
+    return {"ok": True, "ip": ip, "new_ip": new_ip}
+
+
 @router.get("/maintenance/camera-network/{ip}")
 def maintenance_camera_network(ip: str) -> Dict[str, Any]:
     """Mascara e gateway que a camera usa HOJE.
