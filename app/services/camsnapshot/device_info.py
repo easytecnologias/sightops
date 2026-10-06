@@ -143,6 +143,19 @@ def _auth_fast_check(ip: str, user: str, password: str, timeout=(0.8, 1.5)) -> d
             continue
         code = getattr(r, "status_code", None)
         if code in (401, 403):
+            # Intelbras antiga (VIP-S3020-G2, firmware 2.520 de 2016) recusa
+            # DIGEST com 401 e aceita BASIC com a mesma senha. So o digest
+            # aqui marcava a camera como "auth_failed" e o scan parava --
+            # o inventario dela nunca era preenchido, com a senha certa.
+            # (O resto da coleta, _try_get, ja usa basic por padrao.)
+            rb = _try_get(url, user, password, timeout=timeout, use_digest=False, stream=True)
+            if rb is None:
+                # Essa geracao demora a montar o snapshot: com o timeout curto
+                # do fast-check o basic estourava e virava "senha errada".
+                rb = _try_get(url, user, password, timeout=(1.5, 4.0), use_digest=False, stream=True)
+            code_b = getattr(rb, "status_code", None) if rb is not None else None
+            if code_b == 200:
+                return {"auth_failed": False, "status_code": 200, "url": url, "method": "basic"}
             return {"auth_failed": True, "status_code": int(code), "url": url}
         if code == 200:
             return {"auth_failed": False, "status_code": int(code), "url": url}
@@ -665,6 +678,28 @@ def probe_device(ip, user, password, timeout=(1.2, 2.5), retries=1):
     # So tenta quando realmente faltam ambos; evita delay em devices ja identificados.
     if (not info.get("modelo")) and (not info.get("fabricante")):
         info = _enrich_from_html_root(ip, user, password, info, timeout)
+
+    # 4b) Intelbras muito antiga (VIP-S3120, firmware 2.212): com a senha certa
+    # o CGI so libera o snapshot -- magicBox/configManager respondem 401 a
+    # qualquer auth -- e nada acima preenche. A busca do NetSDK (porta 37777)
+    # responde SEM login com modelo, MAC, serial e firmware. So roda para quem
+    # chegou aqui sem modelo E sem MAC, entao nao pesa no scan das demais.
+    if (not info.get("modelo")) and (not info.get("mac")):
+        try:
+            from app.services import intelbras_netsdk as _sdk
+            achado = (_sdk.search_devices_isolado([ip], wait_ms=3000) or {}).get("devices") or []
+        except Exception:
+            achado = []
+        if achado:
+            d = achado[0]
+            info["modelo"] = info.get("modelo") or d.get("model")
+            info["mac"] = info.get("mac") or _normalize_mac(d.get("mac"))
+            info["serial"] = info.get("serial") or d.get("serial")
+            info["firmware"] = info.get("firmware") or d.get("firmware")
+            if not info.get("titulo") and d.get("device_name"):
+                info["titulo"] = _normalize_title(d.get("device_name"))
+            if info.get("modelo") and not info.get("fabricante"):
+                info["fabricante"] = _brand_from_model(info.get("modelo")) or "Intelbras"
 
     # 5) Fallback para modelos antigos (VIP 3220 gen1/gen2 etc.)
     if not info.get("modelo"):
