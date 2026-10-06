@@ -36,6 +36,14 @@ urllib3.disable_warnings()
 # Curto de proposito: a varredura passa por dezenas de enderecos, a maioria sem
 # nada atras. Quem responde, responde rapido.
 _TEMPO_SONDA = 4.0
+# O IP de fabrica e o mesmo para todas: quando uma sai dele (DHCP + reboot),
+# o MikroTik segue mandando para o MAC dela ate o ARP "stale" vencer e ele
+# perguntar de novo -- uns 5 a 10 s. Com 4 s a sonda desistia antes e a
+# proxima camera de fabrica ficava invisivel ate alguem pingar de dentro do
+# MikroTik (SIERRA, 06/10/2026, com 2 no .64). So nesse IP, e so se a primeira
+# sonda nao teve resposta, tenta de novo dando tempo do ARP se refazer.
+_IPS_DE_FABRICA = {"192.168.1.64"}
+_TEMPO_SONDA_FABRICA = 20.0
 _TEMPO_ATIVACAO = 20.0
 _PARALELO = 12
 
@@ -77,6 +85,8 @@ def sondar(base: str, ip_real: str = "") -> Dict[str, Any]:
     e MAC). Isso importa: e a sonda repetida que bloqueia o equipamento.
     """
     cod, corpo, _ = _get(f"{base}/ISAPI/Security/userCheck", _TEMPO_SONDA)
+    if not cod and ip_real in _IPS_DE_FABRICA:
+        cod, corpo, _ = _get(f"{base}/ISAPI/Security/userCheck", _TEMPO_SONDA_FABRICA)
     if not cod:
         return {"presente": False}
 

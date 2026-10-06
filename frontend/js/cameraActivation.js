@@ -145,7 +145,10 @@ async function activationScan() {
     // mostrar a lista vazia seria confuso, entao cai pra "todas".
     _activationFilter = _activationDevices.some(d => podeAtivar(d)) ? 'fabrica' : 'todas';
     activationRender(data);
-    if (!_activationDevices.length) {
+    if (data.aviso) {
+      // IP de fabrica calado: o servidor ja pediu ao MikroTik para pingar.
+      showToast(data.aviso);
+    } else if (!_activationDevices.length) {
       showToast(data.detail || 'Nenhuma camera respondeu nos enderecos sondados.', true);
     }
   } catch (err) {

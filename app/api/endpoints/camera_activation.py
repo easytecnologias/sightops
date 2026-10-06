@@ -30,6 +30,7 @@ from app.services import connector_routing_vnat as _vnat
 from app.services import hikvision_activation as hikvision
 from app.services import intelbras_netsdk as netsdk
 from app.services.camera_credentials import save_camera_credential
+from app.services.connector_service import create_job
 from app.api.endpoints.deployments import _connector_inventory, _inventory_sources, _text
 
 router = APIRouter(prefix="/api/deployments/activation", tags=["deployments"])
@@ -137,6 +138,39 @@ def _ordem_ip(ip: Any) -> tuple:
         return (999, 999, 999, 999)
 
 
+def _ips_de_fabrica_do_site(connector_id: str) -> List[str]:
+    """IP de fabrica da Hikvision que existe na LAN deste conector (tem vnat)."""
+    saida = []
+    for ip in sorted(hikvision._IPS_DE_FABRICA):
+        try:
+            virtual = _vnat.virtual_ip_for(connector_id, ip)
+        except Exception:
+            virtual = ""
+        if virtual and virtual != ip:
+            saida.append(ip)
+    return saida
+
+
+def _acordar_ip_de_fabrica(connector_id: str, ips: List[str]) -> bool:
+    """Pede ao conector que pingue o IP de fabrica DE DENTRO do MikroTik.
+
+    Varias Hikvision de fabrica dividem o 192.168.1.64. Quando uma sai dele, o
+    ARP do MikroTik fica preso no MAC dela ("failed") e o trafego que chega
+    pelo tunel volta "host inalcancavel" sem nova pergunta -- a proxima camera
+    fica invisivel. O ping de dentro do MikroTik refaz o ARP (era o que o
+    tecnico fazia na mao na SIERRA, 06/10/2026). Nao espera: o agente pega o
+    job no proximo ciclo (ate ~1 min) e a revarredura ja encontra.
+    """
+    if not ips:
+        return False
+    try:
+        create_job({"connector_id": connector_id, "type": "ping_many",
+                    "payload": {"targets": list(ips)}})
+        return True
+    except Exception:
+        return False
+
+
 def _virtual(connector_id: str, ip: str) -> str:
     """IP pelo qual o container alcanca esse endereco. Conector sem mapa vnat
     devolve o proprio IP real -- mesmo comportamento do resto do app."""
@@ -180,6 +214,13 @@ def api_activation_scan(payload: Dict[str, Any]) -> Dict[str, Any]:
     # de uma marca so poupa metade do tempo -- e nao encosta no equipamento da
     # outra marca a toa.
     marca_busca = _text(payload.get("marca") or payload.get("marca_busca")).lower() or "todas"
+    # O IP de fabrica da Hikvision entra sempre que a LAN do site o contem: o
+    # ARP/DHCP do conector so lista quem ja falou, e a camera de fabrica que
+    # acabou de herdar o .64 ainda nao falou com ninguem.
+    fabrica = _ips_de_fabrica_do_site(connector_id) if marca_busca in ("todas", "hikvision") else []
+    if origem == "conector":
+        alvos = alvos + [ip for ip in fabrica if ip not in alvos]
+    fabrica = [ip for ip in fabrica if ip in alvos]
 
     # real -> virtual pra sondar, e a volta pra reconhecer quem respondeu (o
     # SDK devolve sempre o IP real que a camera tem na LAN do cliente).
@@ -209,6 +250,11 @@ def api_activation_scan(payload: Dict[str, Any]) -> Dict[str, Any]:
     macs_da_rede = {_text(i.get("ip") or i.get("address")): _text(i.get("mac"))
                     for i in _inventory_sources(_connector_inventory(connector_id)["inventory"])
                     if _text(i.get("mac"))}
+    # No IP de fabrica o ARP mente: guarda o MAC da ULTIMA camera que passou
+    # por ele (a .64 da SIERRA mostrava o :8A ja em DHCP). O MAC certo vem da
+    # propria ativacao.
+    for ip in fabrica:
+        macs_da_rede.pop(ip, None)
     try:
         for dev in hikvision.procurar(restantes, macs_da_rede):
             dev["connector_id"] = connector_id
@@ -216,6 +262,12 @@ def api_activation_scan(payload: Dict[str, Any]) -> Dict[str, Any]:
             dispositivos.append(dev)
     except Exception as exc:
         erro_hik = str(exc)
+    vistos = {_text(d.get("ip")) for d in dispositivos}
+    calados = [ip for ip in fabrica if ip not in vistos]
+    aviso = ""
+    if _acordar_ip_de_fabrica(connector_id, calados):
+        aviso = (f"Ninguem respondeu em {', '.join(calados)}. Pedi ao MikroTik para pingar "
+                 "esse IP (refaz o ARP se outra camera acabou de sair dele): varra de novo em ~1 min.")
 
     # So e falha quando NENHUMA das duas fontes achou nada: o SDK pode estar
     # fora do ar e o site ser todo Hikvision, e vice-versa.
@@ -246,6 +298,7 @@ def api_activation_scan(payload: Dict[str, Any]) -> Dict[str, Any]:
         "pending": len(pendentes),
         "already_active": len(dispositivos) - len(pendentes),
         "marca": marca_busca,
+        "aviso": aviso,
     }
 
 
@@ -268,6 +321,9 @@ def _pos_ativacao_hikvision(connector_id: str, ip: str, senha: str,
         # fabrica no mesmo IP, so uma responde enquanto a outra nao sair dele.
         if saida["dhcp"].get("ok"):
             saida["reinicio"] = hikvision.reiniciar(base, senha)
+            if saida["reinicio"].get("ok") and ip in hikvision._IPS_DE_FABRICA:
+                # Saiu do .64: refaz o ARP para a proxima de fabrica aparecer.
+                _acordar_ip_de_fabrica(connector_id, [ip])
     return saida
 
 
@@ -303,6 +359,8 @@ def api_activation_reboot(payload: Dict[str, Any]) -> Dict[str, Any]:
         r = hikvision.reiniciar(f"http://{_virtual(connector_id, ip_real)}", senha)
         resultados.append({"ip": ip_real, "ok": bool(r.get("ok")), "error": r.get("error")})
     ok = sum(1 for r in resultados if r["ok"])
+    _acordar_ip_de_fabrica(connector_id, sorted({
+        r["ip"] for r in resultados if r["ok"] and r["ip"] in hikvision._IPS_DE_FABRICA}))
     return {"ok": ok > 0, "rebooted": ok, "failed": len(resultados) - ok, "results": resultados}
 
 
