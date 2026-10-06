@@ -130,6 +130,23 @@ class FiberHomeTelnet:
             raise ConnectionError("Sessao FiberHome nao conectada.")
         self.sock.sendall(value.encode("ascii", errors="ignore") + b"\r\n")
 
+    def ajuda(self, texto: str, maximum: float = 4.0) -> str:
+        """Le a ajuda (`?`) de uma linha SEM executa-la.
+
+        `send` sempre poe Enter: depois de listar a ajuda a CLI redesenha a
+        linha e o Enter a executa. Foi assim que "ler a ajuda" de
+        `service 2 type unicast` trocou o servico de TV da 4/7/89 da SIERRA
+        de multicast para unicast. Aqui vai so o texto + `?`, e ctrl+U apaga
+        a linha redesenhada antes de qualquer outra coisa.
+        """
+        if self.sock is None:
+            raise ConnectionError("Sessao FiberHome nao conectada.")
+        self.sock.sendall((texto.rstrip() + " ?").encode("ascii", errors="ignore"))
+        out = self._read_quiet(maximum=maximum)
+        self.sock.sendall(b"\x15")
+        self._read_quiet(maximum=1.0)
+        return out
+
     def _decode_telnet(self, data: bytes) -> bytes:
         clean = bytearray()
         index = 0
@@ -1324,3 +1341,262 @@ def onu_detail_fiberhome(
         if not up:
             resultado.update(leitor.ultima_queda(slot, p, onu_n))
         return resultado
+
+
+# =====================================================================
+# Fase 2 -- escrita (autorizar com VLAN de verdade, reiniciar)
+# ---------------------------------------------------------------------
+# O add antigo so punha a ONU na whitelist ("global_transparent") e NAO
+# configurava a VLAN na ONU: a 4/6/89 da SIERRA ficou com as cameras mudas
+# ate o onuveip ser feito a mao. Aqui cada ONU recebe o servico do jeito que
+# o tipo dela pede, e nada e dado como feito sem a releitura da OLT.
+#   * Intelbras roteador (serial ITBS, tipo HG...) -> VLAN no VEIP (`onuveip`)
+#   * todo o resto                                 -> VLAN na porta (`service`)
+# O tipo da whitelist NAO diz o hardware: na SIERRA "HG260" cobre Huawei,
+# TP-Link, ZTE e Intelbras. Das 160 ONUs lidas em 06/10/2026 so as duas
+# Intelbras PON140 usam VEIP (na porta a camera nao passava); as 49 Huawei
+# HG260 e as demais funcionam por porta. Por isso decide o fabricante do
+# serial, nunca o tipo nem o "ONU/ONT" da tela.
+# TV (`iptv`): na porta ficam DOIS servicos na mesma VLAN, um unicast (IP e
+# menu do decodificador) e um multicast (canais; IGMP da OLT na 1334).
+# =====================================================================
+
+_QINQ = "Admin\\epononu\\qinq#"
+
+
+def _modo_servico(onu_model: str, serial: str) -> str:
+    modelo = str(onu_model or "").strip().upper()
+    fabricante = str(serial or "").strip().upper()[:4]
+    if fabricante == "ITBS" and (modelo.startswith("HG") or "HGU" in modelo):
+        return "veip"
+    return "porta"
+
+
+def _portas_da_onu(onu_model: str) -> int:
+    modelo = str(onu_model or "").upper()
+    for marca, n in (("-04", 4), ("-02", 2), ("-08", 8)):
+        if marca in modelo:
+            return n
+    return 1
+
+
+def _entrar_qinq(client: FiberHomeTelnet) -> None:
+    client.cd("epon")
+    out = client.command("cd qinq", prompt=_QINQ, maximum=8.0)
+    if "% Unknown command." in out:
+        raise RuntimeError("A OLT nao abriu o menu epon/qinq.")
+
+
+def _sair_qinq(client: FiberHomeTelnet) -> None:
+    client.command("cd ..", prompt="Admin\\epononu#", maximum=6.0)
+    client.command("cd ..", prompt="Admin#", maximum=6.0)
+
+
+def _servicos_por_porta(onu_model: str,
+                        services: list[dict[str, Any]]) -> dict[int, list[tuple[str, int, str]]]:
+    """{porta: [(tag|transparent, vlan, unica|multi)]} na ordem dos indices.
+
+    Porta vinda da tela (`port`) vence; sem ela, uma VLAN so vai em todas as
+    portas e varias VLANs vao uma por porta na ordem (internet na 1, TV na 2).
+    """
+    total = _portas_da_onu(onu_model)
+    sem_porta = [i for i, s in enumerate(services) if not int(s.get("port") or 0)]
+    portas: dict[int, list[tuple[str, int, str]]] = {}
+    for i, s in enumerate(services):
+        porta = int(s.get("port") or 0)
+        if porta:
+            alvos = [porta]
+        elif len(services) == 1:
+            alvos = list(range(1, total + 1))
+        else:
+            alvos = [sem_porta.index(i) + 1]
+        for alvo in alvos:
+            if alvo > total:
+                raise ValueError(f"A ONU {onu_model or ''} tem {total} porta(s); "
+                                 f"nao cabe servico na porta {alvo}.")
+            vlan = int(s["vlan"])
+            tipo_servico = str(s.get("service") or "")
+            cmode = "transparent" if tipo_servico == "tls" else "tag"
+            lista = portas.setdefault(alvo, [])
+            lista.append((cmode, vlan, "unica"))
+            if tipo_servico == "iptv":
+                lista.append((cmode, vlan, "multi"))
+    return dict(sorted(portas.items()))
+
+
+def _comandos_servico(slot: int, pon: int, onu: int, modo: str, onu_model: str,
+                      services: list[dict[str, Any]]) -> list[str]:
+    alvo = f"set epon slot {slot} pon {pon} onu {onu}"
+    comandos: list[str] = []
+    if modo == "veip":
+        if any(str(s.get("service") or "") == "iptv" for s in services):
+            raise ValueError("TV (IPTV) em ONU no modo VEIP ainda nao foi homologada nessa OLT.")
+        for indice, s in enumerate(services, 1):
+            comandos.append(
+                f"{alvo} port 1 onuveip {indice} 33024 {int(s['vlan'])} 65535 33024 65535 65535 "
+                f"33024 65535 65535 0 1 65535 servn null"
+            )
+    else:
+        for porta, lista in _servicos_por_porta(onu_model, services).items():
+            comandos.append(f"{alvo} port {porta} service number {len(lista)}")
+            for indice, (cmode, vlan, tipo) in enumerate(lista, 1):
+                comandos.append(f"{alvo} port {porta} service {indice} vlan_mode {cmode} 0 33024 {vlan}")
+                if tipo == "multi":
+                    comandos.append(f"{alvo} port {porta} service {indice} type multicast")
+    comandos.append(f"apply onu {slot} {pon} {onu} vlan")
+    return comandos
+
+
+_LINHA_SERVICO = re.compile(r"^\s*(\d+)\s+(\d+)\s+(unica|multi)\s+(tag|tran\w*)\s+(\d+)\s", re.M)
+
+
+def parse_servicos_porta(output: str) -> list[tuple[int, int, str, str, int]]:
+    """Linhas do `show onu_service`: (porta, indice, unica|multi, tag|transparent, vlan)."""
+    return [(int(m.group(1)), int(m.group(2)), m.group(3),
+             "tag" if m.group(4) == "tag" else "transparent", int(m.group(5)))
+            for m in _LINHA_SERVICO.finditer(output)]
+
+
+def _conferir_servico(client: FiberHomeTelnet, slot: int, pon: int, onu: int, modo: str,
+                      onu_model: str, services: list[dict[str, Any]]) -> list[str]:
+    """O que foi pedido e a OLT NAO mostra configurado (vazio = tudo aplicado)."""
+    if modo == "veip":
+        out = client.command(f"show epon slot {slot} pon {pon} onu {onu} onuveip servindex",
+                             prompt=_QINQ, maximum=20.0)
+        presentes = {int(m.group(1)) for m in re.finditer(r"cvlan\s+33024\s+(\d+)", out)}
+        return [f"VLAN {int(s['vlan'])}" for s in services if int(s["vlan"]) not in presentes]
+    out = client.command(f"show onu_service slot {slot} link {pon} onu {onu}",
+                         prompt=_QINQ, maximum=20.0)
+    lidas = {(porta, indice): (tipo, cmode, vlan)
+             for porta, indice, tipo, cmode, vlan in parse_servicos_porta(out)}
+    faltando = []
+    for porta, lista in _servicos_por_porta(onu_model, services).items():
+        for indice, (cmode, vlan, tipo) in enumerate(lista, 1):
+            if lidas.get((porta, indice)) != (tipo, cmode, vlan):
+                faltando.append(f"porta {porta} servico {indice} ({tipo} {vlan})")
+    return faltando
+
+
+def add_onu_fiberhome_v2(
+    olt_ip: str,
+    user: str,
+    password: str,
+    pon: Any,
+    serial: str,
+    onu_model: str = "",
+    serial_raw: str = "",
+    services: list[dict[str, Any]] | None = None,
+    terminal: str = "onu",
+    timeout: float = 20.0,
+) -> dict[str, Any]:
+    """Autoriza a ONU descoberta e configura a(s) VLAN(s) na propria ONU.
+
+    `terminal` (ONU/ONT da tela) fica so por contrato: quem decide VEIP ou porta
+    e o fabricante do serial (ver _modo_servico).
+    """
+    alvo_serial = str(serial or "").strip()
+    pedidos = [s for s in (services or []) if int(s.get("vlan") or 0) > 0]
+    if not alvo_serial:
+        raise ValueError("Informe o serial da ONU descoberta.")
+    if not pedidos:
+        raise ValueError("Informe pelo menos uma VLAN para a ONU.")
+    feitos: list[str] = []
+    with FiberHomeTelnet(olt_ip, user, password, timeout=timeout) as client:
+        leitor = _Leitor(client)
+        layout = leitor.layout()
+        slot, p = _alvos(layout, pon)[0]
+
+        ja = next((o for o in leitor.autorizadas(slot, p)
+                   if str(o.get("onu_serial", "")).upper() == alvo_serial.upper()), None)
+        if ja:
+            return {"ok": True, "already_authorized": True, "driver": "fiberhome",
+                    "pon": p, "onu": int(ja["onu_id"]), "slot": int(ja["onu_id"]), "olt_slot": slot,
+                    "serial": ja.get("onu_serial", ""), "model": ja.get("onu_model", "")}
+
+        # Caixa exata e modelo vem da propria descoberta: a whitelist e
+        # case-sensitive ("[ERR -598] physical address is error").
+        bloco = leitor.nao_autorizadas().get(str(p)) or {}
+        achada = next((d for d in bloco.get("discovered") or []
+                       if str(d.get("serial", "")).upper() == alvo_serial.upper()), None)
+        if not achada:
+            raise RuntimeError(f"A ONU {alvo_serial} nao aparece como descoberta na PON {slot}/{p}.")
+        raw = str(serial_raw or achada.get("serial_raw") or alvo_serial).strip()
+        modelo = str(onu_model or achada.get("model") or "").split()[-1]
+        tipo = fiberhome_onu_type(modelo)
+        modo = _modo_servico(modelo, raw)
+
+        usados = {int(o["onu_id"]) for o in leitor.autorizadas(slot, p)}
+        livre = next((n for n in range(1, 129) if n not in usados), None)
+        if livre is None:
+            raise RuntimeError(f"A PON {slot}/{p} nao tem posicao livre.")
+
+        cmd = (f"set whitelist phy_addr address {raw} password null action add "
+               f"slot {slot} link {p} onu {livre} type {tipo}")
+        out = leitor._cmd("gpononu", cmd, maximum=25.0)
+        if _command_failed(out):
+            raise RuntimeError(f"A OLT recusou a autorizacao: {out.strip()[-200:]}")
+        feitos.append(cmd)
+        time.sleep(3)
+        if not any(int(o["onu_id"]) == livre for o in leitor.autorizadas(slot, p)):
+            raise RuntimeError("A OLT aceitou o comando, mas a ONU nao apareceu na whitelist.")
+
+        # Da tempo da ONU subir: o servico vai por OMCI e precisa dela online.
+        # No maximo ~15 s: a config fica gravada na OLT e vai para a ONU quando
+        # ela registrar. O Cloudflare corta a requisicao da tela em 100 s, e a
+        # autorizacao inteira (com save) levou 85 s esperando 30.
+        for _ in range(3):
+            if livre in leitor.online(slot, p):
+                break
+            time.sleep(5)
+
+        if leitor.menu:
+            client.command("cd ..", prompt="Admin#", maximum=6.0)
+            leitor.menu = ""
+        _entrar_qinq(client)
+        try:
+            for comando in _comandos_servico(slot, p, livre, modo, modelo, pedidos):
+                out = client.command(comando, prompt=_QINQ, maximum=25.0)
+                if _command_failed(out) or "% Command incomplete" in out or "no matched" in out:
+                    raise RuntimeError(f"A OLT recusou '{comando}': {out.strip()[-200:]}")
+                feitos.append(comando)
+            time.sleep(3)
+            faltando = _conferir_servico(client, slot, p, livre, modo, modelo, pedidos)
+        finally:
+            _sair_qinq(client)
+        if faltando:
+            return {"ok": False, "driver": "fiberhome", "pon": p, "slot": livre, "onu": livre,
+                    "olt_slot": slot, "commands_run": feitos,
+                    "error": "ONU autorizada, mas a OLT nao mostra configurado: " + ", ".join(faltando)}
+
+        out = client.command("save", prompt="Admin#", maximum=60.0)
+        if "successfully" not in out.lower():
+            return {"ok": False, "driver": "fiberhome", "pon": p, "slot": livre, "onu": livre,
+                    "olt_slot": slot, "commands_run": feitos,
+                    "error": f"Configurada, mas o save falhou: {out.strip()[-200:]}"}
+        feitos.append("save")
+        return {"ok": True, "driver": "fiberhome", "pon": p, "onu": livre, "slot": livre,
+                "olt_slot": slot, "serial": alvo_serial.upper(), "model": modelo, "mode": modo,
+                "services": [{"vlan": int(s["vlan"]), "service": s.get("service", "downlink")}
+                             for s in pedidos],
+                "commands_run": feitos}
+
+
+def reboot_onu_fiberhome(
+    olt_ip: str, user: str, password: str, pon: Any, onu: Any, timeout: float = 20.0,
+) -> dict[str, Any]:
+    """Reinicia UMA ONU autorizada (nunca a PON inteira)."""
+    onu_n = int(onu)
+    if onu_n <= 0:
+        raise ValueError("Informe a ONU.")
+    with FiberHomeTelnet(olt_ip, user, password, timeout=timeout) as client:
+        leitor = _Leitor(client)
+        layout = leitor.layout()
+        slot, p = _alvos(layout, pon)[0]
+        if not any(int(o["onu_id"]) == onu_n for o in leitor.autorizadas(slot, p)):
+            return {"ok": False, "error": f"ONU {onu_n} nao esta autorizada na PON {slot}/{p}."}
+        cmd = f"reset slot {slot} link {p} onulist {onu_n}"
+        out = leitor._cmd("gpononu", cmd, maximum=20.0)
+        if "reset onu ok" not in out.lower():
+            return {"ok": False, "error": f"A OLT nao confirmou o reinicio: {out.strip()[-200:]}"}
+        return {"ok": True, "driver": "fiberhome", "pon": p, "onu": onu_n, "olt_slot": slot,
+                "commands_run": [cmd]}

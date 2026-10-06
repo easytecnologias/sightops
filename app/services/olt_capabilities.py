@@ -96,18 +96,22 @@ def olt_capabilities(vendor: Any = "", model: Any = "") -> Dict[str, Any]:
         label = "VSOL EPON"
         notes = "Homologada: inventario, telemetria, descoberta, consulta, autorizar, excluir e reiniciar ONU."
     elif driver == "fiberhome_an5516":
-        # Fase 1 (leitura), medida na AN5516 da SIERRA em 06/10/2026. Escrita
-        # (autorizar/excluir/reiniciar) so liga depois de homologada em ONU de
-        # teste -- o add antigo nao configurava a VLAN na ONU.
+        # Medida na AN5516 da SIERRA (GC8B) em 06/10/2026. A escrita foi
+        # homologada na HG260 4/2/5: autorizar com VLAN no VEIP, reiniciar,
+        # excluir e reautorizar -- cada passo conferido na releitura da OLT.
         caps.update({
             "collect_macs": True,
             "telemetry": True,
             "discover_onus": True,
             "find_onu": True,
             "onu_signal": True,
+            "add_onu": True,
+            "delete_onu": True,
+            "reboot_onu": True,
         })
         label = "FiberHome AN5516"
-        notes = "Homologada para inventario, telemetria, descoberta, consulta e sinal (Telnet)."
+        notes = ("Homologada: inventario, telemetria, descoberta, consulta, autorizar (VLAN na "
+                 "ONU: VEIP para roteador, porta para bridge), excluir e reiniciar ONU (Telnet).")
     else:
         label = "OLT nao homologada"
         notes = "Cadastre o modelo para inventario, mas comandos na OLT ficam bloqueados ate homologacao."

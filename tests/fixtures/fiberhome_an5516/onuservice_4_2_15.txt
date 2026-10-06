@@ -1,0 +1,15 @@
+show onu_service slot 4 link 2 onu 15
+ 
+===================== SLOT 4 PON 2 ONU 15 CONFIG SHOW :=======================
+
+------------------------------- FE PORT CONFIG ---------------------------------
+PORT ID TYPE  CMODE CVID COS  TPID  TMODE TVID COS  TPID  SMODE SVID COS  TPID 
+1    1  unica tag   1125 0    33024 DIS   null null null  DIS   null null null 
+2    1  unica tag   1334 0    33024 DIS   null null null  DIS   null null null 
+2    2  multi tag   1334 0    33024 DIS   null null null  DIS   null null null 
+3    1  unica tag   640  0    33024 DIS   null null null  DIS   null null null 
+
+ -----------------------------  WAN CONFIG  -----------------------------------
+
+ ============================ END OF ABOVE ===================================== 
+Admin\epononu\qinq#

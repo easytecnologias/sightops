@@ -44,6 +44,9 @@ from app.cli.tools.olt_fiberhome import (
     discover_onus_fiberhome,
     find_onu_fiberhome,
     onu_detail_fiberhome,
+    add_onu_fiberhome_v2,
+    delete_onu_fiberhome,
+    reboot_onu_fiberhome,
 )
 from app.cli.tools.olt_vsol_epon import (
     add_onu_vsol,
@@ -1559,7 +1562,16 @@ def add_onu(req: OltAddOnuRequest) -> Dict[str, Any]:
     vlan_summary = _vlan_summary_from_services(req.services, req.vlan)
     with perf_step("OLT_add_onu"):
         try:
-            if _is_intelbras_4840e(req):
+            if _is_fiberhome(req):
+                pedidos = ([{"vlan": e.vlan, "service": e.service, "port": e.port} for e in req.services]
+                           if req.services else [{"vlan": req.vlan, "service": req.service}])
+                result = add_onu_fiberhome_v2(
+                    olt_ip=req.olt_ip, user=req.user, password=req.password,
+                    pon=req.pon, serial=req.serial, onu_model=req.onu_model,
+                    serial_raw=str(getattr(req, "serial_raw", "") or ""),
+                    services=pedidos, terminal=req.terminal, timeout=req.timeout,
+                )
+            elif _is_intelbras_4840e(req):
                 ports = [{"port": e.port or 1, "vlan": e.vlan} for e in req.services] if req.services else (
                     [{"port": 1, "vlan": req.vlan}] if req.vlan else None
                 )
@@ -1788,7 +1800,12 @@ def delete_onu(req: OltDeleteOnuRequest) -> Dict[str, Any]:
     require_olt_capability(req, "delete_onu", "excluir ONU")
     with perf_step("OLT_delete_onu"):
         try:
-            if _is_intelbras_4840e(req):
+            if _is_fiberhome(req):
+                result = delete_onu_fiberhome(
+                    olt_ip=req.olt_ip, user=req.user, password=req.password,
+                    pon=req.pon, onu=req.onu, serial=req.serial, timeout=req.timeout,
+                )
+            elif _is_intelbras_4840e(req):
                 result = delete_onu_4840e(
                     olt_ip=req.olt_ip, user=req.user, password=req.password,
                     pon=req.pon, onu=req.onu, mac=req.serial, timeout=req.timeout,
@@ -1840,7 +1857,12 @@ def reboot_onu(req: OltRebootOnuRequest) -> Dict[str, Any]:
     require_olt_capability(req, "reboot_onu", "reiniciar ONU")
     with perf_step("OLT_reboot_onu"):
         try:
-            if _is_intelbras_4840e(req):
+            if _is_fiberhome(req):
+                result = reboot_onu_fiberhome(
+                    olt_ip=req.olt_ip, user=req.user, password=req.password,
+                    pon=req.pon, onu=req.onu, timeout=req.timeout,
+                )
+            elif _is_intelbras_4840e(req):
                 result = reboot_onu_4840e(
                     olt_ip=req.olt_ip, user=req.user, password=req.password,
                     pon=req.pon, onu=req.onu, timeout=req.timeout,
