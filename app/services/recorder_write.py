@@ -286,8 +286,39 @@ def executar(acao: str, *, host: str, user: str, password: str, canal: int,
             raise ErroGravador("informe usuario e senha da camera")
     if acao == "renomear" and not nome:
         raise ErroGravador("informe o novo nome do canal")
-    saida = funcao(base, user, password, canal=int(canal), ip=ip, cam_user=cam_user,
-                   cam_senha=cam_senha, nome=nome, protocolo=protocolo, porta=porta,
-                   porta_http=porta_http, porta_rtsp=porta_rtsp)
+    try:
+        saida = funcao(base, user, password, canal=int(canal), ip=ip, cam_user=cam_user,
+                       cam_senha=cam_senha, nome=nome, protocolo=protocolo, porta=porta,
+                       porta_http=porta_http, porta_rtsp=porta_rtsp)
+    except ErroGravador as exc:
+        # Intelbras: em boa parte do parque (NVD 1408 fw 4.001, NVD 1516 fw
+        # 4.000) a rota /cgi-bin/api/LogicDeviceManager/ NAO EXISTE e responde
+        # "HTTP 400" ate para URL inventada -- o operador via "Bad Request" ao
+        # soltar ou vincular canal. A mesma operacao sai pelo NetSDK, que mexe
+        # so na entrada RemoteDevice do canal (ver intelbras_canal_sdk).
+        if not (marca == "intelbras" and acao in ("adicionar", "editar", "excluir")
+                and "HTTP 400" in str(exc)):
+            raise
+        saida = _intelbras_pelo_sdk(acao, host=host, user=user, password=password,
+                                    canal=int(canal), connector_id=connector_id, ip=ip,
+                                    cam_user=cam_user, cam_senha=cam_senha, nome=nome,
+                                    protocolo=protocolo, porta=porta,
+                                    porta_http=porta_http, porta_rtsp=porta_rtsp)
     saida.update({"ok": True, "acao": acao, "marca": marca, "canal": int(canal)})
     return saida
+
+
+def _intelbras_pelo_sdk(acao: str, *, host: str, user: str, password: str, canal: int,
+                        connector_id: str, ip: str, cam_user: str, cam_senha: str,
+                        nome: str, protocolo: str, porta: Any, porta_http: Any,
+                        porta_rtsp: Any) -> Dict[str, Any]:
+    from app.services import intelbras_canal_sdk as sdk
+    if acao == "excluir":
+        r = sdk.soltar_canal(host, user, password, canal, connector_id=connector_id)
+    else:
+        r = sdk.gravar_canal(host, user, password, canal, ip, cam_user, cam_senha,
+                             connector_id=connector_id, nome=nome, protocolo=protocolo,
+                             porta_cam=porta, porta_http=porta_http, porta_rtsp=porta_rtsp)
+    if not r.get("ok"):
+        raise ErroGravador(r.get("error") or "o gravador recusou pelo NetSDK")
+    return {"comando": "NetSDK RemoteDevice", "via": "sdk"}

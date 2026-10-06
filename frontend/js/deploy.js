@@ -4446,13 +4446,16 @@ function recSecAchados(d) {
 function recSecCanais(d) {
   const canais = d.canais || [];
   return `<div class="bloco">
-    <div class="bloco-cab"><div><h2>Canais</h2><p>Editar troca os dados sem soltar o canal</p></div>
+    <div class="bloco-cab"><div><h2>Canais</h2><p>Editar troca os dados sem tirar a camera do canal</p></div>
       <div class="bloco-dir">
+        <button class="acao perigo" type="button" data-rec-excluir-sel disabled>Excluir selecionados</button>
+        <button class="acao perigo" type="button" data-rec-excluir-todos ${canais.some(c => c.ip) ? '' : 'disabled'}>Excluir todos</button>
         <button class="acao" type="button" data-rec-buscar="1">Buscar cameras</button>
         <button class="acao forte" type="button" data-rec-add="1">+ Adicionar camera</button></div></div>
     <div class="rolo"><table>
-      <thead><tr><th>#</th><th>Nome</th><th>IP</th><th>Modelo</th><th>Resolucao</th><th>Codec</th><th>Estado</th><th></th></tr></thead>
+      <thead><tr><th><input type="checkbox" data-rec-sel-todos title="Marcar todos os canais com camera"></th><th>#</th><th>Nome</th><th>IP</th><th>Modelo</th><th>Resolucao</th><th>Codec</th><th>Estado</th><th></th></tr></thead>
       <tbody>${canais.map(c => `<tr>
+        <td>${c.ip ? `<input type="checkbox" data-rec-sel="${c.canal}">` : ''}</td>
         <td class="n">${String(c.canal).padStart(2, '0')}</td>
         <td><b>${esc(c.nome || '-')}</b></td>
         <td class="n">${esc(c.ip || '-')}</td>
@@ -4464,7 +4467,7 @@ function recSecCanais(d) {
             : '<span class="tag ok">normal</span>'}</td>
         <td><span class="linha-acoes">
           ${c.ip ? `<button class="mini" type="button" data-rec-editar="${c.canal}">Editar</button>
-                    <button class="mini perigo" type="button" data-rec-soltar="${c.canal}">Soltar</button>`
+                    <button class="mini perigo" type="button" data-rec-soltar="${c.canal}">Excluir</button>`
                  : `<button class="mini" type="button" data-rec-add="${c.canal}">Usar</button>`}
         </span></td>
       </tr>`).join('')}</tbody>
@@ -4936,6 +4939,101 @@ function recPintarApp() {
     b.addEventListener('click', () => recAbrirEdicao('adicionar', Number(b.dataset.recAdd) || 0)));
   app.querySelectorAll('[data-rec-soltar]').forEach(b =>
     b.addEventListener('click', () => recAbrirEdicao('excluir', Number(b.dataset.recSoltar))));
+
+  // Selecao para excluir varios de uma vez.
+  const marcados = () => [...app.querySelectorAll('[data-rec-sel]:checked')].map(x => Number(x.dataset.recSel));
+  const btnSel = app.querySelector('[data-rec-excluir-sel]');
+  const atualizarSel = () => {
+    const n = marcados().length;
+    if (btnSel) {
+      btnSel.disabled = n === 0;
+      btnSel.textContent = n ? `Excluir selecionados (${n})` : 'Excluir selecionados';
+    }
+  };
+  app.querySelectorAll('[data-rec-sel]').forEach(x => x.addEventListener('change', atualizarSel));
+  app.querySelector('[data-rec-sel-todos]')?.addEventListener('change', ev => {
+    app.querySelectorAll('[data-rec-sel]').forEach(x => { x.checked = ev.target.checked; });
+    atualizarSel();
+  });
+  btnSel?.addEventListener('click', () => recExcluirLote(marcados()));
+  app.querySelector('[data-rec-excluir-todos]')?.addEventListener('click', () =>
+    recExcluirLote((_deployRecorderXray?.canais || []).filter(c => c.ip).map(c => Number(c.canal))));
+}
+
+// ---- excluir varios canais ----
+// Uma confirmacao so, depois canal por canal pela MESMA rota do botao
+// individual (o servidor confere no gravador cada um). Sequencial de
+// proposito: o gravador e um so e o SDK abre sessao por chamada.
+function recExcluirLote(canais) {
+  const d = _deployRecorderXray;
+  if (!d || !canais.length) return;
+  const linhas = (d.canais || []).filter(c => canais.includes(Number(c.canal)));
+  const tampa = document.getElementById('recTampa') || (() => {
+    const el = document.createElement('div');
+    el.id = 'recTampa';
+    document.body.appendChild(el);
+    return el;
+  })();
+  tampa.innerHTML = `<div class="rec-tampa" role="dialog" aria-modal="true" aria-label="Excluir cameras">
+    <div class="rec-caixa">
+      <div class="rec-caixa-cab"><h3>Excluir ${linhas.length} camera${linhas.length === 1 ? '' : 's'}</h3>
+        <p>${esc(d.marca)} · ${esc(d.host)}</p></div>
+      <div class="rec-caixa-corpo">
+        <div style="max-height:220px;overflow:auto;font-size:13px;margin-bottom:10px">
+          ${linhas.map(c => `<div>Canal <b>${esc(String(c.canal).padStart(2, '0'))}</b>${c.nome ? ' · ' + esc(c.nome) : ''} · ${esc(c.ip)}</div>`).join('')}
+        </div>
+        <div class="rec-perigo">Essas cameras saem dos canais e os canais param de gravar. O equipamento nao pergunta de novo.</div>
+        <div id="recResultado" class="rec-resultado" hidden></div>
+      </div>
+      <div class="rec-caixa-pe">
+        <button class="acao" type="button" data-rec-fechar>Cancelar</button>
+        <button class="acao perigo" type="button" data-rec-aplicar>Excluir ${linhas.length}</button>
+      </div>
+    </div></div>`;
+  const fechar = () => { tampa.innerHTML = ''; };
+  tampa.querySelectorAll('[data-rec-fechar]').forEach(b => b.addEventListener('click', fechar));
+  tampa.querySelector('[data-rec-aplicar]').addEventListener('click', async ev => {
+    const botao = ev.currentTarget;
+    const caixa = document.getElementById('recResultado');
+    botao.disabled = true;
+    tampa.querySelector('[data-rec-fechar]').disabled = true;
+    const p = deployStandaloneRecorderPayload();
+    const falhas = [];
+    for (let i = 0; i < linhas.length; i++) {
+      const c = linhas[i];
+      botao.textContent = `Excluindo ${i + 1} de ${linhas.length}...`;
+      try {
+        const res = await api('/api/deployments/recorder-edit', {
+          method: 'POST',
+          body: JSON.stringify({
+            acao: 'excluir',
+            recorder_host: p.recorder_host, recorder_user: p.recorder_user,
+            recorder_password: p.recorder_password, recorder_http_port: p.recorder_http_port,
+            connector_id: p.connector_id || '', site: p.site || '',
+            canal: Number(c.canal),
+          }),
+        });
+        const data = await res?.json().catch(() => ({}));
+        if (!res?.ok || data?.ok === false) falhas.push(`canal ${c.canal}: ${data?.detail || data?.error || 'recusado'}`);
+      } catch (e) {
+        falhas.push(`canal ${c.canal}: ${String(e?.message || e)}`);
+      }
+    }
+    caixa.hidden = false;
+    if (falhas.length) {
+      caixa.className = 'rec-resultado erro';
+      caixa.innerHTML = `${linhas.length - falhas.length} excluida(s), ${falhas.length} falharam:<br>${falhas.map(esc).join('<br>')}`;
+      botao.textContent = 'Concluido com falhas';
+      tampa.querySelector('[data-rec-fechar]').disabled = false;
+      tampa.querySelector('[data-rec-fechar]').textContent = 'Fechar';
+      deployRecorderCarregarXray();
+      return;
+    }
+    caixa.className = 'rec-resultado ok';
+    caixa.textContent = `${linhas.length} camera(s) excluida(s) e conferidas no gravador. Relendo...`;
+    showToast(`${linhas.length} camera(s) excluida(s).`);
+    setTimeout(() => { fechar(); deployRecorderCarregarXray(); }, 900);
+  });
 }
 
 // ---- adicionar / editar / soltar canal ----
@@ -5330,7 +5428,7 @@ function recAbrirEdicao(acao, canal) {
   if (!d) return;
   const c = (d.canais || []).find(x => Number(x.canal) === Number(canal)) || { canal };
   const livres = (d.canais || []).filter(x => !x.ip).map(x => x.canal);
-  const titulos = { adicionar: 'Adicionar camera', editar: 'Editar camera', excluir: 'Soltar canal' };
+  const titulos = { adicionar: 'Adicionar camera', editar: 'Editar camera', excluir: 'Excluir camera do canal' };
   const ehExcluir = acao === 'excluir';
 
   const corpo = ehExcluir
@@ -5372,7 +5470,7 @@ function recAbrirEdicao(acao, canal) {
       <div class="rec-caixa-pe">
         <button class="acao" type="button" data-rec-fechar>Cancelar</button>
         <button class="acao ${ehExcluir ? 'perigo' : 'forte'}" type="button" data-rec-aplicar>
-          ${ehExcluir ? 'Soltar canal' : 'Aplicar no gravador'}</button>
+          ${ehExcluir ? 'Excluir' : 'Aplicar no gravador'}</button>
       </div>
     </div></div>`;
 
@@ -5428,7 +5526,7 @@ function recAbrirEdicao(acao, canal) {
         caixa.className = 'rec-resultado erro';
         caixa.textContent = data?.detail || data?.error || 'o gravador recusou';
         botao.disabled = false;
-        botao.textContent = ehExcluir ? 'Soltar canal' : 'Aplicar no gravador';
+        botao.textContent = ehExcluir ? 'Excluir' : 'Aplicar no gravador';
         return;
       }
       caixa.hidden = false;
@@ -5441,7 +5539,7 @@ function recAbrirEdicao(acao, canal) {
       caixa.className = 'rec-resultado erro';
       caixa.textContent = String(e?.message || e);
       botao.disabled = false;
-      botao.textContent = ehExcluir ? 'Soltar canal' : 'Aplicar no gravador';
+      botao.textContent = ehExcluir ? 'Excluir' : 'Aplicar no gravador';
     }
   });
 }
