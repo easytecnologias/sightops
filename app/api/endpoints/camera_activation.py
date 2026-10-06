@@ -263,7 +263,76 @@ def _pos_ativacao_hikvision(connector_id: str, ip: str, senha: str,
         saida["perguntas"] = hikvision.definir_perguntas(base, senha, perguntas)
     if pedir_dhcp:
         saida["dhcp"] = hikvision.definir_dhcp(base, senha)
+        # O DHCP so vale no boot. Reiniciar aqui, e nao "depois", tambem solta
+        # o 192.168.1.64 de fabrica para a proxima camera do lote: com 2 de
+        # fabrica no mesmo IP, so uma responde enquanto a outra nao sair dele.
+        if saida["dhcp"].get("ok"):
+            saida["reinicio"] = hikvision.reiniciar(base, senha)
     return saida
+
+
+@router.post("/reboot")
+def api_activation_reboot(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Reinicia cameras recem-ativadas (botao do resultado da ativacao).
+
+    Vai pelo IP virtual DESTE conector: 192.168.1.64 de fabrica existe em
+    todo cliente, e a rota generica de reboot resolve o IP sem saber de qual
+    site ele e.
+    """
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="payload invalido")
+    connector_id = _text(payload.get("connector_id"))
+    senha = str(payload.get("senha") or payload.get("password") or "")
+    alvos = payload.get("targets") or []
+    if not connector_id:
+        raise HTTPException(status_code=400, detail="conector obrigatorio")
+    if not senha:
+        raise HTTPException(status_code=400, detail="senha obrigatoria")
+    if not isinstance(alvos, list) or not alvos:
+        raise HTTPException(status_code=400, detail="selecione ao menos uma camera")
+
+    resultados: List[Dict[str, Any]] = []
+    for alvo in alvos:
+        ip_real = _text((alvo or {}).get("ip")) if isinstance(alvo, dict) else ""
+        if not ip_real:
+            continue
+        if _text(alvo.get("vendor")).lower() != "hikvision":
+            resultados.append({"ip": ip_real, "ok": False,
+                               "error": "reiniciar pela ativacao e so para Hikvision"})
+            continue
+        r = hikvision.reiniciar(f"http://{_virtual(connector_id, ip_real)}", senha)
+        resultados.append({"ip": ip_real, "ok": bool(r.get("ok")), "error": r.get("error")})
+    ok = sum(1 for r in resultados if r["ok"])
+    return {"ok": ok > 0, "rebooted": ok, "failed": len(resultados) - ok, "results": resultados}
+
+
+@router.post("/locate")
+def api_activation_locate(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Que IP cada MAC assumiu depois do reinicio com DHCP.
+
+    Le o ARP/DHCP que o conector reporta (o mesmo do /scan). O IP antigo e
+    ignorado: o ARP ainda guarda o 192.168.1.64 por um tempo com o mesmo MAC.
+    DHCP vem antes de ARP por ser a fonte que realmente entregou o endereco.
+    """
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="payload invalido")
+    connector_id = _text(payload.get("connector_id"))
+    if not connector_id:
+        raise HTTPException(status_code=400, detail="conector obrigatorio")
+    pedidos = {
+        _norm_mac(a.get("mac")): _text(a.get("old_ip"))
+        for a in (payload.get("targets") or [])
+        if isinstance(a, dict) and _norm_mac(a.get("mac"))
+    }
+    ordem = {"dhcp": 0, "arp": 1, "neighbor": 2}
+    achados: Dict[str, Dict[str, Any]] = {}
+    for item in sorted(_inventory_sources(_connector_inventory(connector_id)["inventory"]),
+                       key=lambda i: ordem.get(i.get("source"), 9)):
+        mac = _norm_mac(item.get("mac") or item.get("mac_address"))
+        ip = _text(item.get("ip") or item.get("address"))
+        if mac in pedidos and ip and ip != pedidos[mac] and mac not in achados:
+            achados[mac] = {"ip": ip, "source": item.get("source")}
+    return {"ok": True, "found": achados}
 
 
 @router.post("/run")

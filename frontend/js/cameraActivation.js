@@ -11,6 +11,11 @@ let _activationDevices = [];
 let _activationSelected = new Set();   // chaves = MAC
 let _activationPendingTargets = [];    // o que o modal vai ativar ao confirmar
 let _activationFilter = 'todas';       // todas | fabrica | ativas
+// Ultima ativacao: o botao Reiniciar do resultado usa a mesma senha e o
+// mesmo conector (so na memoria da pagina, nunca em storage).
+let _activationUltima = null;          // {connectorId, senha, porIp: {ip: alvo}}
+let _activationTimerRevarrer = null;
+let _activationReiniciadas = new Set(); // IPs antigos que mandamos reiniciar
 
 function activationKey(dev) {
   // Cai no IP quando nao ha MAC: camera Hikvision JA ativada nao entrega o MAC
@@ -317,6 +322,15 @@ async function activationConfirm() {
     const data = await res.json().catch(() => null);
     if (!res.ok) throw new Error(data?.detail || 'falha na ativacao');
 
+    _activationUltima = {
+      connectorId, senha,
+      porIp: Object.fromEntries(_activationPendingTargets.map(d => [d.ip, d])),
+      // A ativacao Hikvision devolve o MAC que a varredura sem senha nao via;
+      // e por ele que a camera e achada depois de trocar de IP.
+      macPorIp: Object.fromEntries((data.results || []).filter(r => r.mac).map(r => [r.ip, r.mac])),
+    };
+    _activationReiniciadas = new Set(
+      (data.results || []).filter(r => r.pos_ativacao?.reinicio?.ok).map(r => r.ip));
     activationRenderLog(data);
     closeActivationModal();
     showToast(`${data.activated} ativada(s), ${data.failed} com erro.`, data.failed > 0);
@@ -331,18 +345,167 @@ async function activationConfirm() {
   }
 }
 
+function activationEhHikvision(ip) {
+  return String(_activationUltima?.porIp?.[ip]?.vendor || '').toLowerCase() === 'hikvision';
+}
+
+// Hikvision de fabrica so sai do 192.168.1.64 depois de reiniciar com DHCP
+// ligado. Cada linha conta o que aconteceu com perguntas, DHCP e reinicio.
+function activationPassos(r) {
+  const pos = r.pos_ativacao || {};
+  const passos = [];
+  if (pos.perguntas) passos.push(pos.perguntas.ok ? 'perguntas de recuperacao gravadas'
+                                                  : `perguntas: ${pos.perguntas.error || 'falharam'}`);
+  if (pos.dhcp) passos.push(pos.dhcp.ok ? 'DHCP ligado' : `DHCP: ${pos.dhcp.error || 'falhou'}`);
+  if (pos.reinicio) passos.push(pos.reinicio.ok ? 'reiniciando para pegar IP da faixa do site'
+                                                : `reinicio: ${pos.reinicio.error || 'falhou'}`);
+  return passos;
+}
+
+function activationPrecisaReiniciar(r) {
+  return r.ok && activationEhHikvision(r.ip) && !r.pos_ativacao?.reinicio?.ok;
+}
+
 function activationRenderLog(data) {
   const painel = document.getElementById('activationLogPanel');
   const caixa = document.getElementById('activationLog');
   if (!painel || !caixa) return;
   painel.style.display = '';
-  caixa.innerHTML = (data?.results || []).map(r => {
-    const detalhe = r.ok ? (r.warning || 'ativada e senha guardada no cofre do site') : (r.error || 'falhou');
-    return `<div class="activation-log-item ${r.ok ? 'activation-log-ok' : 'activation-log-fail'}">
+  const resultados = data?.results || [];
+  const pendentes = resultados.filter(activationPrecisaReiniciar);
+  const linhas = resultados.map(r => {
+    const base = r.ok ? (r.warning || 'ativada e senha guardada no cofre do site') : (r.error || 'falhou');
+    const detalhe = [base, ...activationPassos(r)].join(' · ');
+    const botao = activationPrecisaReiniciar(r)
+      ? `<button type="button" class="secondary-action activation-reboot" data-ip="${esc(r.ip)}"><i data-lucide="rotate-ccw"></i> Reiniciar</button>`
+      : '';
+    return `<div class="activation-log-item ${r.ok ? 'activation-log-ok' : 'activation-log-fail'}" data-ip="${esc(r.ip || '')}">
       <i data-lucide="${r.ok ? 'check-circle' : 'alert-circle'}"></i>
-      <div><strong class="activation-mono">${esc(r.ip || '')}</strong> ${esc(r.model || '')}<br><span class="muted">${esc(detalhe)}</span></div>
+      <div style="flex:1"><strong class="activation-mono">${esc(r.ip || '')}</strong> ${esc(r.model || '')}<br><span class="muted activation-log-detalhe">${esc(detalhe)}</span></div>
+      ${botao}
     </div>`;
-  }).join('');
+  });
+  const topo = pendentes.length > 1
+    ? `<div class="activation-log-item"><div style="flex:1" class="muted">${pendentes.length} cameras so assumem o IP novo depois de reiniciar.</div>
+        <button type="button" class="primary-action" id="btnActivationRebootAll"><i data-lucide="rotate-ccw"></i> Reiniciar todas</button></div>`
+    : '';
+  caixa.innerHTML = topo + linhas.join('');
+  caixa.querySelectorAll('.activation-reboot').forEach(b =>
+    b.addEventListener('click', () => activationReiniciar([b.dataset.ip])));
+  document.getElementById('btnActivationRebootAll')?.addEventListener('click', () =>
+    activationReiniciar(pendentes.map(r => r.ip)));
+  if (window.lucide) lucide.createIcons();
+  // Reinicio automatico (DHCP marcado) ja disparou: so falta esperar e revarrer.
+  if (resultados.some(r => r.pos_ativacao?.reinicio?.ok)) activationEsperarERevarrer();
+}
+
+function activationLinha(ip) {
+  return [...document.querySelectorAll('#activationLog .activation-log-item')]
+    .find(el => el.dataset.ip === ip);
+}
+
+async function activationReiniciar(ips) {
+  const ult = _activationUltima;
+  if (!ult || !ips.length) return;
+  ips.forEach(ip => {
+    const el = activationLinha(ip);
+    el?.querySelector('.activation-reboot')?.setAttribute('disabled', 'disabled');
+  });
+  try {
+    const res = await api('/api/deployments/activation/reboot', {
+      method: 'POST',
+      body: JSON.stringify({
+        connector_id: ult.connectorId, senha: ult.senha,
+        targets: ips.map(ip => ({ ip, vendor: ult.porIp[ip]?.vendor || '' })),
+      }),
+    });
+    const data = await res.json().catch(() => null);
+    if (!res.ok) throw new Error(data?.detail || 'falha ao reiniciar');
+    (data.results || []).forEach(r => {
+      const el = activationLinha(r.ip);
+      if (!el) return;
+      const det = el.querySelector('.activation-log-detalhe');
+      if (det) det.textContent += r.ok ? ' · reiniciando para pegar IP da faixa do site' : ` · reinicio: ${r.error || 'falhou'}`;
+      if (r.ok) { el.querySelector('.activation-reboot')?.remove(); _activationReiniciadas.add(r.ip); }
+      else el.querySelector('.activation-reboot')?.removeAttribute('disabled');
+    });
+    document.getElementById('btnActivationRebootAll')?.closest('.activation-log-item')?.remove();
+    showToast(`${data.rebooted} reiniciando, ${data.failed} com erro.`, data.failed > 0);
+    if (data.rebooted) activationEsperarERevarrer();
+  } catch (err) {
+    showToast(`Nao consegui reiniciar: ${err.message}`, true);
+    ips.forEach(ip => activationLinha(ip)?.querySelector('.activation-reboot')?.removeAttribute('disabled'));
+  }
+}
+
+// A camera leva ~1 min para voltar. Contagem visivel e revarredura no fim,
+// para a lista mostrar o IP novo sem o tecnico ficar adivinhando.
+function activationEsperarERevarrer(segundos = 75) {
+  const caixa = document.getElementById('activationLog');
+  if (!caixa) return;
+  clearInterval(_activationTimerRevarrer);
+  let aviso = document.getElementById('activationRebootCountdown');
+  if (!aviso) {
+    aviso = document.createElement('div');
+    aviso.id = 'activationRebootCountdown';
+    aviso.className = 'activation-log-item';
+    caixa.prepend(aviso);
+  }
+  let resta = segundos;
+  const pinta = () => {
+    aviso.innerHTML = `<i data-lucide="loader"></i><div class="muted">Reiniciando... revarro o site em <b>${resta}s</b>.</div>`;
+    if (window.lucide) lucide.createIcons();
+  };
+  pinta();
+  _activationTimerRevarrer = setInterval(async () => {
+    resta -= 1;
+    if (resta > 0) { pinta(); return; }
+    clearInterval(_activationTimerRevarrer);
+    aviso.innerHTML = '<i data-lucide="search"></i><div class="muted">Procurando o IP novo pelo MAC no DHCP/ARP do site...</div>';
+    if (window.lucide) lucide.createIcons();
+    await activationScan();
+    activationLocalizar(aviso);
+  }, 1000);
+}
+
+// O conector reporta ARP/DHCP de tempos em tempos: o IP novo pode demorar
+// alguns minutos para aparecer. Pergunta a cada 15s, por ate 4 min.
+async function activationLocalizar(aviso, tentativa = 0) {
+  const ult = _activationUltima;
+  if (!ult) return;
+  const faltam = [..._activationReiniciadas].filter(ip => ult.macPorIp?.[ip]);
+  if (!faltam.length) {
+    aviso.innerHTML = '<i data-lucide="check-circle"></i><div class="muted">Pronto: lista revarrida depois do reinicio.</div>';
+    if (window.lucide) lucide.createIcons();
+    return;
+  }
+  try {
+    const res = await api('/api/deployments/activation/locate', {
+      method: 'POST',
+      body: JSON.stringify({
+        connector_id: ult.connectorId,
+        targets: faltam.map(ip => ({ mac: ult.macPorIp[ip], old_ip: ip })),
+      }),
+    });
+    const data = await res.json().catch(() => null);
+    const achados = (res.ok && data?.found) || {};
+    faltam.forEach(ip => {
+      const novo = achados[String(ult.macPorIp[ip]).toLowerCase().replace(/-/g, ':')];
+      if (!novo) return;
+      _activationReiniciadas.delete(ip);
+      const det = activationLinha(ip)?.querySelector('.activation-log-detalhe');
+      if (det) det.innerHTML = `${esc(det.textContent)} · <b>assumiu o IP ${esc(novo.ip)}</b>`;
+    });
+  } catch (err) { /* tenta de novo abaixo */ }
+  const sobram = [..._activationReiniciadas].filter(ip => ult.macPorIp?.[ip]);
+  if (!sobram.length) {
+    aviso.innerHTML = '<i data-lucide="check-circle"></i><div class="muted">Pronto: IP novo de cada camera na linha dela.</div>';
+  } else if (tentativa >= 16) {
+    aviso.innerHTML = `<i data-lucide="alert-circle"></i><div class="muted">${sobram.length} camera(s) ainda nao apareceram no DHCP/ARP do site. Confira no MikroTik pelo MAC.</div>`;
+  } else {
+    aviso.innerHTML = `<i data-lucide="search"></i><div class="muted">Procurando o IP novo de ${sobram.length} camera(s) pelo MAC... (o conector atualiza o DHCP/ARP a cada poucos minutos)</div>`;
+    setTimeout(() => activationLocalizar(aviso, tentativa + 1), 15000);
+  }
   if (window.lucide) lucide.createIcons();
 }
 
