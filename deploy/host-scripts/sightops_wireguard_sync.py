@@ -100,6 +100,26 @@ def canon_cidr(value: str) -> Optional[str]:
         return None
 
 
+def _is_auto_isolated(row: Dict[str, Any]) -> bool:
+    """Conector que nasceu isolado por tabela de rota (iso_provisioner).
+
+    Tem `iso_index` (sem `iso_manual`) e a interface wgc<N> ja existe no host.
+    O tunel dele e o wgc<N>; um peer duplicado no wg-sightops, mesmo morto,
+    cria rota na tabela main e puxa para o tunel errado a resposta de quem
+    abre conexao vinda do conector (SIERRA -> GenieACS, 06/10/2026).
+    Exigir o wgc<N> no host evita apagar o unico caminho de um conector
+    cujo tunel isolado ainda nao subiu. wgc1..7 (iso_manual) ficam de fora:
+    alguns mantem a rota antiga viva de proposito.
+    """
+    if row.get("iso_manual"):
+        return False
+    try:
+        n = int(row.get("iso_index") or 0)
+    except (TypeError, ValueError):
+        return False
+    return n > 0 and Path(f"/sys/class/net/wgc{n}").exists()
+
+
 def compute_target_state(connectors: List[Dict]) -> Dict[str, Dict]:
     """{pubkey: {"name": str, "allowed": set[str]}} a partir do cadastro.
 
@@ -117,7 +137,7 @@ def compute_target_state(connectors: List[Dict]) -> Dict[str, Dict]:
         tunnel = row.get("tunnel") if isinstance(row.get("tunnel"), dict) else {}
         if not tunnel.get("enabled") or str(tunnel.get("type") or "").lower() != "wireguard":
             continue
-        if tunnel.get("netns_listen_port"):
+        if tunnel.get("netns_listen_port") or _is_auto_isolated(row):
             continue
         pubkey = str(tunnel.get("client_public_key") or "").strip()
         if not pubkey:
@@ -147,7 +167,7 @@ def isolated_pubkeys(connectors: List[Dict]) -> Dict[str, str]:
     out: Dict[str, str] = {}
     for row in connectors or []:
         tunnel = row.get("tunnel") if isinstance(row.get("tunnel"), dict) else {}
-        if not tunnel.get("netns_listen_port"):
+        if not (tunnel.get("netns_listen_port") or _is_auto_isolated(row)):
             continue
         pubkey = str(tunnel.get("client_public_key") or "").strip()
         if pubkey:
@@ -504,14 +524,22 @@ def main() -> int:
     stale_isolated = set(isolated) & set(current_state.keys())
     for pubkey in stale_isolated:
         name = isolated[pubkey]
-        _log(f"{name}: conector isolado por namespace -- removendo peer de {WG_INTERFACE} (nunca deveria estar aqui).")
+        _log(f"{name}: conector isolado -- removendo peer de {WG_INTERFACE} (nunca deveria estar aqui).")
         applied_any = True
+        # rotas que so este peer usava (wg set remove nao apaga rota do kernel)
+        others = set().union(*(v for k, v in current_state.items() if k != pubkey))
+        orphan_routes = sorted(c for c in current_state.get(pubkey, set()) if c not in others)
         if dry_run:
+            _log(f"{name}: removeria rotas {orphan_routes} de {WG_INTERFACE}")
             continue
         r = _run(["wg", "set", WG_INTERFACE, "peer", pubkey, "remove"])
         if r.returncode != 0:
             _log(f"{name}: FALHOU wg set ... remove: {r.stderr.strip()}")
             continue
+        for cidr in orphan_routes:
+            if _route_device_for(cidr) == WG_INTERFACE:
+                _run(["ip", "route", "del", cidr, "dev", WG_INTERFACE])
+                _log(f"{name}: rota {cidr} removida de {WG_INTERFACE}")
         if WG_CONF_PATH.exists():
             try:
                 original = WG_CONF_PATH.read_text(encoding="utf-8")
