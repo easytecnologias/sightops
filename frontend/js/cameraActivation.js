@@ -96,6 +96,10 @@ function activationExpandRange(texto) {
   // "172.28.1.200-172.28.1.254" ou "172.28.1.200-254"
   const t = String(texto || '').trim();
   if (!t) return [];
+  // IP unico (ex.: o 192.168.1.64 de fabrica da Hikvision). Antes ele nao
+  // casava com a faixa, virava lista vazia e a varredura caia calada no
+  // ARP/DHCP -- justamente o endereco que nao esta la.
+  if (/^\d+\.\d+\.\d+\.\d+$/.test(t)) return [t];
   const m = t.match(/^(\d+\.\d+\.\d+)\.(\d+)\s*-\s*(?:\d+\.\d+\.\d+\.)?(\d+)$/);
   if (!m) return [];
   const [, base, ini, fim] = m;
