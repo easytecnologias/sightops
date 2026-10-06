@@ -1,0 +1,25 @@
+show authorization slot 4 link 1
+-----  ONU Auth Table, ITEM=18 -----
+SLOT PON ONU     TYPE       ST     PHY_ID       PWD       SN LOID, SN PWD
+---- --- --- -------------- -- ------------ ---------- --------------------
+   4   1   1 HG260           A HWTCdc390f9a            , 
+   4   1   5 AN5506-01-B1    A FHTT927025d8            , 
+   4   1   8 AN5506-01-A1    A ITBS324bc136            , 
+   4   1  10 AN5506-04-A1    A FHTT097ba920            , 
+   4   1  12 AN5506-04-A1    A FHTT06f83350            , 
+   4   1  14 HG260           A CIOT08b93c08            , 
+   4   1  15 AN5506-01-A1    A FHTT0001a22f            , 
+   4   1  16 AN5506-01-A1    A FHTT111e0d10            , 
+   4   1  17 AN5506-04-A1    A FHTT06b25810            , 
+   4   1  19 HG260           A CIOT097b46e0            , 
+   4   1  26 AN5506-01-A1    A PRKS00d67cc7            , 
+   4   1  32 HG260           A TPLG7e95ca10            , 
+   4   1  33 HG260           A HWTCc016a19d            , 
+   4   1  34 AN5506-01-A1    A ZTEGcec9242e            , 
+   4   1  35 HG260           A TPLGe7bda090            , 
+   4   1  45 AN5506-01-B1    A FHTT95d59320            , 
+   4   1  56 HG260           A HWTCdc4da39a            , 
+   4   1  78 AN5506-01-A1    A HWTC84ffd986            , 
+
+A: Authorized  P: Preauthorized  R: System Reserved
+Admin\gpononu# 

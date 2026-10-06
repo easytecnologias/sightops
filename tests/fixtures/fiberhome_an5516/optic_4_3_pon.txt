@@ -1,0 +1,3 @@
+show optic_module slot 4 link 3
+% Command incomplete.
+Admin\gpononu# 

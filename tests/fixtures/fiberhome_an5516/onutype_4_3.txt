@@ -1,0 +1,3 @@
+show onu_type slot 4 link 3
+% Command incomplete.
+Admin\gponline# 

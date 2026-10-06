@@ -1,0 +1,4 @@
+show onu_last_on_and_off_time slot 4 link 3 onu 94
+Last Off Time = 0000-00-00 00:00:00!
+Last On Time = 2009-03-12 01:29:27!
+Admin\gpononu# 

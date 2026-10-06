@@ -24,6 +24,34 @@ def normalize_mac(value: str) -> str:
     return ":".join(raw[index:index + 2] for index in range(0, 12, 2)) if len(raw) == 12 else raw
 
 
+# Prompt REAL de cada menu (medido na AN5516 da SIERRA em 06/10/2026). Em dois
+# menus o prompt nao e o nome do diretorio -- `cd gponlinecard` mostra
+# `Admin\gponline#` e `cd epon` mostra `Admin\epononu#`. Esperando o nome do
+# diretorio, cada troca de menu queimava o timeout inteiro (~12 s).
+_PROMPTS = {
+    "device": "Admin\\device#",
+    "gpononu": "Admin\\gpononu#",
+    "gponlinecard": "Admin\\gponline#",
+    "epon": "Admin\\epononu#",
+    "vlan": "Admin\\vlan#",
+    "service": "Admin\\service#",
+}
+
+
+def prompt_of(directory: str) -> str:
+    return _PROMPTS.get(directory, f"Admin\\{directory}#")
+
+
+def _alcance(host: str) -> str:
+    """IP pelo qual se conecta de fato (virtual se o conector da operacao for
+    isolado). Fora do app -- testes, CLI -- devolve o proprio host."""
+    try:
+        from app.services.connector_routing_vnat import reach_olt_ip
+        return reach_olt_ip(host) or host
+    except Exception:
+        return host
+
+
 class FiberHomeTelnet:
     """Cliente somente de transporte para a CLI FiberHome AN5xxx/AN6xxx."""
 
@@ -48,7 +76,11 @@ class FiberHomeTelnet:
             )
         self._lock_acquired = True
         try:
-            self.sock = socket.create_connection((self.host, self.port), timeout=self.timeout)
+            # OLT atras de conector isolado so responde no IP VIRTUAL (vnat). O
+            # olt_service marca o conector da operacao; aqui, e so aqui, o IP
+            # real vira o virtual -- o dado gravado continua com o IP real.
+            # Sem isto o Testar dava "[Errno 113] No route to host" na SIERRA.
+            self.sock = socket.create_connection((_alcance(self.host), self.port), timeout=self.timeout)
             self.sock.settimeout(0.25)
             self._login()
             return self
@@ -212,7 +244,7 @@ class FiberHomeTelnet:
         return _clean_output(output)
 
     def cd(self, directory: str) -> None:
-        output = self.command(f"cd {directory}", prompt=f"Admin\\{directory}#")
+        output = self.command(f"cd {directory}", prompt=prompt_of(directory))
         if "% Unknown command." in output:
             raise RuntimeError(f"Nao foi possivel acessar o modulo FiberHome {directory}.")
 
@@ -973,3 +1005,322 @@ def delete_onu_fiberhome(
                 "commands_run": [command, "save"],
             }
     return {"ok": False, "error": "ONU nao encontrada na whitelist FiberHome."}
+
+
+# =====================================================================
+# Contrato SightOps (mesmo formato do 4840E / 8820i / VSOL)
+# ---------------------------------------------------------------------
+# Construido e medido na AN5516 da SIERRA (placa GC8B no slot 4,
+# 06/10/2026). Regras que vieram da medicao:
+#   * MAC -> ONU sai de `gponlinecard/show pon_mac` (0,6 s por PON). O
+#     `gpononu/show mac_list` por ONU volta VAZIO nesse firmware -- nao e
+#     consultado.
+#   * Sinal so existe ONU a ONU (`show optic_module ... onu N`, ~0,6 s).
+#     `OLT RECV POWER` vem 0.00 em toda ONU: nao e medida, vira vazio.
+#   * Uma sessao so para a operacao inteira: a OLT aceita UM admin por vez.
+# PON: "3" quando a OLT tem uma placa GPON so; "slot/pon" ("4/3") quando
+# tem varias. Toda funcao aceita os dois formatos.
+# =====================================================================
+
+OLT_MODEL = "fiberhome_an5516"
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _dbm(value: str) -> str:
+    """Potencia como texto; 0.00 nessa OLT e ausencia de medida, nao 0 dBm."""
+    value = str(value or "").strip()
+    try:
+        return "" if float(value) == 0.0 else value
+    except ValueError:
+        return ""
+
+
+def _pon_label(layout: FiberHomeLayout, slot: int, pon: int) -> str:
+    return str(pon) if len(layout.slots) == 1 else f"{slot}/{pon}"
+
+
+def _alvos(layout: FiberHomeLayout, pon: Any) -> list[tuple[int, int]]:
+    """Resolve 'all' | '3' | '4/3' para [(slot, pon), ...]."""
+    wanted = str(pon if pon is not None else "all").strip().lower()
+    todos = [(slot, p) for slot in layout.slots for p in range(1, layout.pons_per_slot + 1)]
+    if wanted in ("", "all", "*"):
+        return todos
+    if "/" in wanted:
+        slot_txt, pon_txt = wanted.split("/", 1)
+        alvo = (int(slot_txt), int(pon_txt))
+        if alvo not in todos:
+            raise ValueError(f"PON {wanted} nao existe nessa OLT FiberHome.")
+        return [alvo]
+    numero = int(wanted)
+    achados = [(slot, p) for slot, p in todos if p == numero]
+    if len(achados) > 1:
+        raise ValueError(f"PON {numero} existe em mais de uma placa; informe 'slot/pon'.")
+    if not achados:
+        raise ValueError(f"PON {numero} nao existe nessa OLT FiberHome.")
+    return achados
+
+
+class _Leitor:
+    """Leituras de uma sessao aberta, sempre no menu certo."""
+
+    def __init__(self, client: FiberHomeTelnet):
+        self.c = client
+        self.menu = ""
+
+    def _ir(self, menu: str) -> None:
+        if self.menu != menu:
+            if self.menu:
+                self.c.command("cd ..", prompt="Admin#", maximum=6.0)
+            self.c.cd(menu)
+            self.menu = menu
+
+    def _cmd(self, menu: str, comando: str, maximum: float = 30.0) -> str:
+        self._ir(menu)
+        return self.c.command(comando, prompt=prompt_of(menu), maximum=maximum)
+
+    def layout(self) -> FiberHomeLayout:
+        return parse_layout(self._cmd("device", "show slot", maximum=20.0))
+
+    def autorizadas(self, slot: int, pon: int) -> list[dict[str, Any]]:
+        return parse_authorization(self._cmd("gpononu", f"show authorization slot {slot} link {pon}"))
+
+    def online(self, slot: int, pon: int) -> set[int]:
+        out = self._cmd("gpononu", f"show online slot {slot} link {pon}")
+        return {int(r["onu_id"]) for r in parse_online(out, slot, pon)}
+
+    def versoes(self, slot: int, pon: int) -> dict[int, str]:
+        return parse_versions(self._cmd("gpononu", f"show onu_ver slot {slot} link {pon}"))
+
+    def sinal(self, slot: int, pon: int, onu: int) -> dict[str, str]:
+        return parse_signal(self._cmd(
+            "gpononu", f"show optic_module slot {slot} link {pon} onu {onu}", maximum=15.0))
+
+    def distancia(self, slot: int, pon: int, onu: int) -> str:
+        return parse_distance(self._cmd(
+            "gpononu", f"show rtt_value slot {slot} link {pon} onu {onu}", maximum=15.0))
+
+    def ultima_queda(self, slot: int, pon: int, onu: int) -> dict[str, str]:
+        return parse_last_on_off(self._cmd(
+            "gpononu", f"show onu_last_on_and_off_time slot {slot} link {pon} onu {onu}", maximum=15.0))
+
+    def macs_da_pon(self, slot: int, pon: int) -> list[dict[str, Any]]:
+        return parse_pon_macs(self._cmd(
+            "gponlinecard", f"show pon_mac slot {slot} link {pon}", maximum=45.0))
+
+    def nao_autorizadas(self) -> dict[str, dict[str, Any]]:
+        return parse_discovery(self._cmd("gpononu", "show unauth_discovery", maximum=40.0))
+
+
+def _onus_da_pon(leitor: _Leitor, layout: FiberHomeLayout, slot: int, pon: int,
+                 com_sinal: bool, com_distancia: bool) -> list[dict[str, Any]]:
+    """Uma linha por ONU autorizada da PON, ja com estado, modelo real e sinal."""
+    autorizadas = leitor.autorizadas(slot, pon)
+    if not autorizadas:
+        return []
+    online = leitor.online(slot, pon)
+    versoes = leitor.versoes(slot, pon)
+    rotulo = _pon_label(layout, slot, pon)
+    saida: list[dict[str, Any]] = []
+    for onu in autorizadas:
+        onu_id = int(onu["onu_id"])
+        up = onu_id in online
+        sinal = leitor.sinal(slot, pon, onu_id) if (up and com_sinal) else {}
+        saida.append({
+            "olt_slot": slot,
+            "pon": rotulo,
+            "pon_label": f"{slot}/{pon}",
+            "onu_id": onu_id,
+            "onu_name": f"gpon {slot}/{pon} onu {onu_id}",
+            "onu_serial": onu.get("onu_serial", ""),
+            "onu_serial_raw": onu.get("onu_serial_raw", ""),
+            # Modelo real (onu_ver) vale mais que o cadastrado: a 4/6/89 esta
+            # cadastrada como HG260 e e uma Intelbras PON140PoE.
+            "onu_model": versoes.get(onu_id) or onu.get("onu_model", ""),
+            "onu_config_type": onu.get("onu_model", ""),
+            "oper_status": "Active" if up else "Offline",
+            "omci_status": "OK" if up else "LOS",
+            "rx_onu": _dbm(sinal.get("onu_rx", "")),
+            "rx_olt": _dbm(sinal.get("olt_rx", "")),
+            "tx_onu": _dbm(sinal.get("onu_tx", "")),
+            "distance_km": leitor.distancia(slot, pon, onu_id) if (up and com_distancia) else "",
+        })
+    return saida
+
+
+def collect_macs_fiberhome(
+    olt_ip: str,
+    user: str,
+    password: str,
+    pon: str = "all",
+    olt_name: str | None = None,
+    timeout: float = 12.0,
+    include_signal: bool = True,
+) -> list[dict[str, Any]]:
+    """Inventario: uma linha por MAC aprendido (CPE), com a topologia da ONU.
+
+    ONU sem MAC aprendido sai mesmo assim, com `cpe_mac` vazio: ficar fora do
+    relatorio esconde ONU que caiu ou camera desligada.
+    """
+    linhas: list[dict[str, Any]] = []
+    agora = _now_iso()
+    with FiberHomeTelnet(olt_ip, user, password, timeout=timeout) as client:
+        leitor = _Leitor(client)
+        layout = leitor.layout()
+        for slot, p in _alvos(layout, pon):
+            onus = _onus_da_pon(leitor, layout, slot, p, com_sinal=include_signal, com_distancia=False)
+            if not onus:
+                continue
+            macs_por_onu: dict[int, list[dict[str, Any]]] = {}
+            for mac in leitor.macs_da_pon(slot, p):
+                macs_por_onu.setdefault(int(mac["onu_id"]), []).append(mac)
+            for onu in onus:
+                base = {
+                    **onu,
+                    "olt_ip": olt_ip,
+                    "olt_name": olt_name or "OLT-FiberHome",
+                    "olt_model": OLT_MODEL,
+                    "source": "olt-fiberhome",
+                    "telemetry_updated_at": agora,
+                }
+                cpes = macs_por_onu.get(int(onu["onu_id"])) or []
+                if not cpes:
+                    linhas.append({**base, "cpe_mac": "", "vlan": "", "vlan_mode": "",
+                                   "cpe_source": "onu-sem-trafego"})
+                    continue
+                for cpe in cpes:
+                    linhas.append({**base, "cpe_mac": cpe["cpe_mac"], "vlan": cpe.get("vlan", ""),
+                                   "vlan_mode": cpe.get("vlan_mode", ""), "cpe_source": "pon_mac"})
+    return linhas
+
+
+def collect_onu_telemetry_fiberhome(
+    olt_ip: str,
+    user: str,
+    password: str,
+    pon: str = "all",
+    timeout: float = 12.0,
+    include_distance: bool = True,
+) -> list[dict[str, Any]]:
+    """Estado, sinal e distancia por ONU (formato da telemetria dos outros drivers).
+
+    ONU offline ganha a data da ultima queda -- e o que a tela de ONU caida usa.
+    """
+    saida: list[dict[str, Any]] = []
+    with FiberHomeTelnet(olt_ip, user, password, timeout=timeout) as client:
+        leitor = _Leitor(client)
+        layout = leitor.layout()
+        for slot, p in _alvos(layout, pon):
+            for onu in _onus_da_pon(leitor, layout, slot, p, com_sinal=True,
+                                    com_distancia=include_distance):
+                item = {
+                    "pon": p if len(layout.slots) == 1 else onu["pon"],
+                    "pon_label": onu["pon_label"],
+                    "olt_slot": slot,
+                    "onu_id": onu["onu_id"],
+                    "serial": onu["onu_serial"],
+                    "name": onu["onu_name"],
+                    "onu_model": onu["onu_model"],
+                    "oper_status": onu["oper_status"],
+                    "omci_status": onu["omci_status"],
+                    "rx_onu": onu["rx_onu"],
+                    "rx_olt": onu["rx_olt"],
+                    "distance_km": onu["distance_km"],
+                }
+                if onu["oper_status"] != "Active":
+                    item.update(leitor.ultima_queda(slot, p, int(onu["onu_id"])))
+                saida.append(item)
+    saida.sort(key=lambda r: (str(r["pon_label"]), int(r["onu_id"])))
+    return saida
+
+
+def discover_onus_fiberhome(
+    olt_ip: str, user: str, password: str, pon: str = "all", timeout: float = 12.0,
+) -> dict[str, Any]:
+    """ONUs na fibra ainda nao autorizadas, no mapa por PON que a tela le."""
+    with FiberHomeTelnet(olt_ip, user, password, timeout=timeout) as client:
+        leitor = _Leitor(client)
+        layout = leitor.layout()
+        alvos = set(_alvos(layout, pon))
+        pons: dict[str, Any] = {}
+        total = 0
+        # O cabecalho de cada bloco traz SLOT e PON; parse_discovery agrupa
+        # pela PON, entao com mais de uma placa o slot vem do proprio item.
+        for chave, bloco in leitor.nao_autorizadas().items():
+            p = int(chave)
+            slot = layout.slots[0] if len(layout.slots) == 1 else None
+            if slot is not None and (slot, p) not in alvos:
+                continue
+            achadas = bloco.get("discovered") or []
+            rotulo = _pon_label(layout, slot, p) if slot is not None else chave
+            for item in achadas:
+                item["pon"] = rotulo
+            total += len(achadas)
+            pons[rotulo] = {"discovered": achadas}
+    return {"ok": True, "driver": "fiberhome", "slots": list(layout.slots), "pons": pons, "total": total}
+
+
+def find_onu_fiberhome(
+    olt_ip: str, user: str, password: str, serial: str, timeout: float = 12.0,
+) -> dict[str, Any] | None:
+    """Localiza uma ONU autorizada pelo serial (sem diferenciar caixa)."""
+    alvo = str(serial or "").strip().upper()
+    if not alvo:
+        return None
+    with FiberHomeTelnet(olt_ip, user, password, timeout=timeout) as client:
+        leitor = _Leitor(client)
+        layout = leitor.layout()
+        for slot, p in _alvos(layout, "all"):
+            for onu in leitor.autorizadas(slot, p):
+                if str(onu.get("onu_serial", "")).upper() == alvo:
+                    up = int(onu["onu_id"]) in leitor.online(slot, p)
+                    return {
+                        **onu,
+                        "olt_slot": slot,
+                        "pon": _pon_label(layout, slot, p),
+                        "pon_label": f"{slot}/{p}",
+                        "oper_status": "Active" if up else "Offline",
+                        "omci_status": "OK" if up else "LOS",
+                    }
+    return None
+
+
+def onu_detail_fiberhome(
+    olt_ip: str, user: str, password: str, pon: Any, onu_id: Any, timeout: float = 12.0,
+) -> dict[str, Any]:
+    """Sinal optico, distancia, estado e MACs (CPEs) atras de UMA ONU."""
+    with FiberHomeTelnet(olt_ip, user, password, timeout=timeout) as client:
+        leitor = _Leitor(client)
+        layout = leitor.layout()
+        slot, p = _alvos(layout, pon)[0]
+        onu_n = int(onu_id)
+        cadastro = next((o for o in leitor.autorizadas(slot, p) if int(o["onu_id"]) == onu_n), None)
+        if not cadastro:
+            return {"ok": False, "error": f"ONU {onu_n} nao esta autorizada na PON {slot}/{p}."}
+        up = onu_n in leitor.online(slot, p)
+        sinal = leitor.sinal(slot, p, onu_n) if up else {}
+        macs = [m for m in leitor.macs_da_pon(slot, p) if int(m["onu_id"]) == onu_n]
+        resultado = {
+            "ok": True,
+            "driver": "fiberhome",
+            "olt_slot": slot,
+            "pon": _pon_label(layout, slot, p),
+            "pon_label": f"{slot}/{p}",
+            "onu_id": str(onu_n),
+            "serial": cadastro.get("onu_serial", ""),
+            "model": leitor.versoes(slot, p).get(onu_n) or cadastro.get("onu_model", ""),
+            "oper_status": "Active" if up else "Offline",
+            "omci_status": "OK" if up else "LOS",
+            "onu_rx": _dbm(sinal.get("onu_rx", "")),
+            "olt_rx": _dbm(sinal.get("olt_rx", "")),
+            "onu_tx": _dbm(sinal.get("onu_tx", "")),
+            "distance_km": leitor.distancia(slot, p, onu_n) if up else "",
+            "macs": [{"mac": m["cpe_mac"], "cpe_mac": m["cpe_mac"], "vlan": m.get("vlan", ""),
+                      "interface": "VLAN %s" % (m.get("vlan") or "-")} for m in macs],
+        }
+        resultado["rx_onu"], resultado["rx_olt"] = resultado["onu_rx"], resultado["olt_rx"]
+        if not up:
+            resultado.update(leitor.ultima_queda(slot, p, onu_n))
+        return resultado

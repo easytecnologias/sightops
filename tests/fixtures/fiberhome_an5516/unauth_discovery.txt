@@ -1,0 +1,10 @@
+show unauth_discovery
+-----  ONU Unauth Table ,SLOT=4 PON=1 ,ITEM=0-----
+-----  ONU Unauth Table ,SLOT=4 PON=2 ,ITEM=0-----
+-----  ONU Unauth Table ,SLOT=4 PON=3 ,ITEM=0-----
+-----  ONU Unauth Table ,SLOT=4 PON=4 ,ITEM=0-----
+-----  ONU Unauth Table ,SLOT=4 PON=5 ,ITEM=0-----
+-----  ONU Unauth Table ,SLOT=4 PON=6 ,ITEM=0-----
+-----  ONU Unauth Table ,SLOT=4 PON=7 ,ITEM=0-----
+-----  ONU Unauth Table ,SLOT=4 PON=8 ,ITEM=0-----
+Admin\gpononu# 

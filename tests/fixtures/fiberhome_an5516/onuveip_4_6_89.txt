@@ -1,0 +1,20 @@
+show epon slot 4 pon 6 onu 89 onuveip servindex
+slot 4 pon 6 onu 89 serv 1 onuveip info:
+ cvlan 33024 7 65535 tvlan 33024 65535 65535 svlan 33024 65535 65535 tls 0 servmode 1 svlan 65535 qinq_name null serv_vlanname null up_bandwidth 0 down_bandwidth 0  
+ slot 4 pon 6 onu 89 serv 2 onuveip info:
+ cvlan 33024 500 65535 tvlan 33024 65535 65535 svlan 33024 65535 65535 tls 0 servmode 1 svlan 65535 qinq_name null serv_vlanname null up_bandwidth 0 down_bandwidth 0  
+ slot 4 pon 6 onu 89 serv 3 onuveip no config
+ slot 4 pon 6 onu 89 serv 4 onuveip no config
+ slot 4 pon 6 onu 89 serv 5 onuveip no config
+ slot 4 pon 6 onu 89 serv 6 onuveip no config
+ slot 4 pon 6 onu 89 serv 7 onuveip no config
+ slot 4 pon 6 onu 89 serv 8 onuveip no config
+ slot 4 pon 6 onu 89 serv 9 onuveip no config
+ slot 4 pon 6 onu 89 serv 10 onuveip no config
+ slot 4 pon 6 onu 89 serv 11 onuveip no config
+ slot 4 pon 6 onu 89 serv 12 onuveip no config
+ slot 4 pon 6 onu 89 serv 13 onuveip no config
+ slot 4 pon 6 onu 89 serv 14 onuveip no config
+ slot 4 pon 6 onu 89 serv 15 onuveip no config
+ slot 4 pon 6 onu 89 serv 16 onuveip no config
+ Admin\epononu\qinq#

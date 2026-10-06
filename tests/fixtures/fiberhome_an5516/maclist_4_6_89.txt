@@ -1,0 +1,3 @@
+show mac_list slot 4 link 6 onu 89 port 1
+SLOT=4 PON=6 ONU=89,PORT=1
+Admin\gpononu# 

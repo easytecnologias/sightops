@@ -1,0 +1,1 @@
+ERRO: Comando FiberHome nao suportado: show whitelist phy_addr slot 4 link 3

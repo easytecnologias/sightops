@@ -1,0 +1,30 @@
+show online slot 4 link 3
+ONLINE ONU TOTAL NUM = 25 
+ONUID    ONUTYPE        SN       PASSWORD      LOGICAL SN&PWD
+----- ------------ ------------ ---------- ---------------------
+ 02   HG260        HWTC746ebb4c            ,
+ 03   AN5506-04-A1 FHTT06a21da8            ,
+ 04   HG260        HWTCbce98689            ,
+ 09   AN5506-01-A1 MONU002698b9            ,
+ 10   HG260        HWTC861c0c80            ,
+ 11   AN5506-01-A1 HWTC3043c677            ,
+ 12   AN5506-01-A1 FHTT000399c6            ,
+ 13   HG260        HWTCa7fc608c            ,
+ 15   AN5506-04-A1 FHTT09800460            ,
+ 16   HG260        ZTEGd7b7229f            ,
+ 17   AN5506-01-A1 FHTTba19d8a8            ,
+ 18   HG260        HWTCd875119b            ,
+ 27   HG260        HWTCf4274b91            ,
+ 31   HG260        HWTC4f9ba29b            ,
+ 39   HG260        HWTC703bd09b            ,
+ 40   HG260        HWTC9fa28a9b            ,
+ 42   AN5506-01-A1 DLNK007f77af            ,
+ 46   AN5506-01-A1 42061d5b7a60            ,
+ 48   HG260        ZTEGd8d9e00e            ,
+ 49   AN5506-01-B1 FHTT230d0238            ,
+ 79   AN5506-01-A1 ZTEGd38a55b4            ,
+ 93   AN5506-01-A1 ITBS44c87587            ,
+ 94   AN5506-01-A1 VSOL00c088e1            ,
+ 100   HG260        HWTCa719b383            ,
+ 116   HG260        HWTCa62f7d7f            ,
+Admin\gpononu# 

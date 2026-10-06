@@ -38,6 +38,13 @@ from app.cli.tools.olt_4840e_add_onu import (
     reboot_onu_4840e,
 )
 from app.cli.tools.olt_4840e_snmp import collect_onu_telemetry_4840e_snmp
+from app.cli.tools.olt_fiberhome import (
+    collect_macs_fiberhome,
+    collect_onu_telemetry_fiberhome,
+    discover_onus_fiberhome,
+    find_onu_fiberhome,
+    onu_detail_fiberhome,
+)
 from app.cli.tools.olt_vsol_epon import (
     add_onu_vsol,
     collect_macs_vsol,
@@ -78,6 +85,14 @@ def _is_vsol(req: Any) -> bool:
     vendor = _norm_text(getattr(req, "olt_vendor", "")).lower()
     model = _norm_text(getattr(req, "olt_model", "")).lower()
     return vendor in ("vsol", "v-sol", "vsolution") or model.startswith(("vsol", "v1600", "epon"))
+
+
+def _is_fiberhome(req: Any) -> bool:
+    """OLT FiberHome AN5516 (Telnet) -- pelo fabricante ou pelo modelo."""
+    vendor = _norm_text(getattr(req, "olt_vendor", "")).lower()
+    model = _norm_text(getattr(req, "olt_model", "")).lower()
+    return (vendor in ("fiberhome", "fiber-home", "fiber home")
+            or model.startswith(("an5516", "fiberhome")))
 
 
 def _is_intelbras_4840e(req: Any) -> bool:
@@ -720,6 +735,59 @@ def _exigir_tunel_vivo(req, connector_id: str) -> None:
     )
 
 
+# Por quanto tempo um MAC que sumiu da tabela da OLT continua associado a ONU.
+_RETER_MAC_DIAS = 7
+
+
+def _reter_macs_quietos(req, existing_cpes, new_cpes, same_scope, posicao) -> list[dict[str, Any]]:
+    """Mantem a associacao camera <-> ONU quando o MAC so nao apareceu AGORA.
+
+    Na FiberHome AN5516 o MAC -> ONU vem de `show pon_mac`, que e uma tabela de
+    aprendizado: camera quieta sai dela em minutos e volta quando fala. Medido
+    na SIERRA em 06/10/2026: 4 cameras na VLAN 500, atras de ONUs que a coleta
+    leu (6/89, 3/93, 6/75), ficaram "sem ONU" so porque estavam quietas na hora.
+    Regras: so retem se a ONU continua na OLT (ONU removida leva a associacao
+    junto), so por _RETER_MAC_DIAS, e a linha ganha o estado/sinal ATUAIS da
+    ONU. Restrito a FiberHome: os outros drivers estao homologados como estao.
+    """
+    if not _is_fiberhome(req):
+        return []
+    agora = datetime.now(timezone.utc)
+    for x in new_cpes:
+        if _norm_mac(x.get("cpe_mac")):
+            x["cpe_last_seen_at"] = agora.isoformat()
+    macs_agora = {_norm_mac(x.get("cpe_mac")) for x in new_cpes if _norm_mac(x.get("cpe_mac"))}
+    onu_agora = {posicao(x): x for x in new_cpes}
+    retidos: list[dict[str, Any]] = []
+    for x in existing_cpes:
+        if not (isinstance(x, dict) and same_scope(x)):
+            continue
+        mac = _norm_mac(x.get("cpe_mac"))
+        if not mac or mac in macs_agora:
+            continue
+        onu = onu_agora.get(posicao(x))
+        if onu is None:
+            continue
+        visto = _norm_text(x.get("cpe_last_seen_at") or x.get("telemetry_updated_at"))
+        try:
+            quando = datetime.fromisoformat(visto.replace("Z", "+00:00"))
+            if quando.tzinfo is None:
+                quando = quando.replace(tzinfo=timezone.utc)
+        except ValueError:
+            continue
+        if (agora - quando).days >= _RETER_MAC_DIAS:
+            continue
+        linha = dict(x)
+        for campo in ("oper_status", "omci_status", "rx_onu", "rx_olt", "onu_model",
+                      "onu_serial", "telemetry_updated_at"):
+            if onu.get(campo) not in (None, ""):
+                linha[campo] = onu[campo]
+        linha["cpe_source"] = "retido"
+        linha["cpe_last_seen_at"] = quando.isoformat()
+        retidos.append(linha)
+    return retidos
+
+
 def collect_macs(req: OltCollectMacsRequest) -> Dict[str, Any]:
     """Coleta MACs/CPEs na OLT Intelbras (8820i/4840e) e escreve olt-cpe-macs.json (compat legado)."""
     require_olt_capability(req, "collect_macs", "sincronizar inventario")
@@ -734,7 +802,16 @@ def collect_macs(req: OltCollectMacsRequest) -> Dict[str, Any]:
             with redirect_stderr(stderr_buf):
                 with perf_step("OLT_collect_macs_driver"):
                     model = ((req.olt_model or "8820i").strip().lower())
-                    if (model.startswith(("vsol", "v1600", "epon"))
+                    if _is_fiberhome(req):
+                        # FiberHome AN5516 (Telnet): homologada na SIERRA em 06/10/2026
+                        rows = collect_macs_fiberhome(
+                            olt_ip=req.olt_ip,
+                            user=req.user,
+                            password=req.password,
+                            pon=req.pon,
+                            olt_name=req.olt_name or "OLT-FiberHome",
+                        )
+                    elif (model.startswith(("vsol", "v1600", "epon"))
                           or "vsol" in str(getattr(req, "olt_vendor", "") or "").lower()):
                         # VSOL EPON: driver homologado em 20/08/2026 na OLT de Japaratinga
                         rows = collect_macs_vsol(
@@ -906,7 +983,8 @@ def collect_macs(req: OltCollectMacsRequest) -> Dict[str, Any]:
                             "OLT/site. Nada foi apagado -- confirme se a OLT respondeu "
                             "corretamente (PON, ONUs cadastradas) antes de tentar de novo."
                         )
-                    all_cpes = kept + sem_cpe + new_cpes
+                    all_cpes = kept + sem_cpe + new_cpes + _reter_macs_quietos(
+                        req, existing_cpes, new_cpes, _same_scope, _posicao)
                 all_cpes = _dedup_cpes_by_key(all_cpes)
 
                 out_obj = {
@@ -964,7 +1042,18 @@ def collect_onu_telemetry(req: OltCollectMacsRequest) -> Dict[str, Any]:
     _virtualize_olt_ip(req)
     connector = _validate_olt_network_context(req)
     model = _norm_text(req.olt_model or "8820i").lower()
-    if _is_vsol(req):
+    if _is_fiberhome(req):
+        try:
+            telemetry = collect_onu_telemetry_fiberhome(
+                olt_ip=req.olt_ip,
+                user=req.user,
+                password=req.password,
+                pon=req.pon or "all",
+            )
+        except Exception as exc:
+            logger.exception("Erro ao coletar telemetria FiberHome da OLT %s", req.olt_ip)
+            raise HTTPException(500, f"Erro ao coletar telemetria FiberHome: {exc}") from exc
+    elif _is_vsol(req):
         try:
             telemetry = collect_onu_telemetry_vsol(
                 olt_ip=req.olt_ip,
@@ -1407,6 +1496,11 @@ def discover_onus(req: OltDiscoverOnusRequest) -> Dict[str, Any]:
     require_olt_capability(req, "discover_onus", "descobrir ONUs")
     with perf_step("OLT_discover_onus"):
         try:
+            if _is_fiberhome(req):
+                return discover_onus_fiberhome(
+                    olt_ip=req.olt_ip, user=req.user, password=req.password,
+                    pon=req.pon, timeout=req.timeout,
+                )
             if _is_vsol(req):
                 return _discover_vsol_por_pon(req)
             if _is_intelbras_4840e(req):
@@ -1503,7 +1597,7 @@ def add_onu(req: OltAddOnuRequest) -> Dict[str, Any]:
                     timeout=req.timeout,
                 )
             if result.get("ok"):
-                if not _is_intelbras_4840e(req) and not _is_vsol(req):
+                if not _is_intelbras_4840e(req) and not _is_vsol(req) and not _is_fiberhome(req):
                     result["inventory"] = _upsert_onu_inventory(req, result)
                     result["device_sync"] = _sync_authorized_onu_devices(req, result)
                 log_onu_action(
@@ -1590,7 +1684,19 @@ def find_onu(req: OltFindOnuRequest) -> Dict[str, Any]:
     require_olt_capability(req, "find_onu", "localizar ONU")
     with perf_step("OLT_find_onu"):
         try:
-            if _is_vsol(req):
+            if _is_fiberhome(req):
+                row = find_onu_fiberhome(
+                    olt_ip=req.olt_ip, user=req.user, password=req.password,
+                    serial=req.serial, timeout=req.timeout,
+                )
+                found = ({
+                    "pon": row.get("pon"),
+                    "onu": row.get("onu_id"),
+                    "serial": row.get("onu_serial"),
+                    "model": row.get("onu_model"),
+                    "oper_status": row.get("oper_status"),
+                } if row else None)
+            elif _is_vsol(req):
                 # Nesta OLT (EPON) o "serial" e o MAC da ONU.
                 row = find_onu_vsol(
                     olt_ip=req.olt_ip,
@@ -1773,7 +1879,23 @@ def onu_signal(req: OltOnuSignalRequest) -> Dict[str, Any]:
     require_olt_capability(req, "onu_signal", "consultar sinal/MACs")
     with perf_step("OLT_onu_signal"):
         try:
-            if _is_vsol(req):
+            if _is_fiberhome(req):
+                pon_alvo, onu_alvo = req.pon, req.onu
+                if (not pon_alvo or not onu_alvo) and req.serial:
+                    achada = find_onu_fiberhome(
+                        olt_ip=req.olt_ip, user=req.user, password=req.password,
+                        serial=req.serial, timeout=req.timeout,
+                    ) or {}
+                    pon_alvo, onu_alvo = achada.get("pon"), achada.get("onu_id")
+                if not pon_alvo or not onu_alvo:
+                    result = {"ok": False, "error": "ONU nao encontrada na OLT FiberHome."}
+                else:
+                    result = dict(onu_detail_fiberhome(
+                        olt_ip=req.olt_ip, user=req.user, password=req.password,
+                        pon=pon_alvo, onu_id=onu_alvo, timeout=req.timeout,
+                    ) or {})
+                    result.setdefault("onu", result.get("onu_id"))
+            elif _is_vsol(req):
                 # O driver devolve os dados crus da ONU; o "ok" e contrato deste
                 # servico, nao do driver. Potencia optica real via
                 # `show onu opm-diag` (2026-09-01) -- o comando anterior
@@ -1805,7 +1927,7 @@ def onu_signal(req: OltOnuSignalRequest) -> Dict[str, Any]:
                 )
             if result.get("ok"):
                 _enrich_signal_macs_with_ips(result)
-                if not _is_intelbras_4840e(req) and not _is_vsol(req):
+                if not _is_intelbras_4840e(req) and not _is_vsol(req) and not _is_fiberhome(req):
                     result["inventory"] = _sync_onu_signal_inventory(req, result)
             log_onu_action(
                 "onu_signal", olt_id=req.olt_id, olt_ip=req.olt_ip, olt_name=req.olt_name, site=req.site,

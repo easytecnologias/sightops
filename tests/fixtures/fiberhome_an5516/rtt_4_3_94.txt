@@ -1,0 +1,3 @@
+show rtt_value slot 4 link 3 onu 94
+ONU RTT VALUE = 317 (m)
+Admin\gpononu# 

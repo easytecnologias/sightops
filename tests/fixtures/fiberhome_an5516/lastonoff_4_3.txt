@@ -1,0 +1,3 @@
+show onu_last_on_and_off_time slot 4 link 3
+% Command incomplete.
+Admin\gpononu# 

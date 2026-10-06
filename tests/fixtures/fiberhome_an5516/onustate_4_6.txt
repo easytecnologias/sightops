@@ -1,0 +1,3 @@
+show onu_state slot 4 link 6
+% Command incomplete.
+Admin\gpononu# 

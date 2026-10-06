@@ -33,6 +33,8 @@ def normalize_olt_driver(vendor: Any = "", model: Any = "") -> str:
     model_key = _norm(model)
     if vendor_key in ("vsol", "v-sol", "vsolution") or model_key.startswith(("vsol", "v1600", "epon-olt")):
         return "vsol_epon"
+    if vendor_key in ("fiberhome", "fiber-home", "fiber home") or model_key.startswith(("an5516", "fiberhome")):
+        return "fiberhome_an5516"
     if vendor_key == "intelbras":
         if model_key in {"4840e", "4840", "intelbras-4840e", "intelbras-4840e-epon", "4840e-epon"}:
             return "intelbras_4840e"
@@ -93,6 +95,19 @@ def olt_capabilities(vendor: Any = "", model: Any = "") -> Dict[str, Any]:
         })
         label = "VSOL EPON"
         notes = "Homologada: inventario, telemetria, descoberta, consulta, autorizar, excluir e reiniciar ONU."
+    elif driver == "fiberhome_an5516":
+        # Fase 1 (leitura), medida na AN5516 da SIERRA em 06/10/2026. Escrita
+        # (autorizar/excluir/reiniciar) so liga depois de homologada em ONU de
+        # teste -- o add antigo nao configurava a VLAN na ONU.
+        caps.update({
+            "collect_macs": True,
+            "telemetry": True,
+            "discover_onus": True,
+            "find_onu": True,
+            "onu_signal": True,
+        })
+        label = "FiberHome AN5516"
+        notes = "Homologada para inventario, telemetria, descoberta, consulta e sinal (Telnet)."
     else:
         label = "OLT nao homologada"
         notes = "Cadastre o modelo para inventario, mas comandos na OLT ficam bloqueados ate homologacao."

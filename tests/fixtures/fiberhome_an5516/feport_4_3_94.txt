@@ -1,0 +1,13 @@
+show feport_status slot 4 link 3 onu 94
+----- ONU FE PORT STATUS ----- 
+SLOT:4 PON:3 ONU:94  ,  ITEM=1
+
+PORT ID = 1
+PORT CONNECT    : Linked
+FLOW CONTROL    : disable
+PORT PHY STATE  : enable
+AUTO NEGOTIATE  : enable
+PORT RATE       : 100M
+PORT CONNECT    : full
+LOOPBACK STATUS : normal
+Admin\gpononu# 

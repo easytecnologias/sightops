@@ -1,0 +1,8 @@
+show hg_ver slot 4 link 6 onu 89
+----- HG VERSION 4.6.89-----
+Device ID        : 
+Manufacturer OUI : ITBS
+HardWare Version : 140PoE
+SoftWare Version : PON140PoE_v1.0
+Device SN        : ITBSD w^
+Admin\gpononu# 

@@ -1,0 +1,12 @@
+show optic_module slot 4 link 3 onu 94
+-----  ONU OPTIC MODULE PAR INFO 4.3.94-----
+NAME          VALUE	UNIT
+---------------------------------------
+TYPE         : 20	(KM)
+TEMPERATURE  : 38.00	('C)
+VOLTAGE      :  3.24	(V)
+BIAS CURRENT : 12.40	(mA)
+SEND POWER   :  2.63	(Dbm)
+RECV POWER   : -25.22	(Dbm)
+OLT RECV POWER :  0.00	(Dbm)
+Admin\gpononu# 

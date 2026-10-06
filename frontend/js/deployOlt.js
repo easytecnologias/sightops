@@ -14,6 +14,7 @@ let _oltRegSyncTimer = null;
 let _oltRegSyncPanelDismissed = false;
 const OLT_MODELS_BY_VENDOR = {
   Intelbras: ['8820i', '4840E'],
+  FiberHome: ['AN5516-01', 'AN5516-04', 'AN5516-06'],
   Huawei: ['MA5608T', 'MA5680T', 'MA5800-X2', 'MA5800-X7', 'MA5800-X15', 'MA5800-X17'],
   ZTE: ['C300', 'C320', 'C600'],
   Parks: ['Fiberlink 1100', 'Fiberlink 2000'],

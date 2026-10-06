@@ -1,0 +1,12 @@
+show onu_service slot 4 link 6 onu 89
+ 
+===================== SLOT 4 PON 6 ONU 89 CONFIG SHOW :=======================
+
+------------------------------- FE PORT CONFIG ---------------------------------
+PORT ID TYPE  CMODE CVID COS  TPID  TMODE TVID COS  TPID  SMODE SVID COS  TPID 
+1    1  unica tag   500  0    33024 DIS   null null null  DIS   null null null 
+
+ -----------------------------  WAN CONFIG  -----------------------------------
+
+ ============================ END OF ABOVE ===================================== 
+Admin\epononu\qinq#
