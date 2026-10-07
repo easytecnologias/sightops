@@ -110,7 +110,12 @@ a { color: var(--primary); text-decoration: none; }
 .seletor .lado .ponto.off { background: var(--amber); }
 .seletor svg { width: 16px; height: 16px; }
 
-.conteudo { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 16px; display: flex; flex-direction: column; gap: 14px; }
+.conteudo { flex: 1; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 16px; display: flex; flex-direction: column; gap: 14px; }
+/* Item de flex ENCOLHE por padrao. Sem isto, quando a lista passa da altura da
+   tela, cada cartao era espremido a uma fatia em vez de a coluna rolar -- e como
+   o cartao tem overflow:hidden, as linhas ficavam invisiveis e sem clique.
+   O sintoma era "nao consigo mexer em nada": estava tudo la, achatado. */
+.conteudo > * { flex: none; }
 
 .barra-baixo {
   flex: none; display: flex; background: var(--surface); border-top: 1px solid var(--border);
