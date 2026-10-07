@@ -18,6 +18,9 @@ CONNECTORS = os.environ.get("CONNECTORS_PATH", "/app/data/connectors.json")
 VNAT_MAP = os.environ.get("VNAT_MAP_PATH", "/app/data/connector_vnat_map.json")
 LIVENESS = os.environ.get("LIVENESS_PATH", "/app/data/connector_liveness.json")
 WG_CONF = os.environ.get("WG_CONF_PATH", "/etc/wireguard/wg-sightops.conf")
+# MTU do wgc. O padrao do WireGuard (1420) perde 6-8% dos pacotes cheios em
+# cliente atras de PPPoE (medido na SIERRA, wgc13, 06/10/2026: 1400 = 0%).
+TUNEL_MTU = os.environ.get("TUNEL_MTU", "1400")
 INTERVAL = int(os.environ.get("ISO_INTERVAL", "30"))
 VIRTUAL_ROOT = ipaddress.ip_network("10.208.0.0/12")
 SLICE_PREFIX = 18
@@ -106,6 +109,7 @@ def _apply(n, cid, pubkey, lans, vmap, priv):
     sh(["wg", "set", ifn, "listen-port", str(port), "private-key", "/dev/stdin"], stdin=priv, check=True)
     sh(["wg", "set", ifn, "peer", pubkey, "allowed-ips", allowed, "persistent-keepalive", "25"], check=True)
     sh(["ip", "addr", "replace", "%s/31" % server_ip, "dev", ifn], check=True)
+    sh(["ip", "link", "set", ifn, "mtu", str(TUNEL_MTU)])
     sh(["ip", "link", "set", ifn, "up"])
     sh(["sysctl", "-qw", "net.ipv4.conf.%s.rp_filter=2" % ifn])
     sh(["ip", "rule", "del", "pref", str(rule_pref)])

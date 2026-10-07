@@ -1119,7 +1119,7 @@ def _routeros_job_script_template(base_url: str, connector_id: str, token: str, 
 :do {{/ip firewall filter remove [find comment="SightOps WG saida"];}} on-error={{}};
 :do {{/ip route remove [find comment="SightOps WG"];}} on-error={{}};
 :do {{/interface wireguard remove [/interface wireguard find name="sightops-wg"];}} on-error={{}};
-/interface wireguard add name="sightops-wg" private-key="{_text(tunnel.get("client_private_key"))}" listen-port=13231 mtu=1420;
+/interface wireguard add name="sightops-wg" private-key="{_text(tunnel.get("client_private_key"))}" listen-port=13231 mtu=1400;
 /ip address add address="{routeros_address}" interface="sightops-wg" comment="SightOps WG";
 /interface wireguard peers add interface="sightops-wg" public-key="{_text(tunnel.get("server_public_key"))}" endpoint-address="{endpoint_host}" endpoint-port={endpoint_port} allowed-address="{server_allowed}" persistent-keepalive=25s comment="SightOps WG server";
 /ip route add dst-address=10.201.0.0/16 gateway="sightops-wg" comment="SightOps WG";
@@ -1127,6 +1127,9 @@ def _routeros_job_script_template(base_url: str, connector_id: str, token: str, 
 /ip firewall filter add chain=output out-interface="sightops-wg" action=accept comment="SightOps WG output";
 /ip firewall filter add chain=forward in-interface="sightops-wg" action=accept comment="SightOps WG entrada";
 /ip firewall filter add chain=forward out-interface="sightops-wg" action=accept comment="SightOps WG saida";
+:do {{/ip firewall mangle remove [find comment~"SightOps: MSS do tunel"];}} on-error={{}};
+/ip firewall mangle add chain=forward protocol=tcp tcp-flags=syn in-interface="sightops-wg" tcp-mss=1361-65535 action=change-mss new-mss=1360 passthrough=yes comment="SightOps: MSS do tunel (entrada)";
+/ip firewall mangle add chain=forward protocol=tcp tcp-flags=syn out-interface="sightops-wg" tcp-mss=1361-65535 action=change-mss new-mss=1360 passthrough=yes comment="SightOps: MSS do tunel (saida)";
 :do {{/ip firewall filter move [find comment="SightOps WG input"] destination=0}} on-error={{}};
 :do {{/ip firewall filter move [find comment="SightOps WG output"] destination=0}} on-error={{}};
 :do {{/ip firewall filter move [find comment="SightOps WG entrada"] destination=0}} on-error={{}};
@@ -1407,7 +1410,7 @@ def build_routeros_wireguard_script(connector_id: str) -> str:
 :do {{/ip route remove [find comment="SightOps WG"];}} on-error={{}};
 :do {{/interface wireguard remove [/interface wireguard find name="sightops-wg"];}} on-error={{}};
 
-/interface wireguard add name="sightops-wg" private-key="{_text(tunnel.get("client_private_key"))}" listen-port=13231 mtu=1420;
+/interface wireguard add name="sightops-wg" private-key="{_text(tunnel.get("client_private_key"))}" listen-port=13231 mtu=1400;
 /ip address add address="{routeros_address}" interface="sightops-wg" comment="SightOps WG";
 /interface wireguard peers add interface="sightops-wg" public-key="{_text(tunnel.get("server_public_key"))}" endpoint-address="{endpoint_host}" endpoint-port={endpoint_port} allowed-address="{server_allowed}" persistent-keepalive=25s comment="SightOps WG server";
 /ip route add dst-address=10.201.0.0/16 gateway="sightops-wg" comment="SightOps WG";
@@ -1415,6 +1418,9 @@ def build_routeros_wireguard_script(connector_id: str) -> str:
 /ip firewall filter add chain=output out-interface="sightops-wg" action=accept comment="SightOps WG output";
 /ip firewall filter add chain=forward in-interface="sightops-wg" action=accept comment="SightOps WG entrada";
 /ip firewall filter add chain=forward out-interface="sightops-wg" action=accept comment="SightOps WG saida";
+:do {{/ip firewall mangle remove [find comment~"SightOps: MSS do tunel"];}} on-error={{}};
+/ip firewall mangle add chain=forward protocol=tcp tcp-flags=syn in-interface="sightops-wg" tcp-mss=1361-65535 action=change-mss new-mss=1360 passthrough=yes comment="SightOps: MSS do tunel (entrada)";
+/ip firewall mangle add chain=forward protocol=tcp tcp-flags=syn out-interface="sightops-wg" tcp-mss=1361-65535 action=change-mss new-mss=1360 passthrough=yes comment="SightOps: MSS do tunel (saida)";
 
 :put "SightOps WireGuard configurado. O servidor sincroniza peer e rotas automaticamente."
 :put "Cliente public-key: {_text(tunnel.get("client_public_key"))}"

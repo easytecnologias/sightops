@@ -12,6 +12,8 @@ wg_iface() {  # IF PORT SRV/31 TABLE PREF PEER "allowed,csv"
   ip link show "$IF" >/dev/null 2>&1 || ip link add "$IF" type wireguard
   printf '%s\n' "$KEY" | wg set "$IF" listen-port "$PORT" private-key /dev/stdin
   wg set "$IF" peer "$PEER" allowed-ips "$ALLOWED"
+  # MTU 1400: o padrao 1420 perde pacote cheio em cliente PPPoE.
+  ip link set "$IF" mtu 1400
   ip addr replace "$SRV" dev "$IF"; ip link set "$IF" up
   echo 2 > /proc/sys/net/ipv4/conf/"$IF"/rp_filter 2>/dev/null || true
   ip rule del pref "$PREF" 2>/dev/null || true
