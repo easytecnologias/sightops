@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=1791000140">
+  <link rel="stylesheet" href="styles.css?v=1791000148">
 </head>
 <body>
 
@@ -3021,7 +3021,7 @@
           <div>
             <p class="eyebrow">Inventario</p>
             <h1>Switch</h1>
-            <p>Coleta de MACs dos switches gerenci-veis.</p>
+            <p>Portas, PoE e qual equipamento esta ligado em cada porta dos switches gerenciaveis.</p>
           </div>
           <div class="page-heading-actions">
             <button class="secondary-action danger-action" id="btnSwitchClearTable"><i data-lucide="trash-2"></i> Apagar</button>
@@ -3040,11 +3040,14 @@
           <span>Sites: <strong id="switchSiteCount">-</strong></span>
         </div>
 
+        <!-- Um cartao por switch: resumo + mapa das portas (clique filtra a tabela) -->
+        <div id="switchCards" class="sw-cards"></div>
+
         <!-- Filtros -->
         <div class="filters" style="padding:0 0 12px;border:none">
           <label class="search-box" style="flex:1">
             <i data-lucide="search"></i>
-            <input id="switchSearch" placeholder="Buscar: site, switch, porta, MAC, VLAN, camera-">
+            <input id="switchSearch" placeholder="Buscar: porta, camera, IP, MAC, VLAN...">
           </label>
           <select class="filter-select" id="switchFilterSite">
             <option value="">Todos os sites</option>
@@ -3063,29 +3066,23 @@
 
         <div class="panel">
           <div class="table-wrap" style="overflow-x:auto">
-            <table class="data-table" style="table-layout:fixed;width:100%;min-width:1180px">
+            <table class="data-table" style="table-layout:fixed;width:100%;min-width:760px">
               <colgroup>
-                <col style="width:6%"><col style="width:14%"><col style="width:6%">
-                <col style="width:8%"><col style="width:14%"><col style="width:12%">
-                <col style="width:10%"><col style="width:8%"><col style="width:10%">
-                <col style="width:12%">
+                <col style="width:8%"><col style="width:38%"><col style="width:17%">
+                <col style="width:12%"><col style="width:10%"><col style="width:15%">
               </colgroup>
               <thead>
                 <tr>
                   <th>Porta</th>
+                  <th>Equipamento</th>
                   <th>MAC</th>
-                  <th>VLAN</th>
-                  <th>Tipo</th>
-                  <th>Switch</th>
-                  <th>IP</th>
-                  <th>Velocidade</th>
+                  <th>Link</th>
                   <th>PoE</th>
-                  <th>Site</th>
-                  <th>Ações</th>
+                  <th style="text-align:right">Ações</th>
                 </tr>
               </thead>
               <tbody id="switchTable">
-                <tr class="empty-row"><td colspan="10">Nenhum dado. Execute a coleta.</td></tr>
+                <tr class="empty-row"><td colspan="6">Nenhum dado. Execute a coleta.</td></tr>
               </tbody>
             </table>
           </div>
@@ -6810,7 +6807,7 @@
   <script src="js/snapshots.js?v=1790019880"></script>
   <script src="js/maintenance.js?v=146"></script>
   <script src="js/analysis.js?v=147"></script>
-  <script src="js/network.js?v=1791000135"></script>
+  <script src="js/network.js?v=1791000149"></script>
   <script src="js/deploy.js?v=1791000144"></script>
   <script src="js/cameraActivation.js?v=1791000147"></script>
   <script src="js/deployOlt.js?v=1791000145"></script>

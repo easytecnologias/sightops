@@ -10999,3 +10999,36 @@ table.recorder-tabela tbody tr:hover { background: var(--surface-soft); }
 @media (max-width: 760px) {
   #deployForm .deploy-gps-linha { grid-template-columns: 1fr; }
 }
+
+/* --- Tela Switch: cartao por switch e mapa das portas --- */
+.sw-cards { display: flex; flex-direction: column; gap: 12px; margin-bottom: 14px; }
+.sw-card { padding: 14px 16px; }
+.sw-card-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+.sw-card-title { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.sw-card-title > svg { width: 22px; height: 22px; color: var(--primary); flex-shrink: 0; }
+.sw-card-title strong { font-size: 15px; margin-right: 8px; }
+.sw-card-title span { font-size: 13px; color: var(--muted); }
+.sw-card-title small { display: block; font-size: 12px; color: var(--muted); margin-top: 2px; }
+.sw-card-stats { display: flex; gap: 16px; font-size: 13px; color: var(--muted); }
+.sw-card-stats b { color: var(--text); }
+.sw-ports { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+.sw-port { display: flex; flex-direction: column; gap: 2px; text-align: left; padding: 8px 10px; border: 1px solid var(--border);
+  border-left-width: 4px; border-radius: 8px; background: var(--surface); cursor: pointer; min-width: 0; font: inherit; color: inherit; }
+.sw-port:hover { box-shadow: 0 1px 4px rgba(0,0,0,.08); }
+.sw-port-num { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; font-weight: 700; color: var(--muted); }
+.sw-port-dev { font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sw-port-meta { font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sw-port-up { border-left-color: var(--primary); }
+.sw-port-uplink { border-left-color: #3b5bdb; }
+.sw-port-down { border-left-color: #ced4da; opacity: .7; }
+.sw-port-off { border-left-color: var(--danger); background: var(--danger-soft); }
+.sw-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; vertical-align: 1px; }
+.sw-dot-up { background: var(--primary); }
+.sw-dot-down { background: #ced4da; }
+.sw-dot-off { background: var(--danger); }
+#switchTable .sw-group td { background: var(--bg, #f6f7f9); font-size: 13px; }
+#switchTable .sw-group svg { width: 14px; height: 14px; vertical-align: -2px; color: var(--primary); }
+@media (max-width: 640px) {
+  .sw-ports { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .sw-card-stats { width: 100%; justify-content: space-between; }
+}

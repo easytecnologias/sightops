@@ -170,6 +170,8 @@ async function oltCollect() {
 let _switchRows = [];
 let _switchCamByMac = {};
 let _switchPlatform = '';
+let _switchPorts = [];
+let _switchInfo = {};
 
 async function loadSwitch() {
   // /api/cameras sozinho so devolve o modo OLT -- busca os 3 modos pro
@@ -183,44 +185,54 @@ async function loadSwitch() {
   ]);
   const rawRows = swData?.rows || (Array.isArray(swData) ? swData : []);
   const ports = swData?.ports || [];
-  _switchPlatform = swData?.switch?.platform || '';
+  _switchPorts = ports;
+  _switchInfo = swData?.switch || {};
+  _switchPlatform = _switchInfo.platform || '';
 
   const portInfoByKey = {};
   ports.forEach(p => { portInfoByKey[`${p.switch_ip || ''}|${p.port || ''}`] = p; });
 
   // MACs aprendidos na porta uplink sao de equipamentos atras do switch (outra
-  // rede/segmento), nao ligados fisicamente nela -- fora da tabela por completo
-  // (inclusive nao vira linha "vazia": a porta uplink tem trafego real).
-  const uplinkPorts = new Set(
-    rawRows.filter(r => r.port_role_guess === 'uplink').map(r => `${r.switch_ip || ''}|${r.port || ''}`)
-  );
+  // rede/segmento), nao ligados fisicamente nela. Antes a porta sumia da tela;
+  // agora vira UMA linha de resumo ("uplink -- N equipamentos atras").
+  const uplinkCount = {};
+  rawRows.filter(r => r.port_role_guess === 'uplink').forEach(r => {
+    const k = `${r.switch_ip || ''}|${r.port || ''}`;
+    uplinkCount[k] = uplinkCount[k] || { row: r, n: 0 };
+    uplinkCount[k].n += 1;
+  });
+  const uplinkRows = Object.values(uplinkCount).map(({ row, n }) => ({
+    site: row.site, switch_ip: row.switch_ip, switch_name: row.switch_name,
+    port: row.port, mac: '', vlan: '', entry_type: '', port_role_guess: 'uplink',
+    _uplink: true, _uplinkMacs: n,
+  }));
   const edgeRows = rawRows.filter(r => r.port_role_guess !== 'uplink');
 
   // Portas sem nenhum MAC aprendido nao aparecem no mac_table (nada circulou
-  // por elas) -- usamos a lista de portas fisicas coletada junto pra mostrar
-  // essas tambem. Switch nao tem MAC por porta, entao usamos o MAC fisico do
-  // proprio aparelho (dado real) em vez de um texto generico.
-  const withRow = new Set(edgeRows.map(r => `${r.switch_ip || ''}|${r.port || ''}`));
+  // por elas) -- a lista de portas fisicas coletada junto mostra essas tambem.
+  const withRow = new Set([...edgeRows, ...uplinkRows].map(r => `${r.switch_ip || ''}|${r.port || ''}`));
   const emptyPortRows = ports
-    .filter(p => p.port && !withRow.has(`${p.switch_ip || ''}|${p.port || ''}`) && !uplinkPorts.has(`${p.switch_ip || ''}|${p.port || ''}`))
+    .filter(p => p.port && !withRow.has(`${p.switch_ip || ''}|${p.port || ''}`))
     .map(p => ({
       site: p.site, switch_ip: p.switch_ip, switch_name: p.switch_name,
-      port: p.port, mac: p.switch_mac || '', vlan: '', entry_type: '', port_role_guess: 'edge',
+      port: p.port, mac: '', vlan: '', entry_type: '', port_role_guess: 'edge',
       _linkUp: !!p.up, _synthetic: true,
     }));
 
-  _switchRows = [...edgeRows, ...emptyPortRows].map(r => {
+  _switchRows = [...edgeRows, ...uplinkRows, ...emptyPortRows].map(r => {
     const info = portInfoByKey[`${r.switch_ip || ''}|${r.port || ''}`] || {};
     return {
       ...r,
       port_id: info.port_id,
+      _linkUp: r._synthetic ? r._linkUp : (info.up !== false),
       bandwidth: info.bandwidth || '',
       duplex: info.duplex || '',
       poe_enabled: info.poe_enabled,
       poe_power_watts: info.poe_power_watts,
       admin_enabled: info.admin_enabled,
     };
-  });
+  }).sort((a, b) => String(a.switch_ip || '').localeCompare(String(b.switch_ip || ''))
+    || (switchPortNumber(a.port) - switchPortNumber(b.port)));
 
   _switchCamByMac = {};
   [camBasico, camOlt, camSwitch].forEach(camData => {
@@ -229,7 +241,108 @@ async function loadSwitch() {
   });
 
   populateSwitchFilters();
+  renderSwitchCards();
   renderSwitchTable(_switchRows);
+}
+
+function switchPortNumber(port) {
+  const m = String(port || '').match(/(\d+)\s*$/);
+  return m ? Number(m[1]) : 9999;
+}
+
+function switchCamOf(r) {
+  return r && r.mac ? _switchCamByMac[String(r.mac).toLowerCase()] : null;
+}
+
+// O que esta ligado na porta, em uma frase: o operador quer "qual camera", nao
+// o MAC. Usado no mapa de portas e na coluna Equipamento.
+function switchPortDevice(r) {
+  if (!r) return { titulo: 'sem dados', detalhe: '', tom: 'muted' };
+  if (r._uplink) return { titulo: 'Uplink', detalhe: `${r._uplinkMacs} equipamentos atras`, tom: 'uplink' };
+  if (r._synthetic) return { titulo: r._linkUp ? 'Conectado, sem trafego' : 'Sem cabo', detalhe: '', tom: 'muted' };
+  const cam = switchCamOf(r);
+  if (cam) {
+    return {
+      titulo: cam.titulo || cam.nome || cam.name || cam.ip || 'Camera',
+      detalhe: [cam.ip, cam.modelo || cam.model].filter(Boolean).join(' · '),
+      // No mapa de portas cabe uma palavra: o IP diferencia, o nome nao (na
+      // SIERRA as 37 cameras se chamam "VIPC INTELBRAS").
+      curto: cam.ip || cam.titulo,
+      tom: 'ok', ip: cam.ip,
+      // Sem o conector o ping vai ao IP real, que num site isolado nao tem rota
+      // (10.200.0.0/23 existe em mais de um cliente) e da timeout com a camera viva.
+      connector: cam.remote_connector_id || cam.connector_id || '',
+    };
+  }
+  return { titulo: 'Nao cadastrado', detalhe: 'MAC sem camera no inventario', tom: 'warn' };
+}
+
+function renderSwitchCards() {
+  const box = document.getElementById('switchCards');
+  if (!box) return;
+  const porSwitch = new Map();
+  _switchPorts.forEach(p => {
+    const k = p.switch_ip || '';
+    if (!porSwitch.has(k)) porSwitch.set(k, []);
+    porSwitch.get(k).push(p);
+  });
+  if (!porSwitch.size) { box.innerHTML = ''; return; }
+
+  box.innerHTML = [...porSwitch.entries()].map(([ip, ports]) => {
+    ports = [...ports].sort((a, b) => switchPortNumber(a.port) - switchPortNumber(b.port));
+    const linhas = _switchRows.filter(r => r.switch_ip === ip);
+    const meta = linhas.find(r => r.switch_model) || {};
+    const info = _switchInfo.ip === ip ? _switchInfo : {};
+    const nome = info.name || ports[0]?.switch_name || ip;
+    const modelo = info.model || meta.switch_model || '';
+    const firmware = info.firmware || meta.switch_firmware || '';
+    const site = info.site || ports[0]?.site || '';
+    const comLink = ports.filter(p => p.up).length;
+    const poe = ports.reduce((s, p) => s + (p.poe_enabled && p.poe_power_watts ? Number(p.poe_power_watts) : 0), 0);
+
+    const tiles = ports.map(p => {
+      const linhasPorta = linhas.filter(r => r.port === p.port);
+      const principal = linhasPorta.find(r => r._uplink) || linhasPorta.find(r => !r._synthetic) || linhasPorta[0];
+      const dev = switchPortDevice(principal);
+      const extra = linhasPorta.filter(r => !r._synthetic && !r._uplink).length;
+      const estado = p.admin_enabled === false ? 'off' : (p.up ? (dev.tom === 'uplink' ? 'uplink' : 'up') : 'down');
+      const watts = p.poe_enabled && p.poe_power_watts != null ? `${Number(p.poe_power_watts).toFixed(1)} W` : (p.poe_enabled === false ? 'PoE off' : '');
+      const nomeCurto = dev.curto || dev.titulo;
+      const titulo = extra > 1 ? `${nomeCurto} +${extra - 1}` : nomeCurto;
+      return `<button type="button" class="sw-port sw-port-${estado}" data-port="${esc(p.port || '')}" title="${esc(`${p.port}: ${dev.titulo}${dev.detalhe ? ' -- ' + dev.detalhe : ''}`)}">
+        <span class="sw-port-num">${esc(p.port || '')}</span>
+        <span class="sw-port-dev">${esc(titulo)}</span>
+        <span class="sw-port-meta">${esc([p.up ? (p.bandwidth || 'link') : (p.admin_enabled === false ? 'desativada' : 'sem link'), watts].filter(Boolean).join(' · '))}</span>
+      </button>`;
+    }).join('');
+
+    return `<div class="panel sw-card">
+      <div class="sw-card-head">
+        <div class="sw-card-title">
+          <i data-lucide="network"></i>
+          <div><strong>${esc(nome)}</strong>
+            <span class="monospace">${esc(ip)}</span>
+            <small>${esc([modelo, firmware, site].filter(Boolean).join(' · '))}</small></div>
+        </div>
+        <div class="sw-card-stats">
+          <span><b>${comLink}/${ports.length}</b> portas com link</span>
+          <span><b>${poe.toFixed(1)} W</b> de PoE</span>
+        </div>
+      </div>
+      <div class="sw-ports" data-switch-ip="${esc(ip)}">${tiles}</div>
+    </div>`;
+  }).join('');
+
+  // Clicar na porta filtra a tabela por ela; clicar de novo limpa.
+  box.onclick = (ev) => {
+    const tile = ev.target.closest('.sw-port');
+    if (!tile) return;
+    const busca = document.getElementById('switchSearch');
+    if (!busca) return;
+    busca.value = busca.value === tile.dataset.port ? '' : tile.dataset.port;
+    filterSwitchTable();
+  };
+  lucide.createIcons();
 }
 
 function populateSwitchFilters() {
@@ -262,34 +375,42 @@ function renderSwitchTable(rows) {
   const tbody = document.getElementById('switchTable');
   if (!tbody) return;
 
-  const withMac = rows.filter(r => !r._synthetic);
-  const switches = new Set(rows.map(r => String(r.switch_ip || r.switch_name || '').trim()).filter(Boolean));
-  const sites = new Set(rows.map(r => String(r.site || '').trim()).filter(Boolean));
-  const activePorts = new Set(withMac.map(r => `${r.switch_ip || ''}|${r.port || ''}`).filter(k => k !== '|'));
+  const withMac = _switchRows.filter(r => !r._synthetic && !r._uplink);
+  const switches = new Set(_switchRows.map(r => String(r.switch_ip || r.switch_name || '').trim()).filter(Boolean));
+  const sites = new Set(_switchRows.map(r => String(r.site || '').trim()).filter(Boolean));
+  const activePorts = new Set(_switchRows.filter(r => !r._synthetic).map(r => `${r.switch_ip || ''}|${r.port || ''}`));
   setText('switchCount', switches.size);
   setText('switchPortCount', activePorts.size);
   setText('switchMacTotal', withMac.length);
   setText('switchSiteCount', sites.size);
-  setText('switchFooter', `${rows.length} registro${rows.length !== 1 ? 's' : ''}`);
+  setText('switchFooter', `${rows.length} porta${rows.length !== 1 ? 's' : ''}/equipamento${rows.length !== 1 ? 's' : ''}`);
 
   if (!rows.length) {
-    tbody.innerHTML = '<tr class="empty-row"><td colspan="10">Nenhum dado. Execute a coleta.</td></tr>';
+    tbody.innerHTML = '<tr class="empty-row"><td colspan="6">Nenhum dado. Execute a coleta.</td></tr>';
     return;
   }
 
   const canToggle = _switchPlatform === 'hikvision';
-
-  const cellNowrap = 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
+  const variosSwitches = new Set(rows.map(r => r.switch_ip)).size > 1;
+  let ultimoSwitch = null;
 
   tbody.innerHTML = rows.map(r => {
-    const isEmpty = !!r._synthetic;
-    const cam = isEmpty ? null : _switchCamByMac[String(r.mac || '').toLowerCase()];
-    const speed = [r.bandwidth, r.duplex].filter(Boolean).join(' / ');
-    const switchLabel = r.switch_name || r.switch_ip || '';
+    let cabecalho = '';
+    if (variosSwitches && r.switch_ip !== ultimoSwitch) {
+      ultimoSwitch = r.switch_ip;
+      cabecalho = `<tr class="sw-group"><td colspan="6"><i data-lucide="network"></i> <b>${esc(r.switch_name || r.switch_ip || '')}</b> <span class="monospace">${esc(r.switch_ip || '')}</span> <span class="text-muted">${esc(r.site || '')}</span></td></tr>`;
+    }
+    const dev = switchPortDevice(r);
+    const speed = [r.bandwidth, r.duplex].filter(Boolean).join(' ');
+    const link = r._synthetic && !r._linkUp
+      ? '<span class="sw-dot sw-dot-down"></span><span class="text-muted">sem link</span>'
+      : (r.admin_enabled === false
+        ? '<span class="sw-dot sw-dot-off"></span><span style="color:var(--danger)">desativada</span>'
+        : `<span class="sw-dot sw-dot-up"></span>${esc(speed || 'link')}`);
 
     let poeCell = '<span class="text-muted">-</span>';
     if (r.poe_enabled === true) {
-      const watts = r.poe_power_watts != null ? `${Number(r.poe_power_watts).toFixed(1)}W` : 'ligado';
+      const watts = r.poe_power_watts != null ? `${Number(r.poe_power_watts).toFixed(1)} W` : 'ligado';
       poeCell = `<span class="badge badge-green">${esc(watts)}</span>`;
     } else if (r.poe_enabled === false) {
       poeCell = '<span class="badge badge-gray">desligado</span>';
@@ -297,44 +418,95 @@ function renderSwitchTable(rows) {
 
     // Vermelho = estado atual ligado (apertar desliga); verde = estado atual
     // desligado (apertar liga) -- a cor do botao mostra o que vai acontecer.
-    const btnStyle = 'width:26px;height:26px';
+    const btn = 'width:28px;height:28px';
+    const base = `data-switch-ip="${esc(r.switch_ip || '')}" data-site="${esc(r.site || '')}" data-port="${esc(r.port || '')}"`;
     const actions = [];
-    if (cam?.ip) {
-      actions.push(`<button type="button" class="icon-button switch-port-action" data-action="ping" data-ip="${esc(cam.ip)}" title="Testar ping" style="${btnStyle}"><i data-lucide="activity"></i></button>`);
+    if (dev.ip) {
+      const conector = dev.connector || (r.switch_ip === _switchInfo.ip ? (_switchInfo.connector_id || '') : '');
+      actions.push(`<button type="button" class="icon-button switch-port-action" data-action="ping" data-ip="${esc(dev.ip)}" data-connector="${esc(conector)}" title="Testar ping em ${esc(dev.ip)}" style="${btn}"><i data-lucide="activity"></i></button>`);
     }
-    if (canToggle && r.port_id != null && r.poe_enabled !== undefined && r.poe_enabled !== null) {
+    if (canToggle && r.port_id != null && r.poe_enabled === true && !r._uplink) {
+      actions.push(`<button type="button" class="icon-button switch-port-action" data-action="cycle" ${base} title="Reiniciar pelo PoE (desliga 6 s e religa)" style="${btn};color:var(--amber)"><i data-lucide="rotate-ccw"></i></button>`);
+    }
+    if (canToggle && r.port_id != null && r.poe_enabled !== undefined && r.poe_enabled !== null && !r._uplink) {
       const poeOn = r.poe_enabled === true;
-      actions.push(`<button type="button" class="icon-button switch-port-action" data-action="poe" data-switch-ip="${esc(r.switch_ip || '')}" data-site="${esc(r.site || '')}" data-port="${esc(r.port || '')}" data-enabled="${poeOn ? '0' : '1'}" title="${poeOn ? 'Desligar PoE' : 'Ligar PoE'}" style="${btnStyle};color:${poeOn ? 'var(--danger)' : 'var(--primary)'}"><i data-lucide="zap"></i></button>`);
+      actions.push(`<button type="button" class="icon-button switch-port-action" data-action="poe" ${base} data-enabled="${poeOn ? '0' : '1'}" title="${poeOn ? 'Desligar PoE' : 'Ligar PoE'}" style="${btn};color:${poeOn ? 'var(--danger)' : 'var(--primary)'}"><i data-lucide="zap"></i></button>`);
     }
-    if (canToggle && r.port_id != null) {
+    if (canToggle && r.port_id != null && !r._uplink) {
       const portOn = r.admin_enabled !== false;
-      actions.push(`<button type="button" class="icon-button switch-port-action" data-action="port" data-switch-ip="${esc(r.switch_ip || '')}" data-site="${esc(r.site || '')}" data-port="${esc(r.port || '')}" data-enabled="${portOn ? '0' : '1'}" title="${portOn ? 'Desativar porta' : 'Ativar porta'}" style="${btnStyle};color:${portOn ? 'var(--danger)' : 'var(--primary)'}"><i data-lucide="power"></i></button>`);
+      actions.push(`<button type="button" class="icon-button switch-port-action" data-action="port" ${base} data-enabled="${portOn ? '0' : '1'}" title="${portOn ? 'Desativar porta' : 'Ativar porta'}" style="${btn};color:${portOn ? 'var(--danger)' : 'var(--primary)'}"><i data-lucide="power"></i></button>`);
     }
     const actionsHtml = actions.length
-      ? `<div style="display:flex;gap:4px;align-items:center;justify-content:center">${actions.join('')}</div>`
-      : '<span class="text-muted">-</span>';
+      ? `<div style="display:flex;gap:4px;align-items:center;justify-content:flex-end">${actions.join('')}</div>`
+      : '';
 
-    return `
-    <tr${isEmpty ? ' style="opacity:.65"' : ''}>
-      <td class="text-muted monospace" style="white-space:nowrap">${esc(r.port || '')}</td>
-      <td class="monospace" style="white-space:nowrap">${r.mac ? esc(r.mac) : '<span class="text-muted">-</span>'}</td>
-      <td class="text-muted" style="text-align:center;white-space:nowrap">${isEmpty ? '-' : esc(r.vlan || 'default')}</td>
-      <td class="text-muted" style="white-space:nowrap">${isEmpty ? (r._linkUp ? 'conectado' : 'sem cabo') : esc(r.entry_type || '')}</td>
-      <td class="text-muted" style="${cellNowrap}" title="${esc(switchLabel)}">${esc(switchLabel)}</td>
-      <td class="text-muted monospace" style="white-space:nowrap">${esc(r.switch_ip || '')}</td>
-      <td class="text-muted" style="white-space:nowrap">${speed ? esc(speed) : '<span class="text-muted">-</span>'}</td>
+    const vlan = r.vlan && String(r.vlan).toLowerCase() !== 'default' ? ` <span class="badge badge-gray">VLAN ${esc(r.vlan)}</span>` : '';
+    const corDev = dev.tom === 'warn' ? 'color:var(--amber)' : (dev.tom === 'muted' ? 'color:var(--muted)' : '');
+    return `${cabecalho}
+    <tr${r._synthetic ? ' style="opacity:.6"' : ''}>
+      <td class="monospace" style="white-space:nowrap;font-weight:600">${esc(r.port || '')}</td>
+      <td style="overflow:hidden">
+        <div style="font-weight:600;${corDev};overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(dev.titulo)}">${dev.tom === 'uplink' ? '<i data-lucide="corner-left-up" style="width:14px;height:14px;vertical-align:-2px"></i> ' : ''}${esc(dev.titulo)}${vlan}</div>
+        ${dev.detalhe ? `<div class="text-muted monospace" style="font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(dev.detalhe)}</div>` : ''}
+      </td>
+      <td class="monospace text-muted" style="white-space:nowrap;font-size:12px">${r.mac ? esc(r.mac) : '-'}</td>
+      <td style="white-space:nowrap">${link}</td>
       <td style="white-space:nowrap">${poeCell}</td>
-      <td class="text-muted" style="${cellNowrap}" title="${esc(r.site || '')}">${esc(r.site || '')}</td>
-      <td style="white-space:nowrap;text-align:center">${actionsHtml}</td>
+      <td style="white-space:nowrap">${actionsHtml}</td>
     </tr>`;
   }).join('');
   lucide.createIcons();
 }
 
+// Reinicia o equipamento da porta cortando o PoE: e o "tirar e por na tomada"
+// remoto, para camera travada. Desliga, espera 6 s e religa -- e confere a
+// religacao, porque se ela falhar a camera fica desligada ate alguem agir.
+async function switchPoeCycle(el) {
+  const port = el.dataset.port;
+  const ok = await showConfirm({
+    eyebrow: 'Switch',
+    title: `Reiniciar o equipamento da porta ${port}`,
+    msg: `O PoE da porta ${port} vai ser desligado por 6 segundos e religado. O equipamento ligado nela reinicia e fica fora do ar por 1 a 2 minutos. Continuar?`,
+    label: 'Reiniciar',
+  });
+  if (!ok) return;
+  const corpo = (enabled) => JSON.stringify({ switch_ip: el.dataset.switchIp, site: el.dataset.site, port, enabled });
+  el.disabled = true;
+  try {
+    const off = await api('/api/switch/port/poe', { method: 'POST', body: corpo(false) });
+    if (!off?.ok) {
+      const data = await off?.json().catch(() => ({}));
+      showToast(data?.detail || data?.error || 'O switch recusou desligar o PoE.', true);
+      return;
+    }
+    showToast(`PoE da porta ${port} desligado. Religando em 6 s...`);
+    await new Promise(r => setTimeout(r, 6000));
+    let on = null;
+    for (let tentativa = 0; tentativa < 3 && !on?.ok; tentativa++) {
+      on = await api('/api/switch/port/poe', { method: 'POST', body: corpo(true) }).catch(() => null);
+      if (!on?.ok) await new Promise(r => setTimeout(r, 3000));
+    }
+    if (on?.ok) {
+      showToast(`Porta ${port}: PoE religado. O equipamento volta em 1 a 2 minutos.`);
+    } else {
+      showToast(`ATENCAO: o PoE da porta ${port} NAO religou. Use o botao de PoE para ligar.`, true);
+    }
+  } catch (e) {
+    showToast(e.message || 'Erro de conexao com o switch.', true);
+  } finally {
+    el.disabled = false;
+    loadSwitch();
+  }
+}
+
 async function switchPortAction(el) {
   const action = el.dataset.action;
   if (action === 'ping') {
-    openPingTerminal(el.dataset.ip);
+    openPingTerminal(el.dataset.ip, el.dataset.connector || '');
+    return;
+  }
+  if (action === 'cycle') {
+    await switchPoeCycle(el);
     return;
   }
 
@@ -386,7 +558,7 @@ function filterSwitchTable() {
     if (status === 'disabled' && r.admin_enabled !== false) return false;
     if (q) {
       const cam = _switchCamByMac[String(r.mac || '').toLowerCase()];
-      return [r.site, r.switch_name, r.switch_ip, r.port, r.mac, r.vlan, r.entry_type, cam?.titulo, cam?.local]
+      return [r.site, r.switch_name, r.switch_ip, r.port, r.mac, r.vlan, r.entry_type, cam?.titulo, cam?.local, cam?.ip, r._uplink ? 'uplink' : '']
         .some(f => (f || '').toString().toLowerCase().includes(q));
     }
     return true;
