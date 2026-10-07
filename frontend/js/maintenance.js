@@ -423,8 +423,25 @@ function openMntNetworkModal() {
       <input type="text" data-net-old="${esc(ip)}" value="${esc(ip)}"
         style="flex:1;border:1px solid var(--border);border-radius:6px;padding:5px 8px;font-size:13px;font-family:monospace;background:var(--surface)">
     </div>`).join('');
+  const ini = document.getElementById('mntNetStart');
+  if (ini) ini.value = '';
   document.getElementById('modalMntNetwork').classList.remove('hidden');
   lucide.createIcons();
+}
+
+function mntNetPreencher() {
+  const inicio = document.getElementById('mntNetStart')?.value.trim() || '';
+  const m = inicio.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+  if (!m) { showToast('Informe o IP inicial, ex.: 10.200.1.120', true); return; }
+  let n = m.slice(1).reduce((a, o) => a * 256 + Number(o), 0);
+  for (const c of [...document.querySelectorAll('[data-net-old]')]) {
+    const o = [24, 16, 8, 0].map(sh => (n >>> sh) & 255);
+    // .0 e .255 sao rede e broadcast num /24 -- nao sao endereco de camera.
+    if (o[3] === 0 || o[3] === 255) { n++; }
+    const o2 = [24, 16, 8, 0].map(sh => (n >>> sh) & 255);
+    c.value = o2.join('.');
+    n++;
+  }
 }
 
 async function runMntNetwork() {
@@ -437,8 +454,8 @@ async function runMntNetwork() {
   })).filter(t => t.new_ip);
 
   if (!targets.length) return;
-  if (!mask && !gateway && targets.every(t => t.old_ip === t.new_ip)) {
-    showToast('Nada a alterar  preencha mascara, gateway ou edite algum IP', true); return;
+  if (targets.every(t => t.old_ip === t.new_ip)) {
+    showToast('Nenhum IP foi alterado.', true); return;
   }
   document.getElementById('modalMntNetwork').classList.add('hidden');
   const consoleId = 'mntCamConsole', bodyId = 'mntCamConsoleBody';
@@ -446,14 +463,22 @@ async function runMntNetwork() {
   document.getElementById(bodyId).innerHTML = '';
   _mntLog(consoleId, bodyId, null, `Aplicando configuracao de rede em ${targets.length} camera(s)`, true);
   try {
-    const r = await api('/api/maintenance/batch/network_config', {
+    // change_ips le a mascara/gateway DE CADA camera. mask/gateway aqui so
+    // viajam quando o operador preencheu -- mudanca de faixa de rede.
+    const r = await api('/api/maintenance/batch/change_ips', {
       method: 'POST',
-      body: JSON.stringify({ targets, mask, gateway, user, pass })
+      body: JSON.stringify({
+        itens: targets.map(t => ({ ip: t.old_ip, new_ip: t.new_ip })),
+        mask, gateway, user, pass,
+        forcar_rede: Boolean(mask && gateway),
+      })
     });
     const data = await r.json();
     (data.results || []).forEach(res => {
-      const detail = res.new_ip !== res.ip ? ` ${res.new_ip}` : '';
-      _mntLog(consoleId, bodyId, res.ip, `${detail}  ${res.msg}`, res.ok);
+      const detail = res.new_ip !== res.ip ? ` -> ${res.new_ip}` : '';
+      const rede = res.rede_lida ? ` (mascara ${res.rede_lida.mascara})` : '';
+      _mntLog(consoleId, bodyId, res.ip,
+              `${detail}${rede} ${res.ok ? (res.msg || 'ok') : (res.error || res.msg || 'erro')}`, res.ok);
     });
     _mntLog(consoleId, bodyId, null, 'Concluido. Cameras reiniciam em ~30s.', true);
   } catch (e) {

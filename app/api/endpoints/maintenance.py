@@ -2995,6 +2995,125 @@ def maintenance_batch_shift_ips(payload: Dict[str, Any]) -> Dict[str, Any]:
     return {"ok": fail_n == 0, "message": f"{ok_n} IPs alterados, {fail_n} falhas.", "results": results}
 
 
+def _ordem_sem_colisao(pares):
+    """Ordem de aplicacao que nao joga um IP novo em cima de um ainda em uso.
+
+    "Deslocar IPs" resolvia isso ordenando pelo sinal do delta, porque la o
+    passo e sempre o mesmo. Aqui os pares sao arbitrarios (o operador escolheu
+    as cameras), entao dois equipamentos podem trocar de endereco entre si.
+    Aplicar na ordem errada grava o IP de um numa camera que ainda responde no
+    outro -- duas cameras no mesmo endereco, as duas inalcancaveis.
+
+    Entao: so aplica um par quando o destino dele nao for a origem de outro
+    que ainda nao foi aplicado. Se nada mais puder ser aplicado e ainda houver
+    pares, e um ciclo (A->B, B->A) -- esse caso precisa de um endereco livre
+    no meio, e a tela diz isso em vez de quebrar os dois.
+    """
+    restantes = list(pares)
+    saida, ciclo = [], []
+    while restantes:
+        livres = [p for p in restantes
+                  if p["new_ip"] not in {q["ip"] for q in restantes if q is not p}]
+        if not livres:
+            ciclo = restantes
+            break
+        saida.extend(livres)
+        restantes = [p for p in restantes if p not in livres]
+    return saida, ciclo
+
+
+@router.post("/maintenance/batch/change_ips")
+def maintenance_batch_change_ips(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Troca o IP das cameras SELECIONADAS, uma rede por camera.
+
+    Diferente de /batch/shift_ips, que desloca uma faixa inteira por um delta e
+    pede mascara/gateway digitados. Aqui os pares vem da selecao da tela e a
+    mascara/gateway de CADA camera sao lidos DELA -- o chute de /24 ja tirou
+    camera do ar (TELHA .2, rede /23 com gateway em outro octeto), e numa
+    operacao em lote esse erro se multiplica pelo numero de selecionadas.
+    """
+    itens = payload.get("itens") or []
+    user = _as_str(payload.get("user", "admin"))
+    password = _as_str(payload.get("pass", ""))
+    forcar_rede = bool(payload.get("forcar_rede"))
+    # Mascara/gateway digitados sao OPCIONAIS e so valem para o caso de mudanca
+    # de faixa, quando ler da camera devolveria a rede velha. Fora disso, a
+    # rede de cada camera e lida dela -- um valor digitado aplicado a um lote
+    # inteiro e o chute que ja tirou camera do ar.
+    mascara_fixa = _as_str(payload.get("mask", ""))
+    gateway_fixo = _as_str(payload.get("gateway", ""))
+    if not isinstance(itens, list) or not itens:
+        return {"ok": False, "error": "nenhuma camera selecionada"}
+    if not password:
+        return {"ok": False, "error": "informe a senha das cameras"}
+
+    pares, invalidos = [], []
+    vistos_novo = set()
+    for it in itens:
+        ip = _as_str((it or {}).get("ip"))
+        novo_ip = _as_str((it or {}).get("new_ip"))
+        if not ip or not novo_ip:
+            invalidos.append({"ip": ip, "new_ip": novo_ip, "ok": False,
+                              "error": "informe o IP atual e o novo"})
+            continue
+        if novo_ip in vistos_novo:
+            invalidos.append({"ip": ip, "new_ip": novo_ip, "ok": False,
+                              "error": "esse IP novo foi pedido para mais de uma camera"})
+            continue
+        vistos_novo.add(novo_ip)
+        if ip == novo_ip:
+            invalidos.append({"ip": ip, "new_ip": novo_ip, "ok": True,
+                              "msg": "ja esta nesse endereco"})
+            continue
+        pares.append({"ip": ip, "new_ip": novo_ip,
+                      "connector_id": _as_str((it or {}).get("connector_id"))})
+
+    ordenados, ciclo = _ordem_sem_colisao(pares)
+    resultados = list(invalidos)
+
+    for p in ordenados:
+        rede = {}
+        if mascara_fixa and gateway_fixo:
+            rede = {"mascara": mascara_fixa, "gateway": gateway_fixo}
+        try:
+            if not rede:
+                from app.services import camera_xray
+                raio = camera_xray.raio_x_camera(p["ip"], user, password,
+                                                 connector_id=p.get("connector_id") or "")
+                rede = (raio or {}).get("rede") or {}
+        except Exception as exc:
+            rede = {"erro": str(exc)[:120]}
+        mascara = _as_str(rede.get("mascara"))
+        gateway = _as_str(rede.get("gateway"))
+        if not mascara or not gateway:
+            resultados.append({
+                "ip": p["ip"], "new_ip": p["new_ip"], "ok": False,
+                "error": "nao consegui ler mascara/gateway desta camera -- nao vou chutar. "
+                         "Troque esta pela tela de inventario, que mostra a rede antes.",
+            })
+            continue
+        r = _change_ip_one(ip=p["ip"], new_ip=p["new_ip"], mask=mascara, gateway=gateway,
+                           dns1="", dns2="", user=user, password=password,
+                           forcar_rede=forcar_rede)
+        r.setdefault("ip", p["ip"])
+        r.setdefault("new_ip", p["new_ip"])
+        r["rede_lida"] = {"mascara": mascara, "gateway": gateway}
+        resultados.append(r)
+
+    for p in ciclo:
+        resultados.append({
+            "ip": p["ip"], "new_ip": p["new_ip"], "ok": False,
+            "error": "troca circular: o IP novo pertence a outra camera da lista que "
+                     "tambem esta mudando. Mova uma delas para um endereco livre primeiro.",
+        })
+
+    ok_n = sum(1 for r in resultados if r.get("ok"))
+    falhas = len(resultados) - ok_n
+    return {"ok": falhas == 0,
+            "message": f"{ok_n} IP(s) trocado(s), {falhas} falha(s).",
+            "results": resultados}
+
+
 @router.post("/scripts/netwatch")
 def scripts_netwatch(payload: Dict[str, Any]) -> Dict[str, Any]:
     token = _as_str(payload.get("token"))

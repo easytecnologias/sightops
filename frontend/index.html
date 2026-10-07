@@ -1095,8 +1095,8 @@
                 <button class="mnt-action-btn" id="btnMntCamNtp" title="Sincronizar data e hora via NTP">
                   <i data-lucide="clock"></i><span>Acertar NTP</span>
                 </button>
-                <button class="mnt-action-btn" id="btnMntCamNetwork" title="Alterar IP, mascara e gateway das cameras selecionadas">
-                  <i data-lucide="network"></i><span>Rede</span>
+                <button class="mnt-action-btn" id="btnMntCamNetwork" title="Trocar o IP das cameras selecionadas, uma a uma">
+                  <i data-lucide="replace"></i><span>Trocar IP</span>
                 </button>
                 <button class="mnt-action-btn" id="btnMntCamShiftIp" title="Deslocar intervalo de IPs em lote">
                   <i data-lucide="arrow-right-left"></i><span>Deslocar IPs</span>
@@ -6747,19 +6747,19 @@
   <div class="modal-backdrop hidden" id="modalMntNetwork" onclick="if(event.target===this)this.classList.add('hidden')">
     <div class="modal" style="max-width:520px">
       <div class="modal-header">
-        <div><p class="eyebrow">Manutencao</p><h2>Configuracao de rede</h2></div>
+        <div><p class="eyebrow">Manutencao</p><h2>Trocar IP das cameras</h2></div>
         <button class="icon-button" onclick="document.getElementById('modalMntNetwork').classList.add('hidden')"><i data-lucide="x"></i></button>
       </div>
       <div style="padding:0 24px 20px;display:flex;flex-direction:column;gap:14px">
-        <p style="color:var(--muted);font-size:13px">Altere m-scara e gateway para todas as cameras. Edite os IPs individualmente se precisar troc--los também.</p>
+        <p style="color:var(--muted);font-size:13px">A mascara e o gateway de CADA camera sao lidos dela &mdash; nada e chutado. So preencha os campos abaixo se estiver mudando as cameras de FAIXA de rede.</p>
 
         <!-- M-scara + Gateway compartilhados -->
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
           <div>
             <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px">M-scara de rede</label>
             <select id="mntNetMask" style="width:100%;border:1px solid var(--border);border-radius:7px;padding:7px 8px;font-size:13px;background:var(--surface)">
-              <option value="">- nao alterar -</option>
-              <option value="255.255.255.0" selected>/24 - 255.255.255.0 (256 hosts)</option>
+              <option value="" selected>- manter a da camera -</option>
+              <option value="255.255.255.0">/24 - 255.255.255.0 (256 hosts)</option>
               <option value="255.255.254.0">/23 - 255.255.254.0 (512 hosts)</option>
               <option value="255.255.252.0">/22 - 255.255.252.0 (1024 hosts)</option>
               <option value="255.255.248.0">/21 - 255.255.248.0 (2048 hosts)</option>
@@ -6777,6 +6777,11 @@
         <!-- IPs individuais edit-veis -->
         <div>
           <p style="font-size:11px;color:var(--muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:.05em">IPs das cameras selecionadas <span style="opacity:.6">(edite para alterar)</span></p>
+          <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px">
+            <input id="mntNetStart" type="text" placeholder="IP inicial, ex.: 10.200.1.120" inputmode="decimal"
+                   style="flex:1;border:1px solid var(--border);border-radius:6px;padding:6px 9px;font-size:13px;font-family:monospace">
+            <button class="secondary-action" onclick="mntNetPreencher()">Preencher em sequencia</button>
+          </div>
           <div id="mntNetRows" style="display:flex;flex-direction:column;gap:6px;max-height:240px;overflow-y:auto"></div>
         </div>
 
@@ -6853,7 +6858,7 @@
   <script src="js/recorders.js?v=1791000176"></script>
   <script src="js/windows.js?v=142"></script>
   <script src="js/snapshots.js?v=1790019880"></script>
-  <script src="js/maintenance.js?v=146"></script>
+  <script src="js/maintenance.js?v=1791000183"></script>
   <script src="js/analysis.js?v=147"></script>
   <script src="js/network.js?v=1791000150"></script>
   <script src="js/deploy.js?v=1791000144"></script>
