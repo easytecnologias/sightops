@@ -190,6 +190,7 @@ def estado_medido_por_ip() -> Dict[str, Dict[str, Any]]:
             if not ip:
                 continue
             nova = {
+                "modo": modo,
                 "status": _texto(c.get("status")),
                 "status_checked_at": c.get("status_checked_at") or c.get("last_seen"),
                 "connector_id": c.get("remote_connector_id") or c.get("connector_id"),
@@ -230,6 +231,15 @@ def herdar_da_camera(linha: Dict[str, Any], medidas: Dict[str, Dict[str, Any]],
         return linha
     linha["status"] = medida["status"]
     linha["status_origem"] = "camera"
+    # Como a camera chega na rede e propriedade DELA, nao do canal. O
+    # `inventory_mode` guardado na linha do gravador nunca classificou nada:
+    # ficava no que a varredura pos ("basic") ou no que o assistente de
+    # implantacao deixou, pela aba em que alguem estava. Resultado: as abas
+    # "Via OLT" e "Via Switch" abriam vazias em todos os clientes, embora o
+    # inventario de cameras soubesse exatamente a resposta.
+    if medida.get("modo"):
+        linha["inventory_mode_gravador"] = linha.get("inventory_mode")
+        linha["inventory_mode"] = medida["modo"]
     if medida.get("status_checked_at"):
         linha["status_checked_at"] = medida["status_checked_at"]
     if medida.get("connector_id") and not linha.get("remote_connector_id"):

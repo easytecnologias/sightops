@@ -445,9 +445,26 @@ async function loadInvNvr() {
     const fallbackRows = await _loadRecAllModesForType(fallbackType);
     if (fallbackRows.length) setRecType(fallbackType);
   }
+  _escolherVisaoComDados();
   updateNvrTabs();
   populateNvrFilters();
   applyNvrFilters();
+}
+
+// Agora que o canal herda o modo da camera, o parque deixou de ficar todo em
+// "Basico": num cliente tipico 382 de 388 canais chegam por fibra e vao para
+// "Via OLT". Sem isto a tela abriria na aba guardada, encontraria 6 linhas e
+// pareceria que o inventario sumiu.
+// So interfere quando a aba escolhida esta VAZIA -- escolha do usuario com
+// dados dentro e sempre respeitada.
+function _escolherVisaoComDados() {
+  const store = _currentRecStore();
+  const atual = store[_invNvrView] || [];
+  if (atual.length) return;
+  const melhor = ['basico', 'olt', 'switch']
+    .map(v => [v, (store[v] || []).length])
+    .sort((a, b) => b[1] - a[1])[0];
+  if (melhor && melhor[1] > 0 && melhor[0] !== _invNvrView) _invNvrView = melhor[0];
 }
 
 function _currentRecStore() { return _recType === 'dvr' ? _invDvr : _invNvr; }
