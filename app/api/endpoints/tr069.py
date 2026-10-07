@@ -124,3 +124,15 @@ async def ativar(payload: Dict[str, Any], request: Request) -> Dict[str, Any]:
                                        _autor(request), str(p.get("rede_gerencia") or "").strip())
     except (tr.Tr069Error, ativ.AtivacaoError, ValueError) as exc:
         return _erro(exc)
+
+
+@router.post("/config/redes-diretas")
+async def salvar_redes_diretas(payload: Dict[str, Any], request: Request) -> Dict[str, Any]:
+    """Redes de gerencia que o servidor alcanca sem tunel. So o dono da plataforma."""
+    user = getattr(request.state, "current_user", None) or {}
+    if not user.get("is_platform_admin"):
+        return {"ok": False, "error": "so o dono da plataforma define redes diretas"}
+    try:
+        return {"ok": True, "redes_diretas": await run_in_threadpool(tr.salvar_redes_diretas, list((payload or {}).get("redes") or []))}
+    except tr.Tr069Error as exc:
+        return _erro(exc)

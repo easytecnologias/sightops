@@ -97,8 +97,21 @@ def _driver(olt: Dict[str, Any]) -> str:
     return normalize_olt_driver(olt.get("vendor"), olt.get("model"))
 
 
-def metodo_sugerido(olt: Dict[str, Any]) -> str:
-    return "olt" if _driver(olt) == "fiberhome_an5516" else "dhcp"
+def _vlan_gerencia(tr) -> Optional[int]:
+    v = tr.get_config_publica().get("vlan_gerencia")
+    return int(v) if v else None
+
+
+def metodo_sugerido(olt: Dict[str, Any], tr=None) -> str:
+    """FiberHome: a OLT manda o endereco do servidor. 8820i: a OLT poe na ONU o
+    servico da VLAN de gerencia do cliente e o DHCP com opcao 43 faz o resto
+    (padrao da Easy, VLAN 7, provado na ONU 3/17 da PERUCABA em 07/10/2026)."""
+    driver = _driver(olt)
+    if driver == "fiberhome_an5516":
+        return "olt"
+    if driver == "intelbras_8820i" and tr is not None and _vlan_gerencia(tr):
+        return "olt"
+    return "dhcp"
 
 
 def plano(tr, serial: str) -> Dict[str, Any]:
@@ -112,15 +125,19 @@ def plano(tr, serial: str) -> Dict[str, Any]:
     usuario, _ = tr.credencial()
     slot, pon, n = onu.get("olt_slot"), onu.get("pon"), onu.get("onu_id")
     linha = None
-    if metodo_sugerido(olt) == "olt":
+    metodo = metodo_sugerido(olt, tr)
+    if metodo == "olt" and _driver(olt) == "fiberhome_an5516":
         linha = (f"set remote_manage_cfg slot {slot} link {pon} onu {n} tr069 enable acs_url {url} "
                  f"acl_user {usuario} acl_pswd •••••••• inform enable interval {tr.INFORM_PADRAO_S} "
                  f"port {PORTA_CWMP} user {usuario} pswd ••••••••")
+    elif metodo == "olt":
+        linha = f"bridge add gpon {pon} onu {n} tls vlan {_vlan_gerencia(tr)} tagged router"
     return {
         "ok": True, "serial": s, "olt": olt.get("name"), "pon": onu.get("pon_label") or f"{slot}/{pon}",
         "onu_id": n, "status_onu": onu.get("oper_status"), "modelo": onu.get("onu_model"),
-        "metodo_sugerido": metodo_sugerido(olt), "pela_olt_disponivel": metodo_sugerido(olt) == "olt",
+        "metodo_sugerido": metodo, "pela_olt_disponivel": metodo == "olt",
         "servidor": url, "comando_olt": linha,
+        "vlan_gerencia": _vlan_gerencia(tr) if _driver(olt) == "intelbras_8820i" else None,
     }
 
 
@@ -159,10 +176,13 @@ def _ativar_pela_olt(tr, serial: str) -> Dict[str, Any]:
     from app.services import connector_routing_vnat as vnat
     from app.services.olt_registry import resolve_credentials
 
-    onu = tr.onus_do_cliente()[tr.normalizar_serial(serial)]
+    onus = tr.onus_do_cliente()
+    onu = onus[tr.serial_do_inventario(serial, onus)]
     olt = _olt_da_onu(onu)
     cred = resolve_credentials(int(olt["id"]))
     vnat.set_olt_reach_connector(cred.get("connector_id") or "")
+    if _driver(olt) == "intelbras_8820i":
+        return _ativar_8820i(tr, cred, onu)
     host = vnat.reach_olt_ip(cred["host"]) or cred["host"]
     usuario, senha = tr.credencial()
     url = url_do_servidor(str(onu.get("connector_id") or onu.get("remote_connector_id") or ""))
@@ -170,6 +190,42 @@ def _ativar_pela_olt(tr, serial: str) -> Dict[str, Any]:
         host, cred["username"], cred["password"], pon=f"{onu.get('olt_slot')}/{onu.get('pon')}",
         onu=int(onu.get("onu_id")), acs_url=url, usuario=usuario, senha=senha, intervalo=tr.INFORM_PADRAO_S,
     )
+
+
+def _servicos_8820i(chan, pon: int, onu: int) -> list:
+    """VLANs ja entregues a ONU: 'tagged 3000 router' da saida de bridge show."""
+    from app.cli.tools.olt_8820i_add_onu import cli_run
+
+    out = cli_run(chan, f"bridge show gpon {pon} onu {onu}", timeout=20)
+    return [int(v) for v in re.findall(r"tagged\s+(\d+)\s+router", out or "")]
+
+
+def _ativar_8820i(tr, cred: Dict[str, Any], onu: Dict[str, Any]) -> Dict[str, Any]:
+    """Poe na ONU o servico router da VLAN de gerencia; o DHCP (opcao 43) faz o resto.
+    Se a ONU ja tem a VLAN, nao mexe. Confere em bridge show depois."""
+    from app.cli.tools.olt_8820i_add_onu import _connect, add_bridge_only, open_shell
+
+    vlan = _vlan_gerencia(tr)
+    if not vlan:
+        return {"ok": False, "error": "configure a VLAN de gerencia TR-069 deste cliente antes"}
+    pon, n = int(onu.get("pon")), int(onu.get("onu_id"))
+    client = _connect(cred["host"], cred["username"], cred["password"], 15)
+    try:
+        antes = _servicos_8820i(open_shell(client), pon, n)
+    finally:
+        client.close()
+    if vlan in antes:
+        return {"ok": True, "ja_tinha": True, "vlans": antes}
+    feito = add_bridge_only(cred["host"], cred["username"], cred["password"], pon, n,
+                            service="tls", vlan=vlan, terminal="ont", timeout=15.0)
+    client = _connect(cred["host"], cred["username"], cred["password"], 15)
+    try:
+        depois = _servicos_8820i(open_shell(client), pon, n)
+    finally:
+        client.close()
+    if vlan not in depois:
+        return {"ok": False, "error": f"a OLT aceitou, mas a VLAN {vlan} nao aparece na ONU", "comandos": feito.get("commands_run")}
+    return {"ok": True, "vlans": depois, "comandos": feito.get("commands_run")}
 
 
 def ativar_apos_autorizar(olt_ip: str, slot: Any, pon: Any, onu: Any, serial: str) -> None:

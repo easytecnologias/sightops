@@ -55,3 +55,32 @@ def test_parse_rmt_manage_real_desligado():
 def test_parse_rmt_manage_ligado():
     out = "TR069 Enable/Disable:enable\r\nACL Url:http://10.201.0.26:7547\r\nInform Interval:300\r\n"
     assert parse_rmt_manage(out) == {"tr069": True, "acs_url": "http://10.201.0.26:7547", "intervalo": 300}
+
+
+class _TrFalso:
+    def __init__(self, vlan):
+        self.vlan = vlan
+
+    def get_config_publica(self):
+        return {"vlan_gerencia": self.vlan}
+
+
+def test_8820i_ativa_pela_olt_so_com_vlan_de_gerencia():
+    olt = {"vendor": "Intelbras", "model": "8820i"}
+    assert ativ.metodo_sugerido(olt, _TrFalso(7)) == "olt"
+    assert ativ.metodo_sugerido(olt, _TrFalso(None)) == "dhcp"
+    assert ativ.metodo_sugerido({"vendor": "Intelbras", "model": "4840E"}, _TrFalso(7)) == "dhcp"
+    assert ativ.metodo_sugerido({"vendor": "FiberHome", "model": "AN5516-01"}, _TrFalso(None)) == "olt"
+
+
+def test_servicos_8820i_le_a_saida_real_de_bridge_show(monkeypatch):
+    # saida real da ONU 3/17 da PERUCABA depois da VLAN 7 (07/10/2026)
+    saida = """                              ONU   ONU UNI         OLT
+            ONU               UNI     VLAN          VLAN         Service   State
+============================ ===== ========== ================= ========= =======
+gpon 3 onu 17 gem 272        --    --         tagged 3000       router    Up
+gpon 3 onu 17 gem 285        --    --         tagged 2010       router    Up
+gpon 3 onu 17 gem 288        --    --         tagged 7          router    Up"""
+    import app.cli.tools.olt_8820i_add_onu as drv
+    monkeypatch.setattr(drv, "cli_run", lambda chan, cmd, timeout=10: saida)
+    assert ativ._servicos_8820i(None, 3, 17) == [3000, 2010, 7]

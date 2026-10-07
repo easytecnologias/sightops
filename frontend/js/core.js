@@ -268,6 +268,7 @@ async function loadProfile() {
   if (!data) return;
   const user = data.user || data;
   _currentUser = user;
+  if (_tenantDaPagina === null) _tenantDaPagina = String(user.effective_tenant_slug || user.tenant_slug || '');
   const name = user.full_name || user.username || user.email || '?';
   const role = user.role || user.perfil || '';
   document.getElementById('profileName').textContent = name;
@@ -348,10 +349,30 @@ function renderActingAsBanner() {
   }
 }
 
+// A troca de cliente vale para a SESSAO (o token), nao para a aba: as outras
+// abas abertas passariam a falar com o cliente novo ainda mostrando dados do
+// antigo na tela (07/10/2026: a lista de ONUs do Sierra ficou aberta numa aba
+// que ja operava como Easy Tecnologias). Toda aba guarda o cliente com que
+// carregou e recarrega se ele mudar -- na hora (storage) ou ao voltar (foco).
+let _tenantDaPagina = null;
+
+async function conferirClienteDaAba() {
+  if (_tenantDaPagina === null) return;
+  const data = await apiJson('/api/auth/me', { forceRefresh: true, cacheTtl: 0 });
+  const user = data?.user || data;
+  if (!user) return;
+  const atual = String(user.effective_tenant_slug || user.tenant_slug || '');
+  if (atual !== _tenantDaPagina) window.location.reload();
+}
+
+window.addEventListener('storage', ev => { if (ev.key === 'so_cliente_trocado') window.location.reload(); });
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') conferirClienteDaAba(); });
+
 async function actAsTenant(tenantSlug) {
   const res = await api('/api/auth/act-as', { method: 'POST', body: JSON.stringify({ tenant_slug: tenantSlug || '' }) });
   const data = await jsonOrReadableError(res, 'Nao foi possivel trocar de cliente.');
   showToast(tenantSlug ? `Operando como ${data?.user?.effective_tenant_name || tenantSlug}.` : 'Voltou para a propria conta.');
+  try { localStorage.setItem('so_cliente_trocado', String(Date.now())); } catch {}  // avisa as outras abas
   // Recarrega a pagina inteira: e a forma mais segura de garantir que TODA
   // tela (cada uma com seu proprio cache/estado em memoria) recarregue os
   // dados do tenant novo, em vez de misturar dados de dois clientes na

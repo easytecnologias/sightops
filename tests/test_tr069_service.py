@@ -217,3 +217,37 @@ def test_documento_completo_nao_manda_projection_vazio(doc, monkeypatch):
     monkeypatch.setattr(tr, "_nbi", lambda m, p, params=None, body=None, timeout=10.0: params_vistos.append(params) or [doc])
     tr._documento_do_cliente("ITBS4420775E")
     assert "projection" not in params_vistos[0]
+
+
+def test_serial_curto_da_8820i_casa_com_o_completo():
+    onus = {"F1D35486": {}, "ITBS4420775E": {}}
+    assert tr.serial_do_inventario("ITBSF1D35486", onus) == "F1D35486"
+    assert tr.serial_do_inventario("ITBS4420775E", onus) == "ITBS4420775E"
+    assert tr.serial_do_inventario("ZZZZ00000000", onus) == "ZZZZ00000000"
+
+
+def test_busca_de_serial_curto_vai_por_regex(monkeypatch):
+    pedidos = []
+    monkeypatch.setattr(tr, "_nbi", lambda m, p, params=None, body=None, timeout=10.0: pedidos.append(json.loads(params["query"])) or [])
+    tr._buscar_por_seriais(["F1D35486", "ITBS4420775E"], "_id")
+    assert {"_deviceId._SerialNumber": {"$in": ["495442534420775E", "ITBS4420775E"]}} in pedidos
+    assert {"_deviceId._SerialNumber": {"$regex": "^([A-Za-z]{4})?(F1D35486)$"}} in pedidos
+
+
+def test_rede_direta_chama_sem_tunel(doc, monkeypatch, vnat):
+    vnat(_VnatFalso({"10.200.0.1": "10.211.2.1"}))  # conector com mapa, sem a rede da ONU
+    doc["InternetGatewayDevice"]["ManagementServer"]["ConnectionRequestURL"]["_value"] = "http://10.7.0.13:7547/tr069"
+    monkeypatch.setattr(tr, "redes_diretas", lambda: [])
+    assert tr._url_de_chamada(doc, "7a53c66a4e5dcae0") is None
+    monkeypatch.setattr(tr, "redes_diretas", lambda: ["10.7.0.0/22"])
+    assert tr._url_de_chamada(doc, "7a53c66a4e5dcae0") == "http://10.7.0.13:7547/tr069"
+
+
+def test_redes_diretas_so_privadas_e_de_tamanho_razoavel(monkeypatch):
+    monkeypatch.setattr(tr, "garantir_credencial", lambda: {})
+    import app.services.db_store as db
+    monkeypatch.setattr(db, "set_json_state", lambda k, v: None)
+    assert tr.salvar_redes_diretas(["10.7.0.0/22"]) == ["10.7.0.0/22"]
+    for ruim in ("8.8.8.0/24", "10.0.0.0/8", "fe80::/64", "abc"):
+        with pytest.raises(tr.Tr069Error):
+            tr.salvar_redes_diretas([ruim])

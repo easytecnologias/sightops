@@ -106,6 +106,21 @@ def _formas_do_serial(serial: str) -> List[str]:
     return sorted(formas)
 
 
+def serial_do_inventario(serial: Any, onus: Dict[str, Any]) -> str:
+    """Chave do inventario para o serial que a ONU informa ao TR-069.
+
+    A 8820i guarda o serial SEM o prefixo do fabricante ("F1D35486"), mas a
+    ONU se apresenta completa ("ITBSF1D35486"). Os 4 primeiros caracteres sao
+    o fabricante; o resto e o que a OLT conhece.
+    """
+    d = normalizar_serial(serial)
+    if d in onus:
+        return d
+    if re.fullmatch(r"[A-Z]{4}[0-9A-F]{8}", d) and d[4:] in onus:
+        return d[4:]
+    return d
+
+
 def onus_do_cliente() -> Dict[str, Dict[str, Any]]:
     """serial normalizado -> linha de ONU do inventario do cliente da sessao."""
     from app.services.olt_service import list_macs
@@ -293,17 +308,29 @@ _PROJECAO_LISTA = ",".join([
 
 def _buscar_por_seriais(seriais: Iterable[str], projecao: str) -> List[Dict[str, Any]]:
     formas: List[str] = []
+    curtos: List[str] = []
     for s in seriais:
-        formas.extend(_formas_do_serial(s))
-    if not formas:
+        n = normalizar_serial(s)
+        if re.fullmatch(r"[0-9A-F]{8}", n):
+            curtos.append(n)  # serial sem fabricante (8820i): casa pelo final
+        else:
+            formas.extend(_formas_do_serial(n))
+    queries = [{"_deviceId._SerialNumber": {"$in": formas[i:i + 200]}} for i in range(0, len(formas), 200)]
+    queries += [{"_deviceId._SerialNumber": {"$regex": "^([A-Za-z]{4})?(" + "|".join(curtos[i:i + 150]) + ")$"}}
+                for i in range(0, len(curtos), 150)]
+    if not queries:
         return []
     out: List[Dict[str, Any]] = []
-    for i in range(0, len(formas), 200):
-        query = json.dumps({"_deviceId._SerialNumber": {"$in": formas[i:i + 200]}})
+    vistos = set()
+    for q in queries:
+        query = json.dumps(q)
         params = {"query": query}
         if projecao:  # projection VAZIO trava o GenieACS 1.2 (15 s e lista vazia)
             params["projection"] = projecao
-        out.extend(_nbi("GET", "/devices/", params=params, timeout=20.0) or [])
+        for doc in _nbi("GET", "/devices/", params=params, timeout=20.0) or []:
+            if doc.get("_id") not in vistos:
+                vistos.add(doc.get("_id"))
+                out.append(doc)
     return out
 
 
@@ -332,10 +359,11 @@ def listar() -> Dict[str, Any]:
     vistos = set()
     for doc in _buscar_por_seriais(onus.keys(), _PROJECAO_LISTA):
         resumo = resumo_do_dispositivo(doc)
-        onu = onus.get(resumo["serial"])
+        chave = serial_do_inventario(resumo["serial"], onus)
+        onu = onus.get(chave)
         if not onu:  # nunca deveria: a busca ja foi pelos seriais do cliente
             continue
-        vistos.add(resumo["serial"])
+        vistos.add(chave)
         linhas.append(_linha(resumo, onu))
     contagem = {"gerenciada": 0, "sem_contato": 0, "aguardando": 0}
     for linha in linhas:
@@ -367,7 +395,8 @@ def _limpar_aguardando(vistos: set) -> None:
 def candidatas() -> Dict[str, Any]:
     """ONUs do inventario que ainda nao falam TR-069 (para o botao Ativar)."""
     onus = onus_do_cliente()
-    com_tr069 = {resumo_do_dispositivo(d)["serial"] for d in _buscar_por_seriais(onus.keys(), "_id,_deviceId")}
+    com_tr069 = {serial_do_inventario(resumo_do_dispositivo(d)["serial"], onus)
+                 for d in _buscar_por_seriais(onus.keys(), "_id,_deviceId")}
     linhas = [{"serial": s, "olt": r.get("olt_name"), "pon": r.get("pon_label") or r.get("pon"), "onu_id": r.get("onu_id"),
                "modelo": r.get("onu_model"), "nome": r.get("onu_name"), "status_onu": r.get("oper_status"),
                "sinal_dbm": r.get("rx_onu")}
@@ -377,8 +406,9 @@ def candidatas() -> Dict[str, Any]:
 
 
 def _documento_do_cliente(serial: str, projecao: str = "") -> Tuple[Dict[str, Any], Dict[str, Any]]:
-    s = normalizar_serial(serial)
-    onu = onus_do_cliente().get(s)
+    onus = onus_do_cliente()
+    s = serial_do_inventario(serial, onus)
+    onu = onus.get(s)
     if not onu:
         # Mesmo erro para "nao existe" e "e de outro cliente": nao confirma serial alheio.
         raise Tr069Error("ONU nao encontrada neste cliente")
@@ -460,6 +490,11 @@ def _url_de_chamada(doc: Dict[str, Any], connector_id: str) -> Optional[str]:
         return None
     partes = urllib.parse.urlsplit(str(url))
     host = partes.hostname or ""
+    if _em_rede_direta(host):
+        # Rede de gerencia do proprio cliente, roteada direto (ex.: VLAN 7 da
+        # Easy, 10.7.0.0/22, alcancada pelo CCR sem tunel). Declarada so pelo
+        # dono da plataforma: o cliente nao aponta o servidor para rede alheia.
+        return urllib.parse.urlunsplit((partes.scheme or "http", partes.netloc, partes.path or "/", partes.query, ""))
     virtual = vnat.virtual_ip_for(connector_id, host)
     if not virtual or virtual == vnat.IP_BLOQUEADO:
         return None
@@ -467,6 +502,49 @@ def _url_de_chamada(doc: Dict[str, Any], connector_id: str) -> Optional[str]:
         return None  # fora das LANs do conector: poderia cair na rede de outro cliente
     netloc = virtual + (f":{partes.port}" if partes.port else "")
     return urllib.parse.urlunsplit((partes.scheme or "http", netloc, partes.path or "/", partes.query, ""))
+
+
+def redes_diretas() -> List[str]:
+    from app.services.db_store import get_json_state
+
+    return list((get_json_state(CONFIG_KEY, {}) or {}).get("redes_diretas") or [])
+
+
+def _em_rede_direta(host: str) -> bool:
+    import ipaddress
+
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    for rede in redes_diretas():
+        try:
+            if ip in ipaddress.ip_network(rede, strict=False):
+                return True
+        except ValueError:
+            continue
+    return False
+
+
+def salvar_redes_diretas(redes: List[str]) -> List[str]:
+    """So o dono da plataforma chama (conferido na rota)."""
+    import ipaddress
+
+    from app.services.db_store import set_json_state
+
+    limpas = []
+    for r in redes or []:
+        try:
+            n = ipaddress.ip_network(str(r).strip(), strict=False)
+        except ValueError as exc:
+            raise Tr069Error(f"rede invalida: {r}") from exc
+        if n.version != 4 or not n.is_private or not 16 <= n.prefixlen <= 30:
+            raise Tr069Error(f"{r}: use uma rede privada IPv4 entre /16 e /30")
+        limpas.append(str(n))
+    cfg = garantir_credencial()
+    cfg["redes_diretas"] = sorted(set(limpas))
+    set_json_state(CONFIG_KEY, cfg)
+    return cfg["redes_diretas"]
 
 
 def _chamar_onu(doc: Dict[str, Any], connector_id: str) -> Tuple[bool, str]:
@@ -489,20 +567,97 @@ def _esperar_tarefa(task_id: str, device_id: str, limite_s: float = 25.0) -> str
     """'aplicada', 'falhou: ...' ou 'na_fila'."""
     fim = time.time() + limite_s
     while time.time() < fim:
+        # Tarefa recusada pela ONU CONTINUA na fila (e o GenieACS tenta de novo a
+        # cada contato): olhar a falha a cada volta e tirar a tarefa da fila.
+        falhas = _nbi("GET", "/faults/", params={"query": json.dumps({"device": device_id})}) or []
+        falha = next((f for f in falhas if str(f.get("_id", "")).endswith(":task_" + task_id)), None)
+        if falha:
+            for caminho in ("/tasks/" + task_id, "/faults/" + urllib.parse.quote(str(falha["_id"]), safe="")):
+                try:
+                    _nbi("DELETE", caminho)
+                except Tr069Error:
+                    pass
+            detalhe = falha.get("detail") or {}
+            nomes = [x.get("parameterName", "").rsplit(".", 1)[-1] for x in detalhe.get("setParameterValuesFault") or []]
+            return "falhou: " + str(detalhe.get("faultString") or falha.get("code") or "erro na ONU") + (
+                f" ({', '.join(nomes)})" if nomes else "")
         pendentes = _nbi("GET", "/tasks/", params={"query": json.dumps({"_id": task_id}), "projection": "_id"}) or []
         if not pendentes:
-            falhas = _nbi("GET", "/faults/", params={"query": json.dumps({"device": device_id})}) or []
-            falha = next((f for f in falhas if str(f.get("_id", "")).endswith(":task_" + task_id)), None)
-            if falha:
-                return "falhou: " + str((falha.get("detail") or {}).get("faultString") or falha.get("code") or "erro na ONU")
             return "aplicada"
         time.sleep(1.5)
     return "na_fila"
 
 
+def _tarefa_e_espera(doc: Dict[str, Any], connector_id: str, tarefa: Dict[str, Any], limite_s: float = 25.0) -> Tuple[str, str]:
+    criada = _nbi("POST", _device_path(doc["_id"]) + "/tasks", body=tarefa) or {}
+    chamou, motivo = _chamar_onu(doc, connector_id)
+    if not chamou:
+        return "na_fila", motivo
+    return _esperar_tarefa(str(criada.get("_id") or ""), doc["_id"], limite_s=limite_s), ""
+
+
+def _religar_porta(doc, resumo, onu, dados) -> Tuple[str, str, str, Dict[str, Any]]:
+    """PoE da 140PoE nao tem parametro proprio: desligar a porta corta a energia.
+    Desliga, espera 5 s e liga de novo -- o mesmo que funcionou a mao na SIERRA."""
+    porta = next((p for p in resumo["lan"] if p["porta"] == int(dados.get("porta") or 0)), None)
+    if not porta:
+        raise Tr069Error("escolha a porta LAN para religar")
+    conector = str(onu.get("connector_id") or onu.get("remote_connector_id") or "")
+    caminho = porta["caminho"] + ".Enable"
+    desc = f"Religar PoE da LAN {porta['porta']}"
+    res, motivo = _tarefa_e_espera(doc, conector, {"name": "setParameterValues", "parameterValues": [[caminho, False, "xsd:boolean"]]})
+    if res != "aplicada":
+        return desc, res, motivo, {}
+    time.sleep(5)
+    res, motivo = _tarefa_e_espera(doc, conector, {"name": "setParameterValues", "parameterValues": [[caminho, True, "xsd:boolean"]]})
+    if res != "aplicada":
+        # ficou DESLIGADA: diz isso claramente, a camera esta sem energia
+        return desc, "falhou: a porta desligou mas nao religou", motivo or "religue a porta pela tela", {}
+    return desc, res, "", {}
+
+
+def _ping(doc, resumo, onu, dados) -> Tuple[str, str, str, Dict[str, Any]]:
+    host = str(dados.get("host") or "").strip()
+    if not re.fullmatch(r"[A-Za-z0-9.\-]{1,253}", host):
+        raise Tr069Error("informe o IP ou nome para pingar")
+    if resumo["padrao"] != "tr098":
+        raise Tr069Error("ping pela ONU ainda nao mapeado para este modelo")
+    base = "InternetGatewayDevice.IPPingDiagnostics"
+    conector = str(onu.get("connector_id") or onu.get("remote_connector_id") or "")
+    desc = f"Ping pela ONU para {host}"
+    res, motivo = _tarefa_e_espera(doc, conector, {"name": "setParameterValues", "parameterValues": [
+        [f"{base}.Host", host, "xsd:string"], [f"{base}.NumberOfRepetitions", 4, "xsd:unsignedInt"],
+        [f"{base}.Timeout", 1000, "xsd:unsignedInt"], [f"{base}.DiagnosticsState", "Requested", "xsd:string"]]})
+    if res != "aplicada":
+        return desc, res, motivo, {}
+    resultado: Dict[str, Any] = {}
+    for _ in range(4):  # 4 pings de ate 1 s; a ONU avisa quando termina
+        time.sleep(4)
+        res, motivo = _tarefa_e_espera(doc, conector, {"name": "refreshObject", "objectName": base})
+        if res != "aplicada":
+            return desc, res, motivo, {}
+        novo, _ = _documento_do_cliente(resumo["serial"], projecao=base)
+        estado_diag = _v(novo, f"{base}.DiagnosticsState")
+        if estado_diag and estado_diag != "Requested":
+            resultado = {"estado": estado_diag, "ok": _v(novo, f"{base}.SuccessCount"), "falhas": _v(novo, f"{base}.FailureCount"),
+                         "media_ms": _v(novo, f"{base}.AverageResponseTime"), "max_ms": _v(novo, f"{base}.MaximumResponseTime")}
+            break
+    if not resultado:
+        return desc, "falhou: a ONU nao terminou o ping", "", {}
+    detalhe = f"{resultado['ok']} de 4 responderam, media {resultado['media_ms']} ms"
+    return desc, "aplicada", detalhe, {"ping": resultado}
+
+
 def executar(serial: str, acao: str, dados: Optional[Dict[str, Any]], autor: str) -> Dict[str, Any]:
     dados = dados or {}
     doc, onu = _documento_do_cliente(serial)
+    if acao in ("religar_porta", "ping"):
+        resumo = resumo_do_dispositivo(doc)
+        desc, resultado, detalhe, extra = (_religar_porta if acao == "religar_porta" else _ping)(doc, resumo, onu, dados)
+        registro = {"em": datetime.now(timezone.utc).isoformat(), "serial": resumo["serial"], "acao": acao,
+                    "descricao": desc, "autor": autor, "resultado": resultado, "detalhe": detalhe}
+        _registrar(registro)
+        return {"ok": not resultado.startswith("falhou"), **registro, **extra}
     resumo = resumo_do_dispositivo(doc)
     tarefa, descricao = _tarefa(acao, resumo, dados)
     # Sem ?connection_request: o GenieACS chamaria o IP da rede do cliente pela
@@ -592,6 +747,8 @@ def get_config_publica() -> Dict[str, Any]:
         "intervalo_s": int(cfg.get("intervalo_s") or INFORM_PADRAO_S),
         "criada_em": cfg.get("criada_em"), "trocada_em": cfg.get("trocada_em"),
         "aguardando": cfg.get("aguardando") or {},
+        "redes_diretas": cfg.get("redes_diretas") or [],
+        "vlan_gerencia": cfg.get("vlan_gerencia"),
     }
 
 
@@ -601,6 +758,15 @@ def salvar_preferencias(dados: Dict[str, Any]) -> Dict[str, Any]:
     cfg = garantir_credencial()
     if "auto_ativar" in dados:
         cfg["auto_ativar"] = bool(dados["auto_ativar"])
+    if "vlan_gerencia" in dados:
+        v = dados["vlan_gerencia"]
+        if v in (None, "", 0, "0"):
+            cfg.pop("vlan_gerencia", None)
+        else:
+            v = int(v)
+            if not 2 <= v <= 4094:
+                raise Tr069Error("VLAN de gerencia vai de 2 a 4094")
+            cfg["vlan_gerencia"] = v
     if "intervalo_s" in dados:
         intervalo = int(dados["intervalo_s"])
         if intervalo not in (300, 900, 3600):

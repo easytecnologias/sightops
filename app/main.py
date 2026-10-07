@@ -373,6 +373,13 @@ async def _olt_telemetry_loop() -> None:
                             coletar_saude_olts, olts, _olt_snmp_community())})
                     except Exception as exc:
                         tenant_results.append({"olt_snmp": {"ok": False, "error": str(exc)}})
+                    # TR-069: acesso web das ONUs (ACL) calculado de cada ONU, so
+                    # deste cliente. Substitui a regra global do GenieACS.
+                    try:
+                        from app.services import tr069_acl as _tr069_acl, tr069_service as _tr069
+                        tenant_results.append({"tr069_acl": await asyncio.to_thread(_tr069_acl.manter_cliente, _tr069)})
+                    except Exception as exc:
+                        tenant_results.append({"tr069_acl": {"ok": False, "error": str(exc)}})
                     # Switches no mesmo ciclo: e a coleta automatica que os poe
                     # no monitoramento/Zabbix (ver switch_service.poll_switches).
                     try:

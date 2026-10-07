@@ -11218,3 +11218,14 @@ table.recorder-tabela tbody tr:hover { background: var(--surface-soft); }
 .tr-serial { font-weight: 600; letter-spacing: .02em; font-variant-numeric: tabular-nums; }
 .tr-muted { color: var(--muted); }
 .tr-table td { vertical-align: middle; }
+
+/* -- TR-069: acoes com painel inline -------------------------------------- */
+.tr-inline { margin-top: 12px; padding: 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-soft); font-size: 13px; }
+.tr-inline p { margin: 0 0 10px; color: var(--muted); }
+.tr-inline-row { display: flex; gap: 8px; }
+.tr-inline-row input { flex: 1; min-width: 0; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; }
+.tr-ok-box { border-color: var(--primary-soft); background: var(--primary-soft); color: var(--primary); }
+
+/* -- TR-069: filtros do Ativar ------------------------------------------- */
+.tr-cand-filtros { display: flex; flex-wrap: wrap; gap: 8px; }
+.tr-cand-filtros .tr-search { flex: 1 1 240px; }
