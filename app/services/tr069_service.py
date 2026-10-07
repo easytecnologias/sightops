@@ -215,6 +215,10 @@ def resumo_do_dispositivo(doc: Dict[str, Any]) -> Dict[str, Any]:
         "ultimo_boot": doc.get("_lastBoot"),
         "registrado_em": doc.get("_registered"),
         "intervalo_s": _v(doc, f"{r}.ManagementServer.PeriodicInformInterval") or INFORM_PADRAO_S,
+        # Estado do servidor DHCP da LAN. Quem instala ONT numa rede que ja
+        # tem DHCP precisa desligar o da ONU -- e hoje nao dava nem para ver.
+        "dhcp_lan": _bool(_v(doc, f"{r}.LANDevice.1.LANHostConfigManagement.DHCPServerEnable"))
+                    if tr == "tr098" else _bool(_v(doc, "Device.DHCPv4.Server.Pool.1.Enable")),
         "lan": [], "wan": [], "wifi": [], "hosts": [],
     }
     if tr == "tr098":
@@ -301,6 +305,10 @@ _PROJECAO_LISTA = ",".join([
     "InternetGatewayDevice.DeviceInfo", "InternetGatewayDevice.ManagementServer.PeriodicInformInterval",
     "InternetGatewayDevice.LANDevice.1.LANEthernetInterfaceConfig", "InternetGatewayDevice.WANDevice",
     "InternetGatewayDevice.LANDevice.1.WLANConfiguration",
+    # Sem isto a lista devolvia dhcp_lan sempre nulo -- campo que existe e
+    # nunca tem valor engana mais do que campo que nao existe.
+    "InternetGatewayDevice.LANDevice.1.LANHostConfigManagement.DHCPServerEnable",
+    "Device.DHCPv4.Server.Pool.1.Enable",
     "Device.DeviceInfo", "Device.ManagementServer.PeriodicInformInterval", "Device.Ethernet.Interface",
     "Device.PPP.Interface", "Device.WiFi.SSID", "Device.WiFi.AccessPoint",
 ])
@@ -349,6 +357,7 @@ def _linha(resumo: Dict[str, Any], onu: Dict[str, Any]) -> Dict[str, Any]:
         "lan_total": len(resumo["lan"]),
         "wifi_clientes": sum(int(w.get("clientes") or 0) for w in resumo["wifi"]) if resumo["wifi"] else None,
         "tem_wifi": bool(resumo["wifi"]),
+        "dhcp_lan": resumo.get("dhcp_lan"),
     }
 
 
@@ -570,6 +579,23 @@ def _tarefa(acao: str, resumo: Dict[str, Any], dados: Dict[str, Any]) -> Tuple[D
         if not valores:
             raise Tr069Error("informe o nome da rede ou a senha")
         return {"name": "setParameterValues", "parameterValues": valores}, f"Alterar Wi-Fi {rede['indice']}"
+    if acao == "dhcp_lan":
+        # Parametro padrao do TR-098, conferido gravavel na 140PoE da SIERRA em
+        # 07/10/2026 (DHCPServerEnable, _writable=True). Quem instala ONT em
+        # rede que ja tem DHCP precisa desligar o da ONU, senao o cliente pega
+        # endereco do aparelho errado e ninguem entende por que.
+        #
+        # O modo de operacao (SFU/HGU, Bridge/Router) NAO entra aqui: depois de
+        # uma releitura completa, a 140PoE expoe 951 parametros e NENHUM
+        # candidato a modo. Esse ajuste so existe na web da ONU.
+        raiz = "InternetGatewayDevice" if resumo["padrao"] == "tr098" else "Device"
+        caminho = (f"{raiz}.LANDevice.1.LANHostConfigManagement.DHCPServerEnable"
+                   if resumo["padrao"] == "tr098"
+                   else "Device.DHCPv4.Server.Pool.1.Enable")
+        ligar = bool(dados.get("habilitar"))
+        return ({"name": "setParameterValues",
+                 "parameterValues": [[caminho, ligar, "xsd:boolean"]]},
+                f"{'Ligar' if ligar else 'Desligar'} o DHCP da LAN")
     raise Tr069Error(f"acao desconhecida: {acao}")
 
 

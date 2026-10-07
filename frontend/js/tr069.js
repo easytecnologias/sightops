@@ -166,6 +166,11 @@ async function tr069AbrirDetalhe(serial) {
         <div class="tr-tile"><span>WAN</span><b>${esc(tr069StatusWan(wan?.status))}</b><small>${wan?.vlan ? 'VLAN ' + esc(wan.vlan) + ' · ' : ''}${wan?.ip
           ? `<a href="#" class="tr-ip-web" data-tr069-web="${esc(wan.ip)}" title="Abrir a web da ONU pela rede do cliente">${esc(wan.ip)} ↗</a>` : '—'}</small></div>
         <div class="tr-tile"><span>Portas LAN</span><b>${lanLink} de ${(r.lan || []).length}</b><small>com link agora</small></div>
+        <div class="tr-tile"><span>DHCP da LAN</span><b>${r.dhcp_lan === null || r.dhcp_lan === undefined
+          ? '—' : (r.dhcp_lan ? 'ligado' : 'desligado')}</b>
+          <small>${r.dhcp_lan === null || r.dhcp_lan === undefined
+            ? 'esta ONU nao informa'
+            : `<button class="tr-link" data-tr069-dhcp="${r.dhcp_lan ? '0' : '1'}">${r.dhcp_lan ? 'desligar' : 'ligar'}</button>`}</small></div>
         <div class="tr-tile"><span>Último contato</span><b>${esc(tr069Quando(r.ultimo_contato))}</b><small>contato a cada ${Math.round((r.intervalo_s || 300) / 60)} min</small></div>
       </div>
     </section>
@@ -769,6 +774,16 @@ document.addEventListener('click', async ev => {
     const txt = document.getElementById('tr069Script')?.textContent || '';
     try { await navigator.clipboard.writeText(txt); showToast('Script copiado.'); }
     catch { const r = document.createRange(); r.selectNodeContents(document.getElementById('tr069Script')); getSelection().removeAllRanges(); getSelection().addRange(r); showToast('Selecionei o script: use Ctrl+C.'); }
+    return;
+  }
+  if (t.hasAttribute('data-tr069-dhcp')) {
+    const ligar = t.getAttribute('data-tr069-dhcp') === '1';
+    // Desligar o DHCP numa casa onde ele e o unico servidor deixa o cliente
+    // sem endereco. Confirma antes, com o efeito escrito.
+    if (!ligar && !confirm('Desligar o DHCP da LAN desta ONU? Quem estiver atras dela so pegara endereco de outro servidor da rede.')) return;
+    // Reaproveita o caminho que ja existe: trata 403, distingue fila de
+    // aplicado e redesenha o detalhe no fim.
+    await tr069Executar('dhcp_lan', { habilitar: ligar }, t);
     return;
   }
   if (t.hasAttribute('data-tr069-salvar-senhaweb')) {
