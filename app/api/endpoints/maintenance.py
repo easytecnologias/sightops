@@ -2143,7 +2143,21 @@ async def maintenance_camera_web_proxy(ip: str, request: Request, path: str = ""
 
     body = await request.body()
 
+    # O IP REAL so tem rota onde sobrou rota antiga. Em conector isolado (que
+    # hoje sao todos) quem responde e o IP VIRTUAL -- medido em 07/10/2026 na
+    # ONT do Sierra: 172.18.1.252 da timeout em todas as portas, 10.211.5.252
+    # responde. _camera_web_target_url ja sabia disso e calculava o alvo certo,
+    # mas o retorno dela era descartado: so o efeito de validar era usado.
+    #
+    # O sintoma nao parecia bug de rota: 4s de conexao + 25s de leitura antes
+    # do 502, entao parecia equipamento fora do ar.
+    #
+    # `ip` continua sendo o REAL em tudo que e identidade (dono, senha, porta,
+    # cache, reescrita de HTML); so o destino da conexao vira virtual.
+    alvo_rede = _reach(ip)
     _seed_web_proxy_scheme_from_disk(ip)
+    if alvo_rede != ip:
+        seed_scheme(alvo_rede, get_cached_scheme(ip))
     try:
         # fetch_device faz uma chamada de rede sincrona (requests) que pode
         # levar segundos -- sem to_thread, ela trava a unica thread do event
@@ -2156,13 +2170,13 @@ async def maintenance_camera_web_proxy(ip: str, request: Request, path: str = ""
         upstream = await loop.run_in_executor(
             _device_proxy_executor,
             lambda: fetch_device(
-                ip, path, query, request.method, headers, body,
+                alvo_rede, path, query, request.method, headers, body,
                 username=username, password=password, http_port=_device_http_port(ip),
             ),
         )
     except DeviceUnreachable as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
-    esquema_usado = get_cached_scheme(ip)
+    esquema_usado = get_cached_scheme(alvo_rede) or get_cached_scheme(ip)
     if esquema_usado:
         _persist_web_proxy_scheme(ip, esquema_usado)
 
