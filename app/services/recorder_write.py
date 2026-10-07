@@ -296,8 +296,10 @@ def executar(acao: str, *, host: str, user: str, password: str, canal: int,
         # "HTTP 400" ate para URL inventada -- o operador via "Bad Request" ao
         # soltar ou vincular canal. A mesma operacao sai pelo NetSDK, que mexe
         # so na entrada RemoteDevice do canal (ver intelbras_canal_sdk).
+        # O NVD 1516 da SIERRA (10.200.0.211) responde "HTTP 501 Not Implemented"
+        # para a mesma rota -- mesmo caso, outro codigo.
         if not (marca == "intelbras" and acao in ("adicionar", "editar", "excluir")
-                and "HTTP 400" in str(exc)):
+                and any(f"HTTP {c}" in str(exc) for c in (400, 404, 501))):
             raise
         saida = _intelbras_pelo_sdk(acao, host=host, user=user, password=password,
                                     canal=int(canal), connector_id=connector_id, ip=ip,

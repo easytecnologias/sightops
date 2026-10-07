@@ -168,6 +168,13 @@ def _agir(p: Dict[str, Any]) -> Dict[str, Any]:
                       "HttpPort": int(p.get("porta_http") or 80)})
             if p.get("porta_rtsp"):
                 e["RtspPort"] = int(p["porta_rtsp"])
+            if str(p.get("protocolo") or "").lower() == "onvif":
+                # Igual a entrada que o proprio NVD grava ao cadastrar ONVIF na
+                # mao (canal 22 do NVD 1232 da SIERRA): Vendor "Onvif" e RTSP 554.
+                # Partindo de um canal livre, Vendor ficava "Private".
+                e["Vendor"] = "Onvif"
+                if not p.get("porta_rtsp"):
+                    e["RtspPort"] = 554
             if p.get("nome"):
                 vis = e.get("VideoInputs") or [{}]
                 e["VideoInputs"] = [dict(vis[0], Name=p["nome"])] + list(vis[1:])
