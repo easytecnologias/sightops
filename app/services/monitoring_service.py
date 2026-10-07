@@ -209,12 +209,18 @@ def _switch_entities() -> List[Dict[str, Any]]:
         estado = poll.get(ip) or {}
         meta = linhas.get(ip) or {}
         mesmo = _text(info.get("ip")) == ip
+        # Down so quando a ultima coleta FALHOU. Coleta atrasada nao derruba: o
+        # ciclo real chega a ~40 min (07/10/2026 a SIERRA ficou "Down" com o
+        # switch respondendo, porque a regra era 30 min). Sem coleta ha mais
+        # de 2 h vira "desconhecido" -- e o laco que parou, nao o switch.
         if not estado:
             status = "unknown"
-        elif estado.get("ok") and _segundos_desde(estado.get("at")) <= 1800:
+        elif not estado.get("ok"):
+            status = "offline"
+        elif _segundos_desde(estado.get("at")) <= 7200:
             status = "online"
         else:
-            status = "offline"
+            status = "unknown"
         saida.append({
             "entity_key": f"switch:{ip}", "entity_type": "switch", "entity_id": ip,
             "site": (portas[0].get("site") if portas else "") or (info.get("site") if mesmo else ""),
@@ -271,6 +277,33 @@ def refresh_from_inventory() -> Dict[str, Any]:
             return "down"
         return "unknown"
 
+    # ONUs por OLT (qualquer marca, vem do inventario) e saude por SNMP (so
+    # quem publica -- ver olt_snmp_health): vao para o host da OLT no Zabbix.
+    onus_por_olt: Dict[str, Dict[str, int]] = {}
+    for row in onus:
+        cont = onus_por_olt.setdefault(_text(row.get("olt_ip")), {"total": 0, "up": 0, "_vistas": set()})
+        chave = _text(row.get("pon")) + "|" + _text(row.get("onu_id") or row.get("onu") or row.get("onu_serial"))
+        if chave in cont["_vistas"]:
+            continue
+        cont["_vistas"].add(chave)
+        cont["total"] += 1
+        cont["up"] += int(normalize_status(row.get("oper_status") or row.get("status")) == "up")
+    try:
+        from app.services.olt_snmp_health import saude_das_olts
+        saude_snmp = saude_das_olts()
+    except Exception:
+        saude_snmp = {}
+
+    def _saude(r: Dict[str, Any]) -> Dict[str, Any]:
+        cont = onus_por_olt.get(_text(r.get("host"))) or {}
+        out: Dict[str, Any] = {"onus_total": cont.get("total"), "onus_up": cont.get("up")}
+        s = saude_snmp.get(_text(r.get("id"))) or {}
+        if s.get("ok") and _segundos_desde(s.get("at")) <= 3600:
+            for k in ("uptime_days", "uplinks_up", "uplinks_total", "pons_up", "pons_total",
+                      "uplink_in_bps", "uplink_out_bps", "uplinks"):
+                out[k] = s.get(k)
+        return out
+
     counts["olt"] = _observe_many(({
         "entity_key": f"olt:{r.get('id')}", "entity_type": "olt", "entity_id": r.get("id"), "site": r.get("site"),
         "connector_id": r.get("connector_id"), "parent_key": f"connector:{r.get('connector_id')}" if r.get("connector_id") else "",
@@ -280,6 +313,7 @@ def refresh_from_inventory() -> Dict[str, Any]:
             "last_test_status": _text(r.get("last_test_status")),
             "last_tested_at": _text(r.get("last_tested_at")),
             "last_test_detail": _text(r.get("last_test_detail")),
+            **_saude(r),
         },
     } for r in olts), prune_entity_type="olt")
     olt_by_host = {_text(r.get("host")): r for r in olts}

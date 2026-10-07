@@ -95,6 +95,20 @@ def _is_proxy_allowed_host(host: str) -> bool:
     return bool(ip.is_private or ip in cgnat)
 
 
+def _switch_connector_for_ip(ip: str) -> str | None:
+    """Conector do switch deste IP, se ele for um switch coletado pelo cliente
+    atual ("" = switch sem conector; None = nao e switch do cliente). O estado
+    do switch e por tenant, entao nao abre switch de outro cliente."""
+    try:
+        from app.services.switch_service import _conector_da_credencial, load_switch_mac_state
+        for cred in (load_switch_mac_state() or {}).get("switch_creds") or []:
+            if isinstance(cred, dict) and _as_str(cred.get("switch_ip")) == _as_str(ip):
+                return _conector_da_credencial(cred)
+    except Exception:
+        return None
+    return None
+
+
 def _ip_belongs_to_current_tenant(ip: str) -> bool:
     """Confere se este IP pertence a uma camera OU um DVR/NVR cadastrado no
     tenant atual (nao IP arbitrario). Sem isso, um usuario logado em
@@ -107,6 +121,8 @@ def _ip_belongs_to_current_tenant(ip: str) -> bool:
         or _host_in_recorder_inventory(ip)
         # o MikroTik do proprio conector (IP do tunel) tambem e "do tenant"
         or bool(_connector_tunnel_ip_owner(ip))
+        # e o switch gerenciavel coletado por ele (acesso web pela tela Switch)
+        or _switch_connector_for_ip(ip) is not None
     )
 
 
@@ -532,6 +548,11 @@ def _connector_for(ip: str, hint: str = "") -> str:
     cid = str(row.get("remote_connector_id") or row.get("connector_id") or "").strip()
     if cid:
         return cid
+    # Switch gerenciavel do cliente: a credencial guarda o conector. Vem antes
+    # da faixa porque 10.200.0.0/23 e de mais de um cliente e a faixa nao decide.
+    conector_switch = _switch_connector_for_ip(ip)
+    if conector_switch:
+        return conector_switch
     # Nao e camera: pode ser o proprio MikroTik do conector (IP do tunel).
     dono = _connector_tunnel_ip_owner(ip)
     if dono:

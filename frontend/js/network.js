@@ -320,8 +320,8 @@ function renderSwitchCards() {
       <div class="sw-card-head">
         <div class="sw-card-title">
           <i data-lucide="network"></i>
-          <div><strong>${esc(nome)}</strong>
-            <span class="monospace">${esc(ip)}</span>
+          <div><a href="#" class="sw-web" data-ip="${esc(ip)}" title="Abrir a interface web do switch"><strong>${esc(nome)}</strong>
+            <span class="monospace">${esc(ip)}</span> <i data-lucide="external-link" class="sw-web-icon"></i></a>
             <small>${esc([modelo, firmware, site].filter(Boolean).join(' · '))}</small></div>
         </div>
         <div class="sw-card-stats">
@@ -335,6 +335,12 @@ function renderSwitchCards() {
 
   // Clicar na porta filtra a tabela por ela; clicar de novo limpa.
   box.onclick = (ev) => {
+    const web = ev.target.closest('.sw-web');
+    if (web) {
+      ev.preventDefault();
+      openDeviceWeb(web.dataset.ip, 80);
+      return;
+    }
     const tile = ev.target.closest('.sw-port');
     if (!tile) return;
     const busca = document.getElementById('switchSearch');

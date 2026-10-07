@@ -506,7 +506,10 @@ def sync_monitoring_to_zabbix(entity_types: tuple[str, ...] = ("olt", "onu", "ca
 
     all_hostids = [host_ids[name] for name in technical_names if host_ids.get(name)]
     wanted_keys = ["sightops.status", "sightops.onu_rx", "sightops.olt_rx", "sightops.distance",
-                   "sightops.ports_up", "sightops.ports_total", "sightops.poe_watts"]
+                   "sightops.ports_up", "sightops.ports_total", "sightops.poe_watts",
+                   "sightops.onus_up", "sightops.onus_total", "sightops.uptime_days",
+                   "sightops.uplinks_up", "sightops.uplinks_total", "sightops.pons_up", "sightops.pons_total",
+                   "sightops.uplink_in_bps", "sightops.uplink_out_bps"]
     items = _call(
         url, "item.get",
         {"output": ["itemid", "hostid", "key_"], "hostids": all_hostids, "filter": {"key_": wanted_keys}},
@@ -521,10 +524,37 @@ def sync_monitoring_to_zabbix(entity_types: tuple[str, ...] = ("olt", "onu", "ca
         "sightops.ports_up": ("SightOps - Portas com link", 3, "Portas do switch com link"),
         "sightops.ports_total": ("SightOps - Portas", 3, "Portas fisicas do switch"),
         "sightops.poe_watts": ("SightOps - PoE total", 0, "Potencia PoE entregue pelo switch em W"),
+        "sightops.onus_up": ("SightOps - ONUs online", 3, "ONUs da OLT com status online"),
+        "sightops.onus_total": ("SightOps - ONUs", 3, "ONUs autorizadas na OLT"),
+        "sightops.uptime_days": ("SightOps - Tempo ligada", 0, "Dias desde o ultimo boot da OLT (SNMP)"),
+        "sightops.uplinks_up": ("SightOps - Uplinks com link", 3, "Portas de uplink da OLT com link (SNMP)"),
+        "sightops.uplinks_total": ("SightOps - Uplinks", 3, "Portas de uplink da OLT (SNMP)"),
+        "sightops.pons_up": ("SightOps - PONs com link", 3, "Portas PON com ONU ativa (SNMP)"),
+        "sightops.pons_total": ("SightOps - PONs", 3, "Portas PON da OLT (SNMP)"),
+        "sightops.uplink_in_bps": ("SightOps - Uplink entrada", 0, "Trafego de entrada somado dos uplinks em bit/s (media entre duas leituras SNMP)"),
+        "sightops.uplink_out_bps": ("SightOps - Uplink saida", 0, "Trafego de saida somado dos uplinks em bit/s (media entre duas leituras SNMP)"),
     }
+    # bit/s ja vem calculado (olt_snmp_health, entre duas leituras SNMP). A
+    # primeira versao criou estes itens com pre-processamento "x8 + diferenca
+    # por segundo" sobre o contador cru: apaga esses uma vez e recria sem.
+    pre_por_chave: Dict[str, Any] = {}
+    velhos = _call(
+        url, "item.get",
+        {"output": ["itemid", "hostid", "key_"], "hostids": all_hostids, "selectPreprocessing": "extend",
+         "filter": {"key_": ["sightops.uplink_in_bps", "sightops.uplink_out_bps"]}},
+        auth, 101,
+    ) or []
+    com_pre = [row for row in velhos if row.get("preprocessing")]
+    if com_pre:
+        _call(url, "item.delete", [_text(row.get("itemid")) for row in com_pre], auth, 102)
+        for row in com_pre:
+            item_by_host_key.pop((_text(row.get("hostid")), _text(row.get("key_"))), None)
     metricas_por_tipo = {
         "onu": ["sightops.onu_rx", "sightops.olt_rx", "sightops.distance"],
         "switch": ["sightops.ports_up", "sightops.ports_total", "sightops.poe_watts"],
+        "olt": ["sightops.onus_up", "sightops.onus_total", "sightops.uptime_days", "sightops.uplinks_up",
+                "sightops.uplinks_total", "sightops.pons_up", "sightops.pons_total",
+                "sightops.uplink_in_bps", "sightops.uplink_out_bps"],
     }
     create_items = []
     for technical_name, row in technical_names.items():
@@ -534,7 +564,10 @@ def sync_monitoring_to_zabbix(entity_types: tuple[str, ...] = ("olt", "onu", "ca
             if (hostid, key) in item_by_host_key:
                 continue
             name, value_type, description = item_specs[key]
-            create_items.append({"hostid": hostid, "name": name, "key_": key, "type": 2, "value_type": value_type, "delay": "0", "history": "30d", "trends": "365d", "description": description})
+            novo_item = {"hostid": hostid, "name": name, "key_": key, "type": 2, "value_type": value_type, "delay": "0", "history": "30d", "trends": "365d", "description": description}
+            if key in pre_por_chave:
+                novo_item["preprocessing"] = pre_por_chave[key]
+            create_items.append(novo_item)
     cursor = 0
     missing_item_keys = [(row["hostid"], row["key_"]) for row in create_items]
     for batch in _chunks(create_items):
@@ -565,6 +598,15 @@ def sync_monitoring_to_zabbix(entity_types: tuple[str, ...] = ("olt", "onu", "ca
             ("sightops.ports_up", _number(detail.get("ports_up"))),
             ("sightops.ports_total", _number(detail.get("ports_total"))),
             ("sightops.poe_watts", _number(detail.get("poe_watts"))),
+            ("sightops.onus_up", _number(detail.get("onus_up"))),
+            ("sightops.onus_total", _number(detail.get("onus_total"))),
+            ("sightops.uptime_days", _number(detail.get("uptime_days"))),
+            ("sightops.uplinks_up", _number(detail.get("uplinks_up"))),
+            ("sightops.uplinks_total", _number(detail.get("uplinks_total"))),
+            ("sightops.pons_up", _number(detail.get("pons_up"))),
+            ("sightops.pons_total", _number(detail.get("pons_total"))),
+            ("sightops.uplink_in_bps", _number(detail.get("uplink_in_bps"))),
+            ("sightops.uplink_out_bps", _number(detail.get("uplink_out_bps"))),
         ):
             metric_itemid = item_by_host_key.get((hostid, key), "")
             if metric_itemid and value is not None:
