@@ -153,7 +153,8 @@ async function tr069AbrirDetalhe(serial) {
       <div class="tr-tiles">
         <div class="tr-tile"><span>Sinal na ONU</span><b>${esc(tr069Dbm(d.sinal_dbm))}</b><small>lido pela OLT</small></div>
         <div class="tr-tile"><span>Tempo ligada</span><b>${esc(tr069Duracao(r.uptime_s))}</b><small>último boot ${esc(tr069Quando(r.ultimo_boot))}</small></div>
-        <div class="tr-tile"><span>WAN</span><b>${esc(tr069StatusWan(wan?.status))}</b><small>${esc(wanInfo)}</small></div>
+        <div class="tr-tile"><span>WAN</span><b>${esc(tr069StatusWan(wan?.status))}</b><small>${wan?.vlan ? 'VLAN ' + esc(wan.vlan) + ' · ' : ''}${wan?.ip
+          ? `<a href="#" class="tr-ip-web" data-tr069-web="${esc(wan.ip)}" title="Abrir a web da ONU pela rede do cliente">${esc(wan.ip)} ↗</a>` : '—'}</small></div>
         <div class="tr-tile"><span>Portas LAN</span><b>${lanLink} de ${(r.lan || []).length}</b><small>com link agora</small></div>
         <div class="tr-tile"><span>Último contato</span><b>${esc(tr069Quando(r.ultimo_contato))}</b><small>contato a cada ${Math.round((r.intervalo_s || 300) / 60)} min</small></div>
       </div>
@@ -189,6 +190,7 @@ async function tr069AbrirDetalhe(serial) {
             <button class="secondary-action" data-tr069-abrir="ping"><i data-lucide="activity"></i> Ping pela ONU</button>
             <button class="secondary-action danger-action" data-tr069-reset><i data-lucide="rotate-ccw"></i> Reset de fábrica</button>
           </div>
+          ${(d.servicos || []).find(x => x.gerencia && x.ip) ? `<button class="secondary-action tr-web-btn" data-tr069-web="${esc((d.servicos || []).find(x => x.gerencia && x.ip).ip)}"><i data-lucide="globe"></i> Abrir web da ONU · ${esc((d.servicos || []).find(x => x.gerencia && x.ip).ip)}</button>` : ''}
           <div class="tr-inline hidden" id="tr069PoeBox">
             <p>Escolha a porta. Ela desliga, espera 5 s e liga de novo: a câmera reinicia.</p>
             <div class="tr-pchips">${(r.lan || []).map(p => `<button type="button" class="tr-pchip" data-tr069-religar="${esc(p.porta)}">LAN ${esc(p.porta)}</button>`).join('')}</div>
@@ -323,8 +325,9 @@ document.addEventListener('input', ev => {
 document.addEventListener('click', async ev => {
   const box = document.getElementById('tr069DetalheBox');
   if (!box || !box.contains(ev.target)) return;
-  const t = ev.target.closest('button');
+  const t = ev.target.closest('button, a[data-tr069-web]');
   if (!t) return;
+  if (t.dataset.tr069Web) { ev.preventDefault(); return openDeviceWeb(t.dataset.tr069Web, 80); }
   if (t.dataset.tr069Abrir) {
     const alvo = t.dataset.tr069Abrir === 'poe' ? 'tr069PoeBox' : 'tr069PingBox';
     ['tr069PoeBox', 'tr069PingBox', 'tr069ConfirmReset'].forEach(id => {

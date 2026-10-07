@@ -11229,3 +11229,8 @@ table.recorder-tabela tbody tr:hover { background: var(--surface-soft); }
 /* -- TR-069: filtros do Ativar ------------------------------------------- */
 .tr-cand-filtros { display: flex; flex-wrap: wrap; gap: 8px; }
 .tr-cand-filtros .tr-search { flex: 1 1 240px; }
+
+.tr-web-btn { width: 100%; justify-content: center; margin-top: 8px; }
+
+.tr-ip-web { color: var(--primary); font-weight: 600; text-decoration: none; }
+.tr-ip-web:hover { text-decoration: underline; }

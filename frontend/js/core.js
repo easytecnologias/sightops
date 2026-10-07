@@ -46,6 +46,20 @@ async function openDeviceWeb(ip, port) {
   ip = String(ip || '').trim();
   if (!ip) return;
   const proxyUrl = `${API_BASE}/api/maintenance/web/${encodeURIComponent(ip)}/`;
+  // A janela abre AQUI, ainda no clique: depois dos awaits o navegador ja nao
+  // considera gesto do usuario e bloqueia como pop-up -- foi assim que o
+  // "Abrir web da ONU" nao abria nada e nao dizia nada (07/10/2026).
+  let win = null;
+  try {
+    win = window.open('', '_blank');
+    if (win) {
+      win.opener = null;
+      win.document.title = `Abrindo ${ip}…`;
+      win.document.body.innerHTML = `<p style="font:14px sans-serif;padding:24px">Abrindo <b>${ip}</b> pela rede do cliente…</p>`;
+    }
+  } catch { win = null; }
+  const ir = (url) => { if (win && !win.closed) win.location.href = url; else window.open(url, '_blank', 'noopener'); };
+  showToast(`Abrindo ${ip} pela rede do cliente…`);
   let health = null, openData = null, diagErr = '';
   try {
     const ctrl = new AbortController();
@@ -68,18 +82,16 @@ async function openDeviceWeb(ip, port) {
       const res = await fetch(`${SIGHTOPS_AGENT_URL}/open?${q}`);
       openData = await res.json();
       if (openData && openData.ok && openData.url) {
-        // window.open com 'noopener' devolve null POR ESPECIFICACAO -- nao da
-        // pra usar o retorno pra detectar popup bloqueado. Checar isso abria a
-        // aba do agente E a do proxy (duas saidas). Se o agente deu a url, a
-        // janela e dele: abre e encerra aqui.
-        window.open(openData.url, '_blank', 'noopener');
+        ir(openData.url);
         return;
       } else if (openData) { diagErr = 'open:' + (openData.error || 'sem url'); }
     } catch (e) { diagErr = 'open:' + ((e && e.message) || String(e)); }
   }
   console.warn('[SightOps Agent] DIAG health=', JSON.stringify(health), '| open=', JSON.stringify(openData), '| erro=', diagErr, '-> caindo no proxy');
-  window.open(proxyUrl, '_blank', 'noopener');
+  if (health && health.ok && diagErr) showToast(`O agente não abriu ${ip} (${diagErr}). Abrindo pelo acesso web do servidor.`, true);
+  ir(proxyUrl);
 }
+
 let _scanWs = null;
 let _camAuthAction = null;
 let _currentUser = null; // ultimo /api/auth/me: role, is_platform_admin, acting_as, enabled_modules...

@@ -109,6 +109,16 @@ def _switch_connector_for_ip(ip: str) -> str | None:
     return None
 
 
+def _tr069_onu_connector_for_ip(ip: str) -> str | None:
+    """Conector da ONU (TR-069) cujo IP de gerencia e este, so do cliente atual
+    (None = nao e ONU dele). Para o "Abrir web" da tela TR-069."""
+    try:
+        from app.services.tr069_service import onus_por_ip_de_gerencia
+        return onus_por_ip_de_gerencia().get(_as_str(ip))
+    except Exception:
+        return None
+
+
 def _ip_belongs_to_current_tenant(ip: str) -> bool:
     """Confere se este IP pertence a uma camera OU um DVR/NVR cadastrado no
     tenant atual (nao IP arbitrario). Sem isso, um usuario logado em
@@ -123,6 +133,8 @@ def _ip_belongs_to_current_tenant(ip: str) -> bool:
         or bool(_connector_tunnel_ip_owner(ip))
         # e o switch gerenciavel coletado por ele (acesso web pela tela Switch)
         or _switch_connector_for_ip(ip) is not None
+        # e a ONU gerenciada por TR-069 (IP da rede de gerencia dela)
+        or _tr069_onu_connector_for_ip(ip) is not None
     )
 
 
@@ -553,6 +565,9 @@ def _connector_for(ip: str, hint: str = "") -> str:
     conector_switch = _switch_connector_for_ip(ip)
     if conector_switch:
         return conector_switch
+    conector_onu = _tr069_onu_connector_for_ip(ip)
+    if conector_onu:
+        return conector_onu
     # Nao e camera: pode ser o proprio MikroTik do conector (IP do tunel).
     dono = _connector_tunnel_ip_owner(ip)
     if dono:

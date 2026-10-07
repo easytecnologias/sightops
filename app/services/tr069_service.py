@@ -504,6 +504,33 @@ def _url_de_chamada(doc: Dict[str, Any], connector_id: str) -> Optional[str]:
     return urllib.parse.urlunsplit((partes.scheme or "http", netloc, partes.path or "/", partes.query, ""))
 
 
+_IP_GERENCIA_CACHE: Dict[str, Tuple[float, Dict[str, str]]] = {}
+
+
+def onus_por_ip_de_gerencia() -> Dict[str, str]:
+    """IP de gerencia (o do ConnectionRequestURL) -> conector, so das ONUs do
+    cliente da sessao. Usado pelo acesso web do SightOps (botao "Abrir web").
+    Cache de 60 s por cliente: o proxy chama isto a cada requisicao da pagina."""
+    from app.core.tenant_context import get_current_tenant_slug
+
+    chave = get_current_tenant_slug()
+    agora = time.time()
+    em_cache = _IP_GERENCIA_CACHE.get(chave)
+    if em_cache and agora - em_cache[0] < 60:
+        return em_cache[1]
+    onus = onus_do_cliente()
+    out: Dict[str, str] = {}
+    projecao = "_id,_deviceId,InternetGatewayDevice.ManagementServer.ConnectionRequestURL,Device.ManagementServer.ConnectionRequestURL"
+    for doc in _buscar_por_seriais(onus.keys(), projecao):
+        raiz = "InternetGatewayDevice" if padrao(doc) == "tr098" else "Device"
+        host = urllib.parse.urlsplit(str(_v(doc, f"{raiz}.ManagementServer.ConnectionRequestURL") or "")).hostname
+        onu = onus.get(serial_do_inventario((doc.get("_deviceId") or {}).get("_SerialNumber"), onus)) or {}
+        if host:
+            out[host] = str(onu.get("connector_id") or onu.get("remote_connector_id") or "")
+    _IP_GERENCIA_CACHE[chave] = (agora, out)
+    return out
+
+
 def redes_diretas() -> List[str]:
     from app.services.db_store import get_json_state
 
