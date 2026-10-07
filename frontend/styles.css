@@ -11218,7 +11218,10 @@ table.recorder-tabela tbody tr:hover { background: var(--surface-soft); }
 .tr-vazio-li { color: var(--muted); font-size: 13px; padding: 4px 0; }
 .tr-op-banner { margin-bottom: 0; }
 .tr-detail > .tr-box { margin: 0; }
-.tr-quick .secondary-action { min-height: 40px; }
+/* Cinco acoes em vez de quatro: um pouco menores para caberem sem o painel
+   crescer e empurrar o resto da coluna. */
+.tr-quick .secondary-action { min-height: 36px; padding: 7px 10px; font-size: 12.5px; }
+.tr-quick .secondary-action svg { width: 15px; height: 15px; }
 
 /* -- TR-069: polimento --------------------------------------------------- */
 .tr-port .tr-badge { align-self: flex-start; }

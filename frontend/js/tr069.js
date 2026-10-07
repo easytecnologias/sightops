@@ -166,11 +166,6 @@ async function tr069AbrirDetalhe(serial) {
         <div class="tr-tile"><span>WAN</span><b>${esc(tr069StatusWan(wan?.status))}</b><small>${wan?.vlan ? 'VLAN ' + esc(wan.vlan) + ' · ' : ''}${wan?.ip
           ? `<a href="#" class="tr-ip-web" data-tr069-web="${esc(wan.ip)}" title="Abrir a web da ONU pela rede do cliente">${esc(wan.ip)} ↗</a>` : '—'}</small></div>
         <div class="tr-tile"><span>Portas LAN</span><b>${lanLink} de ${(r.lan || []).length}</b><small>com link agora</small></div>
-        <div class="tr-tile"><span>DHCP da LAN</span><b>${r.dhcp_lan === null || r.dhcp_lan === undefined
-          ? '—' : (r.dhcp_lan ? 'ligado' : 'desligado')}</b>
-          <small>${r.dhcp_lan === null || r.dhcp_lan === undefined
-            ? 'esta ONU nao informa'
-            : `<button class="tr-link" data-tr069-dhcp="${r.dhcp_lan ? '0' : '1'}">${r.dhcp_lan ? 'desligar' : 'ligar'}</button>`}</small></div>
         <div class="tr-tile"><span>Último contato</span><b>${esc(tr069Quando(r.ultimo_contato))}</b><small>contato a cada ${Math.round((r.intervalo_s || 300) / 60)} min</small></div>
       </div>
     </section>
@@ -203,6 +198,8 @@ async function tr069AbrirDetalhe(serial) {
             <button class="secondary-action" data-tr069-acao="reiniciar"><i data-lucide="power"></i> Reiniciar ONU</button>
             <button class="secondary-action" data-tr069-abrir="poe"><i data-lucide="plug-zap"></i> Religar PoE</button>
             <button class="secondary-action" data-tr069-abrir="ping"><i data-lucide="activity"></i> Ping pela ONU</button>
+            ${r.dhcp_lan === null || r.dhcp_lan === undefined ? '' :
+              `<button class="secondary-action" data-tr069-dhcp="${r.dhcp_lan ? '0' : '1'}"><i data-lucide="network"></i> ${r.dhcp_lan ? 'Desligar' : 'Ligar'} DHCP da LAN</button>`}
             <button class="secondary-action danger-action" data-tr069-reset><i data-lucide="rotate-ccw"></i> Reset de fábrica</button>
           </div>
           ${(d.servicos || []).find(x => x.gerencia && x.ip) ? `<button class="secondary-action tr-web-btn" data-tr069-web="${esc((d.servicos || []).find(x => x.gerencia && x.ip).ip)}"><i data-lucide="globe"></i> Abrir web da ONU · ${esc((d.servicos || []).find(x => x.gerencia && x.ip).ip)}</button>` : ''}
