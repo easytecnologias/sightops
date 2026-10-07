@@ -1323,6 +1323,43 @@ def list_access_report_events(filters: Dict[str, Any]) -> List[Dict[str, Any]]:
     return [_event_row_dict(r) for r in rows]
 
 
+# Saida seguida de entrada nesse intervalo e a MESMA passagem: a pessoa passa na
+# leitora de saida e, segundos depois, a de entrada tambem le o cartao (porta que
+# nao abriu, lado errado). Medido na RADS (21/09 a 06/10): 34 casos de 6 a 60 s,
+# todos saida->entrada, nenhum entrada->saida -- e cada um deixava a pessoa
+# "dentro" da escola para sempre.
+_LEITURA_DUPLA_SEGUNDOS = 60
+
+
+def _momento(valor: Any):
+    texto = str(valor or "").strip().replace("T", " ")[:19]
+    try:
+        return datetime.strptime(texto, "%Y-%m-%d %H:%M:%S")
+    except ValueError:
+        return None
+
+
+def _esta_dentro(eventos: List[Any], hoje: str) -> bool:
+    """`eventos` e o historico da pessoa, do mais novo para o mais antigo.
+
+    Ninguem fica dentro de um dia para o outro: so conta a ultima marcacao se ela
+    for de HOJE. Sem isso, quem saiu sem passar na leitora aparecia presente a
+    meia-noite (9 pessoas na RADS em 07/10/2026 00:25, de 29/09 em diante).
+    """
+    if not eventos:
+        return False
+    ultimo = eventos[0]
+    if normalize_access_event_type(ultimo["event_type"]) != "entrada":
+        return False
+    if str(ultimo["occurred_at"] or "").strip()[:10] != hoje:
+        return False
+    if len(eventos) > 1 and normalize_access_event_type(eventos[1]["event_type"]) in {"saida", "saida_manual"}:
+        t1, t0 = _momento(ultimo["occurred_at"]), _momento(eventos[1]["occurred_at"])
+        if t1 and t0 and 0 <= (t1 - t0).total_seconds() <= _LEITURA_DUPLA_SEGUNDOS:
+            return False
+    return True
+
+
 def access_presence_summary(site: str = "", device_id: str = "", door_group_id: str = "") -> Dict[str, int]:
     ensure_access_control_schema()
     tenant = db_store._current_tenant_slug()
@@ -1347,7 +1384,7 @@ def access_presence_summary(site: str = "", device_id: str = "", door_group_id: 
     with db_store._conn() as c:
         rows = c.execute(
             f"""
-            SELECT e.person_id, e.event_type
+            SELECT e.person_id, e.event_type, e.occurred_at
             FROM access_events e
             LEFT JOIN access_people p ON p.tenant_slug=e.tenant_slug AND p.id=e.person_id
             LEFT JOIN access_devices d ON d.tenant_slug=e.tenant_slug AND d.id=e.device_id
@@ -1356,19 +1393,19 @@ def access_presence_summary(site: str = "", device_id: str = "", door_group_id: 
             """,
             tuple(params),
         ).fetchall()
-    latest: Dict[str, str] = {}
+    historico: Dict[str, List[Any]] = {}
     for row in rows:
         person_id = str(row["person_id"] or "")
-        if person_id and person_id not in latest:
-            latest[person_id] = normalize_access_event_type(row["event_type"])
-    inside = sum(1 for event_type in latest.values() if event_type == "entrada")
-    outside = sum(1 for event_type in latest.values() if event_type in {"saida", "saida_manual"})
-    return {"people_with_events": len(latest), "inside_now": inside, "outside_now": outside}
+        if person_id and len(historico.setdefault(person_id, [])) < 2:
+            historico[person_id].append(row)
+    hoje = datetime.now().strftime("%Y-%m-%d")
+    inside = sum(1 for eventos in historico.values() if _esta_dentro(eventos, hoje))
+    return {"people_with_events": len(historico), "inside_now": inside, "outside_now": len(historico) - inside}
 
 
 def access_present_people(site: str = "", device_id: str = "", door_group_id: str = "") -> List[Dict[str, Any]]:
-    """Lista as pessoas PRESENTES agora (mesma regra do inside_now: a ultima
-    marcacao de cada pessoa e uma entrada)."""
+    """Lista as pessoas PRESENTES agora (mesma regra do inside_now, ver
+    _esta_dentro: ultima marcacao e uma entrada de hoje, que nao e eco de saida)."""
     ensure_access_control_schema()
     tenant = db_store._current_tenant_slug()
     where = ["e.tenant_slug = ?", "e.person_id <> ''"]
@@ -1404,15 +1441,17 @@ def access_present_people(site: str = "", device_id: str = "", door_group_id: st
             """,
             tuple(params),
         ).fetchall()
-    latest: Dict[str, Any] = {}
+    historico: Dict[str, List[Any]] = {}
     for row in rows:
         person_id = str(row["person_id"] or "")
-        if person_id and person_id not in latest:
-            latest[person_id] = row
+        if person_id and len(historico.setdefault(person_id, [])) < 2:
+            historico[person_id].append(row)
+    hoje = datetime.now().strftime("%Y-%m-%d")
     present: List[Dict[str, Any]] = []
-    for person_id, row in latest.items():
-        if normalize_access_event_type(row["event_type"]) != "entrada":
+    for person_id, eventos in historico.items():
+        if not _esta_dentro(eventos, hoje):
             continue
+        row = eventos[0]
         present.append({
             "person_id": person_id,
             "name": (str(row["full_name"] or "").strip() or "Pessoa nao identificada"),
