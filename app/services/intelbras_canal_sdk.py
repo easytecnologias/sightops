@@ -175,6 +175,9 @@ def _agir(p: Dict[str, Any]) -> Dict[str, Any]:
                 e["Vendor"] = "Onvif"
                 if not p.get("porta_rtsp"):
                     e["RtspPort"] = 554
+                # Canal livre do NVD 1516 trazia HttpsPort=80; o cadastro manual grava 443.
+                if int(e.get("HttpsPort") or 0) in (0, 80):
+                    e["HttpsPort"] = 443
             if p.get("nome"):
                 vis = e.get("VideoInputs") or [{}]
                 e["VideoInputs"] = [dict(vis[0], Name=p["nome"])] + list(vis[1:])
