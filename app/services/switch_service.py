@@ -227,6 +227,10 @@ def collect_macs(req: SwitchCollectMacsRequest) -> Dict[str, Any]:
             "user": _safe(req.user),
             "password_enc": encrypt(req.password),
             "host_port": port if platform == "hikvision" else req.port,
+            # Sem o conector as acoes de porta (PoE, ativar) e a coleta automatica
+            # iam ao IP real, que num site isolado nao tem rota.
+            "connector_id": _safe(getattr(req, "connector_id", "")),
+            "switch_name": switch_name,
         }
     ]
 
@@ -331,6 +335,58 @@ def _find_switch_and_port(switch_ip: str, site: str, port_name: str) -> tuple[di
     return cred, port_row
 
 
+def _conector_da_credencial(cred: dict[str, Any]) -> str:
+    """Conector do switch: o gravado na credencial ou, em credencial antiga (antes
+    de ele ser guardado), o do ultimo switch coletado com o mesmo IP."""
+    cid = _safe(cred.get("connector_id"))
+    if cid:
+        return cid
+    ultimo = (load_switch_mac_state() or {}).get("switch") or {}
+    return _safe(ultimo.get("connector_id")) if _safe(ultimo.get("ip")) == _safe(cred.get("switch_ip")) else ""
+
+
+def poll_switches() -> Dict[str, Any]:
+    """Coleta automatica de todos os switches do cliente com a senha guardada.
+
+    E o que poe o switch no monitoramento (e dali no Zabbix) como a OLT: sem
+    isso ele so era lido quando alguem clicava "Coletar MACs", e ninguem sabia
+    se tinha caido. Reaproveita collect_macs, entao a tela tambem fica em dia.
+    """
+    from datetime import datetime, timezone
+
+    obj = load_switch_mac_state() or {}
+    creds = [x for x in (obj.get("switch_creds") or []) if isinstance(x, dict) and _safe(x.get("switch_ip"))]
+    estado = dict(obj.get("switch_poll") or {})
+    feitos = []
+    for cred in creds:
+        ip = _safe(cred.get("switch_ip"))
+        nome = _safe(cred.get("switch_name")) or next(
+            (_safe(p.get("switch_name")) for p in (obj.get("ports") or []) if _safe(p.get("switch_ip")) == ip), "")
+        req = SwitchCollectMacsRequest(
+            switch_ip=ip, user=_safe(cred.get("user")) or "admin",
+            password=decrypt(cred.get("password_enc") or ""), site=_safe(cred.get("site")),
+            switch_name=nome or None, port=int(cred.get("host_port") or 80),
+            platform=_safe(cred.get("platform")) or "intelbras",
+            connector_id=_conector_da_credencial(cred) or None, timeout=20.0,
+        )
+        agora = datetime.now(timezone.utc).isoformat()
+        try:
+            r = collect_macs(req)
+            estado[ip] = {"ok": True, "at": agora, "error": "", "macs": r.get("count")}
+        except Exception as exc:
+            detalhe = getattr(exc, "detail", None) or str(exc)
+            estado[ip] = {"ok": False, "at": agora, "error": _safe(detalhe)[:200]}
+        feitos.append({"switch_ip": ip, **estado[ip]})
+    obj = load_switch_mac_state() or {}
+    obj["switch_poll"] = estado
+    save_switch_mac_state(obj)
+    return {"ok": True, "switches": feitos}
+
+
+def switch_poll_status() -> Dict[str, Any]:
+    return dict((load_switch_mac_state() or {}).get("switch_poll") or {})
+
+
 def set_port_poe(switch_ip: str, site: str, port_name: str, enabled: bool) -> Dict[str, Any]:
     cred, port_row = _find_switch_and_port(switch_ip, site, port_name)
     port_id = port_row.get("port_id")
@@ -339,7 +395,7 @@ def set_port_poe(switch_ip: str, site: str, port_name: str, enabled: bool) -> Di
     password = decrypt(cred.get("password_enc") or "")
     try:
         hikvision_set_port_poe(
-            host=_safe(switch_ip),
+            host=_host_alcancavel(_conector_da_credencial(cred), _safe(switch_ip)),
             username=_safe(cred.get("user")),
             password=password,
             port_id=int(port_id),
@@ -359,7 +415,7 @@ def set_port_enabled(switch_ip: str, site: str, port_name: str, enabled: bool) -
     password = decrypt(cred.get("password_enc") or "")
     try:
         hikvision_set_port_enabled(
-            host=_safe(switch_ip),
+            host=_host_alcancavel(_conector_da_credencial(cred), _safe(switch_ip)),
             username=_safe(cred.get("user")),
             password=password,
             port_id=int(port_id),

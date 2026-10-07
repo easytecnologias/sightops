@@ -19,6 +19,7 @@ DEFAULT_PROFILES = (
     ("onu-default", "ONU/ONT", "onu", 120, 2),
     ("camera-default", "Camera IP", "camera", 60, 2),
     ("nvr-default", "NVR", "nvr", 60, 2),
+    ("switch-default", "Switch gerenciavel", "switch", 600, 2),
     ("dvr-default", "DVR", "dvr", 60, 2),
     ("windows-default", "Computador Windows", "windows", 120, 2),
     # underscore para casar com o fallback automatico de _observe_entity_on()
@@ -189,6 +190,48 @@ def _segundos_desde(quando: Any) -> float:
         return float("inf")
 
 
+def _switch_entities() -> List[Dict[str, Any]]:
+    """Um switch por entidade, com o resultado da coleta automatica
+    (switch_service.poll_switches, a cada ciclo da telemetria de OLT)."""
+    from app.services.switch_service import list_macs as list_switch_macs, switch_poll_status
+
+    dados = list_switch_macs()
+    poll = switch_poll_status()
+    info = dados.get("switch") or {}
+    por_ip: Dict[str, List[Dict[str, Any]]] = {}
+    for p in dados.get("ports") or []:
+        if _text(p.get("switch_ip")):
+            por_ip.setdefault(_text(p.get("switch_ip")), []).append(p)
+    linhas = {_text(r.get("switch_ip")): r for r in dados.get("rows") or [] if _text(r.get("switch_ip"))}
+    saida = []
+    for ip in sorted(set(por_ip) | set(poll)):
+        portas = por_ip.get(ip, [])
+        estado = poll.get(ip) or {}
+        meta = linhas.get(ip) or {}
+        mesmo = _text(info.get("ip")) == ip
+        if not estado:
+            status = "unknown"
+        elif estado.get("ok") and _segundos_desde(estado.get("at")) <= 1800:
+            status = "online"
+        else:
+            status = "offline"
+        saida.append({
+            "entity_key": f"switch:{ip}", "entity_type": "switch", "entity_id": ip,
+            "site": (portas[0].get("site") if portas else "") or (info.get("site") if mesmo else ""),
+            "connector_id": info.get("connector_id") if mesmo else "",
+            "display_name": (portas[0].get("switch_name") if portas else "") or ip,
+            "status": status,
+            "detail": {
+                "ip": ip, "model": meta.get("switch_model") or (info.get("model") if mesmo else ""),
+                "firmware": meta.get("switch_firmware") or (info.get("firmware") if mesmo else ""),
+                "ports_total": len(portas), "ports_up": sum(1 for p in portas if p.get("up")),
+                "poe_watts": round(sum(float(p.get("poe_power_watts") or 0) for p in portas if p.get("poe_enabled")), 1),
+                "last_poll": estado.get("at"), "poll_error": estado.get("error"),
+            },
+        })
+    return saida
+
+
 def refresh_from_inventory() -> Dict[str, Any]:
     from app.services.connector_service import list_connectors
     from app.services.inventory_json import load_inventory_json
@@ -330,6 +373,11 @@ def refresh_from_inventory() -> Dict[str, Any]:
             "display_name": r.get("recorder_name") or r.get("nvr_name") or host, "status": _efetivo(r),
             "detail": {"host": host, "model": r.get("recorder_model") or r.get("nvr_model"), "status_lido": r.get("status")},
         } for host, r in recorders.items()), prune_entity_type=source)
+    try:
+        counts["switch"] = _observe_many(_switch_entities(), prune_entity_type="switch")
+    except Exception as exc:
+        logger.warning("Falha ao observar switches no monitoramento: %s", exc)
+        counts["switch"] = 0
     windows = load_windows_inventory()
     counts["windows"] = _observe_many(({
         "entity_key": f"windows:{r.get('connector_id') or 'local'}:{r.get('hostname') or r.get('ip')}", "entity_type": "windows",

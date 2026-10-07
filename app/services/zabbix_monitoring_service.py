@@ -388,7 +388,7 @@ def _configurar_telegram_por_site(
     return {"acoes": feitas, "motivo": ""}
 
 
-def sync_monitoring_to_zabbix(entity_types: tuple[str, ...] = ("olt", "onu", "camera", "nvr", "dvr", "connector", "access_device", "whatsapp")) -> Dict[str, Any]:
+def sync_monitoring_to_zabbix(entity_types: tuple[str, ...] = ("olt", "onu", "camera", "nvr", "dvr", "connector", "access_device", "whatsapp", "switch")) -> Dict[str, Any]:
     settings = load_app_settings()
     raw_cfg = settings.get("zabbix_ip_sync") if isinstance(settings.get("zabbix_ip_sync"), dict) else {}
     cfg = _default_zabbix_cfg(raw_cfg)
@@ -505,7 +505,8 @@ def sync_monitoring_to_zabbix(entity_types: tuple[str, ...] = ("olt", "onu", "ca
         url, auth, tenant, cfg, _grupo_site_cache, entity_types)
 
     all_hostids = [host_ids[name] for name in technical_names if host_ids.get(name)]
-    wanted_keys = ["sightops.status", "sightops.onu_rx", "sightops.olt_rx", "sightops.distance"]
+    wanted_keys = ["sightops.status", "sightops.onu_rx", "sightops.olt_rx", "sightops.distance",
+                   "sightops.ports_up", "sightops.ports_total", "sightops.poe_watts"]
     items = _call(
         url, "item.get",
         {"output": ["itemid", "hostid", "key_"], "hostids": all_hostids, "filter": {"key_": wanted_keys}},
@@ -517,11 +518,18 @@ def sync_monitoring_to_zabbix(entity_types: tuple[str, ...] = ("olt", "onu", "ca
         "sightops.onu_rx": ("SightOps - ONU RX", 0, "Potencia recebida pela ONU em dBm"),
         "sightops.olt_rx": ("SightOps - OLT RX", 0, "Potencia recebida pela OLT em dBm"),
         "sightops.distance": ("SightOps - Distancia", 0, "Distancia da ONU em km"),
+        "sightops.ports_up": ("SightOps - Portas com link", 3, "Portas do switch com link"),
+        "sightops.ports_total": ("SightOps - Portas", 3, "Portas fisicas do switch"),
+        "sightops.poe_watts": ("SightOps - PoE total", 0, "Potencia PoE entregue pelo switch em W"),
+    }
+    metricas_por_tipo = {
+        "onu": ["sightops.onu_rx", "sightops.olt_rx", "sightops.distance"],
+        "switch": ["sightops.ports_up", "sightops.ports_total", "sightops.poe_watts"],
     }
     create_items = []
     for technical_name, row in technical_names.items():
         hostid = host_ids.get(technical_name, "")
-        keys = ["sightops.status"] + (["sightops.onu_rx", "sightops.olt_rx", "sightops.distance"] if row.get("entity_type") == "onu" else [])
+        keys = ["sightops.status"] + metricas_por_tipo.get(_text(row.get("entity_type")), [])
         for key in keys:
             if (hostid, key) in item_by_host_key:
                 continue
@@ -554,6 +562,9 @@ def sync_monitoring_to_zabbix(entity_types: tuple[str, ...] = ("olt", "onu", "ca
             ("sightops.onu_rx", _number(detail.get("onu_rx"))),
             ("sightops.olt_rx", _number(detail.get("olt_rx"))),
             ("sightops.distance", _number(detail.get("distance_km"))),
+            ("sightops.ports_up", _number(detail.get("ports_up"))),
+            ("sightops.ports_total", _number(detail.get("ports_total"))),
+            ("sightops.poe_watts", _number(detail.get("poe_watts"))),
         ):
             metric_itemid = item_by_host_key.get((hostid, key), "")
             if metric_itemid and value is not None:

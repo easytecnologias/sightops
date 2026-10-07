@@ -363,6 +363,13 @@ async def _olt_telemetry_loop() -> None:
                             tenant_results.append(await api_olt_registry_telemetry(int(olt["id"])))
                         except Exception as exc:
                             tenant_results.append({"ok": False, "olt_id": olt.get("id"), "error": str(exc)})
+                    # Switches no mesmo ciclo: e a coleta automatica que os poe
+                    # no monitoramento/Zabbix (ver switch_service.poll_switches).
+                    try:
+                        from app.services.switch_service import poll_switches
+                        tenant_results.append({"switches": await asyncio.to_thread(poll_switches)})
+                    except Exception as exc:
+                        tenant_results.append({"switches": {"ok": False, "error": str(exc)}})
                     results[tenant_slug] = tenant_results
                 finally:
                     reset_current_tenant_slug(token)
