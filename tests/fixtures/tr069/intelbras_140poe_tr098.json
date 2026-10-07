@@ -1,0 +1,5013 @@
+{
+ "_id": "808544-140PoE-ITBS4420775E",
+ "InternetGatewayDevice": {
+  "Capabilities": {
+   "_object": true,
+   "_writable": false
+  },
+  "DeviceConfig": {
+   "_object": true,
+   "_writable": false
+  },
+  "DeviceInfo": {
+   "HardwareVersion": {
+    "_object": false,
+    "_timestamp": "2026-10-07T13:30:28.538Z",
+    "_type": "xsd:string",
+    "_value": "PON140PoE_v1.0",
+    "_writable": false
+   },
+   "ProvisioningCode": {
+    "_object": false,
+    "_timestamp": "2026-10-07T13:30:28.538Z",
+    "_type": "xsd:string",
+    "_value": "",
+    "_writable": true
+   },
+   "SoftwareVersion": {
+    "_object": false,
+    "_timestamp": "2026-10-07T13:30:28.538Z",
+    "_type": "xsd:string",
+    "_value": "2.2-230830",
+    "_writable": false
+   },
+   "SpecVersion": {
+    "_object": false,
+    "_timestamp": "2026-10-07T13:30:28.538Z",
+    "_type": "xsd:string",
+    "_value": "1.0",
+    "_writable": false
+   },
+   "_object": true,
+   "_writable": false
+  },
+  "DeviceSummary": {
+   "_object": false,
+   "_timestamp": "2026-10-07T13:30:28.538Z",
+   "_type": "xsd:string",
+   "_value": "InternetGatewayDevice:1.4[](Baseline:2,EthernetLAN:4,Time:2,IPPing:1,TraceRoute:1,Download:1,DownloadTCP:1,Upload:1,UploadTCP:1,UDPEcho:1,UDPEchoPlus:1,DeviceAssociation:2,DHCPCondServing:1,DHCPOption:1)",
+   "_writable": false
+  },
+  "DownloadDiagnostics": {
+   "_object": true,
+   "_writable": false
+  },
+  "Firewall": {
+   "_object": true,
+   "_writable": false
+  },
+  "IPPingDiagnostics": {
+   "_object": true,
+   "_writable": false
+  },
+  "LANConfigSecurity": {
+   "_object": true,
+   "_writable": false,
+   "ConfigPassword": {
+    "_object": false,
+    "_timestamp": "2026-10-06T13:07:36.346Z",
+    "_type": "xsd:string",
+    "_value": "REMOVIDO",
+    "_writable": true
+   },
+   "_timestamp": "2026-10-06T13:07:36.267Z"
+  },
+  "LANDevice": {
+   "1": {
+    "Hosts": {
+     "Host": {
+      "_object": true,
+      "_timestamp": "2026-10-07T13:10:28.472Z",
+      "_writable": false
+     },
+     "HostNumberOfEntries": {
+      "_object": false,
+      "_writable": false,
+      "_timestamp": "2026-10-06T13:37:20.272Z",
+      "_type": "xsd:unsignedInt",
+      "_value": 0
+     },
+     "_object": true,
+     "_timestamp": "2026-10-06T13:37:20.270Z",
+     "_writable": false
+    },
+    "IGMPSnooping": {
+     "_object": false,
+     "_writable": true,
+     "_timestamp": "2026-10-06T13:37:20.272Z",
+     "_type": "xsd:boolean",
+     "_value": true
+    },
+    "LANEthernetInterfaceConfig": {
+     "1": {
+      "DuplexMode": {
+       "_object": false,
+       "_timestamp": "2026-10-06T13:37:20.272Z",
+       "_type": "xsd:string",
+       "_value": "Full",
+       "_writable": true
+      },
+      "Enable": {
+       "_object": false,
+       "_timestamp": "2026-10-06T13:37:20.272Z",
+       "_type": "xsd:boolean",
+       "_value": true,
+       "_writable": true
+      },
+      "MACAddress": {
+       "_object": false,
+       "_timestamp": "2026-10-06T13:37:20.272Z",
+       "_type": "xsd:string",
+       "_value": "80:85:44:20:77:5E",
+       "_writable": false
+      },
+      "MACAddressControlEnabled": {
+       "_object": false,
+       "_timestamp": "2026-10-06T13:37:20.272Z",
+       "_type": "xsd:boolean",
+       "_value": false,
+       "_writable": true
+      },
+      "MaxBitRate": {
+       "_object": false,
+       "_timestamp": "2026-10-06T13:37:20.272Z",
+       "_type": "xsd:string",
+       "_value": "1000",
+       "_writable": true
+      },
+      "Name": {
+       "_object": false,
+       "_timestamp": "2026-10-06T13:37:20.272Z",
+       "_type": "xsd:string",
+       "_value": "eth0.2.0",
+       "_writable": false
+      },
+      "Stats": {
+       "BroadcastPacketsReceived": {
+        "_object": false,
+        "_timestamp": "2026-10-06T13:37:20.272Z",
+        "_type": "xsd:unsignedInt",
+        "_value": 15,
+        "_writable": false
+       },
+       "BroadcastPacketsSent": {
+        "_object": false,
+        "_timestamp": "2026-10-06T13:37:20.272Z",
+        "_type": "xsd:unsignedInt",
+        "_value": 6167,
+        "_writable": false
+       },
+       "BytesReceived": {
+        "_object": false,
+        "_timestamp": "2026-10-06T13:37:20.272Z",
+        "_type": "xsd:unsignedInt",
+        "_value": 4442,
+        "_writable": false
+       },
+       "BytesSent": {
+        "_object": false,
+        "_timestamp": "2026-10-06T13:37:20.272Z",
+        "_type": "xsd:unsignedInt",
+        "_value": 2621443,
+        "_writable": false
+       },
+       "DiscardPacketsReceived": {
+        "_object": false,
+        "_timestamp": "2026-10-06T13:37:20.272Z",
+        "_type": "xsd:unsignedInt",
+        "_value": 0,
+        "_writable": false
+       },
+       "DiscardPacketsSent": {
+        "_object": false,
+        "_timestamp": "2026-10-06T13:37:20.272Z",
+        "_type": "xsd:unsignedInt",
+        "_value": 0,
+        "_writable": false
+       },
+       "ErrorsReceived": {
+        "_object": false,
+        "_timestamp": "2026-10-06T13:37:20.272Z",
+        "_type": "xsd:unsignedInt",
+        "_value": 0,
+        "_writable": false
+       },
+       "ErrorsSent": {
+        "_object": false,
+        "_timestamp": "2026-10-06T13:37:20.272Z",
+        "_type": "xsd:unsignedInt",
+        "_value": 0,
+        "_writable": false
+       },
+       "MulticastPacketsReceived": {
+        "_object": false,
+        "_timestamp": "2026-10-06T13:37:20.272Z",
+        "_type": "xsd:unsignedInt",
+        "_value": 10,
+        "_writable": false
+       },
+       "MulticastPacketsSent": {
+        "_object": false,
+        "_timestamp": "2026-10-06T13:37:20.272Z",
+        "_type": "xsd:unsignedInt",
+        "_value": 11665,
+        "_writable": false
+       },
+       "PacketsReceived": {
+        "_object": false,
+        "_timestamp": "2026-10-06T13:37:20.272Z",
+        "_type": "xsd:unsignedInt",
+        "_value": 27,
+        "_writable": false
+       },
+       "PacketsSent": {
+        "_object": false,
+        "_timestamp": "2026-10-06T13:37:20.272Z",
+        "_type": "xsd:unsignedInt",
+        "_value": 18483,
+        "_writable": false
+       },
+       "UnicastPacketsReceived": {
+        "_object": false,
+        "_timestamp": "2026-10-06T13:37:20.272Z",
+        "_type": "xsd:unsignedInt",
+        "_value": 2,
+        "_writable": false
+       },
+       "UnicastPacketsSent": {
+        "_object": false,
+        "_timestamp": "2026-10-06T13:37:20.272Z",
+        "_type": "xsd:unsignedInt",
+        "_value": 651,
+        "_writable": false
+       },
+       "UnknownProtoPacketsReceived": {
+        "_object": false,
+        "_timestamp": "2026-10-06T13:37:20.272Z",
+        "_type": "xsd:unsignedInt",
+        "_value": 0,
+        "_writable": false
+       },
+       "_object": true,
+       "_timestamp": "2026-10-06T13:37:20.270Z",
+       "_writable": false
+      },
+      "Status": {
+       "_object": false,
+       "_timestamp": "2026-10-06T13:37:20.272Z",
+       "_type": "xsd:string",
+       "_value": "Up",
+       "_writable": false
+      },
+      "_object": true,
+      "_timestamp": "2026-10-06T13:37:20.270Z",
+      "_writable": false
+     },
+     "2": {
+      "DuplexMode": {
+       "_object": false,
+       "_timestamp": "2026-10-06T13:37:20.272Z",
+       "_type": "xsd:string",
+       "_value": "Full",
+       "_writable": true
+      },
+      "Enable": {
+       "_object": false,
+       "_timestamp": "2026-10-06T13:37:20.272Z",
+       "_type": "xsd:boolean",
+       "_value": true,
+       "_writable": true
+      },
+      "MACAddress": {
+       "_object": false,
+       "_timestamp": "2026-10-06T13:37:20.272Z",
+       "_type": "xsd:string",
+       "_value": "80:85:44:20:77:5E",
+       "_writable": false
+      },
+      "MACAddressControlEnabled": {
+       "_object": false,
+       "_timestamp": "2026-10-06T13:37:20.272Z",
+       "_type": "xsd:boolean",
+       "_value": false,
+       "_writable": true
+      },
+      "MaxBitRate": {
+       "_object": false,
+       "_timestamp": "2026-10-06T13:37:20.272Z",
+       "_type": "xsd:string",
+       "_value": "1000",
+       "_writable": true
+      },
+      "Name": {
+       "_object": false,
+       "_timestamp": "2026-10-06T13:37:20.272Z",
+       "_type": "xsd:string",
+       "_value": "eth0.3.0",
+       "_writable": false
+      },
+      "Stats": {
+       "BroadcastPacketsReceived": {
+        "_object": false,
+        "_timestamp": "2026-10-06T13:37:20.272Z",
+        "_type": "xsd:unsignedInt",
+        "_value": 15,
+        "_writable": false
+       },
+       "BroadcastPacketsSent": {
+        "_object": false,
+        "_timestamp": "2026-10-06T13:37:20.272Z",
+        "_type": "xsd:unsignedInt",
+        "_value": 6170,
+        "_writable": false
+       },
+       "BytesReceived": {
+        "_object": false,
+        "_timestamp": "2026-10-06T13:37:20.272Z",
+        "_type": "xsd:unsignedInt",
+        "_value": 4442,
+        "_writable": false
+       },
+       "BytesSent": {
+        "_object": false,
+        "_timestamp": "2026-10-06T13:37:20.272Z",
+        "_type": "xsd:unsignedInt",
+        "_value": 2621985,
+        "_writable": false
+       },
+       "DiscardPacketsReceived": {
+        "_object": false,
+        "_timestamp": "2026-10-06T13:37:20.272Z",
+        "_type": "xsd:unsignedInt",
+        "_value": 0,
+        "_writable": false
+       },
+       "DiscardPacketsSent": {
+        "_object": false,
+        "_timestamp": "2026-10-06T13:37:20.272Z",
+        "_type": "xsd:unsignedInt",
+        "_value": 0,
+        "_writable": false
+       },
+       "ErrorsReceived": {
+        "_object": false,
+        "_timestamp": "2026-10-06T13:37:20.272Z",
+        "_type": "xsd:unsignedInt",
+        "_value": 0,
+        "_writable": false
+       },
+       "ErrorsSent": {
+        "_object": false,
+        "_timestamp": "2026-10-06T13:37:20.272Z",
+        "_type": "xsd:unsignedInt",
+        "_value": 0,
+        "_writable": false
+       },
+       "MulticastPacketsReceived": {
+        "_object": false,
+        "_timestamp": "2026-10-06T13:37:20.272Z",
+        "_type": "xsd:unsignedInt",
+        "_value": 10,
+        "_writable": false
+       },
+       "MulticastPacketsSent": {
+        "_object": false,
+        "_timestamp": "2026-10-06T13:37:20.272Z",
+        "_type": "xsd:unsignedInt",
+        "_value": 11668,
+        "_writable": false
+       },
+       "PacketsReceived": {
+        "_object": false,
+        "_timestamp": "2026-10-06T13:37:20.272Z",
+        "_type": "xsd:unsignedInt",
+        "_value": 27,
+        "_writable": false
+       },
+       "PacketsSent": {
+        "_object": false,
+        "_timestamp": "2026-10-06T13:37:20.272Z",
+        "_type": "xsd:unsignedInt",
+        "_value": 18489,
+        "_writable": false
+       },
+       "UnicastPacketsReceived": {
+        "_object": false,
+        "_timestamp": "2026-10-06T13:37:20.272Z",
+        "_type": "xsd:unsignedInt",
+        "_value": 2,
+        "_writable": false
+       },
+       "UnicastPacketsSent": {
+        "_object": false,
+        "_timestamp": "2026-10-06T13:37:20.272Z",
+        "_type": "xsd:unsignedInt",
+        "_value": 651,
+        "_writable": false
+       },
+       "UnknownProtoPacketsReceived": {
+        "_object": false,
+        "_timestamp": "2026-10-06T13:37:20.272Z",
+        "_type": "xsd:unsignedInt",
+        "_value": 0,
+        "_writable": false
+       },
+       "_object": true,
+       "_timestamp": "2026-10-06T13:37:20.270Z",
+       "_writable": false
+      },
+      "Status": {
+       "_object": false,
+       "_timestamp": "2026-10-06T13:37:20.272Z",
+       "_type": "xsd:string",
+       "_value": "Up",
+       "_writable": false
+      },
+      "_object": true,
+      "_timestamp": "2026-10-06T13:37:20.270Z",
+      "_writable": false
+     },
+     "3": {
+      "DuplexMode": {
+       "_object": false,
+       "_timestamp": "2026-10-06T13:37:20.272Z",
+       "_type": "xsd:string",
+       "_value": "Full",
+       "_writable": true
+      },
+      "Enable": {
+       "_object": false,
+       "_timestamp": "2026-10-06T13:37:20.272Z",
+       "_type": "xsd:boolean",
+       "_value": true,
+       "_writable": true
+      },
+      "MACAddress": {
+       "_object": false,
+       "_timestamp": "2026-10-06T13:37:20.272Z",
+       "_type": "xsd:string",
+       "_value": "80:85:44:20:77:5E",
+       "_writable": false
+      },
+      "MACAddressControlEnabled": {
+       "_object": false,
+       "_timestamp": "2026-10-06T13:37:20.272Z",
+       "_type": "xsd:boolean",
+       "_value": false,
+       "_writable": true
+      },
+      "MaxBitRate": {
+       "_object": false,
+       "_timestamp": "2026-10-06T13:37:20.272Z",
+       "_type": "xsd:string",
+       "_value": "1000",
+       "_writable": true
+      },
+      "Name": {
+       "_object": false,
+       "_timestamp": "2026-10-06T13:37:20.272Z",
+       "_type": "xsd:string",
+       "_value": "eth0.4.0",
+       "_writable": false
+      },
+      "Stats": {
+       "BroadcastPacketsReceived": {
+        "_object": false,
+        "_timestamp": "2026-10-06T13:37:20.272Z",
+        "_type": "xsd:unsignedInt",
+        "_value": 15,
+        "_writable": false
+       },
+       "BroadcastPacketsSent": {
+        "_object": false,
+        "_timestamp": "2026-10-06T13:37:20.272Z",
+        "_type": "xsd:unsignedInt",
+        "_value": 6170,
+        "_writable": false
+       },
+       "BytesReceived": {
+        "_object": false,
+        "_timestamp": "2026-10-06T13:37:20.272Z",
+        "_type": "xsd:unsignedInt",
+        "_value": 4442,
+        "_writable": false
+       },
+       "BytesSent": {
+        "_object": false,
+        "_timestamp": "2026-10-06T13:37:20.272Z",
+        "_type": "xsd:unsignedInt",
+        "_value": 2622159,
+        "_writable": false
+       },
+       "DiscardPacketsReceived": {
+        "_object": false,
+        "_timestamp": "2026-10-06T13:37:20.272Z",
+        "_type": "xsd:unsignedInt",
+        "_value": 0,
+        "_writable": false
+       },
+       "DiscardPacketsSent": {
+        "_object": false,
+        "_timestamp": "2026-10-06T13:37:20.272Z",
+        "_type": "xsd:unsignedInt",
+        "_value": 0,
+        "_writable": false
+       },
+       "ErrorsReceived": {
+        "_object": false,
+        "_timestamp": "2026-10-06T13:37:20.272Z",
+        "_type": "xsd:unsignedInt",
+        "_value": 0,
+        "_writable": false
+       },
+       "ErrorsSent": {
+        "_object": false,
+        "_timestamp": "2026-10-06T13:37:20.272Z",
+        "_type": "xsd:unsignedInt",
+        "_value": 0,
+        "_writable": false
+       },
+       "MulticastPacketsReceived": {
+        "_object": false,
+        "_timestamp": "2026-10-06T13:37:20.272Z",
+        "_type": "xsd:unsignedInt",
+        "_value": 10,
+        "_writable": false
+       },
+       "MulticastPacketsSent": {
+        "_object": false,
+        "_timestamp": "2026-10-06T13:37:20.272Z",
+        "_type": "xsd:unsignedInt",
+        "_value": 11669,
+        "_writable": false
+       },
+       "PacketsReceived": {
+        "_object": false,
+        "_timestamp": "2026-10-06T13:37:20.272Z",
+        "_type": "xsd:unsignedInt",
+        "_value": 27,
+        "_writable": false
+       },
+       "PacketsSent": {
+        "_object": false,
+        "_timestamp": "2026-10-06T13:37:20.272Z",
+        "_type": "xsd:unsignedInt",
+        "_value": 18490,
+        "_writable": false
+       },
+       "UnicastPacketsReceived": {
+        "_object": false,
+        "_timestamp": "2026-10-06T13:37:20.272Z",
+        "_type": "xsd:unsignedInt",
+        "_value": 2,
+        "_writable": false
+       },
+       "UnicastPacketsSent": {
+        "_object": false,
+        "_timestamp": "2026-10-06T13:37:20.272Z",
+        "_type": "xsd:unsignedInt",
+        "_value": 651,
+        "_writable": false
+       },
+       "UnknownProtoPacketsReceived": {
+        "_object": false,
+        "_timestamp": "2026-10-06T13:37:20.272Z",
+        "_type": "xsd:unsignedInt",
+        "_value": 0,
+        "_writable": false
+       },
+       "_object": true,
+       "_timestamp": "2026-10-06T13:37:20.270Z",
+       "_writable": false
+      },
+      "Status": {
+       "_object": false,
+       "_timestamp": "2026-10-06T13:37:20.272Z",
+       "_type": "xsd:string",
+       "_value": "Up",
+       "_writable": false
+      },
+      "_object": true,
+      "_timestamp": "2026-10-06T13:37:20.270Z",
+      "_writable": false
+     },
+     "4": {
+      "DuplexMode": {
+       "_object": false,
+       "_timestamp": "2026-10-06T13:37:20.272Z",
+       "_type": "xsd:string",
+       "_value": "Full",
+       "_writable": true
+      },
+      "Enable": {
+       "_object": false,
+       "_timestamp": "2026-10-06T13:37:20.272Z",
+       "_type": "xsd:boolean",
+       "_value": true,
+       "_writable": true
+      },
+      "MACAddress": {
+       "_object": false,
+       "_timestamp": "2026-10-06T13:37:20.272Z",
+       "_type": "xsd:string",
+       "_value": "80:85:44:20:77:5E",
+       "_writable": false
+      },
+      "MACAddressControlEnabled": {
+       "_object": false,
+       "_timestamp": "2026-10-06T13:37:20.272Z",
+       "_type": "xsd:boolean",
+       "_value": false,
+       "_writable": true
+      },
+      "MaxBitRate": {
+       "_object": false,
+       "_timestamp": "2026-10-06T13:37:20.272Z",
+       "_type": "xsd:string",
+       "_value": "1000",
+       "_writable": true
+      },
+      "Name": {
+       "_object": false,
+       "_timestamp": "2026-10-06T13:37:20.272Z",
+       "_type": "xsd:string",
+       "_value": "eth0.5.0",
+       "_writable": false
+      },
+      "Stats": {
+       "BroadcastPacketsReceived": {
+        "_object": false,
+        "_timestamp": "2026-10-06T13:37:20.272Z",
+        "_type": "xsd:unsignedInt",
+        "_value": 15,
+        "_writable": false
+       },
+       "BroadcastPacketsSent": {
+        "_object": false,
+        "_timestamp": "2026-10-06T13:37:20.272Z",
+        "_type": "xsd:unsignedInt",
+        "_value": 6168,
+        "_writable": false
+       },
+       "BytesReceived": {
+        "_object": false,
+        "_timestamp": "2026-10-06T13:37:20.272Z",
+        "_type": "xsd:unsignedInt",
+        "_value": 4442,
+        "_writable": false
+       },
+       "BytesSent": {
+        "_object": false,
+        "_timestamp": "2026-10-06T13:37:20.272Z",
+        "_type": "xsd:unsignedInt",
+        "_value": 2622025,
+        "_writable": false
+       },
+       "DiscardPacketsReceived": {
+        "_object": false,
+        "_timestamp": "2026-10-06T13:37:20.272Z",
+        "_type": "xsd:unsignedInt",
+        "_value": 0,
+        "_writable": false
+       },
+       "DiscardPacketsSent": {
+        "_object": false,
+        "_timestamp": "2026-10-06T13:37:20.272Z",
+        "_type": "xsd:unsignedInt",
+        "_value": 0,
+        "_writable": false
+       },
+       "ErrorsReceived": {
+        "_object": false,
+        "_timestamp": "2026-10-06T13:37:20.272Z",
+        "_type": "xsd:unsignedInt",
+        "_value": 0,
+        "_writable": false
+       },
+       "ErrorsSent": {
+        "_object": false,
+        "_timestamp": "2026-10-06T13:37:20.272Z",
+        "_type": "xsd:unsignedInt",
+        "_value": 0,
+        "_writable": false
+       },
+       "MulticastPacketsReceived": {
+        "_object": false,
+        "_timestamp": "2026-10-06T13:37:20.272Z",
+        "_type": "xsd:unsignedInt",
+        "_value": 10,
+        "_writable": false
+       },
+       "MulticastPacketsSent": {
+        "_object": false,
+        "_timestamp": "2026-10-06T13:37:20.272Z",
+        "_type": "xsd:unsignedInt",
+        "_value": 11670,
+        "_writable": false
+       },
+       "PacketsReceived": {
+        "_object": false,
+        "_timestamp": "2026-10-06T13:37:20.272Z",
+        "_type": "xsd:unsignedInt",
+        "_value": 27,
+        "_writable": false
+       },
+       "PacketsSent": {
+        "_object": false,
+        "_timestamp": "2026-10-06T13:37:20.272Z",
+        "_type": "xsd:unsignedInt",
+        "_value": 18489,
+        "_writable": false
+       },
+       "UnicastPacketsReceived": {
+        "_object": false,
+        "_timestamp": "2026-10-06T13:37:20.272Z",
+        "_type": "xsd:unsignedInt",
+        "_value": 2,
+        "_writable": false
+       },
+       "UnicastPacketsSent": {
+        "_object": false,
+        "_timestamp": "2026-10-06T13:37:20.272Z",
+        "_type": "xsd:unsignedInt",
+        "_value": 651,
+        "_writable": false
+       },
+       "UnknownProtoPacketsReceived": {
+        "_object": false,
+        "_timestamp": "2026-10-06T13:37:20.272Z",
+        "_type": "xsd:unsignedInt",
+        "_value": 0,
+        "_writable": false
+       },
+       "_object": true,
+       "_timestamp": "2026-10-06T13:37:20.270Z",
+       "_writable": false
+      },
+      "Status": {
+       "_object": false,
+       "_timestamp": "2026-10-06T13:37:20.272Z",
+       "_type": "xsd:string",
+       "_value": "Up",
+       "_writable": false
+      },
+      "_object": true,
+      "_timestamp": "2026-10-06T13:37:20.270Z",
+      "_writable": false
+     },
+     "_object": true,
+     "_writable": true,
+     "_timestamp": "2026-10-06T13:37:20.270Z"
+    },
+    "LANEthernetInterfaceNumberOfEntries": {
+     "_object": false,
+     "_writable": false,
+     "_timestamp": "2026-10-06T13:37:20.272Z",
+     "_type": "xsd:unsignedInt",
+     "_value": 4
+    },
+    "LANHostConfigManagement": {
+     "_object": true,
+     "_writable": false,
+     "AllowedMACAddresses": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:37:20.272Z",
+      "_type": "xsd:string",
+      "_value": "",
+      "_writable": true
+     },
+     "AssociatedConnection": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:37:20.272Z",
+      "_type": "xsd:string",
+      "_value": "",
+      "_writable": true
+     },
+     "DHCPConditionalPoolNumberOfEntries": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:37:20.272Z",
+      "_type": "xsd:unsignedInt",
+      "_value": 0,
+      "_writable": false
+     },
+     "DHCPLeaseTime": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:37:20.272Z",
+      "_type": "xsd:int",
+      "_value": 86400,
+      "_writable": true
+     },
+     "DHCPOption": {
+      "_object": true,
+      "_timestamp": "2026-10-06T13:37:20.270Z",
+      "_writable": true
+     },
+     "DHCPOptionNumberOfEntries": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:37:20.272Z",
+      "_type": "xsd:unsignedInt",
+      "_value": 0,
+      "_writable": false
+     },
+     "DHCPRelay": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:37:20.272Z",
+      "_type": "xsd:boolean",
+      "_value": false,
+      "_writable": false
+     },
+     "DHCPServerConfigurable": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:37:20.272Z",
+      "_type": "xsd:boolean",
+      "_value": true,
+      "_writable": true
+     },
+     "DHCPServerEnable": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:37:20.272Z",
+      "_type": "xsd:boolean",
+      "_value": true,
+      "_writable": true
+     },
+     "DHCPStaticAddress": {
+      "_object": true,
+      "_timestamp": "2026-10-06T13:37:20.270Z",
+      "_writable": true
+     },
+     "DHCPStaticAddressNumberOfEntries": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:37:20.272Z",
+      "_type": "xsd:unsignedInt",
+      "_value": 0,
+      "_writable": false
+     },
+     "DNSServers": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:37:20.272Z",
+      "_type": "xsd:string",
+      "_value": "",
+      "_writable": true
+     },
+     "DomainName": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:37:20.272Z",
+      "_type": "xsd:string",
+      "_value": "intelbras.local",
+      "_writable": true
+     },
+     "IPInterface": {
+      "1": {
+       "Enable": {
+        "_object": false,
+        "_timestamp": "2026-10-06T13:37:20.272Z",
+        "_type": "xsd:boolean",
+        "_value": true,
+        "_writable": true
+       },
+       "IPInterfaceAddressingType": {
+        "_object": false,
+        "_timestamp": "2026-10-06T13:37:20.272Z",
+        "_type": "xsd:string",
+        "_value": "Static",
+        "_writable": true
+       },
+       "IPInterfaceIPAddress": {
+        "_object": false,
+        "_timestamp": "2026-10-06T13:37:20.272Z",
+        "_type": "xsd:string",
+        "_value": "192.168.1.1",
+        "_writable": true
+       },
+       "IPInterfaceSubnetMask": {
+        "_object": false,
+        "_timestamp": "2026-10-06T13:37:20.272Z",
+        "_type": "xsd:string",
+        "_value": "255.255.255.0",
+        "_writable": true
+       },
+       "_object": true,
+       "_timestamp": "2026-10-06T13:37:20.270Z",
+       "_writable": false
+      },
+      "_object": true,
+      "_timestamp": "2026-10-06T13:37:20.270Z",
+      "_writable": false
+     },
+     "IPInterfaceNumberOfEntries": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:37:20.272Z",
+      "_type": "xsd:unsignedInt",
+      "_value": 1,
+      "_writable": false
+     },
+     "IPRouters": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:37:20.272Z",
+      "_type": "xsd:string",
+      "_value": "192.168.1.1",
+      "_writable": true
+     },
+     "MACAddress": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:37:20.272Z",
+      "_type": "xsd:string",
+      "_value": "80:85:44:20:77:5e",
+      "_writable": false
+     },
+     "MaxAddress": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:37:20.272Z",
+      "_type": "xsd:string",
+      "_value": "192.168.1.254",
+      "_writable": true
+     },
+     "MinAddress": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:37:20.272Z",
+      "_type": "xsd:string",
+      "_value": "192.168.1.2",
+      "_writable": true
+     },
+     "PassthroughLease": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:37:20.272Z",
+      "_type": "xsd:unsignedInt",
+      "_value": "REMOVIDO",
+      "_writable": true
+     },
+     "PassthroughMACAddress": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:37:20.272Z",
+      "_type": "xsd:string",
+      "_value": "",
+      "_writable": true
+     },
+     "ReservedAddresses": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:37:20.272Z",
+      "_type": "xsd:string",
+      "_value": "",
+      "_writable": true
+     },
+     "SubnetMask": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:37:20.272Z",
+      "_type": "xsd:string",
+      "_value": "255.255.255.0",
+      "_writable": true
+     },
+     "UseAllocatedWAN": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:37:20.272Z",
+      "_type": "xsd:string",
+      "_value": "Normal",
+      "_writable": true
+     },
+     "_timestamp": "2026-10-06T13:37:20.270Z"
+    },
+    "LANUSBInterfaceNumberOfEntries": {
+     "_object": false,
+     "_writable": false,
+     "_timestamp": "2026-10-06T13:37:20.272Z",
+     "_type": "xsd:unsignedInt",
+     "_value": 0
+    },
+    "LANWLANConfigurationNumberOfEntries": {
+     "_object": false,
+     "_writable": false,
+     "_timestamp": "2026-10-06T13:37:20.272Z",
+     "_type": "xsd:unsignedInt",
+     "_value": 0
+    },
+    "PortLANIsolation": {
+     "_object": false,
+     "_writable": true,
+     "_timestamp": "2026-10-06T13:37:20.272Z",
+     "_type": "xsd:boolean",
+     "_value": false
+    },
+    "_object": true,
+    "_timestamp": "2026-10-07T13:10:28.472Z",
+    "_writable": false
+   },
+   "_object": true,
+   "_timestamp": "2026-10-07T13:10:28.472Z",
+   "_writable": false
+  },
+  "LANDeviceNumberOfEntries": {
+   "_object": false,
+   "_writable": false
+  },
+  "LANInterfaces": {
+   "_object": true,
+   "_writable": false,
+   "LANEthernetInterfaceConfig": {
+    "1": {
+     "DuplexMode": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.537Z",
+      "_type": "xsd:string",
+      "_value": "Full",
+      "_writable": true
+     },
+     "Enable": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.537Z",
+      "_type": "xsd:boolean",
+      "_value": true,
+      "_writable": true
+     },
+     "MACAddress": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.537Z",
+      "_type": "xsd:string",
+      "_value": "80:85:44:20:77:5E",
+      "_writable": false
+     },
+     "MACAddressControlEnabled": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.537Z",
+      "_type": "xsd:boolean",
+      "_value": false,
+      "_writable": true
+     },
+     "MaxBitRate": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.537Z",
+      "_type": "xsd:string",
+      "_value": "1000",
+      "_writable": true
+     },
+     "Name": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.537Z",
+      "_type": "xsd:string",
+      "_value": "eth0.2.0",
+      "_writable": false
+     },
+     "Stats": {
+      "BroadcastPacketsReceived": {
+       "_object": false,
+       "_timestamp": "2026-10-06T13:17:20.537Z",
+       "_type": "xsd:unsignedInt",
+       "_value": 11,
+       "_writable": false
+      },
+      "BroadcastPacketsSent": {
+       "_object": false,
+       "_timestamp": "2026-10-06T13:17:20.537Z",
+       "_type": "xsd:unsignedInt",
+       "_value": 1787,
+       "_writable": false
+      },
+      "BytesReceived": {
+       "_object": false,
+       "_timestamp": "2026-10-06T13:17:20.537Z",
+       "_type": "xsd:unsignedInt",
+       "_value": 4186,
+       "_writable": false
+      },
+      "BytesSent": {
+       "_object": false,
+       "_timestamp": "2026-10-06T13:17:20.537Z",
+       "_type": "xsd:unsignedInt",
+       "_value": 586076,
+       "_writable": false
+      },
+      "DiscardPacketsReceived": {
+       "_object": false,
+       "_timestamp": "2026-10-06T13:17:20.537Z",
+       "_type": "xsd:unsignedInt",
+       "_value": 0,
+       "_writable": false
+      },
+      "DiscardPacketsSent": {
+       "_object": false,
+       "_timestamp": "2026-10-06T13:17:20.537Z",
+       "_type": "xsd:unsignedInt",
+       "_value": 0,
+       "_writable": false
+      },
+      "ErrorsReceived": {
+       "_object": false,
+       "_timestamp": "2026-10-06T13:17:20.537Z",
+       "_type": "xsd:unsignedInt",
+       "_value": 0,
+       "_writable": false
+      },
+      "ErrorsSent": {
+       "_object": false,
+       "_timestamp": "2026-10-06T13:17:20.537Z",
+       "_type": "xsd:unsignedInt",
+       "_value": 0,
+       "_writable": false
+      },
+      "MulticastPacketsReceived": {
+       "_object": false,
+       "_timestamp": "2026-10-06T13:17:20.537Z",
+       "_type": "xsd:unsignedInt",
+       "_value": 10,
+       "_writable": false
+      },
+      "MulticastPacketsSent": {
+       "_object": false,
+       "_timestamp": "2026-10-06T13:17:20.537Z",
+       "_type": "xsd:unsignedInt",
+       "_value": 1778,
+       "_writable": false
+      },
+      "PacketsReceived": {
+       "_object": false,
+       "_timestamp": "2026-10-06T13:17:20.537Z",
+       "_type": "xsd:unsignedInt",
+       "_value": 23,
+       "_writable": false
+      },
+      "PacketsSent": {
+       "_object": false,
+       "_timestamp": "2026-10-06T13:17:20.537Z",
+       "_type": "xsd:unsignedInt",
+       "_value": 3861,
+       "_writable": false
+      },
+      "UnicastPacketsReceived": {
+       "_object": false,
+       "_timestamp": "2026-10-06T13:17:20.537Z",
+       "_type": "xsd:unsignedInt",
+       "_value": 2,
+       "_writable": false
+      },
+      "UnicastPacketsSent": {
+       "_object": false,
+       "_timestamp": "2026-10-06T13:17:20.537Z",
+       "_type": "xsd:unsignedInt",
+       "_value": 296,
+       "_writable": false
+      },
+      "UnknownProtoPacketsReceived": {
+       "_object": false,
+       "_timestamp": "2026-10-06T13:17:20.537Z",
+       "_type": "xsd:unsignedInt",
+       "_value": 0,
+       "_writable": false
+      },
+      "_object": true,
+      "_timestamp": "2026-10-06T13:17:20.341Z",
+      "_writable": false
+     },
+     "Status": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.537Z",
+      "_type": "xsd:string",
+      "_value": "Up",
+      "_writable": false
+     },
+     "_object": true,
+     "_timestamp": "2026-10-06T13:17:20.341Z",
+     "_writable": false
+    },
+    "2": {
+     "DuplexMode": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.537Z",
+      "_type": "xsd:string",
+      "_value": "Full",
+      "_writable": true
+     },
+     "Enable": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.537Z",
+      "_type": "xsd:boolean",
+      "_value": true,
+      "_writable": true
+     },
+     "MACAddress": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.537Z",
+      "_type": "xsd:string",
+      "_value": "80:85:44:20:77:5E",
+      "_writable": false
+     },
+     "MACAddressControlEnabled": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.537Z",
+      "_type": "xsd:boolean",
+      "_value": false,
+      "_writable": true
+     },
+     "MaxBitRate": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.537Z",
+      "_type": "xsd:string",
+      "_value": "1000",
+      "_writable": true
+     },
+     "Name": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.537Z",
+      "_type": "xsd:string",
+      "_value": "eth0.3.0",
+      "_writable": false
+     },
+     "Stats": {
+      "BroadcastPacketsReceived": {
+       "_object": false,
+       "_timestamp": "2026-10-06T13:17:20.537Z",
+       "_type": "xsd:unsignedInt",
+       "_value": 11,
+       "_writable": false
+      },
+      "BroadcastPacketsSent": {
+       "_object": false,
+       "_timestamp": "2026-10-06T13:17:20.537Z",
+       "_type": "xsd:unsignedInt",
+       "_value": 1790,
+       "_writable": false
+      },
+      "BytesReceived": {
+       "_object": false,
+       "_timestamp": "2026-10-06T13:17:20.537Z",
+       "_type": "xsd:unsignedInt",
+       "_value": 4186,
+       "_writable": false
+      },
+      "BytesSent": {
+       "_object": false,
+       "_timestamp": "2026-10-06T13:17:20.537Z",
+       "_type": "xsd:unsignedInt",
+       "_value": 586618,
+       "_writable": false
+      },
+      "DiscardPacketsReceived": {
+       "_object": false,
+       "_timestamp": "2026-10-06T13:17:20.537Z",
+       "_type": "xsd:unsignedInt",
+       "_value": 0,
+       "_writable": false
+      },
+      "DiscardPacketsSent": {
+       "_object": false,
+       "_timestamp": "2026-10-06T13:17:20.537Z",
+       "_type": "xsd:unsignedInt",
+       "_value": 0,
+       "_writable": false
+      },
+      "ErrorsReceived": {
+       "_object": false,
+       "_timestamp": "2026-10-06T13:17:20.537Z",
+       "_type": "xsd:unsignedInt",
+       "_value": 0,
+       "_writable": false
+      },
+      "ErrorsSent": {
+       "_object": false,
+       "_timestamp": "2026-10-06T13:17:20.537Z",
+       "_type": "xsd:unsignedInt",
+       "_value": 0,
+       "_writable": false
+      },
+      "MulticastPacketsReceived": {
+       "_object": false,
+       "_timestamp": "2026-10-06T13:17:20.537Z",
+       "_type": "xsd:unsignedInt",
+       "_value": 10,
+       "_writable": false
+      },
+      "MulticastPacketsSent": {
+       "_object": false,
+       "_timestamp": "2026-10-06T13:17:20.537Z",
+       "_type": "xsd:unsignedInt",
+       "_value": 1784,
+       "_writable": false
+      },
+      "PacketsReceived": {
+       "_object": false,
+       "_timestamp": "2026-10-06T13:17:20.537Z",
+       "_type": "xsd:unsignedInt",
+       "_value": 23,
+       "_writable": false
+      },
+      "PacketsSent": {
+       "_object": false,
+       "_timestamp": "2026-10-06T13:17:20.537Z",
+       "_type": "xsd:unsignedInt",
+       "_value": 3870,
+       "_writable": false
+      },
+      "UnicastPacketsReceived": {
+       "_object": false,
+       "_timestamp": "2026-10-06T13:17:20.537Z",
+       "_type": "xsd:unsignedInt",
+       "_value": 2,
+       "_writable": false
+      },
+      "UnicastPacketsSent": {
+       "_object": false,
+       "_timestamp": "2026-10-06T13:17:20.537Z",
+       "_type": "xsd:unsignedInt",
+       "_value": 296,
+       "_writable": false
+      },
+      "UnknownProtoPacketsReceived": {
+       "_object": false,
+       "_timestamp": "2026-10-06T13:17:20.537Z",
+       "_type": "xsd:unsignedInt",
+       "_value": 0,
+       "_writable": false
+      },
+      "_object": true,
+      "_timestamp": "2026-10-06T13:17:20.341Z",
+      "_writable": false
+     },
+     "Status": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.537Z",
+      "_type": "xsd:string",
+      "_value": "Up",
+      "_writable": false
+     },
+     "_object": true,
+     "_timestamp": "2026-10-06T13:17:20.341Z",
+     "_writable": false
+    },
+    "3": {
+     "DuplexMode": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.537Z",
+      "_type": "xsd:string",
+      "_value": "Full",
+      "_writable": true
+     },
+     "Enable": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.537Z",
+      "_type": "xsd:boolean",
+      "_value": true,
+      "_writable": true
+     },
+     "MACAddress": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.537Z",
+      "_type": "xsd:string",
+      "_value": "80:85:44:20:77:5E",
+      "_writable": false
+     },
+     "MACAddressControlEnabled": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.537Z",
+      "_type": "xsd:boolean",
+      "_value": false,
+      "_writable": true
+     },
+     "MaxBitRate": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.537Z",
+      "_type": "xsd:string",
+      "_value": "1000",
+      "_writable": true
+     },
+     "Name": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.537Z",
+      "_type": "xsd:string",
+      "_value": "eth0.4.0",
+      "_writable": false
+     },
+     "Stats": {
+      "BroadcastPacketsReceived": {
+       "_object": false,
+       "_timestamp": "2026-10-06T13:17:20.537Z",
+       "_type": "xsd:unsignedInt",
+       "_value": 11,
+       "_writable": false
+      },
+      "BroadcastPacketsSent": {
+       "_object": false,
+       "_timestamp": "2026-10-06T13:17:20.537Z",
+       "_type": "xsd:unsignedInt",
+       "_value": 1790,
+       "_writable": false
+      },
+      "BytesReceived": {
+       "_object": false,
+       "_timestamp": "2026-10-06T13:17:20.537Z",
+       "_type": "xsd:unsignedInt",
+       "_value": 4186,
+       "_writable": false
+      },
+      "BytesSent": {
+       "_object": false,
+       "_timestamp": "2026-10-06T13:17:20.537Z",
+       "_type": "xsd:unsignedInt",
+       "_value": 587006,
+       "_writable": false
+      },
+      "DiscardPacketsReceived": {
+       "_object": false,
+       "_timestamp": "2026-10-06T13:17:20.537Z",
+       "_type": "xsd:unsignedInt",
+       "_value": 0,
+       "_writable": false
+      },
+      "DiscardPacketsSent": {
+       "_object": false,
+       "_timestamp": "2026-10-06T13:17:20.537Z",
+       "_type": "xsd:unsignedInt",
+       "_value": 0,
+       "_writable": false
+      },
+      "ErrorsReceived": {
+       "_object": false,
+       "_timestamp": "2026-10-06T13:17:20.537Z",
+       "_type": "xsd:unsignedInt",
+       "_value": 0,
+       "_writable": false
+      },
+      "ErrorsSent": {
+       "_object": false,
+       "_timestamp": "2026-10-06T13:17:20.537Z",
+       "_type": "xsd:unsignedInt",
+       "_value": 0,
+       "_writable": false
+      },
+      "MulticastPacketsReceived": {
+       "_object": false,
+       "_timestamp": "2026-10-06T13:17:20.537Z",
+       "_type": "xsd:unsignedInt",
+       "_value": 10,
+       "_writable": false
+      },
+      "MulticastPacketsSent": {
+       "_object": false,
+       "_timestamp": "2026-10-06T13:17:20.537Z",
+       "_type": "xsd:unsignedInt",
+       "_value": 1785,
+       "_writable": false
+      },
+      "PacketsReceived": {
+       "_object": false,
+       "_timestamp": "2026-10-06T13:17:20.537Z",
+       "_type": "xsd:unsignedInt",
+       "_value": 23,
+       "_writable": false
+      },
+      "PacketsSent": {
+       "_object": false,
+       "_timestamp": "2026-10-06T13:17:20.537Z",
+       "_type": "xsd:unsignedInt",
+       "_value": 3871,
+       "_writable": false
+      },
+      "UnicastPacketsReceived": {
+       "_object": false,
+       "_timestamp": "2026-10-06T13:17:20.537Z",
+       "_type": "xsd:unsignedInt",
+       "_value": 2,
+       "_writable": false
+      },
+      "UnicastPacketsSent": {
+       "_object": false,
+       "_timestamp": "2026-10-06T13:17:20.537Z",
+       "_type": "xsd:unsignedInt",
+       "_value": 296,
+       "_writable": false
+      },
+      "UnknownProtoPacketsReceived": {
+       "_object": false,
+       "_timestamp": "2026-10-06T13:17:20.537Z",
+       "_type": "xsd:unsignedInt",
+       "_value": 0,
+       "_writable": false
+      },
+      "_object": true,
+      "_timestamp": "2026-10-06T13:17:20.341Z",
+      "_writable": false
+     },
+     "Status": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.537Z",
+      "_type": "xsd:string",
+      "_value": "Up",
+      "_writable": false
+     },
+     "_object": true,
+     "_timestamp": "2026-10-06T13:17:20.341Z",
+     "_writable": false
+    },
+    "4": {
+     "DuplexMode": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.537Z",
+      "_type": "xsd:string",
+      "_value": "Full",
+      "_writable": true
+     },
+     "Enable": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.537Z",
+      "_type": "xsd:boolean",
+      "_value": true,
+      "_writable": true
+     },
+     "MACAddress": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.537Z",
+      "_type": "xsd:string",
+      "_value": "80:85:44:20:77:5E",
+      "_writable": false
+     },
+     "MACAddressControlEnabled": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.537Z",
+      "_type": "xsd:boolean",
+      "_value": false,
+      "_writable": true
+     },
+     "MaxBitRate": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.537Z",
+      "_type": "xsd:string",
+      "_value": "1000",
+      "_writable": true
+     },
+     "Name": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.537Z",
+      "_type": "xsd:string",
+      "_value": "eth0.5.0",
+      "_writable": false
+     },
+     "Stats": {
+      "BroadcastPacketsReceived": {
+       "_object": false,
+       "_timestamp": "2026-10-06T13:17:20.537Z",
+       "_type": "xsd:unsignedInt",
+       "_value": 11,
+       "_writable": false
+      },
+      "BroadcastPacketsSent": {
+       "_object": false,
+       "_timestamp": "2026-10-06T13:17:20.537Z",
+       "_type": "xsd:unsignedInt",
+       "_value": 1789,
+       "_writable": false
+      },
+      "BytesReceived": {
+       "_object": false,
+       "_timestamp": "2026-10-06T13:17:20.537Z",
+       "_type": "xsd:unsignedInt",
+       "_value": 4186,
+       "_writable": false
+      },
+      "BytesSent": {
+       "_object": false,
+       "_timestamp": "2026-10-06T13:17:20.537Z",
+       "_type": "xsd:unsignedInt",
+       "_value": 586788,
+       "_writable": false
+      },
+      "DiscardPacketsReceived": {
+       "_object": false,
+       "_timestamp": "2026-10-06T13:17:20.537Z",
+       "_type": "xsd:unsignedInt",
+       "_value": 0,
+       "_writable": false
+      },
+      "DiscardPacketsSent": {
+       "_object": false,
+       "_timestamp": "2026-10-06T13:17:20.537Z",
+       "_type": "xsd:unsignedInt",
+       "_value": 0,
+       "_writable": false
+      },
+      "ErrorsReceived": {
+       "_object": false,
+       "_timestamp": "2026-10-06T13:17:20.537Z",
+       "_type": "xsd:unsignedInt",
+       "_value": 0,
+       "_writable": false
+      },
+      "ErrorsSent": {
+       "_object": false,
+       "_timestamp": "2026-10-06T13:17:20.537Z",
+       "_type": "xsd:unsignedInt",
+       "_value": 0,
+       "_writable": false
+      },
+      "MulticastPacketsReceived": {
+       "_object": false,
+       "_timestamp": "2026-10-06T13:17:20.537Z",
+       "_type": "xsd:unsignedInt",
+       "_value": 10,
+       "_writable": false
+      },
+      "MulticastPacketsSent": {
+       "_object": false,
+       "_timestamp": "2026-10-06T13:17:20.537Z",
+       "_type": "xsd:unsignedInt",
+       "_value": 1784,
+       "_writable": false
+      },
+      "PacketsReceived": {
+       "_object": false,
+       "_timestamp": "2026-10-06T13:17:20.537Z",
+       "_type": "xsd:unsignedInt",
+       "_value": 23,
+       "_writable": false
+      },
+      "PacketsSent": {
+       "_object": false,
+       "_timestamp": "2026-10-06T13:17:20.537Z",
+       "_type": "xsd:unsignedInt",
+       "_value": 3869,
+       "_writable": false
+      },
+      "UnicastPacketsReceived": {
+       "_object": false,
+       "_timestamp": "2026-10-06T13:17:20.537Z",
+       "_type": "xsd:unsignedInt",
+       "_value": 2,
+       "_writable": false
+      },
+      "UnicastPacketsSent": {
+       "_object": false,
+       "_timestamp": "2026-10-06T13:17:20.537Z",
+       "_type": "xsd:unsignedInt",
+       "_value": 296,
+       "_writable": false
+      },
+      "UnknownProtoPacketsReceived": {
+       "_object": false,
+       "_timestamp": "2026-10-06T13:17:20.537Z",
+       "_type": "xsd:unsignedInt",
+       "_value": 0,
+       "_writable": false
+      },
+      "_object": true,
+      "_timestamp": "2026-10-06T13:17:20.341Z",
+      "_writable": false
+     },
+     "Status": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.537Z",
+      "_type": "xsd:string",
+      "_value": "Up",
+      "_writable": false
+     },
+     "_object": true,
+     "_timestamp": "2026-10-06T13:17:20.341Z",
+     "_writable": false
+    },
+    "_object": true,
+    "_timestamp": "2026-10-06T13:17:20.341Z",
+    "_writable": true
+   },
+   "LANEthernetInterfaceNumberOfEntries": {
+    "_object": false,
+    "_timestamp": "2026-10-06T13:17:20.537Z",
+    "_type": "xsd:unsignedInt",
+    "_value": 0,
+    "_writable": false
+   },
+   "LANUSBInterfaceNumberOfEntries": {
+    "_object": false,
+    "_timestamp": "2026-10-06T13:17:20.537Z",
+    "_type": "xsd:unsignedInt",
+    "_value": 0,
+    "_writable": false
+   },
+   "LANWLANConfigurationNumberOfEntries": {
+    "_object": false,
+    "_timestamp": "2026-10-06T13:17:20.537Z",
+    "_type": "xsd:unsignedInt",
+    "_value": 0,
+    "_writable": false
+   },
+   "_timestamp": "2026-10-06T13:17:20.341Z"
+  },
+  "Layer2Bridging": {
+   "_object": true,
+   "_writable": false,
+   "AvailableInterface": {
+    "1": {
+     "AvailableInterfaceKey": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:unsignedInt",
+      "_value": "REMOVIDO",
+      "_writable": false
+     },
+     "InterfaceReference": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:string",
+      "_value": "InternetGatewayDevice.LANDevice.1.LANEthernetInterfaceConfig.1",
+      "_writable": false
+     },
+     "InterfaceType": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:string",
+      "_value": "LANInterface",
+      "_writable": false
+     },
+     "_object": true,
+     "_timestamp": "2026-10-06T13:17:20.341Z",
+     "_writable": false
+    },
+    "2": {
+     "AvailableInterfaceKey": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:unsignedInt",
+      "_value": "REMOVIDO",
+      "_writable": false
+     },
+     "InterfaceReference": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:string",
+      "_value": "InternetGatewayDevice.LANDevice.1.LANEthernetInterfaceConfig.2",
+      "_writable": false
+     },
+     "InterfaceType": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:string",
+      "_value": "LANInterface",
+      "_writable": false
+     },
+     "_object": true,
+     "_timestamp": "2026-10-06T13:17:20.341Z",
+     "_writable": false
+    },
+    "3": {
+     "AvailableInterfaceKey": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:unsignedInt",
+      "_value": "REMOVIDO",
+      "_writable": false
+     },
+     "InterfaceReference": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:string",
+      "_value": "InternetGatewayDevice.LANDevice.1.LANEthernetInterfaceConfig.3",
+      "_writable": false
+     },
+     "InterfaceType": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:string",
+      "_value": "LANInterface",
+      "_writable": false
+     },
+     "_object": true,
+     "_timestamp": "2026-10-06T13:17:20.341Z",
+     "_writable": false
+    },
+    "4": {
+     "AvailableInterfaceKey": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:unsignedInt",
+      "_value": "REMOVIDO",
+      "_writable": false
+     },
+     "InterfaceReference": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:string",
+      "_value": "InternetGatewayDevice.LANDevice.1.LANEthernetInterfaceConfig.4",
+      "_writable": false
+     },
+     "InterfaceType": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:string",
+      "_value": "LANInterface",
+      "_writable": false
+     },
+     "_object": true,
+     "_timestamp": "2026-10-06T13:17:20.341Z",
+     "_writable": false
+    },
+    "5": {
+     "AvailableInterfaceKey": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:unsignedInt",
+      "_value": "REMOVIDO",
+      "_writable": false
+     },
+     "InterfaceReference": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:string",
+      "_value": "InternetGatewayDevice.LANDevice.1.LANHostConfigManagement.IPInterface.1",
+      "_writable": false
+     },
+     "InterfaceType": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:string",
+      "_value": "LANRouterConnection",
+      "_writable": false
+     },
+     "_object": true,
+     "_timestamp": "2026-10-06T13:17:20.341Z",
+     "_writable": false
+    },
+    "6": {
+     "AvailableInterfaceKey": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:unsignedInt",
+      "_value": "REMOVIDO",
+      "_writable": false
+     },
+     "InterfaceReference": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:string",
+      "_value": "InternetGatewayDevice.WANDevice.1.WANConnectionDevice.1",
+      "_writable": false
+     },
+     "InterfaceType": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:string",
+      "_value": "WANInterface",
+      "_writable": false
+     },
+     "_object": true,
+     "_timestamp": "2026-10-06T13:17:20.341Z",
+     "_writable": false
+    },
+    "7": {
+     "AvailableInterfaceKey": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:unsignedInt",
+      "_value": "REMOVIDO",
+      "_writable": false
+     },
+     "InterfaceReference": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:string",
+      "_value": "InternetGatewayDevice.WANDevice.1.WANConnectionDevice.1.WANIPConnection.1",
+      "_writable": false
+     },
+     "InterfaceType": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:string",
+      "_value": "WANRouterConnection",
+      "_writable": false
+     },
+     "_object": true,
+     "_timestamp": "2026-10-06T13:17:20.341Z",
+     "_writable": false
+    },
+    "8": {
+     "AvailableInterfaceKey": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:unsignedInt",
+      "_value": "REMOVIDO",
+      "_writable": false
+     },
+     "InterfaceReference": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:string",
+      "_value": "InternetGatewayDevice.WANDevice.1.WANConnectionDevice.2",
+      "_writable": false
+     },
+     "InterfaceType": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:string",
+      "_value": "WANInterface",
+      "_writable": false
+     },
+     "_object": true,
+     "_timestamp": "2026-10-06T13:17:20.341Z",
+     "_writable": false
+    },
+    "9": {
+     "AvailableInterfaceKey": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:unsignedInt",
+      "_value": "REMOVIDO",
+      "_writable": false
+     },
+     "InterfaceReference": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:string",
+      "_value": "InternetGatewayDevice.WANDevice.1.WANConnectionDevice.2.WANIPConnection.1",
+      "_writable": false
+     },
+     "InterfaceType": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:string",
+      "_value": "WANRouterConnection",
+      "_writable": false
+     },
+     "_object": true,
+     "_timestamp": "2026-10-06T13:17:20.341Z",
+     "_writable": false
+    },
+    "_object": true,
+    "_timestamp": "2026-10-06T13:17:20.341Z",
+    "_writable": false
+   },
+   "AvailableInterfaceNumberOfEntries": {
+    "_object": false,
+    "_timestamp": "2026-10-06T13:17:20.473Z",
+    "_type": "xsd:unsignedInt",
+    "_value": 9,
+    "_writable": false
+   },
+   "Bridge": {
+    "1": {
+     "BridgeEnable": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:boolean",
+      "_value": true,
+      "_writable": true
+     },
+     "BridgeKey": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:unsignedInt",
+      "_value": "REMOVIDO",
+      "_writable": false
+     },
+     "BridgeName": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:string",
+      "_value": "DEFAULT",
+      "_writable": true
+     },
+     "BridgeStandard": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:string",
+      "_value": "802.1Q",
+      "_writable": true
+     },
+     "BridgeStatus": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:string",
+      "_value": "Enabled",
+      "_writable": false
+     },
+     "Port": {
+      "_object": true,
+      "_timestamp": "2026-10-06T13:17:20.341Z",
+      "_writable": true
+     },
+     "PortNumberOfEntries": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:unsignedInt",
+      "_value": 0,
+      "_writable": false
+     },
+     "VLAN": {
+      "_object": true,
+      "_timestamp": "2026-10-06T13:17:20.341Z",
+      "_writable": true
+     },
+     "VLANID": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:unsignedInt",
+      "_value": 0,
+      "_writable": true
+     },
+     "VLANNumberOfEntries": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:unsignedInt",
+      "_value": 0,
+      "_writable": false
+     },
+     "_object": true,
+     "_timestamp": "2026-10-06T13:17:20.341Z",
+     "_writable": true
+    },
+    "_object": true,
+    "_timestamp": "2026-10-06T13:17:20.341Z",
+    "_writable": true
+   },
+   "BridgeNumberOfEntries": {
+    "_object": false,
+    "_timestamp": "2026-10-06T13:17:20.473Z",
+    "_type": "xsd:unsignedInt",
+    "_value": 1,
+    "_writable": false
+   },
+   "Filter": {
+    "14": {
+     "AdmitOnlyVLANTagged": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:boolean",
+      "_value": false,
+      "_writable": true
+     },
+     "FilterBridgeReference": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:int",
+      "_value": 0,
+      "_writable": true
+     },
+     "FilterEnable": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:boolean",
+      "_value": true,
+      "_writable": true
+     },
+     "FilterInterface": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:string",
+      "_value": "7",
+      "_writable": true
+     },
+     "FilterKey": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:unsignedInt",
+      "_value": "REMOVIDO",
+      "_writable": false
+     },
+     "FilterStatus": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:string",
+      "_value": "Enabled",
+      "_writable": false
+     },
+     "VLANIDFilter": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:int",
+      "_value": -1,
+      "_writable": true
+     },
+     "_object": true,
+     "_timestamp": "2026-10-06T13:17:20.341Z",
+     "_writable": true
+    },
+    "15": {
+     "AdmitOnlyVLANTagged": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:boolean",
+      "_value": false,
+      "_writable": true
+     },
+     "FilterBridgeReference": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:int",
+      "_value": 0,
+      "_writable": true
+     },
+     "FilterEnable": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:boolean",
+      "_value": true,
+      "_writable": true
+     },
+     "FilterInterface": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:string",
+      "_value": "1",
+      "_writable": true
+     },
+     "FilterKey": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:unsignedInt",
+      "_value": "REMOVIDO",
+      "_writable": false
+     },
+     "FilterStatus": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:string",
+      "_value": "Enabled",
+      "_writable": false
+     },
+     "VLANIDFilter": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:int",
+      "_value": -1,
+      "_writable": true
+     },
+     "_object": true,
+     "_timestamp": "2026-10-06T13:17:20.341Z",
+     "_writable": true
+    },
+    "16": {
+     "AdmitOnlyVLANTagged": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:boolean",
+      "_value": false,
+      "_writable": true
+     },
+     "FilterBridgeReference": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:int",
+      "_value": 0,
+      "_writable": true
+     },
+     "FilterEnable": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:boolean",
+      "_value": true,
+      "_writable": true
+     },
+     "FilterInterface": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:string",
+      "_value": "2",
+      "_writable": true
+     },
+     "FilterKey": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:unsignedInt",
+      "_value": "REMOVIDO",
+      "_writable": false
+     },
+     "FilterStatus": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:string",
+      "_value": "Enabled",
+      "_writable": false
+     },
+     "VLANIDFilter": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:int",
+      "_value": -1,
+      "_writable": true
+     },
+     "_object": true,
+     "_timestamp": "2026-10-06T13:17:20.341Z",
+     "_writable": true
+    },
+    "17": {
+     "AdmitOnlyVLANTagged": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:boolean",
+      "_value": false,
+      "_writable": true
+     },
+     "FilterBridgeReference": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:int",
+      "_value": 0,
+      "_writable": true
+     },
+     "FilterEnable": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:boolean",
+      "_value": true,
+      "_writable": true
+     },
+     "FilterInterface": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:string",
+      "_value": "3",
+      "_writable": true
+     },
+     "FilterKey": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:unsignedInt",
+      "_value": "REMOVIDO",
+      "_writable": false
+     },
+     "FilterStatus": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:string",
+      "_value": "Enabled",
+      "_writable": false
+     },
+     "VLANIDFilter": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:int",
+      "_value": -1,
+      "_writable": true
+     },
+     "_object": true,
+     "_timestamp": "2026-10-06T13:17:20.341Z",
+     "_writable": true
+    },
+    "18": {
+     "AdmitOnlyVLANTagged": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:boolean",
+      "_value": false,
+      "_writable": true
+     },
+     "FilterBridgeReference": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:int",
+      "_value": 0,
+      "_writable": true
+     },
+     "FilterEnable": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:boolean",
+      "_value": true,
+      "_writable": true
+     },
+     "FilterInterface": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:string",
+      "_value": "4",
+      "_writable": true
+     },
+     "FilterKey": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:unsignedInt",
+      "_value": "REMOVIDO",
+      "_writable": false
+     },
+     "FilterStatus": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:string",
+      "_value": "Enabled",
+      "_writable": false
+     },
+     "VLANIDFilter": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:int",
+      "_value": -1,
+      "_writable": true
+     },
+     "_object": true,
+     "_timestamp": "2026-10-06T13:17:20.341Z",
+     "_writable": true
+    },
+    "19": {
+     "AdmitOnlyVLANTagged": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:boolean",
+      "_value": false,
+      "_writable": true
+     },
+     "FilterBridgeReference": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:int",
+      "_value": 0,
+      "_writable": true
+     },
+     "FilterEnable": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:boolean",
+      "_value": true,
+      "_writable": true
+     },
+     "FilterInterface": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:string",
+      "_value": "6",
+      "_writable": true
+     },
+     "FilterKey": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:unsignedInt",
+      "_value": "REMOVIDO",
+      "_writable": false
+     },
+     "FilterStatus": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:string",
+      "_value": "Enabled",
+      "_writable": false
+     },
+     "VLANIDFilter": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:int",
+      "_value": -1,
+      "_writable": true
+     },
+     "_object": true,
+     "_timestamp": "2026-10-06T13:17:20.341Z",
+     "_writable": true
+    },
+    "20": {
+     "AdmitOnlyVLANTagged": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:boolean",
+      "_value": false,
+      "_writable": true
+     },
+     "FilterBridgeReference": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:int",
+      "_value": 0,
+      "_writable": true
+     },
+     "FilterEnable": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:boolean",
+      "_value": true,
+      "_writable": true
+     },
+     "FilterInterface": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:string",
+      "_value": "5",
+      "_writable": true
+     },
+     "FilterKey": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:unsignedInt",
+      "_value": "REMOVIDO",
+      "_writable": false
+     },
+     "FilterStatus": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:string",
+      "_value": "Enabled",
+      "_writable": false
+     },
+     "VLANIDFilter": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:int",
+      "_value": -1,
+      "_writable": true
+     },
+     "_object": true,
+     "_timestamp": "2026-10-06T13:17:20.341Z",
+     "_writable": true
+    },
+    "21": {
+     "AdmitOnlyVLANTagged": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:boolean",
+      "_value": false,
+      "_writable": true
+     },
+     "FilterBridgeReference": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:int",
+      "_value": 0,
+      "_writable": true
+     },
+     "FilterEnable": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:boolean",
+      "_value": true,
+      "_writable": true
+     },
+     "FilterInterface": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:string",
+      "_value": "9",
+      "_writable": true
+     },
+     "FilterKey": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:unsignedInt",
+      "_value": "REMOVIDO",
+      "_writable": false
+     },
+     "FilterStatus": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:string",
+      "_value": "Enabled",
+      "_writable": false
+     },
+     "VLANIDFilter": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:int",
+      "_value": -1,
+      "_writable": true
+     },
+     "_object": true,
+     "_timestamp": "2026-10-06T13:17:20.341Z",
+     "_writable": true
+    },
+    "_object": true,
+    "_timestamp": "2026-10-06T13:17:20.341Z",
+    "_writable": true
+   },
+   "FilterNumberOfEntries": {
+    "_object": false,
+    "_timestamp": "2026-10-06T13:17:20.473Z",
+    "_type": "xsd:unsignedInt",
+    "_value": 8,
+    "_writable": false
+   },
+   "Marking": {
+    "1": {
+     "EthernetPriorityMark": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:int",
+      "_value": -1,
+      "_writable": true
+     },
+     "MarkingBridgeReference": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:int",
+      "_value": 0,
+      "_writable": true
+     },
+     "MarkingEnable": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:boolean",
+      "_value": true,
+      "_writable": true
+     },
+     "MarkingInterface": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:string",
+      "_value": "1",
+      "_writable": true
+     },
+     "MarkingKey": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:unsignedInt",
+      "_value": "REMOVIDO",
+      "_writable": false
+     },
+     "MarkingStatus": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:string",
+      "_value": "Enabled",
+      "_writable": false
+     },
+     "VLANIDMark": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:int",
+      "_value": -1,
+      "_writable": true
+     },
+     "VLANIDMarkOverride": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:boolean",
+      "_value": false,
+      "_writable": true
+     },
+     "VLANIDUntag": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:boolean",
+      "_value": true,
+      "_writable": true
+     },
+     "_object": true,
+     "_timestamp": "2026-10-06T13:17:20.341Z",
+     "_writable": true
+    },
+    "2": {
+     "EthernetPriorityMark": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:int",
+      "_value": -1,
+      "_writable": true
+     },
+     "MarkingBridgeReference": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:int",
+      "_value": 0,
+      "_writable": true
+     },
+     "MarkingEnable": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:boolean",
+      "_value": true,
+      "_writable": true
+     },
+     "MarkingInterface": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:string",
+      "_value": "2",
+      "_writable": true
+     },
+     "MarkingKey": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:unsignedInt",
+      "_value": "REMOVIDO",
+      "_writable": false
+     },
+     "MarkingStatus": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:string",
+      "_value": "Enabled",
+      "_writable": false
+     },
+     "VLANIDMark": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:int",
+      "_value": -1,
+      "_writable": true
+     },
+     "VLANIDMarkOverride": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:boolean",
+      "_value": false,
+      "_writable": true
+     },
+     "VLANIDUntag": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:boolean",
+      "_value": true,
+      "_writable": true
+     },
+     "_object": true,
+     "_timestamp": "2026-10-06T13:17:20.341Z",
+     "_writable": true
+    },
+    "3": {
+     "EthernetPriorityMark": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:int",
+      "_value": -1,
+      "_writable": true
+     },
+     "MarkingBridgeReference": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:int",
+      "_value": 0,
+      "_writable": true
+     },
+     "MarkingEnable": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:boolean",
+      "_value": true,
+      "_writable": true
+     },
+     "MarkingInterface": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:string",
+      "_value": "3",
+      "_writable": true
+     },
+     "MarkingKey": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:unsignedInt",
+      "_value": "REMOVIDO",
+      "_writable": false
+     },
+     "MarkingStatus": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:string",
+      "_value": "Enabled",
+      "_writable": false
+     },
+     "VLANIDMark": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:int",
+      "_value": -1,
+      "_writable": true
+     },
+     "VLANIDMarkOverride": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:boolean",
+      "_value": false,
+      "_writable": true
+     },
+     "VLANIDUntag": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:boolean",
+      "_value": true,
+      "_writable": true
+     },
+     "_object": true,
+     "_timestamp": "2026-10-06T13:17:20.341Z",
+     "_writable": true
+    },
+    "4": {
+     "EthernetPriorityMark": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:int",
+      "_value": -1,
+      "_writable": true
+     },
+     "MarkingBridgeReference": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:int",
+      "_value": 0,
+      "_writable": true
+     },
+     "MarkingEnable": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:boolean",
+      "_value": true,
+      "_writable": true
+     },
+     "MarkingInterface": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:string",
+      "_value": "4",
+      "_writable": true
+     },
+     "MarkingKey": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:unsignedInt",
+      "_value": "REMOVIDO",
+      "_writable": false
+     },
+     "MarkingStatus": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:string",
+      "_value": "Enabled",
+      "_writable": false
+     },
+     "VLANIDMark": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:int",
+      "_value": -1,
+      "_writable": true
+     },
+     "VLANIDMarkOverride": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:boolean",
+      "_value": false,
+      "_writable": true
+     },
+     "VLANIDUntag": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:boolean",
+      "_value": true,
+      "_writable": true
+     },
+     "_object": true,
+     "_timestamp": "2026-10-06T13:17:20.341Z",
+     "_writable": true
+    },
+    "5": {
+     "EthernetPriorityMark": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:int",
+      "_value": 7,
+      "_writable": true
+     },
+     "MarkingBridgeReference": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:int",
+      "_value": 0,
+      "_writable": true
+     },
+     "MarkingEnable": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:boolean",
+      "_value": true,
+      "_writable": true
+     },
+     "MarkingInterface": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:string",
+      "_value": "6",
+      "_writable": true
+     },
+     "MarkingKey": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:unsignedInt",
+      "_value": "REMOVIDO",
+      "_writable": false
+     },
+     "MarkingStatus": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:string",
+      "_value": "Enabled",
+      "_writable": false
+     },
+     "VLANIDMark": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:int",
+      "_value": 7,
+      "_writable": true
+     },
+     "VLANIDMarkOverride": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:boolean",
+      "_value": true,
+      "_writable": true
+     },
+     "VLANIDUntag": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:17:20.473Z",
+      "_type": "xsd:boolean",
+      "_value": false,
+      "_writable": true
+     },
+     "_object": true,
+     "_timestamp": "2026-10-06T13:17:20.341Z",
+     "_writable": true
+    },
+    "_object": true,
+    "_timestamp": "2026-10-06T13:17:20.341Z",
+    "_writable": true
+   },
+   "MarkingNumberOfEntries": {
+    "_object": false,
+    "_timestamp": "2026-10-06T13:17:20.473Z",
+    "_type": "xsd:unsignedInt",
+    "_value": 5,
+    "_writable": false
+   },
+   "MaxBridgeEntries": {
+    "_object": false,
+    "_timestamp": "2026-10-06T13:17:20.473Z",
+    "_type": "xsd:unsignedInt",
+    "_value": 8,
+    "_writable": false
+   },
+   "MaxFilterEntries": {
+    "_object": false,
+    "_timestamp": "2026-10-06T13:17:20.473Z",
+    "_type": "xsd:unsignedInt",
+    "_value": 32,
+    "_writable": false
+   },
+   "MaxMarkingEntries": {
+    "_object": false,
+    "_timestamp": "2026-10-06T13:17:20.473Z",
+    "_type": "xsd:unsignedInt",
+    "_value": 32,
+    "_writable": false
+   },
+   "_timestamp": "2026-10-06T13:17:20.341Z"
+  },
+  "Layer3Forwarding": {
+   "_object": true,
+   "_writable": false
+  },
+  "ManagementServer": {
+   "AliasBasedAddressing": {
+    "_object": false,
+    "_writable": false
+   },
+   "AutoCreateInstances": {
+    "_object": false,
+    "_writable": true
+   },
+   "CWMPRetryIntervalMultiplier": {
+    "_object": false,
+    "_writable": true
+   },
+   "CWMPRetryMinimumWaitInterval": {
+    "_object": false,
+    "_writable": true
+   },
+   "ConnectionRequestPassword": {
+    "_object": false,
+    "_timestamp": "2026-10-07T10:10:28.431Z",
+    "_type": "xsd:string",
+    "_value": "REMOVIDO",
+    "_writable": true
+   },
+   "ConnectionRequestURL": {
+    "_object": false,
+    "_timestamp": "2026-10-07T13:30:28.538Z",
+    "_type": "xsd:string",
+    "_value": "http://172.18.1.254:7547/tr069",
+    "_writable": false
+   },
+   "ConnectionRequestUsername": {
+    "_object": false,
+    "_timestamp": "2026-10-07T10:10:28.430Z",
+    "_type": "xsd:string",
+    "_value": "808544-140PoE-ITBS4420775E",
+    "_writable": true
+   },
+   "DefaultActiveNotificationThrottle": {
+    "_object": false,
+    "_writable": true
+   },
+   "DownloadProgressURL": {
+    "_object": false,
+    "_writable": false
+   },
+   "EnableCWMP": {
+    "_object": false,
+    "_writable": true
+   },
+   "InstanceMode": {
+    "_object": false,
+    "_writable": true
+   },
+   "KickURL": {
+    "_object": false,
+    "_writable": false
+   },
+   "ManageableDevice": {
+    "_object": true,
+    "_writable": false
+   },
+   "ManageableDeviceNotificationLimit": {
+    "_object": false,
+    "_writable": true
+   },
+   "ManageableDeviceNumberOfEntries": {
+    "_object": false,
+    "_writable": false
+   },
+   "NATDetected": {
+    "_object": false,
+    "_writable": false
+   },
+   "ParameterKey": {
+    "_object": false,
+    "_timestamp": "2026-10-07T13:30:28.538Z",
+    "_type": "xsd:string",
+    "_value": "",
+    "_writable": false
+   },
+   "Password": {
+    "_object": false,
+    "_writable": true
+   },
+   "PeriodicInformEnable": {
+    "_object": false,
+    "_timestamp": "2026-10-07T10:10:28.430Z",
+    "_type": "xsd:boolean",
+    "_value": true,
+    "_writable": true
+   },
+   "PeriodicInformInterval": {
+    "_object": false,
+    "_timestamp": "2026-10-07T10:10:28.430Z",
+    "_type": "xsd:unsignedInt",
+    "_value": 300,
+    "_writable": true
+   },
+   "PeriodicInformTime": {
+    "_object": false,
+    "_timestamp": "2026-10-07T10:10:28.431Z",
+    "_type": "xsd:dateTime",
+    "_value": "1970-01-01T10:05:38.604Z",
+    "_writable": true
+   },
+   "STUNEnable": {
+    "_object": false,
+    "_writable": true
+   },
+   "STUNMaximumKeepAlivePeriod": {
+    "_object": false,
+    "_writable": true
+   },
+   "STUNMinimumKeepAlivePeriod": {
+    "_object": false,
+    "_writable": true
+   },
+   "STUNPassword": {
+    "_object": false,
+    "_writable": true
+   },
+   "STUNServerAddress": {
+    "_object": false,
+    "_writable": true
+   },
+   "STUNServerPort": {
+    "_object": false,
+    "_writable": true
+   },
+   "STUNUsername": {
+    "_object": false,
+    "_writable": true
+   },
+   "UDPConnectionRequestAddress": {
+    "_object": false,
+    "_writable": false
+   },
+   "UDPConnectionRequestAddressNotificationLimit": {
+    "_object": false,
+    "_writable": true
+   },
+   "URL": {
+    "_object": false,
+    "_writable": true
+   },
+   "UpgradesManaged": {
+    "_object": false,
+    "_writable": true
+   },
+   "Username": {
+    "_object": false,
+    "_writable": true
+   },
+   "_object": true,
+   "_timestamp": "2026-10-06T13:07:36.267Z",
+   "_writable": false
+  },
+  "QueueManagement": {
+   "_object": true,
+   "_writable": false
+  },
+  "Services": {
+   "_object": true,
+   "_writable": false
+  },
+  "Time": {
+   "_object": true,
+   "_writable": false
+  },
+  "TraceRouteDiagnostics": {
+   "_object": true,
+   "_writable": false
+  },
+  "UDPEchoConfig": {
+   "_object": true,
+   "_writable": false
+  },
+  "UploadDiagnostics": {
+   "_object": true,
+   "_writable": false
+  },
+  "UserInterface": {
+   "_object": true,
+   "_writable": false,
+   "AdminPassword": {
+    "_object": false,
+    "_timestamp": "2026-10-06T13:07:36.346Z",
+    "_type": "xsd:string",
+    "_value": "REMOVIDO",
+    "_writable": true
+   },
+   "AutoUpdateServer": {
+    "_object": false,
+    "_writable": true
+   },
+   "FirmwareCustomEnable": {
+    "_object": false,
+    "_writable": true
+   },
+   "PasswordRequired": {
+    "_object": false,
+    "_writable": true
+   },
+   "PasswordUserSelectable": {
+    "_object": false,
+    "_writable": true
+   },
+   "UpgradeAvailable": {
+    "_object": false,
+    "_writable": true
+   },
+   "UserUpdateServer": {
+    "_object": false,
+    "_writable": true
+   },
+   "WarrantyDate": {
+    "_object": false,
+    "_writable": true
+   },
+   "_timestamp": "2026-10-06T13:07:36.267Z"
+  },
+  "WANDevice": {
+   "1": {
+    "WANConnectionDevice": {
+     "1": {
+      "WANIPConnection": {
+       "1": {
+        "ExternalIPAddress": {
+         "_object": false,
+         "_timestamp": "2026-10-07T13:30:28.538Z",
+         "_type": "xsd:string",
+         "_value": "172.18.1.254",
+         "_writable": true
+        },
+        "MACAddress": {
+         "_object": false,
+         "_timestamp": "2026-10-07T13:30:28.538Z",
+         "_type": "xsd:string",
+         "_value": "80:85:44:20:77:5f",
+         "_writable": false
+        },
+        "_object": true,
+        "_writable": true,
+        "AddressingType": {
+         "_object": false,
+         "_timestamp": "2026-10-06T13:32:20.343Z",
+         "_type": "xsd:string",
+         "_value": "DHCP",
+         "_writable": true
+        },
+        "ConnectionStatus": {
+         "_object": false,
+         "_timestamp": "2026-10-06T13:32:20.343Z",
+         "_type": "xsd:string",
+         "_value": "Connected",
+         "_writable": false
+        },
+        "ConnectionTrigger": {
+         "_object": false,
+         "_timestamp": "2026-10-06T13:32:20.343Z",
+         "_type": "xsd:string",
+         "_value": "AlwaysOn",
+         "_writable": true
+        },
+        "ConnectionType": {
+         "_object": false,
+         "_timestamp": "2026-10-06T13:32:20.343Z",
+         "_type": "xsd:string",
+         "_value": "IP_Routed",
+         "_writable": true
+        },
+        "DHCPClient": {
+         "ReqDHCPOption": {
+          "1": {
+           "Enable": {
+            "_object": false,
+            "_timestamp": "2026-10-06T13:32:20.343Z",
+            "_type": "xsd:boolean",
+            "_value": true,
+            "_writable": true
+           },
+           "Order": {
+            "_object": false,
+            "_timestamp": "2026-10-06T13:32:20.343Z",
+            "_type": "xsd:unsignedInt",
+            "_value": 1,
+            "_writable": true
+           },
+           "Tag": {
+            "_object": false,
+            "_timestamp": "2026-10-06T13:32:20.343Z",
+            "_type": "xsd:unsignedInt",
+            "_value": 1,
+            "_writable": true
+           },
+           "Value": {
+            "_object": false,
+            "_timestamp": "2026-10-06T13:32:20.343Z",
+            "_type": "SOAP-ENC:base64",
+            "_value": "////AA==",
+            "_writable": false
+           },
+           "_object": true,
+           "_timestamp": "2026-10-06T13:32:20.341Z",
+           "_writable": true
+          },
+          "2": {
+           "Enable": {
+            "_object": false,
+            "_timestamp": "2026-10-06T13:32:20.343Z",
+            "_type": "xsd:boolean",
+            "_value": true,
+            "_writable": true
+           },
+           "Order": {
+            "_object": false,
+            "_timestamp": "2026-10-06T13:32:20.343Z",
+            "_type": "xsd:unsignedInt",
+            "_value": 2,
+            "_writable": true
+           },
+           "Tag": {
+            "_object": false,
+            "_timestamp": "2026-10-06T13:32:20.343Z",
+            "_type": "xsd:unsignedInt",
+            "_value": 3,
+            "_writable": true
+           },
+           "Value": {
+            "_object": false,
+            "_timestamp": "2026-10-06T13:32:20.343Z",
+            "_type": "SOAP-ENC:base64",
+            "_value": "rBIBAQ==",
+            "_writable": false
+           },
+           "_object": true,
+           "_timestamp": "2026-10-06T13:32:20.341Z",
+           "_writable": true
+          },
+          "3": {
+           "Enable": {
+            "_object": false,
+            "_timestamp": "2026-10-06T13:32:20.343Z",
+            "_type": "xsd:boolean",
+            "_value": true,
+            "_writable": true
+           },
+           "Order": {
+            "_object": false,
+            "_timestamp": "2026-10-06T13:32:20.343Z",
+            "_type": "xsd:unsignedInt",
+            "_value": 3,
+            "_writable": true
+           },
+           "Tag": {
+            "_object": false,
+            "_timestamp": "2026-10-06T13:32:20.343Z",
+            "_type": "xsd:unsignedInt",
+            "_value": 6,
+            "_writable": true
+           },
+           "Value": {
+            "_object": false,
+            "_timestamp": "2026-10-06T13:32:20.343Z",
+            "_type": "SOAP-ENC:base64",
+            "_value": "",
+            "_writable": false
+           },
+           "_object": true,
+           "_timestamp": "2026-10-06T13:32:20.341Z",
+           "_writable": true
+          },
+          "4": {
+           "Enable": {
+            "_object": false,
+            "_timestamp": "2026-10-06T13:32:20.343Z",
+            "_type": "xsd:boolean",
+            "_value": true,
+            "_writable": true
+           },
+           "Order": {
+            "_object": false,
+            "_timestamp": "2026-10-06T13:32:20.343Z",
+            "_type": "xsd:unsignedInt",
+            "_value": 4,
+            "_writable": true
+           },
+           "Tag": {
+            "_object": false,
+            "_timestamp": "2026-10-06T13:32:20.343Z",
+            "_type": "xsd:unsignedInt",
+            "_value": 12,
+            "_writable": true
+           },
+           "Value": {
+            "_object": false,
+            "_timestamp": "2026-10-06T13:32:20.343Z",
+            "_type": "SOAP-ENC:base64",
+            "_value": "",
+            "_writable": false
+           },
+           "_object": true,
+           "_timestamp": "2026-10-06T13:32:20.341Z",
+           "_writable": true
+          },
+          "5": {
+           "Enable": {
+            "_object": false,
+            "_timestamp": "2026-10-06T13:32:20.343Z",
+            "_type": "xsd:boolean",
+            "_value": true,
+            "_writable": true
+           },
+           "Order": {
+            "_object": false,
+            "_timestamp": "2026-10-06T13:32:20.343Z",
+            "_type": "xsd:unsignedInt",
+            "_value": 5,
+            "_writable": true
+           },
+           "Tag": {
+            "_object": false,
+            "_timestamp": "2026-10-06T13:32:20.343Z",
+            "_type": "xsd:unsignedInt",
+            "_value": 15,
+            "_writable": true
+           },
+           "Value": {
+            "_object": false,
+            "_timestamp": "2026-10-06T13:32:20.343Z",
+            "_type": "SOAP-ENC:base64",
+            "_value": "",
+            "_writable": false
+           },
+           "_object": true,
+           "_timestamp": "2026-10-06T13:32:20.341Z",
+           "_writable": true
+          },
+          "6": {
+           "Enable": {
+            "_object": false,
+            "_timestamp": "2026-10-06T13:32:20.343Z",
+            "_type": "xsd:boolean",
+            "_value": true,
+            "_writable": true
+           },
+           "Order": {
+            "_object": false,
+            "_timestamp": "2026-10-06T13:32:20.343Z",
+            "_type": "xsd:unsignedInt",
+            "_value": 6,
+            "_writable": true
+           },
+           "Tag": {
+            "_object": false,
+            "_timestamp": "2026-10-06T13:32:20.343Z",
+            "_type": "xsd:unsignedInt",
+            "_value": 28,
+            "_writable": true
+           },
+           "Value": {
+            "_object": false,
+            "_timestamp": "2026-10-06T13:32:20.343Z",
+            "_type": "SOAP-ENC:base64",
+            "_value": "",
+            "_writable": false
+           },
+           "_object": true,
+           "_timestamp": "2026-10-06T13:32:20.341Z",
+           "_writable": true
+          },
+          "11": {
+           "Enable": {
+            "_object": false,
+            "_timestamp": "2026-10-06T13:32:20.343Z",
+            "_type": "xsd:boolean",
+            "_value": true,
+            "_writable": true
+           },
+           "Order": {
+            "_object": false,
+            "_timestamp": "2026-10-06T13:32:20.343Z",
+            "_type": "xsd:unsignedInt",
+            "_value": 7,
+            "_writable": true
+           },
+           "Tag": {
+            "_object": false,
+            "_timestamp": "2026-10-06T13:32:20.343Z",
+            "_type": "xsd:unsignedInt",
+            "_value": 43,
+            "_writable": true
+           },
+           "Value": {
+            "_object": false,
+            "_timestamp": "2026-10-06T13:32:20.343Z",
+            "_type": "SOAP-ENC:base64",
+            "_value": "ARdodHRwOi8vMTAuMjAxLjAuMjY6NzU0Nw==",
+            "_writable": false
+           },
+           "_object": true,
+           "_timestamp": "2026-10-06T13:32:20.341Z",
+           "_writable": true
+          },
+          "12": {
+           "Enable": {
+            "_object": false,
+            "_timestamp": "2026-10-06T13:32:20.343Z",
+            "_type": "xsd:boolean",
+            "_value": true,
+            "_writable": true
+           },
+           "Order": {
+            "_object": false,
+            "_timestamp": "2026-10-06T13:32:20.343Z",
+            "_type": "xsd:unsignedInt",
+            "_value": 8,
+            "_writable": true
+           },
+           "Tag": {
+            "_object": false,
+            "_timestamp": "2026-10-06T13:32:20.343Z",
+            "_type": "xsd:unsignedInt",
+            "_value": 120,
+            "_writable": true
+           },
+           "Value": {
+            "_object": false,
+            "_timestamp": "2026-10-06T13:32:20.343Z",
+            "_type": "SOAP-ENC:base64",
+            "_value": "",
+            "_writable": false
+           },
+           "_object": true,
+           "_timestamp": "2026-10-06T13:32:20.341Z",
+           "_writable": true
+          },
+          "13": {
+           "Enable": {
+            "_object": false,
+            "_timestamp": "2026-10-06T13:32:20.343Z",
+            "_type": "xsd:boolean",
+            "_value": true,
+            "_writable": true
+           },
+           "Order": {
+            "_object": false,
+            "_timestamp": "2026-10-06T13:32:20.343Z",
+            "_type": "xsd:unsignedInt",
+            "_value": 9,
+            "_writable": true
+           },
+           "Tag": {
+            "_object": false,
+            "_timestamp": "2026-10-06T13:32:20.343Z",
+            "_type": "xsd:unsignedInt",
+            "_value": 42,
+            "_writable": true
+           },
+           "Value": {
+            "_object": false,
+            "_timestamp": "2026-10-06T13:32:20.343Z",
+            "_type": "SOAP-ENC:base64",
+            "_value": "",
+            "_writable": false
+           },
+           "_object": true,
+           "_timestamp": "2026-10-06T13:32:20.341Z",
+           "_writable": true
+          },
+          "14": {
+           "Enable": {
+            "_object": false,
+            "_timestamp": "2026-10-06T13:32:20.343Z",
+            "_type": "xsd:boolean",
+            "_value": true,
+            "_writable": true
+           },
+           "Order": {
+            "_object": false,
+            "_timestamp": "2026-10-06T13:32:20.343Z",
+            "_type": "xsd:unsignedInt",
+            "_value": 10,
+            "_writable": true
+           },
+           "Tag": {
+            "_object": false,
+            "_timestamp": "2026-10-06T13:32:20.343Z",
+            "_type": "xsd:unsignedInt",
+            "_value": 66,
+            "_writable": true
+           },
+           "Value": {
+            "_object": false,
+            "_timestamp": "2026-10-06T13:32:20.343Z",
+            "_type": "SOAP-ENC:base64",
+            "_value": "",
+            "_writable": false
+           },
+           "_object": true,
+           "_timestamp": "2026-10-06T13:32:20.341Z",
+           "_writable": true
+          },
+          "15": {
+           "Enable": {
+            "_object": false,
+            "_timestamp": "2026-10-06T13:32:20.343Z",
+            "_type": "xsd:boolean",
+            "_value": true,
+            "_writable": true
+           },
+           "Order": {
+            "_object": false,
+            "_timestamp": "2026-10-06T13:32:20.343Z",
+            "_type": "xsd:unsignedInt",
+            "_value": 11,
+            "_writable": true
+           },
+           "Tag": {
+            "_object": false,
+            "_timestamp": "2026-10-06T13:32:20.343Z",
+            "_type": "xsd:unsignedInt",
+            "_value": 100,
+            "_writable": true
+           },
+           "Value": {
+            "_object": false,
+            "_timestamp": "2026-10-06T13:32:20.343Z",
+            "_type": "SOAP-ENC:base64",
+            "_value": "",
+            "_writable": false
+           },
+           "_object": true,
+           "_timestamp": "2026-10-06T13:32:20.341Z",
+           "_writable": true
+          },
+          "16": {
+           "Enable": {
+            "_object": false,
+            "_timestamp": "2026-10-06T13:32:20.343Z",
+            "_type": "xsd:boolean",
+            "_value": true,
+            "_writable": true
+           },
+           "Order": {
+            "_object": false,
+            "_timestamp": "2026-10-06T13:32:20.343Z",
+            "_type": "xsd:unsignedInt",
+            "_value": 12,
+            "_writable": true
+           },
+           "Tag": {
+            "_object": false,
+            "_timestamp": "2026-10-06T13:32:20.343Z",
+            "_type": "xsd:unsignedInt",
+            "_value": 20,
+            "_writable": true
+           },
+           "Value": {
+            "_object": false,
+            "_timestamp": "2026-10-06T13:32:20.343Z",
+            "_type": "SOAP-ENC:base64",
+            "_value": "",
+            "_writable": false
+           },
+           "_object": true,
+           "_timestamp": "2026-10-06T13:32:20.341Z",
+           "_writable": true
+          },
+          "17": {
+           "Enable": {
+            "_object": false,
+            "_timestamp": "2026-10-06T13:32:20.343Z",
+            "_type": "xsd:boolean",
+            "_value": true,
+            "_writable": true
+           },
+           "Order": {
+            "_object": false,
+            "_timestamp": "2026-10-06T13:32:20.343Z",
+            "_type": "xsd:unsignedInt",
+            "_value": 13,
+            "_writable": true
+           },
+           "Tag": {
+            "_object": false,
+            "_timestamp": "2026-10-06T13:32:20.343Z",
+            "_type": "xsd:unsignedInt",
+            "_value": 67,
+            "_writable": true
+           },
+           "Value": {
+            "_object": false,
+            "_timestamp": "2026-10-06T13:32:20.343Z",
+            "_type": "SOAP-ENC:base64",
+            "_value": "",
+            "_writable": false
+           },
+           "_object": true,
+           "_timestamp": "2026-10-06T13:32:20.341Z",
+           "_writable": true
+          },
+          "18": {
+           "Enable": {
+            "_object": false,
+            "_timestamp": "2026-10-06T13:32:20.343Z",
+            "_type": "xsd:boolean",
+            "_value": true,
+            "_writable": true
+           },
+           "Order": {
+            "_object": false,
+            "_timestamp": "2026-10-06T13:32:20.343Z",
+            "_type": "xsd:unsignedInt",
+            "_value": 14,
+            "_writable": true
+           },
+           "Tag": {
+            "_object": false,
+            "_timestamp": "2026-10-06T13:32:20.343Z",
+            "_type": "xsd:unsignedInt",
+            "_value": 212,
+            "_writable": true
+           },
+           "Value": {
+            "_object": false,
+            "_timestamp": "2026-10-06T13:32:20.343Z",
+            "_type": "SOAP-ENC:base64",
+            "_value": "",
+            "_writable": false
+           },
+           "_object": true,
+           "_timestamp": "2026-10-06T13:32:20.341Z",
+           "_writable": true
+          },
+          "_object": true,
+          "_timestamp": "2026-10-06T13:32:20.341Z",
+          "_writable": true
+         },
+         "ReqDHCPOptionNumberOfEntries": {
+          "_object": false,
+          "_timestamp": "2026-10-06T13:32:20.343Z",
+          "_type": "xsd:unsignedInt",
+          "_value": 14,
+          "_writable": false
+         },
+         "SentDHCPOption": {
+          "1": {
+           "Enable": {
+            "_object": false,
+            "_timestamp": "2026-10-06T13:32:20.343Z",
+            "_type": "xsd:boolean",
+            "_value": true,
+            "_writable": true
+           },
+           "Tag": {
+            "_object": false,
+            "_timestamp": "2026-10-06T13:32:20.343Z",
+            "_type": "xsd:unsignedInt",
+            "_value": 53,
+            "_writable": true
+           },
+           "Value": {
+            "_object": false,
+            "_timestamp": "2026-10-06T13:32:20.343Z",
+            "_type": "SOAP-ENC:base64",
+            "_value": "Aw==",
+            "_writable": true
+           },
+           "_object": true,
+           "_timestamp": "2026-10-06T13:32:20.341Z",
+           "_writable": true
+          },
+          "2": {
+           "Enable": {
+            "_object": false,
+            "_timestamp": "2026-10-06T13:32:20.343Z",
+            "_type": "xsd:boolean",
+            "_value": true,
+            "_writable": true
+           },
+           "Tag": {
+            "_object": false,
+            "_timestamp": "2026-10-06T13:32:20.343Z",
+            "_type": "xsd:unsignedInt",
+            "_value": 61,
+            "_writable": true
+           },
+           "Value": {
+            "_object": false,
+            "_timestamp": "2026-10-06T13:32:20.343Z",
+            "_type": "SOAP-ENC:base64",
+            "_value": "AYCFRCB3Xw==",
+            "_writable": true
+           },
+           "_object": true,
+           "_timestamp": "2026-10-06T13:32:20.341Z",
+           "_writable": true
+          },
+          "3": {
+           "Enable": {
+            "_object": false,
+            "_timestamp": "2026-10-06T13:32:20.343Z",
+            "_type": "xsd:boolean",
+            "_value": true,
+            "_writable": true
+           },
+           "Tag": {
+            "_object": false,
+            "_timestamp": "2026-10-06T13:32:20.343Z",
+            "_type": "xsd:unsignedInt",
+            "_value": 60,
+            "_writable": true
+           },
+           "Value": {
+            "_object": false,
+            "_timestamp": "2026-10-06T13:32:20.343Z",
+            "_type": "SOAP-ENC:base64",
+            "_value": "ZHNsZm9ydW0ub3JnAA==",
+            "_writable": true
+           },
+           "_object": true,
+           "_timestamp": "2026-10-06T13:32:20.341Z",
+           "_writable": true
+          },
+          "4": {
+           "Enable": {
+            "_object": false,
+            "_timestamp": "2026-10-06T13:32:20.343Z",
+            "_type": "xsd:boolean",
+            "_value": true,
+            "_writable": true
+           },
+           "Tag": {
+            "_object": false,
+            "_timestamp": "2026-10-06T13:32:20.343Z",
+            "_type": "xsd:unsignedInt",
+            "_value": 50,
+            "_writable": true
+           },
+           "Value": {
+            "_object": false,
+            "_timestamp": "2026-10-06T13:32:20.343Z",
+            "_type": "SOAP-ENC:base64",
+            "_value": "rBIB/g==",
+            "_writable": true
+           },
+           "_object": true,
+           "_timestamp": "2026-10-06T13:32:20.341Z",
+           "_writable": true
+          },
+          "5": {
+           "Enable": {
+            "_object": false,
+            "_timestamp": "2026-10-06T13:32:20.343Z",
+            "_type": "xsd:boolean",
+            "_value": true,
+            "_writable": true
+           },
+           "Tag": {
+            "_object": false,
+            "_timestamp": "2026-10-06T13:32:20.343Z",
+            "_type": "xsd:unsignedInt",
+            "_value": 54,
+            "_writable": true
+           },
+           "Value": {
+            "_object": false,
+            "_timestamp": "2026-10-06T13:32:20.343Z",
+            "_type": "SOAP-ENC:base64",
+            "_value": "rBIBAQ==",
+            "_writable": true
+           },
+           "_object": true,
+           "_timestamp": "2026-10-06T13:32:20.341Z",
+           "_writable": true
+          },
+          "_object": true,
+          "_timestamp": "2026-10-06T13:32:20.341Z",
+          "_writable": true
+         },
+         "SentDHCPOptionNumberOfEntries": {
+          "_object": false,
+          "_timestamp": "2026-10-06T13:32:20.343Z",
+          "_type": "xsd:unsignedInt",
+          "_value": 5,
+          "_writable": false
+         },
+         "_object": true,
+         "_timestamp": "2026-10-06T13:32:20.341Z",
+         "_writable": false
+        },
+        "DNSEnabled": {
+         "_object": false,
+         "_timestamp": "2026-10-06T13:32:20.343Z",
+         "_type": "xsd:boolean",
+         "_value": true,
+         "_writable": true
+        },
+        "DNSOverrideAllowed": {
+         "_object": false,
+         "_timestamp": "2026-10-06T13:32:20.343Z",
+         "_type": "xsd:boolean",
+         "_value": false,
+         "_writable": true
+        },
+        "DNSServers": {
+         "_object": false,
+         "_timestamp": "2026-10-06T13:32:20.343Z",
+         "_type": "xsd:string",
+         "_value": "",
+         "_writable": true
+        },
+        "DefaultGateway": {
+         "_object": false,
+         "_timestamp": "2026-10-06T13:32:20.343Z",
+         "_type": "xsd:string",
+         "_value": "172.18.1.1",
+         "_writable": true
+        },
+        "Enable": {
+         "_object": false,
+         "_timestamp": "2026-10-06T13:32:20.343Z",
+         "_type": "xsd:boolean",
+         "_value": true,
+         "_writable": true
+        },
+        "LastConnectionError": {
+         "_object": false,
+         "_timestamp": "2026-10-06T13:32:20.343Z",
+         "_type": "xsd:string",
+         "_value": "ERROR_NONE",
+         "_writable": false
+        },
+        "MaxMTUSize": {
+         "_object": false,
+         "_timestamp": "2026-10-06T13:32:20.343Z",
+         "_type": "xsd:unsignedInt",
+         "_value": 1500,
+         "_writable": true
+        },
+        "NATEnabled": {
+         "_object": false,
+         "_timestamp": "2026-10-06T13:32:20.343Z",
+         "_type": "xsd:boolean",
+         "_value": false,
+         "_writable": true
+        },
+        "Name": {
+         "_object": false,
+         "_timestamp": "2026-10-06T13:32:20.343Z",
+         "_type": "xsd:string",
+         "_value": "default wan",
+         "_writable": true
+        },
+        "PortMapping": {
+         "_object": true,
+         "_timestamp": "2026-10-06T13:32:20.341Z",
+         "_writable": true
+        },
+        "PortMappingNumberOfEntries": {
+         "_object": false,
+         "_timestamp": "2026-10-06T13:32:20.343Z",
+         "_type": "xsd:unsignedInt",
+         "_value": 0,
+         "_writable": false
+        },
+        "PossibleConnectionTypes": {
+         "_object": false,
+         "_timestamp": "2026-10-06T13:32:20.343Z",
+         "_type": "xsd:string",
+         "_value": "IP_Routed,IP_Bridged",
+         "_writable": false
+        },
+        "RSIPAvailable": {
+         "_object": false,
+         "_timestamp": "2026-10-06T13:32:20.343Z",
+         "_type": "xsd:boolean",
+         "_value": false,
+         "_writable": false
+        },
+        "Reset": {
+         "_object": false,
+         "_timestamp": "2026-10-06T13:32:20.343Z",
+         "_type": "xsd:boolean",
+         "_value": false,
+         "_writable": true
+        },
+        "RouteProtocolRx": {
+         "_object": false,
+         "_timestamp": "2026-10-06T13:32:20.343Z",
+         "_type": "xsd:string",
+         "_value": "Off",
+         "_writable": true
+        },
+        "Stats": {
+         "EthernetBroadcastPacketsReceived": {
+          "_object": false,
+          "_timestamp": "2026-10-06T13:32:20.343Z",
+          "_type": "xsd:unsignedInt",
+          "_value": 0,
+          "_writable": false
+         },
+         "EthernetBroadcastPacketsSent": {
+          "_object": false,
+          "_timestamp": "2026-10-06T13:32:20.343Z",
+          "_type": "xsd:unsignedInt",
+          "_value": 0,
+          "_writable": false
+         },
+         "EthernetBytesReceived": {
+          "_object": false,
+          "_timestamp": "2026-10-06T13:32:20.343Z",
+          "_type": "xsd:unsignedInt",
+          "_value": 40756,
+          "_writable": false
+         },
+         "EthernetBytesSent": {
+          "_object": false,
+          "_timestamp": "2026-10-06T13:32:20.343Z",
+          "_type": "xsd:unsignedInt",
+          "_value": 224170,
+          "_writable": false
+         },
+         "EthernetDiscardPacketsReceived": {
+          "_object": false,
+          "_timestamp": "2026-10-06T13:32:20.343Z",
+          "_type": "xsd:unsignedInt",
+          "_value": 0,
+          "_writable": false
+         },
+         "EthernetDiscardPacketsSent": {
+          "_object": false,
+          "_timestamp": "2026-10-06T13:32:20.343Z",
+          "_type": "xsd:unsignedInt",
+          "_value": 0,
+          "_writable": false
+         },
+         "EthernetErrorsReceived": {
+          "_object": false,
+          "_timestamp": "2026-10-06T13:32:20.343Z",
+          "_type": "xsd:unsignedInt",
+          "_value": 0,
+          "_writable": false
+         },
+         "EthernetErrorsSent": {
+          "_object": false,
+          "_timestamp": "2026-10-06T13:32:20.343Z",
+          "_type": "xsd:unsignedInt",
+          "_value": 0,
+          "_writable": false
+         },
+         "EthernetMulticastPacketsReceived": {
+          "_object": false,
+          "_timestamp": "2026-10-06T13:32:20.343Z",
+          "_type": "xsd:unsignedInt",
+          "_value": 0,
+          "_writable": false
+         },
+         "EthernetMulticastPacketsSent": {
+          "_object": false,
+          "_timestamp": "2026-10-06T13:32:20.343Z",
+          "_type": "xsd:unsignedInt",
+          "_value": 0,
+          "_writable": false
+         },
+         "EthernetPacketsReceived": {
+          "_object": false,
+          "_timestamp": "2026-10-06T13:32:20.343Z",
+          "_type": "xsd:unsignedInt",
+          "_value": 238,
+          "_writable": false
+         },
+         "EthernetPacketsSent": {
+          "_object": false,
+          "_timestamp": "2026-10-06T13:32:20.343Z",
+          "_type": "xsd:unsignedInt",
+          "_value": 311,
+          "_writable": false
+         },
+         "EthernetUnicastPacketsReceived": {
+          "_object": false,
+          "_timestamp": "2026-10-06T13:32:20.343Z",
+          "_type": "xsd:unsignedInt",
+          "_value": 0,
+          "_writable": false
+         },
+         "EthernetUnicastPacketsSent": {
+          "_object": false,
+          "_timestamp": "2026-10-06T13:32:20.343Z",
+          "_type": "xsd:unsignedInt",
+          "_value": 0,
+          "_writable": false
+         },
+         "EthernetUnknownProtoPacketsReceived": {
+          "_object": false,
+          "_timestamp": "2026-10-06T13:32:20.343Z",
+          "_type": "xsd:unsignedInt",
+          "_value": 0,
+          "_writable": false
+         },
+         "_object": true,
+         "_timestamp": "2026-10-06T13:32:20.341Z",
+         "_writable": false
+        },
+        "SubnetMask": {
+         "_object": false,
+         "_timestamp": "2026-10-06T13:32:20.343Z",
+         "_type": "xsd:string",
+         "_value": "255.255.255.0",
+         "_writable": true
+        },
+        "Uptime": {
+         "_object": false,
+         "_timestamp": "2026-10-06T13:32:20.343Z",
+         "_type": "xsd:unsignedInt",
+         "_value": 338,
+         "_writable": false
+        },
+        "X_ITBS_IGMPProxyEnable": {
+         "_object": false,
+         "_timestamp": "2026-10-06T13:32:20.343Z",
+         "_type": "xsd:boolean",
+         "_value": false,
+         "_writable": true
+        },
+        "X_ITBS_IPv6AddressingType": {
+         "_object": false,
+         "_timestamp": "2026-10-06T13:32:20.343Z",
+         "_type": "xsd:string",
+         "_value": "None",
+         "_writable": true
+        },
+        "X_ITBS_IPv6AutoModeEnable": {
+         "_object": false,
+         "_timestamp": "2026-10-06T13:32:20.343Z",
+         "_type": "xsd:boolean",
+         "_value": true,
+         "_writable": true
+        },
+        "X_ITBS_IPv6ConnStatus": {
+         "_object": false,
+         "_timestamp": "2026-10-06T13:32:20.343Z",
+         "_type": "xsd:string",
+         "_value": "Disconnected",
+         "_writable": false
+        },
+        "X_ITBS_IPv6DNSServers1": {
+         "_object": false,
+         "_timestamp": "2026-10-06T13:32:20.343Z",
+         "_type": "xsd:string",
+         "_value": "",
+         "_writable": true
+        },
+        "X_ITBS_IPv6DNSServers2": {
+         "_object": false,
+         "_timestamp": "2026-10-06T13:32:20.343Z",
+         "_type": "xsd:string",
+         "_value": "::",
+         "_writable": true
+        },
+        "X_ITBS_IPv6DNSServers3": {
+         "_object": false,
+         "_timestamp": "2026-10-06T13:32:20.343Z",
+         "_type": "xsd:string",
+         "_value": "",
+         "_writable": true
+        },
+        "X_ITBS_IPv6DNSType": {
+         "_object": false,
+         "_timestamp": "2026-10-06T13:32:20.343Z",
+         "_type": "xsd:string",
+         "_value": "None",
+         "_writable": true
+        },
+        "X_ITBS_IPv6Enabled": {
+         "_object": false,
+         "_timestamp": "2026-10-06T13:32:20.343Z",
+         "_type": "xsd:boolean",
+         "_value": false,
+         "_writable": true
+        },
+        "X_ITBS_IPv6ExternalAddress": {
+         "_object": false,
+         "_timestamp": "2026-10-06T13:32:20.343Z",
+         "_type": "xsd:string",
+         "_value": "",
+         "_writable": true
+        },
+        "X_ITBS_IPv6GUAFormPrefixAddress": {
+         "_object": false,
+         "_timestamp": "2026-10-06T13:32:20.343Z",
+         "_type": "xsd:string",
+         "_value": "",
+         "_writable": false
+        },
+        "X_ITBS_IPv6GUAFromPrefixEnable": {
+         "_object": false,
+         "_timestamp": "2026-10-06T13:32:20.343Z",
+         "_type": "xsd:boolean",
+         "_value": false,
+         "_writable": true
+        },
+        "X_ITBS_IPv6GatewayAddress": {
+         "_object": false,
+         "_timestamp": "2026-10-06T13:32:20.343Z",
+         "_type": "xsd:string",
+         "_value": "",
+         "_writable": true
+        },
+        "X_ITBS_IPv6PrefixDelegationAddress": {
+         "_object": false,
+         "_timestamp": "2026-10-06T13:32:20.343Z",
+         "_type": "xsd:string",
+         "_value": "",
+         "_writable": true
+        },
+        "X_ITBS_IPv6PrefixDelegationType": {
+         "_object": false,
+         "_timestamp": "2026-10-06T13:32:20.343Z",
+         "_type": "xsd:string",
+         "_value": "NONE",
+         "_writable": true
+        },
+        "X_ITBS_LanInterface": {
+         "_object": false,
+         "_timestamp": "2026-10-06T13:32:20.343Z",
+         "_type": "xsd:string",
+         "_value": "",
+         "_writable": true
+        },
+        "X_ITBS_MulticastVlan": {
+         "_object": false,
+         "_timestamp": "2026-10-06T13:32:20.343Z",
+         "_type": "xsd:int",
+         "_value": -1,
+         "_writable": true
+        },
+        "X_ITBS_VlanEnable": {
+         "_object": false,
+         "_timestamp": "2026-10-06T13:32:20.343Z",
+         "_type": "xsd:boolean",
+         "_value": true,
+         "_writable": true
+        },
+        "X_ITBS_VlanMux8021p": {
+         "_object": false,
+         "_timestamp": "2026-10-06T13:32:20.343Z",
+         "_type": "xsd:int",
+         "_value": 7,
+         "_writable": true
+        },
+        "X_ITBS_VlanMuxID": {
+         "_object": false,
+         "_timestamp": "2026-10-06T13:32:20.343Z",
+         "_type": "xsd:int",
+         "_value": 7,
+         "_writable": true
+        },
+        "X_RTK_ServiceType": {
+         "_object": false,
+         "_timestamp": "2026-10-06T13:32:20.343Z",
+         "_type": "xsd:int",
+         "_value": 2,
+         "_writable": true
+        },
+        "_timestamp": "2026-10-06T13:32:20.341Z"
+       },
+       "_object": true,
+       "_timestamp": "2026-10-07T13:10:28.472Z",
+       "_writable": true
+      },
+      "_object": true,
+      "_writable": true,
+      "WANEthernetLinkConfig": {
+       "EthernetLinkStatus": {
+        "_object": false,
+        "_timestamp": "2026-10-06T13:32:20.343Z",
+        "_type": "xsd:string",
+        "_value": "Up",
+        "_writable": false
+       },
+       "_object": true,
+       "_timestamp": "2026-10-06T13:32:20.341Z",
+       "_writable": false
+      },
+      "WANIPConnectionNumberOfEntries": {
+       "_object": false,
+       "_timestamp": "2026-10-06T13:32:20.343Z",
+       "_type": "xsd:unsignedInt",
+       "_value": 1,
+       "_writable": false
+      },
+      "WANPPPConnection": {
+       "_object": true,
+       "_timestamp": "2026-10-06T13:32:20.341Z",
+       "_writable": true
+      },
+      "WANPPPConnectionNumberOfEntries": {
+       "_object": false,
+       "_timestamp": "2026-10-06T13:32:20.343Z",
+       "_type": "xsd:unsignedInt",
+       "_value": 0,
+       "_writable": false
+      },
+      "_timestamp": "2026-10-06T13:32:20.341Z"
+     },
+     "2": {
+      "WANIPConnection": {
+       "1": {
+        "ExternalIPAddress": {
+         "_object": false,
+         "_timestamp": "2026-10-07T13:30:28.538Z",
+         "_type": "xsd:string",
+         "_value": "0.0.0.0",
+         "_writable": true
+        },
+        "MACAddress": {
+         "_object": false,
+         "_timestamp": "2026-10-07T13:30:28.538Z",
+         "_type": "xsd:string",
+         "_value": "80:85:44:20:77:60",
+         "_writable": false
+        },
+        "_object": true,
+        "_writable": true,
+        "AddressingType": {
+         "_object": false,
+         "_timestamp": "2026-10-06T13:32:20.343Z",
+         "_type": "xsd:string",
+         "_value": "Static",
+         "_writable": true
+        },
+        "ConnectionStatus": {
+         "_object": false,
+         "_timestamp": "2026-10-06T13:32:20.343Z",
+         "_type": "xsd:string",
+         "_value": "Connected",
+         "_writable": false
+        },
+        "ConnectionTrigger": {
+         "_object": false,
+         "_timestamp": "2026-10-06T13:32:20.343Z",
+         "_type": "xsd:string",
+         "_value": "AlwaysOn",
+         "_writable": true
+        },
+        "ConnectionType": {
+         "_object": false,
+         "_timestamp": "2026-10-06T13:32:20.343Z",
+         "_type": "xsd:string",
+         "_value": "IP_Bridged",
+         "_writable": true
+        },
+        "DHCPClient": {
+         "ReqDHCPOption": {
+          "_object": true,
+          "_timestamp": "2026-10-06T13:32:20.341Z",
+          "_writable": true
+         },
+         "ReqDHCPOptionNumberOfEntries": {
+          "_object": false,
+          "_timestamp": "2026-10-06T13:32:20.343Z",
+          "_type": "xsd:unsignedInt",
+          "_value": 0,
+          "_writable": false
+         },
+         "SentDHCPOption": {
+          "_object": true,
+          "_timestamp": "2026-10-06T13:32:20.341Z",
+          "_writable": true
+         },
+         "SentDHCPOptionNumberOfEntries": {
+          "_object": false,
+          "_timestamp": "2026-10-06T13:32:20.343Z",
+          "_type": "xsd:unsignedInt",
+          "_value": 0,
+          "_writable": false
+         },
+         "_object": true,
+         "_timestamp": "2026-10-06T13:32:20.341Z",
+         "_writable": false
+        },
+        "DNSEnabled": {
+         "_object": false,
+         "_timestamp": "2026-10-06T13:32:20.343Z",
+         "_type": "xsd:boolean",
+         "_value": true,
+         "_writable": true
+        },
+        "DNSOverrideAllowed": {
+         "_object": false,
+         "_timestamp": "2026-10-06T13:32:20.343Z",
+         "_type": "xsd:boolean",
+         "_value": false,
+         "_writable": true
+        },
+        "DNSServers": {
+         "_object": false,
+         "_timestamp": "2026-10-06T13:32:20.343Z",
+         "_type": "xsd:string",
+         "_value": "",
+         "_writable": true
+        },
+        "DefaultGateway": {
+         "_object": false,
+         "_timestamp": "2026-10-06T13:32:20.343Z",
+         "_type": "xsd:string",
+         "_value": "0.0.0.0",
+         "_writable": true
+        },
+        "Enable": {
+         "_object": false,
+         "_timestamp": "2026-10-06T13:32:20.343Z",
+         "_type": "xsd:boolean",
+         "_value": true,
+         "_writable": true
+        },
+        "LastConnectionError": {
+         "_object": false,
+         "_timestamp": "2026-10-06T13:32:20.343Z",
+         "_type": "xsd:string",
+         "_value": "ERROR_NONE",
+         "_writable": false
+        },
+        "MaxMTUSize": {
+         "_object": false,
+         "_timestamp": "2026-10-06T13:32:20.343Z",
+         "_type": "xsd:unsignedInt",
+         "_value": 1500,
+         "_writable": true
+        },
+        "NATEnabled": {
+         "_object": false,
+         "_timestamp": "2026-10-06T13:32:20.343Z",
+         "_type": "xsd:boolean",
+         "_value": false,
+         "_writable": true
+        },
+        "Name": {
+         "_object": false,
+         "_timestamp": "2026-10-06T13:32:20.343Z",
+         "_type": "xsd:string",
+         "_value": "default wan",
+         "_writable": true
+        },
+        "PortMapping": {
+         "_object": true,
+         "_timestamp": "2026-10-06T13:32:20.341Z",
+         "_writable": true
+        },
+        "PortMappingNumberOfEntries": {
+         "_object": false,
+         "_timestamp": "2026-10-06T13:32:20.343Z",
+         "_type": "xsd:unsignedInt",
+         "_value": 0,
+         "_writable": false
+        },
+        "PossibleConnectionTypes": {
+         "_object": false,
+         "_timestamp": "2026-10-06T13:32:20.343Z",
+         "_type": "xsd:string",
+         "_value": "IP_Routed,IP_Bridged",
+         "_writable": false
+        },
+        "RSIPAvailable": {
+         "_object": false,
+         "_timestamp": "2026-10-06T13:32:20.343Z",
+         "_type": "xsd:boolean",
+         "_value": false,
+         "_writable": false
+        },
+        "Reset": {
+         "_object": false,
+         "_timestamp": "2026-10-06T13:32:20.343Z",
+         "_type": "xsd:boolean",
+         "_value": false,
+         "_writable": true
+        },
+        "RouteProtocolRx": {
+         "_object": false,
+         "_timestamp": "2026-10-06T13:32:20.343Z",
+         "_type": "xsd:string",
+         "_value": "Off",
+         "_writable": true
+        },
+        "Stats": {
+         "EthernetBroadcastPacketsReceived": {
+          "_object": false,
+          "_timestamp": "2026-10-06T13:32:20.343Z",
+          "_type": "xsd:unsignedInt",
+          "_value": 0,
+          "_writable": false
+         },
+         "EthernetBroadcastPacketsSent": {
+          "_object": false,
+          "_timestamp": "2026-10-06T13:32:20.343Z",
+          "_type": "xsd:unsignedInt",
+          "_value": 0,
+          "_writable": false
+         },
+         "EthernetBytesReceived": {
+          "_object": false,
+          "_timestamp": "2026-10-06T13:32:20.343Z",
+          "_type": "xsd:unsignedInt",
+          "_value": 1832187,
+          "_writable": false
+         },
+         "EthernetBytesSent": {
+          "_object": false,
+          "_timestamp": "2026-10-06T13:32:20.343Z",
+          "_type": "xsd:unsignedInt",
+          "_value": 1280,
+          "_writable": false
+         },
+         "EthernetDiscardPacketsReceived": {
+          "_object": false,
+          "_timestamp": "2026-10-06T13:32:20.343Z",
+          "_type": "xsd:unsignedInt",
+          "_value": 0,
+          "_writable": false
+         },
+         "EthernetDiscardPacketsSent": {
+          "_object": false,
+          "_timestamp": "2026-10-06T13:32:20.343Z",
+          "_type": "xsd:unsignedInt",
+          "_value": 0,
+          "_writable": false
+         },
+         "EthernetErrorsReceived": {
+          "_object": false,
+          "_timestamp": "2026-10-06T13:32:20.343Z",
+          "_type": "xsd:unsignedInt",
+          "_value": 0,
+          "_writable": false
+         },
+         "EthernetErrorsSent": {
+          "_object": false,
+          "_timestamp": "2026-10-06T13:32:20.343Z",
+          "_type": "xsd:unsignedInt",
+          "_value": 0,
+          "_writable": false
+         },
+         "EthernetMulticastPacketsReceived": {
+          "_object": false,
+          "_timestamp": "2026-10-06T13:32:20.343Z",
+          "_type": "xsd:unsignedInt",
+          "_value": 0,
+          "_writable": false
+         },
+         "EthernetMulticastPacketsSent": {
+          "_object": false,
+          "_timestamp": "2026-10-06T13:32:20.343Z",
+          "_type": "xsd:unsignedInt",
+          "_value": 0,
+          "_writable": false
+         },
+         "EthernetPacketsReceived": {
+          "_object": false,
+          "_timestamp": "2026-10-06T13:32:20.343Z",
+          "_type": "xsd:unsignedInt",
+          "_value": 14570,
+          "_writable": false
+         },
+         "EthernetPacketsSent": {
+          "_object": false,
+          "_timestamp": "2026-10-06T13:32:20.343Z",
+          "_type": "xsd:unsignedInt",
+          "_value": 20,
+          "_writable": false
+         },
+         "EthernetUnicastPacketsReceived": {
+          "_object": false,
+          "_timestamp": "2026-10-06T13:32:20.343Z",
+          "_type": "xsd:unsignedInt",
+          "_value": 0,
+          "_writable": false
+         },
+         "EthernetUnicastPacketsSent": {
+          "_object": false,
+          "_timestamp": "2026-10-06T13:32:20.343Z",
+          "_type": "xsd:unsignedInt",
+          "_value": 0,
+          "_writable": false
+         },
+         "EthernetUnknownProtoPacketsReceived": {
+          "_object": false,
+          "_timestamp": "2026-10-06T13:32:20.343Z",
+          "_type": "xsd:unsignedInt",
+          "_value": 0,
+          "_writable": false
+         },
+         "_object": true,
+         "_timestamp": "2026-10-06T13:32:20.341Z",
+         "_writable": false
+        },
+        "SubnetMask": {
+         "_object": false,
+         "_timestamp": "2026-10-06T13:32:20.343Z",
+         "_type": "xsd:string",
+         "_value": "0.0.0.0",
+         "_writable": true
+        },
+        "Uptime": {
+         "_object": false,
+         "_timestamp": "2026-10-06T13:32:20.343Z",
+         "_type": "xsd:unsignedInt",
+         "_value": 1457,
+         "_writable": false
+        },
+        "X_ITBS_IGMPProxyEnable": {
+         "_object": false,
+         "_timestamp": "2026-10-06T13:32:20.343Z",
+         "_type": "xsd:boolean",
+         "_value": false,
+         "_writable": true
+        },
+        "X_ITBS_IPv6AddressingType": {
+         "_object": false,
+         "_timestamp": "2026-10-06T13:32:20.343Z",
+         "_type": "xsd:string",
+         "_value": "",
+         "_writable": true
+        },
+        "X_ITBS_IPv6AutoModeEnable": {
+         "_object": false,
+         "_timestamp": "2026-10-06T13:32:20.343Z",
+         "_type": "xsd:boolean",
+         "_value": true,
+         "_writable": true
+        },
+        "X_ITBS_IPv6ConnStatus": {
+         "_object": false,
+         "_timestamp": "2026-10-06T13:32:20.343Z",
+         "_type": "xsd:string",
+         "_value": "Disconnected",
+         "_writable": false
+        },
+        "X_ITBS_IPv6DNSServers1": {
+         "_object": false,
+         "_timestamp": "2026-10-06T13:32:20.343Z",
+         "_type": "xsd:string",
+         "_value": "",
+         "_writable": true
+        },
+        "X_ITBS_IPv6DNSServers2": {
+         "_object": false,
+         "_timestamp": "2026-10-06T13:32:20.343Z",
+         "_type": "xsd:string",
+         "_value": "::",
+         "_writable": true
+        },
+        "X_ITBS_IPv6DNSServers3": {
+         "_object": false,
+         "_timestamp": "2026-10-06T13:32:20.343Z",
+         "_type": "xsd:string",
+         "_value": "",
+         "_writable": true
+        },
+        "X_ITBS_IPv6DNSType": {
+         "_object": false,
+         "_timestamp": "2026-10-06T13:32:20.343Z",
+         "_type": "xsd:string",
+         "_value": "Static",
+         "_writable": true
+        },
+        "X_ITBS_IPv6Enabled": {
+         "_object": false,
+         "_timestamp": "2026-10-06T13:32:20.343Z",
+         "_type": "xsd:boolean",
+         "_value": true,
+         "_writable": true
+        },
+        "X_ITBS_IPv6ExternalAddress": {
+         "_object": false,
+         "_timestamp": "2026-10-06T13:32:20.343Z",
+         "_type": "xsd:string",
+         "_value": "",
+         "_writable": true
+        },
+        "X_ITBS_IPv6GUAFormPrefixAddress": {
+         "_object": false,
+         "_timestamp": "2026-10-06T13:32:20.343Z",
+         "_type": "xsd:string",
+         "_value": "",
+         "_writable": false
+        },
+        "X_ITBS_IPv6GUAFromPrefixEnable": {
+         "_object": false,
+         "_timestamp": "2026-10-06T13:32:20.343Z",
+         "_type": "xsd:boolean",
+         "_value": false,
+         "_writable": true
+        },
+        "X_ITBS_IPv6GatewayAddress": {
+         "_object": false,
+         "_timestamp": "2026-10-06T13:32:20.343Z",
+         "_type": "xsd:string",
+         "_value": "::",
+         "_writable": true
+        },
+        "X_ITBS_IPv6PrefixDelegationAddress": {
+         "_object": false,
+         "_timestamp": "2026-10-06T13:32:20.343Z",
+         "_type": "xsd:string",
+         "_value": "",
+         "_writable": true
+        },
+        "X_ITBS_IPv6PrefixDelegationType": {
+         "_object": false,
+         "_timestamp": "2026-10-06T13:32:20.343Z",
+         "_type": "xsd:string",
+         "_value": "NONE",
+         "_writable": true
+        },
+        "X_ITBS_LanInterface": {
+         "_object": false,
+         "_timestamp": "2026-10-06T13:32:20.343Z",
+         "_type": "xsd:string",
+         "_value": "LAN1,LAN2,LAN3,LAN4",
+         "_writable": true
+        },
+        "X_ITBS_MulticastVlan": {
+         "_object": false,
+         "_timestamp": "2026-10-06T13:32:20.343Z",
+         "_type": "xsd:int",
+         "_value": -1,
+         "_writable": true
+        },
+        "X_ITBS_VlanEnable": {
+         "_object": false,
+         "_timestamp": "2026-10-06T13:32:20.343Z",
+         "_type": "xsd:boolean",
+         "_value": true,
+         "_writable": true
+        },
+        "X_ITBS_VlanMux8021p": {
+         "_object": false,
+         "_timestamp": "2026-10-06T13:32:20.343Z",
+         "_type": "xsd:int",
+         "_value": -1,
+         "_writable": true
+        },
+        "X_ITBS_VlanMuxID": {
+         "_object": false,
+         "_timestamp": "2026-10-06T13:32:20.343Z",
+         "_type": "xsd:int",
+         "_value": 500,
+         "_writable": true
+        },
+        "X_RTK_ServiceType": {
+         "_object": false,
+         "_timestamp": "2026-10-06T13:32:20.343Z",
+         "_type": "xsd:int",
+         "_value": 1,
+         "_writable": true
+        },
+        "_timestamp": "2026-10-06T13:32:20.341Z"
+       },
+       "_object": true,
+       "_timestamp": "2026-10-07T13:10:28.472Z",
+       "_writable": true
+      },
+      "_object": true,
+      "_writable": true,
+      "WANEthernetLinkConfig": {
+       "EthernetLinkStatus": {
+        "_object": false,
+        "_timestamp": "2026-10-06T13:32:20.343Z",
+        "_type": "xsd:string",
+        "_value": "Up",
+        "_writable": false
+       },
+       "_object": true,
+       "_timestamp": "2026-10-06T13:32:20.341Z",
+       "_writable": false
+      },
+      "WANIPConnectionNumberOfEntries": {
+       "_object": false,
+       "_timestamp": "2026-10-06T13:32:20.343Z",
+       "_type": "xsd:unsignedInt",
+       "_value": 1,
+       "_writable": false
+      },
+      "WANPPPConnection": {
+       "_object": true,
+       "_timestamp": "2026-10-06T13:32:20.341Z",
+       "_writable": true
+      },
+      "WANPPPConnectionNumberOfEntries": {
+       "_object": false,
+       "_timestamp": "2026-10-06T13:32:20.343Z",
+       "_type": "xsd:unsignedInt",
+       "_value": 0,
+       "_writable": false
+      },
+      "_timestamp": "2026-10-06T13:32:20.341Z"
+     },
+     "_object": true,
+     "_timestamp": "2026-10-07T13:10:28.472Z",
+     "_writable": true
+    },
+    "_object": true,
+    "_writable": false,
+    "WANCommonInterfaceConfig": {
+     "EnabledForInternet": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:32:20.343Z",
+      "_type": "xsd:boolean",
+      "_value": true,
+      "_writable": true
+     },
+     "EnabledUpnp": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:32:20.343Z",
+      "_type": "xsd:boolean",
+      "_value": false,
+      "_writable": true
+     },
+     "Layer1DownstreamMaxBitRate": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:32:20.343Z",
+      "_type": "xsd:unsignedInt",
+      "_value": 2500000000,
+      "_writable": false
+     },
+     "Layer1UpstreamMaxBitRate": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:32:20.343Z",
+      "_type": "xsd:unsignedInt",
+      "_value": 1250000000,
+      "_writable": false
+     },
+     "MaximumActiveConnections": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:32:20.343Z",
+      "_type": "xsd:unsignedInt",
+      "_value": 6,
+      "_writable": false
+     },
+     "NumberOfActiveConnections": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:32:20.343Z",
+      "_type": "xsd:unsignedInt",
+      "_value": 2,
+      "_writable": false
+     },
+     "PhysicalLinkStatus": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:32:20.343Z",
+      "_type": "xsd:string",
+      "_value": "Up",
+      "_writable": false
+     },
+     "TotalBytesReceived": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:32:20.343Z",
+      "_type": "xsd:unsignedInt",
+      "_value": 7371869,
+      "_writable": false
+     },
+     "TotalBytesSent": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:32:20.343Z",
+      "_type": "xsd:unsignedInt",
+      "_value": 5059866,
+      "_writable": false
+     },
+     "TotalPacketsReceived": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:32:20.343Z",
+      "_type": "xsd:unsignedInt",
+      "_value": 59973,
+      "_writable": false
+     },
+     "TotalPacketsSent": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:32:20.343Z",
+      "_type": "xsd:unsignedInt",
+      "_value": 7014,
+      "_writable": false
+     },
+     "WANAccessProvider": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:32:20.343Z",
+      "_type": "xsd:string",
+      "_value": "",
+      "_writable": false
+     },
+     "WANAccessType": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:32:20.343Z",
+      "_type": "xsd:string",
+      "_value": "Ethernet",
+      "_writable": false
+     },
+     "X_ITBS_UPnPDefaultInterface": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:32:20.343Z",
+      "_type": "xsd:string",
+      "_value": "br.v500",
+      "_writable": true
+     },
+     "_object": true,
+     "_timestamp": "2026-10-06T13:32:20.341Z",
+     "_writable": false
+    },
+    "WANConnectionNumberOfEntries": {
+     "_object": false,
+     "_timestamp": "2026-10-06T13:32:20.343Z",
+     "_type": "xsd:unsignedInt",
+     "_value": 2,
+     "_writable": false
+    },
+    "WANEthernetInterfaceConfig": {
+     "DuplexMode": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:32:20.343Z",
+      "_type": "xsd:string",
+      "_value": "Full",
+      "_writable": true
+     },
+     "Enable": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:32:20.343Z",
+      "_type": "xsd:boolean",
+      "_value": true,
+      "_writable": true
+     },
+     "MACAddress": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:32:20.343Z",
+      "_type": "xsd:string",
+      "_value": "80:85:44:20:77:5e",
+      "_writable": false
+     },
+     "MaxBitRate": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:32:20.343Z",
+      "_type": "xsd:string",
+      "_value": "1000",
+      "_writable": true
+     },
+     "Stats": {
+      "BytesReceived": {
+       "_object": false,
+       "_timestamp": "2026-10-06T13:32:20.343Z",
+       "_type": "xsd:unsignedInt",
+       "_value": 7371869,
+       "_writable": false
+      },
+      "BytesSent": {
+       "_object": false,
+       "_timestamp": "2026-10-06T13:32:20.343Z",
+       "_type": "xsd:unsignedInt",
+       "_value": 5059866,
+       "_writable": false
+      },
+      "PacketsReceived": {
+       "_object": false,
+       "_timestamp": "2026-10-06T13:32:20.343Z",
+       "_type": "xsd:unsignedInt",
+       "_value": 59973,
+       "_writable": false
+      },
+      "PacketsSent": {
+       "_object": false,
+       "_timestamp": "2026-10-06T13:32:20.343Z",
+       "_type": "xsd:unsignedInt",
+       "_value": 7014,
+       "_writable": false
+      },
+      "_object": true,
+      "_timestamp": "2026-10-06T13:32:20.341Z",
+      "_writable": false
+     },
+     "Status": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:32:20.343Z",
+      "_type": "xsd:string",
+      "_value": "Up",
+      "_writable": false
+     },
+     "_object": true,
+     "_timestamp": "2026-10-06T13:32:20.341Z",
+     "_writable": false
+    },
+    "X_GponInterafceConfig": {
+     "BiasCurrent": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:32:20.343Z",
+      "_type": "xsd:int",
+      "_value": 12,
+      "_writable": false
+     },
+     "RXPower": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:32:20.343Z",
+      "_type": "xsd:int",
+      "_value": -20,
+      "_writable": false
+     },
+     "Status": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:32:20.343Z",
+      "_type": "xsd:string",
+      "_value": "Up",
+      "_writable": false
+     },
+     "SupplyVoltage": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:32:20.343Z",
+      "_type": "xsd:int",
+      "_value": 3244,
+      "_writable": false
+     },
+     "TXPower": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:32:20.343Z",
+      "_type": "xsd:int",
+      "_value": 2,
+      "_writable": false
+     },
+     "TransceiverTemperature": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:32:20.343Z",
+      "_type": "xsd:int",
+      "_value": 93,
+      "_writable": false
+     },
+     "_object": true,
+     "_timestamp": "2026-10-06T13:32:20.341Z",
+     "_writable": false
+    },
+    "_timestamp": "2026-10-06T13:32:20.341Z"
+   },
+   "_object": true,
+   "_timestamp": "2026-10-07T13:10:28.472Z",
+   "_writable": false
+  },
+  "WANDeviceNumberOfEntries": {
+   "_object": false,
+   "_writable": false
+  },
+  "X_ITBS_Acl": {
+   "_object": true,
+   "_writable": false,
+   "AclServices": {
+    "1": {
+     "_object": true,
+     "_writable": true
+    },
+    "2": {
+     "FTPLanEnable": {
+      "_object": false,
+      "_writable": true
+     },
+     "FTPWanEnable": {
+      "_object": false,
+      "_writable": true
+     },
+     "FilterTarget": {
+      "_object": false,
+      "_writable": true
+     },
+     "HTTPLanEnable": {
+      "_object": false,
+      "_writable": true
+     },
+     "HTTPSLanEnable": {
+      "_object": false,
+      "_writable": true
+     },
+     "HTTPSWanEnable": {
+      "_object": false,
+      "_writable": true
+     },
+     "HTTPWanEnable": {
+      "_object": false,
+      "_writable": true
+     },
+     "INCName": {
+      "_object": false,
+      "_writable": true
+     },
+     "MaxSrcIp": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:07:36.346Z",
+      "_type": "xsd:string",
+      "_value": "172.18.1.254",
+      "_writable": true
+     },
+     "MinSrcIp": {
+      "_object": false,
+      "_timestamp": "2026-10-06T13:07:36.346Z",
+      "_type": "xsd:string",
+      "_value": "172.18.1.1",
+      "_writable": true
+     },
+     "PINGLanEnable": {
+      "_object": false,
+      "_writable": true
+     },
+     "PINGWanEnable": {
+      "_object": false,
+      "_writable": true
+     },
+     "PortWanWeb": {
+      "_object": false,
+      "_writable": true
+     },
+     "TELNETLanEnable": {
+      "_object": false,
+      "_writable": true
+     },
+     "TELNETWanEnable": {
+      "_object": false,
+      "_writable": true
+     },
+     "TFTPLanEnable": {
+      "_object": false,
+      "_writable": true
+     },
+     "TFTPWanEnable": {
+      "_object": false,
+      "_writable": true
+     },
+     "_object": true,
+     "_timestamp": "2026-10-06T13:07:36.267Z",
+     "_writable": true
+    },
+    "3": {
+     "_object": true,
+     "_writable": true
+    },
+    "_object": true,
+    "_timestamp": "2026-10-06T13:07:36.267Z",
+    "_writable": true
+   },
+   "OmciOltMode": {
+    "_object": false,
+    "_writable": true
+   },
+   "X_ITBS_FirewallEnable": {
+    "_object": false,
+    "_writable": true
+   },
+   "X_ITBS_FirewallLevel": {
+    "_object": false,
+    "_writable": true
+   },
+   "_timestamp": "2026-10-06T13:07:36.267Z"
+  },
+  "_object": true,
+  "_timestamp": "2026-10-06T13:07:36.267Z",
+  "_writable": false
+ },
+ "_deviceId": {
+  "_Manufacturer": "INTELBRAS",
+  "_OUI": "808544",
+  "_ProductClass": "140PoE",
+  "_SerialNumber": "ITBS4420775E"
+ },
+ "_lastBoot": "2026-10-06T15:25:28.658Z",
+ "_lastBootstrap": "2026-10-06T13:07:36.267Z",
+ "_lastInform": "2026-10-07T13:30:28.537Z",
+ "_registered": "2026-10-06T12:19:55.883Z",
+ "_timestamp": "2026-10-06T13:07:36.267Z"
+}

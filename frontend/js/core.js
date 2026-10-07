@@ -413,6 +413,7 @@ const VIEW_META = {
   'deploy-recorder': { title: 'Implantacao - Gravadores', sub: 'Cadastro de DVR/NVR' },
   'deploy-new':    { title: 'Implantacao - CFTV', sub: 'Assistente de campo' },
   'deploy-activation': { title: 'Ativacao de Cameras', sub: 'Cameras de fabrica, ativadas pelo tunel do conector' },
+  'deploy-tr069':  { title: 'TR-069',            sub: 'ONUs gerenciadas pelo servidor de gerencia' },
   olt:             { title: 'OLT',               sub: 'Coleta de MACs da OLT' },
   switch:          { title: 'Switch',            sub: 'Coleta de MACs do switch' },
   kmz:             { title: 'KMZ  Mapa',        sub: 'Localizacao das cameras' },
@@ -455,6 +456,7 @@ const VIEW_ID_MAP = {
   'deploy-recorder':'viewDeployRecorder',
   'deploy-new':     'viewDeployNew',
   'deploy-activation': 'viewDeployActivation',
+  'deploy-tr069':   'viewDeployTr069',
   olt:              'viewOlt',
   switch:           'viewSwitch',
   kmz:              'viewKmz',
@@ -552,6 +554,7 @@ function loadView(view) {
     case 'deploy-recorder': loadDeployRecorder(); break;
     case 'deploy-new':  loadDeployNew();    break;
     case 'deploy-activation': loadDeployActivation(); break;
+    case 'deploy-tr069': loadTr069(); break;
     case 'connectors':  loadConnectors();   break;
     case 'monitoring':  loadMonitoring();   break;
     case 'script-grafana': loadScriptGrafana(); break;

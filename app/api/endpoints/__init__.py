@@ -6,6 +6,7 @@ from .olt import router as olt_router
 from .tools import router as tools_router
 from .maintenance import router as maintenance_router
 from .switch import router as switch_router
+from .tr069 import router as tr069_router
 
 from .ws import router as ws_router
 from .dvr import router as dvr_router

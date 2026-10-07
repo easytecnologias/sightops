@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=1791000150">
+  <link rel="stylesheet" href="styles.css?v=1791000155">
 </head>
 <body>
 
@@ -61,6 +61,7 @@
         <button class="nav-item" data-view="planning"><i data-lucide="drafting-compass"></i><span>Projetos</span></button>
         <button class="nav-item" data-view="deploy-olt"><i data-lucide="radio-tower"></i><span>OLT</span></button>
         <button class="nav-item" data-view="deploy-onu"><i data-lucide="wifi"></i><span>ONU</span></button>
+        <button class="nav-item" data-view="deploy-tr069"><i data-lucide="radio-tower"></i><span>TR-069</span></button>
         <button class="nav-item" data-view="deploy-recorder"><i data-lucide="hard-drive-upload"></i><span>Gravadores</span></button>
         <button class="nav-item" data-view="deploy-new"><i data-lucide="clipboard-check"></i><span>CFTV</span></button>
         <button class="nav-item" data-view="deploy-activation"><i data-lucide="key-round"></i><span>Ativacao de Cameras</span></button>
@@ -3939,6 +3940,49 @@
         </div>
       </div>
 
+      <!-- --- VIEW: IMPLANTACAO - TR-069 --- -->
+      <section class="workspace hidden" id="viewDeployTr069">
+        <div id="tr069ListaBox">
+          <div class="page-heading">
+            <div>
+              <p class="eyebrow">Implantacao</p>
+              <h1>TR-069</h1>
+              <p>ONUs que conversam com o servidor de gerencia. Abra uma para ver portas, Wi-Fi e WAN, e para reiniciar sem ir a campo.</p>
+            </div>
+            <div class="page-heading-actions">
+              <button class="secondary-action" id="btnTr069Config" type="button"><i data-lucide="settings"></i> Configuracoes</button>
+              <button class="secondary-action" id="btnTr069Atualizar" type="button"><i data-lucide="refresh-cw"></i> Atualizar</button>
+            </div>
+          </div>
+          <div class="panel tr-config hidden" id="tr069ConfigPanel">
+            <div class="tr-panel-head"><div><h3>TR-069 deste cliente</h3><p>Outros clientes tem a propria senha e nao enxergam estas ONUs.</p></div></div>
+            <div class="tr-pad" id="tr069ConfigBox"></div>
+          </div>
+          <div class="tr-summary">
+            <div class="tr-sum"><span>Gerenciadas</span><b id="tr069SumGer" class="tr-c-green">0</b><small>contato dentro do intervalo</small></div>
+            <div class="tr-sum"><span>Sem contato</span><b id="tr069SumSem" class="tr-c-amber">0</b><small>passou de 2 intervalos sem falar</small></div>
+            <div class="tr-sum"><span>Aguardando 1o contato</span><b id="tr069SumAg" class="tr-c-blue">0</b><small>TR-069 ligado, ONU ainda nao apareceu</small></div>
+            <div class="tr-sum"><span>Sem TR-069</span><b id="tr069SumSemTr">0</b><small id="tr069SumTotal">das ONUs do inventario</small></div>
+          </div>
+          <div class="panel">
+            <div class="tr-toolbar">
+              <input class="tr-search" id="tr069Busca" placeholder="Buscar por serial, PON, modelo ou nome" aria-label="Buscar ONU">
+              <select class="filter-select" id="tr069Filtro" aria-label="Estado">
+                <option value="">Todos os estados</option><option value="gerenciada">Gerenciada</option>
+                <option value="sem_contato">Sem contato</option><option value="aguardando">Aguardando 1o contato</option>
+              </select>
+            </div>
+            <div class="tr-table-wrap">
+              <table class="data-table tr-table">
+                <thead><tr><th>ONU</th><th>Posicao</th><th>Modelo / firmware</th><th>TR-069</th><th>Ultimo contato</th><th>WAN</th><th>Portas LAN</th><th>Wi-Fi</th><th>Sinal</th></tr></thead>
+                <tbody id="tr069Tbody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+        <div id="tr069DetalheBox" class="hidden"></div>
+      </section>
+
       <!-- --- VIEW: IMPLANTACAO - ONU --- -->
       <section class="workspace hidden" id="viewDeployOnu">
         <div class="page-heading">
@@ -6798,7 +6842,7 @@
        trechos do app.js original na sequencia em que estavam, entao carregar
        fora de ordem muda o comportamento. Ao adicionar um arquivo novo, entre
        antes de bootstrap.js, que e quem liga os botoes no DOMContentLoaded. -->
-  <script src="js/core.js?v=1791000139"></script>
+  <script src="js/core.js?v=1791000152"></script>
   <script src="js/dashboard.js?v=1791000115"></script>
   <script src="js/liveStream.js?v=1790960500"></script>
   <script src="js/cameras.js?v=1791000113"></script>
@@ -6820,6 +6864,7 @@
   <script src="js/accessWhatsappTriage.js?v=3"></script>
   <script src="js/messenger.js?v=5"></script>
   <script src="js/alert.js?v=1789901000"></script>
+  <script src="js/tr069.js?v=1791000154"></script>
   <script src="js/bootstrap.js?v=1791000143"></script>
 </body>
 </html>

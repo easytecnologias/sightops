@@ -689,6 +689,7 @@ MODULE_CATALOG: List[Dict[str, str]] = [
     {"key": "deploy-recorder", "label": "Implantar Gravador", "section": "Implantacao"},
     {"key": "deploy-new", "label": "Implantar CFTV", "section": "Implantacao"},
     {"key": "deploy-activation", "label": "Ativacao de Cameras", "section": "Implantacao"},
+    {"key": "deploy-tr069", "label": "TR-069 das ONUs", "section": "Implantacao"},
     {"key": "inv-olt", "label": "Cameras IP", "section": "Inventario"},
     {"key": "inv-nvr", "label": "Gravadores", "section": "Inventario"},
     {"key": "olt", "label": "OLT", "section": "Inventario"},

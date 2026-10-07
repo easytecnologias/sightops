@@ -46,6 +46,7 @@ from app.api.endpoints import (
     tools_router,
     maintenance_router,
     switch_router,
+    tr069_router,
     ws_router,
     dvr_router,
     nvr_router,
@@ -112,6 +113,7 @@ app.include_router(cameras_router)
 app.include_router(system_router)
 app.include_router(scan_router)
 app.include_router(olt_router)
+app.include_router(tr069_router)
 app.include_router(tools_router)
 app.include_router(maintenance_router)
 app.include_router(switch_router)
@@ -363,6 +365,14 @@ async def _olt_telemetry_loop() -> None:
                             tenant_results.append(await api_olt_registry_telemetry(int(olt["id"])))
                         except Exception as exc:
                             tenant_results.append({"ok": False, "olt_id": olt.get("id"), "error": str(exc)})
+                    # Saude da OLT por SNMP (uptime, uplinks, PONs) para o Zabbix.
+                    try:
+                        from app.services.olt_snmp_health import coletar_saude_olts
+                        from app.services.olt_service import _olt_snmp_community
+                        tenant_results.append({"olt_snmp": await asyncio.to_thread(
+                            coletar_saude_olts, olts, _olt_snmp_community())})
+                    except Exception as exc:
+                        tenant_results.append({"olt_snmp": {"ok": False, "error": str(exc)}})
                     # Switches no mesmo ciclo: e a coleta automatica que os poe
                     # no monitoramento/Zabbix (ver switch_service.poll_switches).
                     try:
