@@ -374,10 +374,45 @@ async function conferirClienteDaAba() {
   const user = data?.user || data;
   if (!user) return;
   const atual = String(user.effective_tenant_slug || user.tenant_slug || '');
-  if (atual !== _tenantDaPagina) window.location.reload();
+  if (atual !== _tenantDaPagina) avisarClienteTrocado(atual);
 }
 
-window.addEventListener('storage', ev => { if (ev.key === 'so_cliente_trocado') window.location.reload(); });
+// Recarregar na hora era destrutivo: em 07/10/2026 isto apagou DUAS vezes uma
+// autorizacao de ONU em andamento no Sierra. E pior, parecia aleatorio -- a
+// checagem so roda quando a aba volta ao foco, entao o estouro acontecia
+// minutos depois do login que o causou, sem relacao visivel.
+//
+// Recarregar sozinho tambem nao pode ser abandonado: o token e compartilhado
+// por todas as abas, entao esta aba JA esta falando com o cliente novo.
+// Continuar operando mandaria comando para a OLT errada.
+//
+// Entao: travar a tela (ninguem opera por engano), manter o conteudo visivel
+// atras do aviso (da para copiar o que estava preenchido) e deixar o
+// recarregamento na mao de quem esta olhando.
+function avisarClienteTrocado(clienteNovo) {
+  if (document.getElementById('avisoClienteTrocado')) return;
+  const caixa = document.createElement('div');
+  caixa.id = 'avisoClienteTrocado';
+  caixa.innerHTML = `
+    <div class="aviso-cliente-fundo"></div>
+    <div class="aviso-cliente-caixa" role="alertdialog" aria-modal="true">
+      <h3>Este navegador entrou como outro cliente</h3>
+      <p>Esta aba estava operando como <b>${esc(_tenantDaPagina || '—')}</b> e a sessao
+         agora e de <b>${esc(clienteNovo || '—')}</b>. Nada mais pode ser feito aqui
+         sem recarregar, para nao enviar comando ao cliente errado.</p>
+      <p class="aviso-cliente-dica">Copie o que estava preenchido antes de recarregar.
+         Para usar dois clientes ao mesmo tempo, abra um deles numa janela anonima.</p>
+      <button type="button" id="btnRecarregarCliente">Recarregar</button>
+    </div>`;
+  document.body.appendChild(caixa);
+  document.getElementById('btnRecarregarCliente').addEventListener('click', () => window.location.reload());
+}
+
+window.addEventListener('storage', ev => {
+  if (ev.key !== 'so_cliente_trocado') return;
+  // Outra aba trocou de cliente. Mesmo motivo de cima: avisa, nao atropela.
+  avisarClienteTrocado('');
+});
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') conferirClienteDaAba(); });
 
 async function actAsTenant(tenantSlug) {

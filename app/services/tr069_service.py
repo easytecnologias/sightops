@@ -352,6 +352,100 @@ def _linha(resumo: Dict[str, Any], onu: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+_PROJECAO_ORFAO = (
+    "_id,_deviceId,_lastInform,"
+    "InternetGatewayDevice.ManagementServer.URL,"
+    "InternetGatewayDevice.ManagementServer.ConnectionRequestURL,"
+    "InternetGatewayDevice.DeviceInfo.SoftwareVersion,"
+    "Device.ManagementServer.URL,"
+    "Device.ManagementServer.ConnectionRequestURL,"
+    "Device.DeviceInfo.SoftwareVersion"
+)
+
+
+def _rede24(ip: str) -> str:
+    partes = str(ip or "").split(".")
+    return ".".join(partes[:3]) if len(partes) == 4 else ""
+
+
+def _orfaos_do_cliente(onus: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Aparelhos que conversam com o servidor mas NAO estao no inventario.
+
+    Em 07/10/2026 uma ONU recem-autorizada no Sierra (ITBS44207765, gerencia
+    172.18.1.252) informava o servidor a cada minuto e nao aparecia em tela
+    nenhuma: a listagem cruza os dispositivos do GenieACS com o inventario de
+    ONU do cliente, e o serial ainda nao tinha sido coletado da OLT. Pior, o
+    contador "Aguardando 1o contato" marcava ZERO -- ele so conta ONU que o
+    sistema ja conhece, entao o numero que deveria tranquilizar era o que
+    escondia o problema. O operador procurou defeito no TR-069 por meia hora;
+    nao havia defeito, havia invisibilidade.
+
+    POSSE (o servidor e COMPARTILHADO entre clientes, entao isto importa):
+
+    1. `ManagementServer.URL` e o endereco do ACS do conector -- unico por
+       cliente (Sierra fala com 10.201.0.26). Chave forte, usada quando existe.
+    2. Quando o aparelho ainda nao reportou esse campo (o caso da ITBS44207765),
+       cai na rede /24 de gerencia: so e atribuido ao cliente se houver ONU
+       DELE, ja conhecida, na mesma rede.
+
+    Sem nenhum dos dois, o aparelho NAO e listado para ninguem. Orfao invisivel
+    e um incomodo; orfao no cliente errado e vazamento.
+    """
+    import urllib.parse
+
+    try:
+        docs = _nbi("GET", "/devices/", params={"projection": _PROJECAO_ORFAO}) or []
+    except Exception:
+        return []
+
+    # enderecos de ACS e redes /24 que comprovadamente sao deste cliente
+    acs_do_cliente: set = set()
+    redes_do_cliente: set = set()
+    for ip, _conn in (onus_por_ip_de_gerencia() or {}).items():
+        r = _rede24(ip)
+        if r:
+            redes_do_cliente.add(r)
+    for onu in onus.values():
+        cid = str(onu.get("connector_id") or onu.get("remote_connector_id") or "")
+        if not cid:
+            continue
+        try:
+            from app.services.tr069_ativacao import url_do_servidor
+            acs_do_cliente.add(url_do_servidor(cid))
+        except Exception:
+            pass
+
+    saida: List[Dict[str, Any]] = []
+    for doc in docs:
+        resumo = resumo_do_dispositivo(doc)
+        serial = str(resumo.get("serial") or "")
+        if not serial or serial_do_inventario(serial, onus) in onus:
+            continue  # ja aparece pelo caminho normal
+        # padrao() devolve o NOME do padrao (tr098/tr181), nao o caminho raiz.
+        # Usar o retorno dele direto fazia todo _v() voltar vazio -- e com isso
+        # nenhum orfao era detectado, em silencio.
+        raiz = "InternetGatewayDevice" if padrao(doc) == "tr098" else "Device"
+        acs = str(_v(doc, f"{raiz}.ManagementServer.URL") or "")
+        ip_ger = urllib.parse.urlsplit(
+            str(_v(doc, f"{raiz}.ManagementServer.ConnectionRequestURL") or "")).hostname or ""
+        meu = (acs and acs in acs_do_cliente) or \
+              (not acs and _rede24(ip_ger) and _rede24(ip_ger) in redes_do_cliente)
+        if not meu:
+            continue
+        saida.append({
+            **{k: resumo.get(k) for k in ("device_id", "serial", "fabricante", "modelo",
+                                          "firmware", "padrao", "ultimo_contato",
+                                          "ultimo_boot", "uptime_s")},
+            "estado": "fora_do_inventario",
+            "ip_gerencia": ip_ger,
+            "olt": None, "pon": None, "onu_id": None, "nome": None, "site": None,
+            "sinal_dbm": None, "status_onu": None, "wan": None,
+            "lan_com_link": sum(1 for p in resumo["lan"] if p.get("link")),
+            "lan_total": len(resumo["lan"]), "tem_wifi": bool(resumo["wifi"]),
+        })
+    return saida
+
+
 def listar() -> Dict[str, Any]:
     """ONUs do cliente da sessao que conversam com o GenieACS + quantas nao."""
     onus = onus_do_cliente()
@@ -381,6 +475,9 @@ def listar() -> Dict[str, Any]:
                        "ativado_em": pendentes[s].get("em"), "metodo": pendentes[s].get("metodo"),
                        "wan": None, "lan_com_link": 0, "lan_total": 0, "tem_wifi": False})
     contagem["sem_tr069"] = len(set(onus) - vistos - aguardando)
+    orfaos = _orfaos_do_cliente(onus)
+    linhas.extend(orfaos)
+    contagem["fora_do_inventario"] = len(orfaos)
     return {"ok": True, "onus": linhas, "contagem": contagem, "total_onus": len(onus)}
 
 

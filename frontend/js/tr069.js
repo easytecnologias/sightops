@@ -9,6 +9,9 @@ const TR069_ESTADO = {
   gerenciada:  ['b-green', 'Gerenciada'],
   sem_contato: ['b-amber', 'Sem contato'],
   aguardando:  ['b-blue', 'Aguardando 1º contato'],
+  // Fala com o servidor, mas o serial ainda nao foi coletado da OLT.
+  // Antes era simplesmente omitido: o aparelho funcionava e sumia da tela.
+  fora_do_inventario: ['b-amber', 'Fora do inventário'],
 };
 
 function tr069Quando(iso) {
@@ -64,6 +67,11 @@ async function loadTr069(forcar = false) {
   const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v ?? 0; };
   set('tr069SumGer', c.gerenciada); set('tr069SumSem', c.sem_contato);
   set('tr069SumAg', c.aguardando); set('tr069SumSemTr', c.sem_tr069);
+  set('tr069SumFora', c.fora_do_inventario || 0);
+  const cartaoFora = document.getElementById('tr069CardFora');
+  // So aparece quando ha o que mostrar: cartao cravado em zero vira
+  // paisagem e ninguem olha mais.
+  if (cartaoFora) cartaoFora.hidden = !(c.fora_do_inventario || 0);
   const total = document.getElementById('tr069SumTotal');
   if (total) total.textContent = `das ${data.total_onus || 0} ONUs do inventário`;
   tr069RenderLista();
@@ -84,7 +92,9 @@ function tr069RenderLista() {
   corpo.innerHTML = linhas.map(o => `
     <tr data-serial="${esc(o.serial)}" class="tr-linha">
       <td><b class="tr-serial">${esc(o.serial)}</b><span class="tr-sub">${esc(o.nome || '—')}</span></td>
-      <td>${esc(o.pon ?? '—')} · ONU ${esc(o.onu_id ?? '—')}<span class="tr-sub">${esc(o.olt || '')}</span></td>
+      <td>${o.estado === 'fora_do_inventario'
+        ? `<span class="tr-muted">fora do inventário</span><span class="tr-sub">gerencia ${esc(o.ip_gerencia || '—')}</span>`
+        : `${esc(o.pon ?? '—')} · ONU ${esc(o.onu_id ?? '—')}<span class="tr-sub">${esc(o.olt || '')}</span>`}</td>
       <td>${esc([o.fabricante, o.modelo].filter(Boolean).join(' '))}<span class="tr-sub">${esc(o.firmware || '—')}</span></td>
       <td>${tr069Badge(o.estado)}</td>
       <td>${esc(tr069Quando(o.ultimo_contato))}</td>

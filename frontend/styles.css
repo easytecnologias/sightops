@@ -11241,3 +11241,17 @@ table.recorder-tabela tbody tr:hover { background: var(--surface-soft); }
 
 .tr-ip-web { color: var(--primary); font-weight: 600; text-decoration: none; }
 .tr-ip-web:hover { text-decoration: underline; }
+
+/* Aviso de cliente trocado -- cobre a tela para ninguem operar por engano,
+   mas deixa o conteudo legivel atras, para o operador copiar o que perdeu. */
+#avisoClienteTrocado { position: fixed; inset: 0; z-index: 9999; display: flex;
+  align-items: center; justify-content: center; }
+.aviso-cliente-fundo { position: absolute; inset: 0; background: rgba(23,32,38,.55); }
+.aviso-cliente-caixa { position: relative; max-width: 440px; margin: 16px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 14px;
+  padding: 20px; box-shadow: 0 18px 48px rgba(0,0,0,.22); }
+.aviso-cliente-caixa h3 { margin: 0 0 8px; font-size: 16px; }
+.aviso-cliente-caixa p { margin: 0 0 10px; font-size: 13.5px; color: var(--text); line-height: 1.5; }
+.aviso-cliente-caixa .aviso-cliente-dica { color: var(--muted); font-size: 12.5px; }
+.aviso-cliente-caixa button { margin-top: 6px; padding: 9px 16px; border: 0; border-radius: 9px;
+  background: var(--primary); color: #fff; font-weight: 600; font-size: 13.5px; cursor: pointer; }

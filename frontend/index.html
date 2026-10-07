@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=1791000176">
+  <link rel="stylesheet" href="styles.css?v=1791000177">
 </head>
 <body>
 
@@ -3965,6 +3965,7 @@
             <div class="tr-sum"><span>Gerenciadas</span><b id="tr069SumGer" class="tr-c-green">0</b><small>contato dentro do intervalo</small></div>
             <div class="tr-sum"><span>Sem contato</span><b id="tr069SumSem" class="tr-c-amber">0</b><small>passou de 2 intervalos sem falar</small></div>
             <div class="tr-sum"><span>Aguardando 1º contato</span><b id="tr069SumAg" class="tr-c-blue">0</b><small>TR-069 ligado, ONU ainda não apareceu</small></div>
+            <div class="tr-sum" id="tr069CardFora" hidden><span>Fora do inventário</span><b id="tr069SumFora" class="tr-c-amber">0</b><small>fala com o servidor, mas a OLT ainda não foi coletada</small></div>
             <div class="tr-sum"><span>Sem TR-069</span><b id="tr069SumSemTr">0</b><small id="tr069SumTotal">das ONUs do inventário</small></div>
           </div>
           <div class="panel">
@@ -6845,7 +6846,7 @@
        trechos do app.js original na sequencia em que estavam, entao carregar
        fora de ordem muda o comportamento. Ao adicionar um arquivo novo, entre
        antes de bootstrap.js, que e quem liga os botoes no DOMContentLoaded. -->
-  <script src="js/core.js?v=1791000173"></script>
+  <script src="js/core.js?v=1791000177"></script>
   <script src="js/dashboard.js?v=1791000115"></script>
   <script src="js/liveStream.js?v=1790960500"></script>
   <script src="js/cameras.js?v=1791000175"></script>
@@ -6867,7 +6868,7 @@
   <script src="js/accessWhatsappTriage.js?v=3"></script>
   <script src="js/messenger.js?v=5"></script>
   <script src="js/alert.js?v=1789901000"></script>
-  <script src="js/tr069.js?v=1791000171"></script>
+  <script src="js/tr069.js?v=1791000177"></script>
   <script src="js/bootstrap.js?v=1791000175"></script>
 </body>
 </html>
