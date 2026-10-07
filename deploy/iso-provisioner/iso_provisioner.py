@@ -61,23 +61,54 @@ def virtual_slice(index):
     return ipaddress.ip_network((base, SLICE_PREFIX))
 
 
-def virtual_map(index, lans):
+def virtual_map(index, lans, anteriores=None):
+    """real -> virtual de cada LAN, dentro do slice do conector.
+
+    ESTAVEL: LAN que ja tinha faixa (anteriores) mantem a MESMA faixa; LAN nova
+    entra no primeiro bloco livre alinhado. Antes isto recalculava tudo em
+    ordem, e uma LAN nova no comeco da lista empurrava todas as outras: em
+    07/10/2026 a VLAN 7 da Easy (10.7.0.0/22) renumerou as cameras, o Zabbix e
+    o ao vivo apontaram para os IPs virtuais errados.
+    """
     slice_net = virtual_slice(index)
-    cursor = int(slice_net.network_address)
-    out = []
+    redes = []
     for lan in lans:
         try:
-            net = ipaddress.ip_network(lan, strict=False)
+            redes.append(ipaddress.ip_network(lan, strict=False))
         except ValueError:
             continue
+    alvo = {str(n) for n in redes}
+    fixo, usados = {}, []
+    for real, virt in (anteriores or []):
+        try:
+            rn, vn = ipaddress.ip_network(real, strict=False), ipaddress.ip_network(virt, strict=False)
+        except (TypeError, ValueError):
+            continue
+        if (str(rn) in alvo and str(rn) not in fixo and vn.prefixlen == rn.prefixlen
+                and vn.subnet_of(slice_net) and not any(vn.overlaps(u) for u in usados)):
+            fixo[str(rn)] = vn
+            usados.append(vn)
+    for net in redes:
+        if str(net) in fixo:
+            continue
         size = net.num_addresses
-        cursor = (cursor + size - 1) // size * size  # alinha o inicio ao bloco (senao "host bits set")
-        vnet = ipaddress.ip_network((cursor, net.prefixlen))
-        if vnet.broadcast_address > slice_net.broadcast_address:
-            break
-        out.append((str(net), str(vnet)))
-        cursor += size
-    return out
+        cursor = int(slice_net.network_address)
+        vnet = None
+        while True:
+            cursor = (cursor + size - 1) // size * size  # alinha o inicio ao bloco (senao "host bits set")
+            cand = ipaddress.ip_network((cursor, net.prefixlen))
+            if cand.broadcast_address > slice_net.broadcast_address:
+                break
+            conflito = next((u for u in usados if cand.overlaps(u)), None)
+            if conflito is None:
+                vnet = cand
+                break
+            cursor = int(conflito.broadcast_address) + 1
+        if vnet is None:
+            continue  # slice cheio: essa LAN fica sem vnat (log no chamador)
+        fixo[str(net)] = vnet
+        usados.append(vnet)
+    return [(str(n), str(fixo[str(n)])) for n in redes if str(n) in fixo]
 
 
 def _iptc(tabela, chain, spec, insert=False):
@@ -412,7 +443,9 @@ def reconcile_once():
                     logs.append("%s: aguardando install (sem client_public_key)" % c.get("id"))
                     continue
                 lans = _lans_of(c)
-                vm = virtual_map(n, lans)
+                anteriores = [(e.get("real_cidr"), e.get("virtual_cidr")) for e in (mapa_atual.get(str(c.get("id"))) or [])
+                              if isinstance(e, dict)]
+                vm = virtual_map(n, lans, anteriores)
                 logs.append(_apply(n, c.get("id"), pub, lans, vm, priv))
                 if vm:
                     vnat_entries[str(c.get("id"))] = [{"real_cidr": r, "virtual_cidr": v} for r, v in vm]
