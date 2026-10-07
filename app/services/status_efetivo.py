@@ -139,6 +139,11 @@ def aplicar_em_linha(linha: Dict[str, Any], offline: Iterable[str] | None = None
 MOTIVO_SEM_CAMERA = "a camera deste canal nao esta no inventario IP"
 
 
+# Por tenant: a tela de um cliente nao pode herdar o mapa de outro.
+_cache_medidas: Dict[str, Any] = {}
+TTL_MEDIDAS = 20.0
+
+
 def estado_medido_por_ip() -> Dict[str, Dict[str, Any]]:
     """Mapa IP -> estado MEDIDO da camera, juntando os tres modos de inventario.
 
@@ -152,6 +157,21 @@ def estado_medido_por_ip() -> Dict[str, Dict[str, Any]]:
     A chave e o IP da camera, que a linha do gravador ja guarda.
     """
     from app.services.inventory_json import load_inventory_json
+
+    # Remontar isto custava ~120 ms, metade do tempo de /api/nvr/inventory --
+    # e a tela refaz a busca a cada troca de aba. O inventario de camera nao
+    # muda de segundo em segundo; 20 s de validade nao atrasa nenhuma decisao
+    # e devolve a metade do tempo.
+    import time
+    try:
+        from app.core.tenant_context import get_current_tenant_slug
+        tenant = str(get_current_tenant_slug() or "")
+    except Exception:
+        tenant = ""
+    agora = time.time()
+    guardado = _cache_medidas.get(tenant)
+    if guardado and (agora - guardado[0]) < TTL_MEDIDAS:
+        return guardado[1]
 
     mapa: Dict[str, Dict[str, Any]] = {}
     # O mesmo IP pode estar em mais de um modo com estados diferentes. Deixar o
@@ -177,6 +197,7 @@ def estado_medido_por_ip() -> Dict[str, Dict[str, Any]]:
             atual = mapa.get(ip)
             if atual is None or _mais_nova(nova, atual):
                 mapa[ip] = nova
+    _cache_medidas[tenant] = (agora, mapa)
     return mapa
 
 

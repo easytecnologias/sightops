@@ -310,7 +310,7 @@
 
         <!-- Resumo -->
         <div class="inv-summary" id="invOltSummary">
-          <span>Total vis-veis: <strong id="invOltTotal">-</strong></span>
+          <span>Total visíveis: <strong id="invOltTotal">-</strong></span>
           <span class="inv-sum-sep">-</span>
           <span style="color:var(--primary)">Online: <strong id="invOltOnline">-</strong></span>
           <span class="inv-sum-sep">-</span>
@@ -323,7 +323,7 @@
 
         <!-- Seletor de vis-o -->
         <div style="display:flex;align-items:center;gap:6px;margin-bottom:12px">
-          <span style="font-size:12px;color:var(--muted);font-weight:500">Vis-o:</span>
+          <span style="font-size:12px;color:var(--muted);font-weight:500">Visão:</span>
           <div class="inv-view-tabs">
             <button class="inv-view-tab active" data-view="basico">Basico</button>
             <button class="inv-view-tab" data-view="olt">OLT</button>
@@ -343,7 +343,7 @@
             <option value="offline">Offline</option>
             <option value="auth_failed">Auth failed</option>
             <option value="missing_data">Faltando dados</option>
-            <option value="default_title">Titulo padr-o</option>
+            <option value="default_title">Titulo padrão</option>
             <option value="imgbb_down">ImgBB down</option>
             <option value="no_olt">Sem dados OLT</option>
           </select>
@@ -406,7 +406,7 @@
                 <button class="icon-action primary" id="btnOltEditar" data-tip="Editar selecionado"><i data-lucide="pencil"></i></button>
                 <button class="icon-action danger" id="btnOltDeleteSelected" data-tip="Apagar selecionados"><i data-lucide="trash-2"></i></button>
                 <div style="width:1px;height:20px;background:var(--border);margin:0 2px"></div>
-                <button class="icon-action danger" id="btnOltClear" data-tip="Apagar todo o invent-rio"><i data-lucide="trash"></i></button>
+                <button class="icon-action danger" id="btnOltClear" data-tip="Apagar todo o inventário"><i data-lucide="trash"></i></button>
               </div>
             </div>
           </div>
@@ -576,7 +576,7 @@
           <span class="inv-sum-sep">-</span>
           <span style="color:var(--danger)">Offline: <strong id="nvrOffline">-</strong></span>
           <span class="inv-sum-sep">-</span>
-          <span style="color:var(--amber)">Nao verificado: <strong id="nvrDesconhecido">-</strong></span>
+          <span style="color:var(--amber)">Não verificado: <strong id="nvrDesconhecido">-</strong></span>
           <span class="inv-sum-sep">-</span>
           <span style="color:var(--amber)">Video loss: <strong id="nvrVloss">-</strong></span>
         </div>
@@ -587,13 +587,13 @@
             <span style="font-size:12px;color:var(--muted);font-weight:500">Tipo:</span>
             <div class="inv-view-tabs">
               <button class="inv-view-tab active" data-rec-type="nvr">NVR - IP</button>
-              <button class="inv-view-tab" data-rec-type="dvr">Anal-gico</button>
+              <button class="inv-view-tab" data-rec-type="dvr">Analógico</button>
             </div>
           </div>
           <div style="display:flex;align-items:center;gap:6px">
-            <span style="font-size:12px;color:var(--muted);font-weight:500">Vis-o:</span>
+            <span style="font-size:12px;color:var(--muted);font-weight:500">Visão:</span>
             <div class="inv-view-tabs">
-              <button class="inv-view-tab active" data-nvr-view="basico">Basico</button>
+              <button class="inv-view-tab active" data-nvr-view="basico">Básico</button>
               <button class="inv-view-tab" data-nvr-view="olt">Via OLT</button>
               <button class="inv-view-tab" data-nvr-view="switch">Via Switch</button>
             </div>
@@ -610,10 +610,10 @@
             <option value="">Todos</option>
             <option value="online">Online</option>
             <option value="offline">Offline</option>
-            <option value="unknown">Nao verificado</option>
+            <option value="unknown">Não verificado</option>
             <option value="video_loss">Video loss</option>
             <option value="missing_data">Faltando dados</option>
-            <option value="default_title">Titulo padr-o</option>
+            <option value="default_title">Titulo padrão</option>
             <option value="imgbb_down">ImgBB down</option>
             <option value="no_camera">Sem camera vinculada</option>
             <option value="no_olt">Sem dados OLT</option>
@@ -909,7 +909,7 @@
           <div>
             <p class="eyebrow">Snapshots</p>
             <h1>Cameras IP</h1>
-            <p>Fotos capturadas das cameras do invent-rio.</p>
+            <p>Fotos capturadas das cameras do inventário.</p>
           </div>
           <div class="page-heading-actions">
             <button class="secondary-action" id="btnSnapCamSelected"><i data-lucide="camera"></i> Capturar selecionadas</button>
@@ -1011,7 +1011,7 @@
         </div>
         <div class="panel">
           <div class="snapshot-grid" id="snapNvrGrid">
-            <p style="padding:40px;color:var(--muted);grid-column:1/-1;text-align:center">Nenhum snapshot dispon-vel.</p>
+            <p style="padding:40px;color:var(--muted);grid-column:1/-1;text-align:center">Nenhum snapshot disponível.</p>
           </div>
         </div>
       </section>
@@ -1309,7 +1309,7 @@
           <div>
             <p class="eyebrow">Analise</p>
             <h1>Reproducao</h1>
-            <p>Consulta direta em grava--es Intelbras por DVR, canal e hor-rio.</p>
+            <p>Consulta direta em grava--es Intelbras por DVR, canal e horário.</p>
           </div>
         </div>
 
@@ -1406,7 +1406,7 @@
         <div class="playback-layout">
           <div class="panel playback-panel">
             <div class="panel-header">
-              <div><h2>Buscar</h2><p>Camera, dia/hor-rio e o que procurar</p></div>
+              <div><h2>Buscar</h2><p>Camera, dia/horário e o que procurar</p></div>
             </div>
             <form id="iaNvrForm" class="playback-form">
               <div class="form-row">
@@ -2960,7 +2960,7 @@
           <div>
             <p class="eyebrow">Inventario</p>
             <h1>OLT - MACs por ONU</h1>
-            <p>Sa-da do bridge show mac gpon - CPEs conectadas nas ONUs.</p>
+            <p>Saída do bridge show mac gpon - CPEs conectadas nas ONUs.</p>
           </div>
           <div class="page-heading-actions">
             <button class="secondary-action danger-action" id="btnOltClearTable"><i data-lucide="trash-2"></i> Apagar</button>
@@ -3180,7 +3180,7 @@
           <div class="panel grafana-config-card" style="overflow-y:auto;overflow-x:hidden;padding:18px;display:flex;flex-direction:column;gap:12px;min-width:0">
 
             <div style="display:flex;align-items:center;gap:6px">
-              <span style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)">Conex-o Grafana</span>
+              <span style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)">Conexão Grafana</span>
               <span class="info-tip" data-tip="Cria/atualiza um dashboard no Grafana com status das cameras via Zabbix. Requer o plugin alexanderzobnin-zabbix-app instalado."><i data-lucide="info" style="width:13px;height:13px"></i></span>
             </div>
             <div class="form-group" style="margin:0">
@@ -3235,7 +3235,7 @@
           <div>
             <p class="eyebrow">Integracoes</p>
             <h1>Zabbix</h1>
-            <p>Sincroniza o invent-rio de cameras como hosts no Zabbix.</p>
+            <p>Sincroniza o inventário de cameras como hosts no Zabbix.</p>
           </div>
           <a href="/zabbix/" target="_blank" rel="noopener" class="secondary-action" style="text-decoration:none">
             <i data-lucide="external-link"></i> Abrir Zabbix
@@ -3248,8 +3248,8 @@
           <div class="panel grafana-config-card" style="overflow-y:auto;overflow-x:hidden;padding:18px;display:flex;flex-direction:column;gap:12px;min-width:0">
 
             <div style="display:flex;align-items:center;gap:6px">
-              <span style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)">Conex-o Zabbix</span>
-              <span class="info-tip" data-tip="Exporta cameras do invent-rio como hosts no Zabbix. Hosts existentes s-o atualizados, novos criados automaticamente. A mensagem do Telegram se adapta ao modo OLT ou Switch."><i data-lucide="info" style="width:13px;height:13px"></i></span>
+              <span style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)">Conexão Zabbix</span>
+              <span class="info-tip" data-tip="Exporta cameras do inventário como hosts no Zabbix. Hosts existentes s-o atualizados, novos criados automaticamente. A mensagem do Telegram se adapta ao modo OLT ou Switch."><i data-lucide="info" style="width:13px;height:13px"></i></span>
             </div>
             <div class="form-group" style="margin:0">
               <label>URL</label>
@@ -3279,7 +3279,7 @@
                     <option value="ip-switch">Cameras IP - Via Switch (+ Porta/VLAN)</option>
                   </optgroup>
                   <optgroup label="Gravadores">
-                    <option value="dvr">DVR - Anal-gico</option>
+                    <option value="dvr">DVR - Analógico</option>
                     <option value="nvr">NVR - IP - Basico</option>
                     <option value="nvr-olt">NVR - IP - Via OLT (+ PON/ONU)</option>
                     <option value="nvr-switch">NVR - IP - Via Switch (+ Porta/VLAN)</option>
@@ -5922,7 +5922,7 @@
           <input id="nvrScanLocal" type="text" placeholder="Site / Local (opcional)" autocomplete="off" style="flex:1;min-width:120px;padding:8px 10px;border:1px solid var(--border);border-radius:7px;font-size:13px;outline:none">
           <select id="nvrScanType" style="padding:8px 10px;border:1px solid var(--border);border-radius:7px;font-size:13px;background:var(--surface);color:var(--text);outline:none">
             <option value="nvr">NVR - IP</option>
-            <option value="dvr">Anal-gico (DVR)</option>
+            <option value="dvr">Analógico (DVR)</option>
           </select>
           <select id="nvrScanMode" style="padding:8px 10px;border:1px solid var(--border);border-radius:7px;font-size:13px;background:var(--surface);color:var(--text);outline:none">
             <option value="basico">Basico</option>
@@ -6270,7 +6270,7 @@
       </div>
       <div class="modal-body">
         <p style="font-size:13px;color:var(--muted);margin:0 0 14px" id="imgbbUploadDesc">
-          Ser-o enviadas as fotos das cameras selecionadas.
+          Serão enviadas as fotos das cameras selecionadas.
         </p>
         <div id="imgbbUploadList" style="max-height:200px;overflow-y:auto;display:flex;flex-direction:column;gap:4px"></div>
         <div id="imgbbUploadProgress" style="display:none;margin-top:14px">
@@ -6423,7 +6423,7 @@
       <img id="carImg" src="" alt="Snapshot" style="max-width:100%;max-height:100%;object-fit:contain;border-radius:8px;box-shadow:0 20px 60px rgba(0,0,0,.5)">
       <div id="carNoImg" style="display:none;flex-direction:column;align-items:center;gap:12px;color:#718096">
         <i data-lucide="image-off" style="width:64px;height:64px"></i>
-        <p style="margin:0;font-size:14px">Sem snapshot dispon-vel</p>
+        <p style="margin:0;font-size:14px">Sem snapshot disponível</p>
       </div>
     </div>
 
@@ -6632,7 +6632,7 @@
         </label>
         <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
           <input type="checkbox" id="mntFlipCheck" style="width:16px;height:16px;accent-color:var(--primary)">
-          <div><strong>Virar verticalmente (Flip)</strong><p style="margin:2px 0 0;font-size:12px;color:var(--muted)">Inverte a imagem de cima para baixo (camera de cabe-a para baixo)</p></div>
+          <div><strong>Virar verticalmente (Flip)</strong><p style="margin:2px 0 0;font-size:12px;color:var(--muted)">Inverte a imagem de cima para baixo (camera de cabeça para baixo)</p></div>
         </label>
         <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:4px">
           <button class="secondary-action" onclick="document.getElementById('modalMntMirror').classList.add('hidden')">Cancelar</button>
@@ -6690,7 +6690,7 @@
               <option value="">- nao alterar -</option>
               <option value="512">512 kbps (baixo)</option>
               <option value="1024">1024 kbps</option>
-              <option value="2048" selected>2048 kbps (padr-o)</option>
+              <option value="2048" selected>2048 kbps (padrão)</option>
               <option value="4096">4096 kbps (alto)</option>
               <option value="6144">6144 kbps (muito alto)</option>
             </select>
@@ -6702,7 +6702,7 @@
               <option value="5">5 fps</option>
               <option value="10">10 fps</option>
               <option value="15">15 fps</option>
-              <option value="20" selected>20 fps (padr-o)</option>
+              <option value="20" selected>20 fps (padrão)</option>
               <option value="25">25 fps</option>
               <option value="30">30 fps</option>
             </select>
@@ -6732,7 +6732,7 @@
         <button class="icon-button" onclick="document.getElementById('modalMntRename').classList.add('hidden')"><i data-lucide="x"></i></button>
       </div>
       <div style="padding:0 24px 20px">
-        <p style="color:var(--muted);font-size:13px;margin-bottom:12px">Edite o nome de cada camera. O titulo - gravado no OSD da camera e no invent-rio.</p>
+        <p style="color:var(--muted);font-size:13px;margin-bottom:12px">Edite o nome de cada camera. O titulo - gravado no OSD da camera e no inventário.</p>
         <div id="mntRenameRows" style="max-height:320px;overflow-y:auto"></div>
         <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px">
           <button class="secondary-action" onclick="document.getElementById('modalMntRename').classList.add('hidden')">Cancelar</button>
@@ -6750,7 +6750,7 @@
         <button class="icon-button" onclick="document.getElementById('modalMntNetwork').classList.add('hidden')"><i data-lucide="x"></i></button>
       </div>
       <div style="padding:0 24px 20px;display:flex;flex-direction:column;gap:14px">
-        <p style="color:var(--muted);font-size:13px">Altere m-scara e gateway para todas as cameras. Edite os IPs individualmente se precisar troc--los tamb-m.</p>
+        <p style="color:var(--muted);font-size:13px">Altere m-scara e gateway para todas as cameras. Edite os IPs individualmente se precisar troc--los também.</p>
 
         <!-- M-scara + Gateway compartilhados -->
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
@@ -6795,7 +6795,7 @@
         <button class="icon-button" onclick="document.getElementById('modalMntShiftIp').classList.add('hidden')"><i data-lucide="x"></i></button>
       </div>
       <div style="padding:0 24px 20px;display:flex;flex-direction:column;gap:14px">
-        <p style="color:var(--muted);font-size:13px">Define um intervalo de octetos e desloca todos os IPs por um valor fixo. -til para abrir espa-o ou reorganizar cameras em sequ-ncia.</p>
+        <p style="color:var(--muted);font-size:13px">Define um intervalo de octetos e desloca todos os IPs por um valor fixo. -til para abrir espaço ou reorganizar cameras em sequência.</p>
         <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px">
           <div>
             <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px">Prefixo de rede</label>
