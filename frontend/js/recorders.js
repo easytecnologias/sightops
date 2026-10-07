@@ -408,6 +408,17 @@ function updateNvrTabs() {
     t.style.display = ['basico', 'olt', 'switch'].includes(t.dataset.nvrView) || store[t.dataset.nvrView]?.length > 0 ? '' : 'none';
   });
   if (!['basico', 'olt', 'switch'].includes(_invNvrView)) setNvrView('basico');
+  // loadInvNvr() restaura a visao da sessao, mas nao passa por
+  // setNvrView/setRecType -- que sao os unicos que marcam a aba. Ao reabrir a
+  // tela, a visao voltava (as colunas de OLT apareciam) e nenhuma aba ficava
+  // destacada. Repintar aqui cobre todos os caminhos, porque updateNvrTabs()
+  // e chamada tanto na carga quanto na troca de tipo.
+  document.querySelectorAll('[data-nvr-view]').forEach(t =>
+    t.classList.toggle('active', t.dataset.nvrView === _invNvrView)
+  );
+  document.querySelectorAll('[data-rec-type]').forEach(t =>
+    t.classList.toggle('active', t.dataset.recType === _recType)
+  );
 }
 
 function setRecType(type) {

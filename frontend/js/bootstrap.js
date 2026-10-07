@@ -384,7 +384,12 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   // Tabs de visao do inventario OLT
-  document.querySelectorAll('.inv-view-tab').forEach(btn => {
+  // Idem: sem [data-view] isto ligava o handler das abas de Cameras TAMBEM
+  // nas abas de Gravadores. Clicar em "Via OLT" na tela de Gravadores
+  // chamava setInvOltView(undefined), que gravava "undefined" na sessao e
+  // disparava uma carga do inventario de cameras que ninguem pediu -- parte
+  // do motivo de a tela parecer travada.
+  document.querySelectorAll('.inv-view-tab[data-view]').forEach(btn => {
     btn.addEventListener('click', () => setInvOltView(btn.dataset.view));
   });
 

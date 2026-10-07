@@ -76,7 +76,11 @@ function updateCamTabs() {
   if (!['basico', 'olt', 'switch'].includes(_invOltView)) {
     _invOltView = 'basico';
   }
-  document.querySelectorAll('.inv-view-tab').forEach(t =>
+  // [data-view] OBRIGATORIO: a tela de Gravadores usa a mesma classe
+  // `.inv-view-tab` com data-nvr-view/data-rec-type. Sem o filtro, isto
+  // apagava o destaque das CINCO abas de la (dataset.view === undefined,
+  // entao toggle(false) em todas) e o usuario nunca sabia onde estava.
+  document.querySelectorAll('.inv-view-tab[data-view]').forEach(t =>
     t.classList.toggle('active', t.dataset.view === _invOltView)
   );
 }
@@ -170,7 +174,7 @@ const INV_COLS = {
 async function setInvOltView(view) {
   _invOltView = view;
   try { sessionStorage.setItem('so_cam_view', view); } catch {}
-  document.querySelectorAll('.inv-view-tab').forEach(t =>
+  document.querySelectorAll('.inv-view-tab[data-view]').forEach(t =>
     t.classList.toggle('active', t.dataset.view === view)
   );
   try {
