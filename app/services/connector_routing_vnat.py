@@ -20,6 +20,7 @@ from __future__ import annotations
 import contextvars
 import ipaddress
 import json
+import logging
 import os
 import threading
 import time
@@ -72,6 +73,53 @@ def _load_map() -> dict:
     return parsed
 
 
+logger = logging.getLogger(__name__)
+
+# Endereco devolvido quando o conector pedido NAO e do cliente da sessao.
+# 240.0.0.0/4 (classe E, reservado) nao esta em nenhum tunel nem rota de
+# cliente: so a rota padrao o leva, e a internet o descarta. A conexao estoura
+# o timeout (medido: 5 s no container), nunca chega numa LAN de cliente.
+# Por isso nao e uma excecao: em 06/10/2026 havia 19 chamadores que faziam
+# `except Exception: return ip_real` e anulariam o bloqueio.
+IP_BLOQUEADO = "240.0.0.1"
+
+_DONO_TTL = 30.0
+_dono_cache: dict = {}  # (tenant_slug, connector_id) -> (permitido, quando)
+
+
+def _conector_do_cliente(cid: str) -> bool:
+    """O conector pode ser usado pelo cliente da sessao atual?
+
+    O ID do conector chega do navegador em varias rotas (manutencao de camera,
+    ativacao, gravador, switch). Sem esta checagem, quem soubesse o ID de outro
+    cliente alcancava a rede dele. Sem cliente no contexto (tarefa de fundo,
+    rota /agent/*) nada muda -- e o mesmo criterio de get_connector(enforce_tenant).
+    """
+    try:
+        from app.core.tenant_context import get_current_tenant_slug
+        slug = get_current_tenant_slug()
+    except Exception:
+        return True
+    if not slug:
+        return True
+    chave = (slug, cid)
+    agora = time.time()
+    with _lock:
+        hit = _dono_cache.get(chave)
+    if hit and (agora - hit[1]) < _DONO_TTL:
+        return hit[0]
+    try:
+        from app.services.connector_service import get_connector
+        permitido = get_connector(cid, include_token=False, enforce_tenant=True) is not None
+    except Exception:
+        permitido = False
+    with _lock:
+        _dono_cache[chave] = (permitido, agora)
+    if not permitido:
+        logger.warning("vnat: conector %s pedido pelo cliente %s nao e dele -- bloqueado", cid, slug)
+    return permitido
+
+
 def virtual_ip_for(connector_id: Optional[str], real_ip: Optional[str]) -> Optional[str]:
     """IP que a API deve usar pra falar com `real_ip` deste conector.
 
@@ -87,7 +135,10 @@ def virtual_ip_for(connector_id: Optional[str], real_ip: Optional[str]) -> Optio
         ip = ipaddress.ip_address(raw)
     except ValueError:
         return real_ip
-    for real_net, virt_net in _load_map().get(cid, []):
+    pares = _load_map().get(cid, [])
+    if pares and not _conector_do_cliente(cid):
+        return IP_BLOQUEADO
+    for real_net, virt_net in pares:
         if ip in real_net:
             offset = int(ip) - int(real_net.network_address)
             return str(ipaddress.ip_address(int(virt_net.network_address) + offset))
