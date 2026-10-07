@@ -3799,6 +3799,13 @@ a { color: inherit; text-decoration: none; }
 
 .olt-row-matched { background: #f8fffe; }
 .olt-row-matched:hover { background: #f0fdf9 !important; }
+/* Sem medicao: ambar, como o contador "Nao verificado" do topo. Precisa ser
+   visivel sem parecer queda -- quem olha a tela de longe tem que distinguir
+   "caiu" de "ninguem olhou". */
+.nvr-row-unknown { background: #fffdf6; }
+.nvr-row-unknown:hover { background: #fffaed !important; }
+.nvr-row-unknown td { color: #7d7261 !important; }
+
 .nvr-row-offline { background: #fff8f8; }
 .nvr-row-offline:hover { background: #fff0f0 !important; }
 .nvr-row-offline td { color: #9e6b6b !important; }

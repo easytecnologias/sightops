@@ -241,6 +241,23 @@ function recHasNoCamera(r) {
 // Larguras em % (nunca px fixo): garantem que a tabela nunca ultrapasse
 // 100% do container, ou seja, zero scroll horizontal em qualquer zoom/tela.
 // Ver skill sightops-table-fix para o metodo completo.
+// Tres estados, nao dois. "unknown" nao e uma acusacao de queda: diz que a
+// medicao nao existe ou envelheceu (o motivo vem em `status_motivo`). Pintar
+// isso de "offline" vermelho mandava tecnico a campo atras de camera que
+// podia estar funcionando -- e contradizia o proprio rodape da tela, que ja
+// contava os tres separados.
+function recStatusCell(r) {
+  const st = String(r?.status || '').toLowerCase();
+  if (st === 'online') {
+    return `<span style="color:var(--primary);font-weight:600;font-size:12px">online</span>`;
+  }
+  if (st === 'offline') {
+    return `<span style="color:var(--danger);font-weight:600;font-size:12px">offline</span>`;
+  }
+  const motivo = r?.status_motivo ? ` title="${esc(r.status_motivo)}"` : '';
+  return `<span${motivo} style="color:var(--amber);font-weight:600;font-size:12px">nao verificado</span>`;
+}
+
 const NVR_COLS = {
   basico: {
     cols: ['3%','10%','8%','4%','15%','7%','7%','5%','9%','8%','11%','8%','5%'],
@@ -252,9 +269,7 @@ const NVR_COLS = {
       `<span style="text-align:center;display:block">${esc(String(r.channel??''))}</span>`,
       `<strong title="${esc(r.title||'')}">${esc(recDisplayTitle(r))}</strong>`,
       `<span title="${esc(r.local||'')}">${esc(r.local||'')}</span>`,
-      (r.status||'').toLowerCase()==='online'
-        ? `<span style="color:var(--primary);font-weight:600;font-size:12px">online</span>`
-        : `<span style="color:var(--danger);font-weight:600;font-size:12px">offline</span>`,
+      recStatusCell(r),
       recImgbbCell(r),
       `<span class="monospace text-muted" title="${esc(r.camera_ip||'')}">${esc(r.camera_ip||'')}</span>`,
       `<span class="text-muted" title="${esc(r.camera_model||r.modelo||'')}">${esc(r.camera_model||r.modelo||'')}</span>`,
@@ -274,9 +289,7 @@ const NVR_COLS = {
       `<span style="text-align:center;display:block">${esc(String(r.channel??''))}</span>`,
       `<strong title="${esc(r.title||'')}">${esc(recDisplayTitle(r))}</strong>`,
       `<span title="${esc(r.local||'')}">${esc(r.local||'')}</span>`,
-      (r.status||'').toLowerCase()==='online'
-        ? `<span style="color:var(--primary);font-weight:600;font-size:12px">online</span>`
-        : `<span style="color:var(--danger);font-weight:600;font-size:12px">offline</span>`,
+      recStatusCell(r),
       recImgbbCell(r),
       `<span class="monospace text-muted" title="${esc(r.camera_ip||'')}">${esc(r.camera_ip||'')}</span>`,
       `<span class="text-muted" title="${esc(r.camera_model||r.modelo||'')}">${esc(r.camera_model||r.modelo||'')}</span>`,
@@ -295,9 +308,7 @@ const NVR_COLS = {
       `<span style="text-align:center;display:block">${esc(String(r.channel??''))}</span>`,
       `<strong title="${esc(r.title||'')}">${esc(recDisplayTitle(r))}</strong>`,
       `<span title="${esc(r.local||'')}">${esc(r.local||'')}</span>`,
-      (r.status||'').toLowerCase()==='online'
-        ? `<span style="color:var(--primary);font-weight:600;font-size:12px">online</span>`
-        : `<span style="color:var(--danger);font-weight:600;font-size:12px">offline</span>`,
+      recStatusCell(r),
       recImgbbCell(r),
       `<span class="monospace text-muted" title="${esc(r.camera_ip||'')}">${esc(r.camera_ip||'')}</span>`,
       `<span class="text-muted" title="${esc(r.camera_model||r.modelo||'')}">${esc(r.camera_model||r.modelo||'')}</span>`,
@@ -318,9 +329,7 @@ const DVR_COLS = {
       `<span style="text-align:center;display:block">${esc(String(r.channel??''))}</span>`,
       `<strong title="${esc(r.title||'')}">${esc(recDisplayTitle(r))}</strong>`,
       `<span title="${esc(r.local||'')}">${esc(r.local||'')}</span>`,
-      (r.status||'').toLowerCase()==='online'
-        ? `<span style="color:var(--primary);font-weight:600;font-size:12px">online</span>`
-        : `<span style="color:var(--danger);font-weight:600;font-size:12px">offline</span>`,
+      recStatusCell(r),
       recImgbbCell(r),
       `<span class="monospace text-muted" title="${esc(r.mac||'')}" style="font-size:11px">${esc(r.mac||'')}</span>`,
       `<span class="text-muted" title="${esc(r.modelo||'')}">${esc(r.modelo||'')}</span>`,
@@ -338,9 +347,7 @@ const DVR_COLS = {
       `<span style="text-align:center;display:block">${esc(String(r.channel??''))}</span>`,
       `<strong title="${esc(r.title||'')}">${esc(recDisplayTitle(r))}</strong>`,
       `<span title="${esc(r.local||'')}">${esc(r.local||'')}</span>`,
-      (r.status||'').toLowerCase()==='online'
-        ? `<span style="color:var(--primary);font-weight:600;font-size:12px">online</span>`
-        : `<span style="color:var(--danger);font-weight:600;font-size:12px">offline</span>`,
+      recStatusCell(r),
       recImgbbCell(r),
       `<span style="text-align:center;display:block">${esc(String(r.pon||''))}</span>`,
       `<span style="text-align:center;display:block">${esc(String(r.onu_id||''))}</span>`,
@@ -358,9 +365,7 @@ const DVR_COLS = {
       `<span style="text-align:center;display:block">${esc(String(r.channel??''))}</span>`,
       `<strong title="${esc(r.title||'')}">${esc(recDisplayTitle(r))}</strong>`,
       `<span title="${esc(r.local||'')}">${esc(r.local||'')}</span>`,
-      (r.status||'').toLowerCase()==='online'
-        ? `<span style="color:var(--primary);font-weight:600;font-size:12px">online</span>`
-        : `<span style="color:var(--danger);font-weight:600;font-size:12px">offline</span>`,
+      recStatusCell(r),
       recImgbbCell(r),
       `<span class="monospace text-muted" title="${esc(r.switch_ip||'')}">${esc(r.switch_ip||'')}</span>`,
       `<span class="text-muted" title="${esc(r.switch_port||'')}">${esc(r.switch_port||'')}</span>`,
@@ -685,9 +690,14 @@ function renderNvrTable(rows) {
       </tr>`);
     }
     if (_recCollapsedHosts.has(host)) return;
-    const isOnline = (r.status||'').toLowerCase() === 'online';
+    // Tres estados. Antes qualquer coisa fora de "online" levava a classe
+    // vermelha, entao canal sem medicao aparecia como canal caido.
+    const _st = (r.status||'').toLowerCase();
+    const classeLinha = _st === 'online' ? ''
+      : _st === 'offline' ? ' nvr-row-offline'
+      : ' nvr-row-unknown';
     const cells = def.row(r);
-    pieces.push(`<tr class="inv-nvr-row${isOnline?'':' nvr-row-offline'}" data-key="${esc(r.host+'_'+r.channel)}" style="cursor:pointer">
+    pieces.push(`<tr class="inv-nvr-row${classeLinha}" data-key="${esc(r.host+'_'+r.channel)}" style="cursor:pointer">
       ${cells.map((cell, i) =>
         i === 0
           ? `<td onclick="event.stopPropagation()">${cell}</td>`
