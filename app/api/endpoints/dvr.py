@@ -781,10 +781,21 @@ def _com_estado_efetivo(rows):
         offline = conectores_offline_cache()
     except Exception:
         return rows
+    # A camera ja e medida; o canal nunca foi. Herdar vem ANTES de avaliar,
+    # para que as regras de conector-caido e leitura-velha incidam sobre a
+    # medicao de verdade, e nao sobre o "online" que a varredura catalogou.
+    try:
+        from app.services.status_efetivo import estado_medido_por_ip, herdar_da_camera
+        medidas = estado_medido_por_ip()
+    except Exception:
+        medidas = {}
     saida = []
     for linha in rows:
         if isinstance(linha, dict):
-            saida.append(aplicar_em_linha(dict(linha), offline))
+            copia = dict(linha)
+            if medidas:
+                copia = herdar_da_camera(copia, medidas)
+            saida.append(aplicar_em_linha(copia, offline))
         else:
             saida.append(linha)
     return saida

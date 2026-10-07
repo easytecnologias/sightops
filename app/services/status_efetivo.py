@@ -134,3 +134,83 @@ def aplicar_em_linha(linha: Dict[str, Any], offline: Iterable[str] | None = None
         linha[campo_status] = status
         linha["status_motivo"] = motivo
     return linha
+
+
+MOTIVO_SEM_CAMERA = "a camera deste canal nao esta no inventario IP"
+
+
+def estado_medido_por_ip() -> Dict[str, Dict[str, Any]]:
+    """Mapa IP -> estado MEDIDO da camera, juntando os tres modos de inventario.
+
+    O canal de gravador nunca teve medicao propria: a varredura cataloga o
+    canal e grava "online" porque ele EXISTE no equipamento, nao porque a
+    camera respondeu. Resultado em 07/10/2026 no tenant rads: 332 canais, todos
+    "online", enquanto 17 das cameras desses mesmos canais estavam offline no
+    inventario IP -- medidas, com data, pelo caminho que funciona.
+
+    Em vez de criar uma segunda telemetria, o canal herda o que ja foi medido.
+    A chave e o IP da camera, que a linha do gravador ja guarda.
+    """
+    from app.services.inventory_json import load_inventory_json
+
+    mapa: Dict[str, Dict[str, Any]] = {}
+    # O mesmo IP pode estar em mais de um modo com estados diferentes. Deixar o
+    # modo decidir e arbitrario: na pratica isso fez 2 cameras offline voltarem
+    # a "online" so porque o inventario principal era mais velho. Quem vence e
+    # a medicao MAIS RECENTE; sem data, a primeira encontrada.
+    for modo in ("olt", "basic", "switch"):
+        try:
+            linhas = load_inventory_json(mode=modo) or []
+        except Exception:
+            continue
+        for c in linhas:
+            if not isinstance(c, dict):
+                continue
+            ip = _texto(c.get("ip") or c.get("camera_ip"))
+            if not ip:
+                continue
+            nova = {
+                "status": _texto(c.get("status")),
+                "status_checked_at": c.get("status_checked_at") or c.get("last_seen"),
+                "connector_id": c.get("remote_connector_id") or c.get("connector_id"),
+            }
+            atual = mapa.get(ip)
+            if atual is None or _mais_nova(nova, atual):
+                mapa[ip] = nova
+    return mapa
+
+
+def _mais_nova(nova: Dict[str, Any], atual: Dict[str, Any]) -> bool:
+    """A medicao com data mais recente vence. Sem data, nao desbanca quem tem."""
+    d_nova = _texto(nova.get("status_checked_at"))
+    d_atual = _texto(atual.get("status_checked_at"))
+    if not d_nova:
+        return False
+    if not d_atual:
+        return True
+    return d_nova > d_atual
+
+
+def herdar_da_camera(linha: Dict[str, Any], medidas: Dict[str, Dict[str, Any]],
+                     campo_ip: str = "camera_ip") -> Dict[str, Any]:
+    """Troca o status do canal pelo da camera medida. Sem medicao, assume unknown.
+
+    Canal sem camera no inventario NAO pode seguir "online": ninguem mediu. Dizer
+    "online" ali e a mesma mentira de antes, so que num lugar novo -- e dessa vez
+    com a confianca de quem acha que o problema foi resolvido.
+    """
+    ip = _texto(linha.get(campo_ip))
+    medida = medidas.get(ip) if ip else None
+    linha["status_gravador"] = linha.get("status")   # o que a varredura catalogou
+    if not medida or not medida.get("status"):
+        linha["status"] = "unknown"
+        linha["status_motivo"] = MOTIVO_SEM_CAMERA
+        linha.pop("status_checked_at", None)
+        return linha
+    linha["status"] = medida["status"]
+    linha["status_origem"] = "camera"
+    if medida.get("status_checked_at"):
+        linha["status_checked_at"] = medida["status_checked_at"]
+    if medida.get("connector_id") and not linha.get("remote_connector_id"):
+        linha["remote_connector_id"] = medida["connector_id"]
+    return linha
