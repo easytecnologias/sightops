@@ -66,7 +66,17 @@ def faixas_desejadas(doc: Dict[str, Any]) -> Dict[str, Tuple[str, str]]:
                 hosts = list(rede.hosts()) if rede.num_addresses <= 1024 else None
                 ini = hosts[0] if hosts else rede.network_address + 1
                 fim = hosts[-1] if hosts else rede.broadcast_address - 1
-                out[NOME_GERENCIA] = (str(ini), str(fim))
+                # A faixa TEM de conter o proprio IP de gerencia: e por ele que
+                # o servidor fala com a ONU. Uma faixa que o exclui tranca o
+                # SightOps do lado de fora, e so se resolve em campo.
+                meu = ipaddress.ip_address(gerencia["ip"])
+                if not (ini <= meu <= fim):
+                    logger.warning(
+                        "tr069 acl: faixa calculada (%s-%s) nao contem o IP de gerencia %s "
+                        "-- nada sera gravado (WAN provavelmente ainda subindo)",
+                        ini, fim, gerencia["ip"])
+                else:
+                    out[NOME_GERENCIA] = (str(ini), str(fim))
         except ValueError:
             pass
     return out

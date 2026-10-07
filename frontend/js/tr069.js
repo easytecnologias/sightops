@@ -164,7 +164,7 @@ async function tr069AbrirDetalhe(serial) {
         <div class="tr-tile"><span>Sinal na ONU</span><b>${esc(tr069Dbm(d.sinal_dbm))}</b><small>lido pela OLT</small></div>
         <div class="tr-tile"><span>Tempo ligada</span><b>${esc(tr069Duracao(r.uptime_s))}</b><small>último boot ${esc(tr069Quando(r.ultimo_boot))}</small></div>
         <div class="tr-tile"><span>WAN</span><b>${esc(tr069StatusWan(wan?.status))}</b><small>${wan?.vlan ? 'VLAN ' + esc(wan.vlan) + ' · ' : ''}${wan?.ip
-          ? `<a class="tr-ip-web" data-tr069-web-href href="${API_BASE}/api/maintenance/web/${encodeURIComponent(wan.ip)}/" target="_blank" rel="noopener" title="Abrir a web da ONU pela rede do cliente">${esc(wan.ip)} ↗</a>` : '—'}</small></div>
+          ? `<a class="tr-ip-web" data-tr069-web-href data-tr069-web-ip="${esc(wan.ip)}" href="${API_BASE}/api/maintenance/web/${encodeURIComponent(wan.ip)}/" target="_blank" rel="noopener" title="Abrir a web da ONU pela rede do cliente">${esc(wan.ip)} ↗</a>` : '—'}</small></div>
         <div class="tr-tile"><span>Portas LAN</span><b>${lanLink} de ${(r.lan || []).length}</b><small>com link agora</small></div>
         <div class="tr-tile"><span>Último contato</span><b>${esc(tr069Quando(r.ultimo_contato))}</b><small>contato a cada ${Math.round((r.intervalo_s || 300) / 60)} min</small></div>
       </div>
@@ -200,7 +200,7 @@ async function tr069AbrirDetalhe(serial) {
             <button class="secondary-action" data-tr069-abrir="ping"><i data-lucide="activity"></i> Ping pela ONU</button>
             ${r.dhcp_lan === null || r.dhcp_lan === undefined ? '' :
               `<button class="secondary-action" data-tr069-dhcp="${r.dhcp_lan ? '0' : '1'}"><i data-lucide="network"></i> ${r.dhcp_lan ? 'Desligar' : 'Ligar'} DHCP da LAN</button>`}
-          ${(d.servicos || []).find(x => x.gerencia && x.ip) ? `<a class="secondary-action tr-web-btn" data-tr069-web-href href="${API_BASE}/api/maintenance/web/${encodeURIComponent((d.servicos || []).find(x => x.gerencia && x.ip).ip)}/" target="_blank" rel="noopener"><i data-lucide="globe"></i> Abrir web da ONU · ${esc((d.servicos || []).find(x => x.gerencia && x.ip).ip)}</a>` : ''}
+          ${(d.servicos || []).find(x => x.gerencia && x.ip) ? `<a class="secondary-action tr-web-btn" data-tr069-web-href data-tr069-web-ip="${esc((d.servicos || []).find(x => x.gerencia && x.ip).ip)}" href="${API_BASE}/api/maintenance/web/${encodeURIComponent((d.servicos || []).find(x => x.gerencia && x.ip).ip)}/" target="_blank" rel="noopener"><i data-lucide="globe"></i> Abrir web da ONU · ${esc((d.servicos || []).find(x => x.gerencia && x.ip).ip)}</a>` : ''}
             <button class="secondary-action danger-action" data-tr069-reset><i data-lucide="rotate-ccw"></i> Reset de fábrica</button>
           </div>
           <div class="tr-inline hidden" id="tr069PoeBox">
@@ -344,9 +344,16 @@ document.addEventListener('input', ev => {
 document.addEventListener('click', async ev => {
   const box = document.getElementById('tr069DetalheBox');
   if (!box || !box.contains(ev.target)) return;
-  // Links de "abrir web" sao <a href target=_blank> de proposito: deixa o
-  // navegador navegar. Interceptar aqui devolveria o bug do pop-up.
-  if (ev.target.closest('a[data-tr069-web-href]')) return;
+  // O href aponta para o proxy e e a rede de seguranca: vale para clique do
+  // meio, "abrir em nova aba" e para o caso de o script falhar. O clique
+  // comum prefere o AGENTE local, que e o caminho que funciona hoje.
+  const link = ev.target.closest('a[data-tr069-web-href]');
+  if (link) {
+    // Com Ctrl/Shift/meio o navegador ja sabe o que fazer: nao atrapalhar.
+    if (ev.ctrlKey || ev.metaKey || ev.shiftKey || ev.button === 1) return;
+    ev.preventDefault();
+    return openDeviceWeb(link.dataset.tr069WebIp, 80);
+  }
   const t = ev.target.closest('button');
   if (!t) return;
   if (t.dataset.tr069Abrir) {
