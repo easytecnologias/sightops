@@ -11240,7 +11240,14 @@ table.recorder-tabela tbody tr:hover { background: var(--surface-soft); }
 .tr-cand-filtros { display: flex; flex-wrap: wrap; gap: 8px; }
 .tr-cand-filtros .tr-search { flex: 1 1 240px; }
 
-.tr-web-btn { width: 100%; justify-content: center; margin-top: 8px; }
+/* Dentro da grade de Acoes agora: ocupam as duas colunas em vez de ficarem
+   com meia largura e um buraco ao lado. O `gap` da grade cuida do espaco,
+   entao nao ha margem propria para brigar com ele. */
+/* Agora e um <a>, nao um <button>: precisa do display e da decoracao que o
+   botao tinha de graca. */
+.tr-web-btn { width: 100%; justify-content: center; display: inline-flex;
+  align-items: center; gap: 8px; text-decoration: none; }
+.tr-quick .tr-web-btn, .tr-quick .danger-action { grid-column: 1 / -1; }
 
 .tr-ip-web { color: var(--primary); font-weight: 600; text-decoration: none; }
 .tr-ip-web:hover { text-decoration: underline; }
