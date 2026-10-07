@@ -873,6 +873,9 @@ def get_config_publica() -> Dict[str, Any]:
         "aguardando": cfg.get("aguardando") or {},
         "redes_diretas": cfg.get("redes_diretas") or [],
         "vlan_gerencia": cfg.get("vlan_gerencia"),
+        # A senha em si nunca sai daqui -- so se ela existe. Quem precisa
+        # dela e o laco que grava na ONU, nao a tela.
+        "tem_senha_web": bool(cfg.get("senha_web_enc")),
     }
 
 
@@ -896,6 +899,19 @@ def salvar_preferencias(dados: Dict[str, Any]) -> Dict[str, Any]:
         if intervalo not in (300, 900, 3600):
             raise Tr069Error("intervalo de contato aceito: 5, 15 ou 60 minutos")
         cfg["intervalo_s"] = intervalo
+    if "senha_web" in dados:
+        # Senha da interface web das ONUs deste cliente. Guardada cifrada com a
+        # mesma chave das senhas de OLT; aplicada pelo laco de manutencao, nao
+        # aqui -- gravar numa frota inteira dentro de um request seria um
+        # request de varios minutos que o navegador abandona no meio.
+        from app.core.crypto import encrypt
+        nova = str(dados.get("senha_web") or "")
+        if nova and len(nova) < 6:
+            raise Tr069Error("a senha da web precisa de pelo menos 6 caracteres")
+        if nova:
+            cfg["senha_web_enc"] = encrypt(nova)
+        else:
+            cfg.pop("senha_web_enc", None)
     set_json_state(CONFIG_KEY, cfg)
     return get_config_publica()
 

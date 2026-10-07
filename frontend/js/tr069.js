@@ -289,6 +289,13 @@ async function loadTr069Config() {
     <div class="tr-row"><div><b>VLAN de gerência TR-069</b><small>Usada para ativar ONU em OLT Intelbras 8820i: a OLT põe esse serviço na ONU e o DHCP com opção 43 faz o resto.</small></div>
       <div class="tr-inline-row"><input id="tr069VlanGer" inputmode="numeric" value="${esc(c.vlan_gerencia || '')}" placeholder="ex.: 7" aria-label="VLAN de gerencia" style="width:90px">
         <button class="secondary-action tr-small" data-tr069-salvar-vlan>Salvar</button></div></div>
+    <div class="tr-row"><div><b>Senha da web das ONUs</b><small>${c.tem_senha_web
+        ? 'Definida. Aplicada sozinha em toda ONU gerenciada deste cliente, inclusive nas novas.'
+        : 'Nao definida: as ONUs ficam com a senha de fabrica.'} Nunca aparece na tela depois de salva.</small></div>
+      <div class="tr-inline-row"><input id="tr069SenhaWeb" type="password" autocomplete="new-password"
+             placeholder="${c.tem_senha_web ? 'definida — digite para trocar' : 'minimo 6 caracteres'}"
+             aria-label="Senha da web das ONUs" style="width:190px">
+        <button class="secondary-action tr-small" data-tr069-salvar-senhaweb>Salvar</button></div></div>
     <div class="tr-row"><div><b>Intervalo de contato</b><small>Hoje fixo em 5 minutos para todas as ONUs.</small></div>
       <span class="tr-badge plain b-gray">5 min</span></div>`;
 }
@@ -762,6 +769,23 @@ document.addEventListener('click', async ev => {
     const txt = document.getElementById('tr069Script')?.textContent || '';
     try { await navigator.clipboard.writeText(txt); showToast('Script copiado.'); }
     catch { const r = document.createRange(); r.selectNodeContents(document.getElementById('tr069Script')); getSelection().removeAllRanges(); getSelection().addRange(r); showToast('Selecionei o script: use Ctrl+C.'); }
+    return;
+  }
+  if (t.hasAttribute('data-tr069-salvar-senhaweb')) {
+    const campo = document.getElementById('tr069SenhaWeb');
+    const v = campo?.value || '';
+    if (v && v.length < 6) { showToast('A senha precisa de pelo menos 6 caracteres.', true); return; }
+    const res = await api('/api/tr069/config', { method: 'POST', body: JSON.stringify({ senha_web: v }) });
+    const r = res ? await res.json() : null;
+    // Limpa o campo mesmo quando da certo: senha nao fica em tela.
+    if (campo) campo.value = '';
+    showToast(r?.ok
+      ? (r.tem_senha_web
+          ? 'Senha salva. Vai sendo aplicada nas ONUs nos proximos ciclos.'
+          : 'Senha padrao removida. As ONUs ficam como estao.')
+      : (r?.error || 'So o administrador muda isso.'), !r?.ok);
+    // Redesenha para o texto passar de "nao definida" para "definida".
+    if (r?.ok) loadTr069Config();
     return;
   }
   if (t.hasAttribute('data-tr069-salvar-vlan')) {

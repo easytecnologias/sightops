@@ -380,6 +380,15 @@ async def _olt_telemetry_loop() -> None:
                         tenant_results.append({"tr069_acl": await asyncio.to_thread(_tr069_acl.manter_cliente, _tr069)})
                     except Exception as exc:
                         tenant_results.append({"tr069_acl": {"ok": False, "error": str(exc)}})
+                    # Senha padrao da web das ONUs do cliente. ONU nova chega
+                    # com a senha de fabrica e ficava assim para sempre, porque
+                    # ninguem lembra de trocar equipamento por equipamento.
+                    try:
+                        from app.services import tr069_senha_web as _tr069_senha, tr069_service as _tr069s
+                        tenant_results.append({"tr069_senha_web": await asyncio.to_thread(
+                            _tr069_senha.manter_cliente, _tr069s)})
+                    except Exception as exc:
+                        tenant_results.append({"tr069_senha_web": {"ok": False, "error": str(exc)}})
                     # Switches no mesmo ciclo: e a coleta automatica que os poe
                     # no monitoramento/Zabbix (ver switch_service.poll_switches).
                     try:
