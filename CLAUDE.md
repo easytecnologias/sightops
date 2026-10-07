@@ -70,3 +70,11 @@ Prova é número de produção antes/depois, não "deve funcionar".
 (tela mostra estado errado), `sightops-audit` / `sightops-resolver` (varredura e
 correções seguras), `sightops-integracoes` (acoplamento entre serviços).
 Algumas citam caminhos do v2; neste repo vale a tabela acima.
+
+Subagente `revisor-isolamento` (`.claude/agents/`): rode depois de mexer em
+`app/services`, `app/api/endpoints` ou `app/core`, antes de publicar recurso novo.
+
+Hooks (`.claude/hooks/`): `checar_edicao.py` confere sintaxe e o `?v=` a cada
+edicao; `barrar_comando.py` nega `prune -a`, `volume rm`, push forcado e
+sobrescrever o `.env.v3`, e pede confirmacao para recreate/down, parar container,
+`git push`, `reset --hard` e reboot. Se ele barrar, nao contorne: explique ao usuario.
