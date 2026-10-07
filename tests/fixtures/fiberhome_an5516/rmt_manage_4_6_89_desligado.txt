@@ -1,0 +1,12 @@
+show rmt_manage slot 4 link 6 onu 89
+----- REMOTE MANAGEMENT CONFIG INFO-----
+TR069 Enable/Disable:disable
+ACL Url:
+ACL Serv User:
+ACL Serv Uwd:
+Inform Period Enable/Disable:disable
+Inform Interval:0
+Backlink Port:0
+Middleware Url:
+Middleware Port:0
+Admin\gpononu# 

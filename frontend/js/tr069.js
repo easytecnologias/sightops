@@ -74,15 +74,15 @@ function tr069RenderLista() {
   }
   corpo.innerHTML = linhas.map(o => `
     <tr data-serial="${esc(o.serial)}" class="tr-linha">
-      <td><b class="monospace">${esc(o.serial)}</b><span class="tr-sub">${esc(o.nome || '—')}</span></td>
+      <td><b class="tr-serial">${esc(o.serial)}</b><span class="tr-sub">${esc(o.nome || '—')}</span></td>
       <td>${esc(o.pon ?? '—')} · ONU ${esc(o.onu_id ?? '—')}<span class="tr-sub">${esc(o.olt || '')}</span></td>
       <td>${esc([o.fabricante, o.modelo].filter(Boolean).join(' '))}<span class="tr-sub">${esc(o.firmware || '—')}</span></td>
       <td>${tr069Badge(o.estado)}</td>
       <td>${esc(tr069Quando(o.ultimo_contato))}</td>
       <td>${tr069Wan(o.wan)}</td>
       <td>${o.lan_total ? `${o.lan_com_link} de ${o.lan_total}` : '—'}</td>
-      <td>${o.tem_wifi ? `${o.wifi_clientes ?? 0} cliente(s)` : '<span class="tr-sub">sem rádio</span>'}</td>
-      <td>${o.sinal_dbm ? `${esc(o.sinal_dbm)} dBm` : '—'}</td>
+      <td>${o.tem_wifi ? `${o.wifi_clientes ?? 0} cliente(s)` : '<span class="tr-muted">sem rádio</span>'}</td>
+      <td class="tr-num">${esc(tr069Dbm(o.sinal_dbm))}</td>
     </tr>`).join('');
 }
 
@@ -108,9 +108,25 @@ async function tr069AbrirDetalhe(serial) {
   }
   const r = d.detalhe || {};
   const wan = (r.wan || []).find(w => w.habilitada) || (r.wan || [])[0];
+  const temWifi = (r.wifi || []).length > 0;
+  const lanLink = (r.lan || []).filter(p => p.link).length;
+  const wanInfo = [wan?.vlan ? 'VLAN ' + wan.vlan : '', wan?.ip].filter(Boolean).join(' · ') || '—';
+  const painelWifi = !temWifi ? '' : `
+        <section class="panel">
+          <div class="tr-panel-head"><div><h3>Wi-Fi</h3><p>Nome e senha das redes da ONU.</p></div></div>
+          <div class="tr-pad">${r.wifi.map(w => `
+            <div class="tr-form" data-tr069-wifi="${esc(w.indice)}">
+              <div class="form-group"><label for="tr069Ssid${esc(w.indice)}">Nome da rede ${esc(w.indice)}${w.clientes != null ? ` · ${esc(w.clientes)} cliente(s)` : ''}</label>
+                <input id="tr069Ssid${esc(w.indice)}" value="${esc(w.ssid || '')}" maxlength="32"></div>
+              <div class="form-group"><label for="tr069Senha${esc(w.indice)}">Nova senha</label>
+                <input id="tr069Senha${esc(w.indice)}" type="password" placeholder="em branco = manter" maxlength="63"></div>
+              <button class="primary-action" data-tr069-salvar-wifi="${esc(w.indice)}"><i data-lucide="save"></i> Salvar na ONU</button>
+            </div>`).join('')}</div>
+        </section>`;
   box.innerHTML = `
-    <div class="page-heading tr-sub-heading">
-      <div><p class="eyebrow">TR-069 · ${esc(d.olt || '')}</p><h1>${esc(d.nome || d.serial)}</h1>
+  <div class="tr-detail">
+    <div class="page-heading">
+      <div><p class="eyebrow">TR-069 · ${esc(d.olt || '')}</p><h1>${esc(tr069Titulo(d))}</h1>
         <p>Mudanças vão para a ONU na hora, pelo conector. Se ela não responder, ficam na fila e entram no próximo contato.</p></div>
       <div class="page-heading-actions">
         <button class="secondary-action" data-tr069-voltar><i data-lucide="arrow-left"></i> Voltar</button>
@@ -118,42 +134,46 @@ async function tr069AbrirDetalhe(serial) {
         <button class="primary-action" data-tr069-modo><i data-lucide="layers"></i> Modo de operação</button>
       </div>
     </div>
-    <div class="panel">
+    <section class="panel">
       <div class="tr-head">
         <div class="tr-dev"><div class="tr-dev-ico"><i data-lucide="router"></i></div>
-          <div><h2 class="monospace">${esc(d.serial)}</h2>
-          <p>${esc([r.fabricante, r.modelo].filter(Boolean).join(' '))} · firmware ${esc(r.firmware || '—')} · PON ${esc(d.pon ?? '—')} ONU ${esc(d.onu_id ?? '—')}</p></div></div>
+          <div><h2>${esc(d.serial)}</h2>
+          <p>${esc([r.fabricante, r.modelo].filter(Boolean).join(' '))} · PON ${esc(d.pon ?? '—')} · ONU ${esc(d.onu_id ?? '—')}</p></div></div>
         ${tr069Badge(d.estado)}
       </div>
       <div class="tr-tiles">
-        <div class="tr-tile"><span>Sinal na ONU</span><b>${d.sinal_dbm ? esc(d.sinal_dbm) + ' dBm' : '—'}</b><small>pela OLT</small></div>
-        <div class="tr-tile"><span>Tempo ligada</span><b>${esc(tr069Duracao(r.uptime_s))}</b><small>boot ${esc(tr069Quando(r.ultimo_boot))}</small></div>
-        <div class="tr-tile"><span>WAN</span><b>${esc(wan?.status || '—')}</b><small class="monospace">${esc([wan?.vlan != null && wan?.vlan !== -1 ? 'VLAN ' + wan.vlan : '', wan?.ip].filter(Boolean).join(' · ') || '—')}</small></div>
-        <div class="tr-tile"><span>Portas LAN</span><b>${(r.lan || []).filter(p => p.link).length} de ${(r.lan || []).length}</b><small>com link agora</small></div>
-        <div class="tr-tile"><span>Último contato</span><b>${esc(tr069Quando(r.ultimo_contato))}</b><small>a cada ${Math.round((r.intervalo_s || 300) / 60)} min</small></div>
+        <div class="tr-tile"><span>Sinal na ONU</span><b>${esc(tr069Dbm(d.sinal_dbm))}</b><small>lido pela OLT</small></div>
+        <div class="tr-tile"><span>Tempo ligada</span><b>${esc(tr069Duracao(r.uptime_s))}</b><small>último boot ${esc(tr069Quando(r.ultimo_boot))}</small></div>
+        <div class="tr-tile"><span>WAN</span><b>${esc(tr069StatusWan(wan?.status))}</b><small>${esc(wanInfo)}</small></div>
+        <div class="tr-tile"><span>Portas LAN</span><b>${lanLink} de ${(r.lan || []).length}</b><small>com link agora</small></div>
+        <div class="tr-tile"><span>Último contato</span><b>${esc(tr069Quando(r.ultimo_contato))}</b><small>contato a cada ${Math.round((r.intervalo_s || 300) / 60)} min</small></div>
       </div>
-    </div>
+    </section>
     <div class="tr-grid">
       <div class="tr-stack">
-        <div class="panel"><div class="tr-panel-head"><div><h3>Portas LAN</h3><p>Desligar e religar uma porta reinicia o equipamento ligado nela.</p></div></div>
+        <section class="panel">
+          <div class="tr-panel-head"><div><h3>Portas LAN</h3><p>Desligar e religar uma porta reinicia o equipamento ligado nela.</p></div></div>
           <div class="tr-pad"><div class="tr-ports">${(r.lan || []).map(p => `
             <div class="tr-port"><div class="tr-port-top"><b>LAN ${esc(p.porta)}</b>
-              <button class="tr-switch" role="switch" aria-checked="${p.habilitada ? 'true' : 'false'}" aria-label="LAN ${esc(p.porta)}"
+              <button class="tr-switch" role="switch" aria-checked="${p.habilitada ? 'true' : 'false'}" aria-label="Ligar ou desligar a LAN ${esc(p.porta)}"
                 data-tr069-porta="${esc(p.porta)}"></button></div>
-              <span class="tr-badge plain ${p.link ? 'b-green' : 'b-gray'}">${p.link ? (p.velocidade_mbps ? 'link · até ' + p.velocidade_mbps + ' Mb/s' : 'com link') : 'sem link'}</span></div>`).join('') || '<span class="tr-sub">A ONU não informou portas LAN.</span>'}
-          </div></div></div>
-        <div class="panel"><div class="tr-panel-head"><div><h3>Wi-Fi</h3><p>${(r.wifi || []).length ? 'Nome e senha das redes da ONU.' : 'Este modelo não tem rádio Wi-Fi.'}</p></div></div>
-          <div class="tr-pad">${(r.wifi || []).map(w => `
-            <div class="tr-form" data-tr069-wifi="${esc(w.indice)}">
-              <div class="form-group"><label for="tr069Ssid${esc(w.indice)}">Nome da rede ${esc(w.indice)}${w.clientes != null ? ` · ${esc(w.clientes)} cliente(s)` : ''}</label>
-                <input id="tr069Ssid${esc(w.indice)}" value="${esc(w.ssid || '')}" maxlength="32"></div>
-              <div class="form-group"><label for="tr069Senha${esc(w.indice)}">Nova senha</label>
-                <input id="tr069Senha${esc(w.indice)}" type="password" placeholder="deixe em branco para manter" maxlength="63"></div>
-              <button class="primary-action" data-tr069-salvar-wifi="${esc(w.indice)}"><i data-lucide="save"></i> Salvar na ONU</button>
-            </div>`).join('') || '<span class="tr-sub">Nada para configurar aqui.</span>'}</div></div>
+              <span class="tr-badge ${p.link ? 'b-green' : 'b-gray'}">${p.link ? 'com link' : 'sem link'}</span>
+              <small class="tr-sub">${p.velocidade_mbps ? 'até ' + (p.velocidade_mbps >= 1000 ? (p.velocidade_mbps / 1000) + ' Gb/s' : p.velocidade_mbps + ' Mb/s') : '&nbsp;'}</small></div>`).join('') || '<span class="tr-sub">A ONU não informou portas LAN.</span>'}
+          </div></div>
+        </section>
+        ${painelWifi}
+        <section class="panel">
+          <div class="tr-panel-head"><div><h3>Histórico</h3><p>Quem pediu, o quê, e se a ONU aplicou.</p></div></div>
+          <div class="tr-pad"><ul class="tr-timeline">${(d.historico || []).map(h => {
+            const cor = h.resultado === 'aplicada' ? 'd-green' : String(h.resultado).startsWith('falhou') ? 'd-red' : 'd-amber';
+            const txt = h.resultado === 'aplicada' ? 'aplicado' : h.resultado === 'na_fila' ? 'na fila, vai no próximo contato' : h.resultado;
+            return `<li><span class="tr-dot ${cor}"></span><div>${esc(h.descricao)}<span class="tr-sub">${esc(h.autor)} · ${esc(txt)}${h.detalhe ? ' · ' + esc(h.detalhe) : ''}</span></div><span class="tr-when">${esc(tr069Quando(h.em))}</span></li>`;
+          }).join('') || '<li class="tr-vazio-li">Nenhuma ação ainda.</li>'}</ul></div>
+        </section>
       </div>
       <div class="tr-stack">
-        <div class="panel"><div class="tr-panel-head"><div><h3>Ações</h3><p>Valem só para esta ONU.</p></div></div>
+        <section class="panel">
+          <div class="tr-panel-head"><div><h3>Ações</h3><p>Valem só para esta ONU.</p></div></div>
           <div class="tr-pad"><div class="tr-quick">
             <button class="secondary-action" data-tr069-acao="reiniciar"><i data-lucide="power"></i> Reiniciar ONU</button>
             <button class="secondary-action danger-action" data-tr069-reset><i data-lucide="rotate-ccw"></i> Reset de fábrica</button>
@@ -163,25 +183,42 @@ async function tr069AbrirDetalhe(serial) {
             <input id="tr069ConfirmSerial" placeholder="${esc(d.serial)}" aria-label="Digite o serial para confirmar">
             <div class="page-heading-actions"><button class="secondary-action danger-action" data-tr069-acao="reset_fabrica">Apagar configuração</button>
               <button class="secondary-action" data-tr069-reset-cancelar>Cancelar</button></div>
-          </div></div></div>
-        <div class="panel"><div class="tr-panel-head"><div><h3>Equipamento</h3></div></div>
+          </div></div>
+        </section>
+        <section class="panel">
+          <div class="tr-panel-head"><div><h3>Equipamento</h3><p>Como a própria ONU se apresenta ao servidor.</p></div></div>
           <div class="tr-pad"><dl class="tr-kv">
-            <dt>Fabricante</dt><dd>${esc(r.fabricante || '—')}${r.oui ? ` (${esc(r.oui)})` : ''}</dd>
+            <dt>Fabricante</dt><dd>${esc(r.fabricante || '—')}${r.oui ? ` · OUI ${esc(r.oui)}` : ''}</dd>
             <dt>Modelo</dt><dd>${esc(r.modelo || '—')}</dd>
             <dt>Hardware</dt><dd>${esc(r.hardware || '—')}</dd>
-            <dt>Firmware</dt><dd class="monospace">${esc(r.firmware || '—')}</dd>
-            <dt>Padrão</dt><dd>${r.padrao === 'tr098' ? 'TR-098 (InternetGatewayDevice)' : 'TR-181 (Device)'}</dd>
+            <dt>Firmware</dt><dd>${esc(r.firmware || '—')}</dd>
+            <dt>Wi-Fi</dt><dd>${temWifi ? `${r.wifi.length} rede(s)` : 'sem rádio'}</dd>
+            <dt>Padrão</dt><dd>${r.padrao === 'tr098' ? 'TR-098' : 'TR-181'}</dd>
             <dt>No servidor desde</dt><dd>${esc(tr069Quando(r.registrado_em))}</dd>
-          </dl></div></div>
-        <div class="panel"><div class="tr-panel-head"><div><h3>Histórico</h3><p>Quem pediu, o quê, e se a ONU aplicou.</p></div></div>
-          <div class="tr-pad"><ul class="tr-timeline">${(d.historico || []).map(h => {
-            const cor = h.resultado === 'aplicada' ? 'd-green' : String(h.resultado).startsWith('falhou') ? 'd-red' : 'd-amber';
-            const txt = h.resultado === 'aplicada' ? 'aplicado' : h.resultado === 'na_fila' ? 'na fila, vai no próximo contato' : h.resultado;
-            return `<li><span class="tr-dot ${cor}"></span><div>${esc(h.descricao)}<span class="tr-sub">${esc(h.autor)} · ${esc(txt)}${h.detalhe ? ' · ' + esc(h.detalhe) : ''}</span></div><span class="tr-when">${esc(tr069Quando(h.em))}</span></li>`;
-          }).join('') || '<li class="tr-sub">Nenhuma ação ainda.</li>'}</ul></div></div>
+          </dl></div>
+        </section>
       </div>
-    </div>`;
+    </div>
+  </div>`;
   lucide.createIcons();
+}
+
+// Nome que a OLT da por padrao ("gpon 4/6 onu 89") nao diz nada: vira "ONU 4/6 · 89".
+function tr069Titulo(d) {
+  const nome = String(d?.nome || '').trim();
+  if (nome && !/^gpon\s+\d+\/\d+\s+onu\s+\d+$/i.test(nome)) return nome;
+  return d?.pon ? `ONU ${d.pon} · ${d.onu_id}` : (d?.serial || 'ONU');
+}
+
+function tr069Dbm(v) {
+  const n = Number(String(v ?? '').replace(',', '.'));
+  if (v === null || v === undefined || v === '' || !Number.isFinite(n)) return '—';
+  return `${n < 0 ? '−' : ''}${Math.abs(n).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} dBm`;
+}
+
+function tr069StatusWan(st) {
+  const k = String(st || '').toLowerCase();
+  return { connected: 'Conectada', disconnected: 'Desconectada', connecting: 'Conectando', unconfigured: 'Sem configuração' }[k] || (st || '—');
 }
 
 async function tr069Executar(acao, dados = {}, botao = null) {
@@ -213,8 +250,10 @@ async function loadTr069Config() {
       <span class="tr-badge ${c.servidor?.ok ? 'b-green' : 'b-red'}">${c.servidor?.ok ? 'no ar' : 'fora do ar'}</span></div>
     <div class="tr-row"><div><b>Usuário das ONUs</b><small>Exclusivo deste cliente. A senha fica cifrada e nunca aparece na tela.</small></div>
       <code class="tr-code">${esc(c.username || '—')}</code></div>
-    <div class="tr-row"><div><b>Ativação automática e intervalo de contato</b><small>Entram junto com o botão Ativar TR-069 na ONU, na próxima etapa.</small></div>
-      <span class="tr-badge plain b-gray">em breve</span></div>`;
+    <div class="tr-row"><div><b>Ativar TR-069 ao autorizar ONU</b><small>ONU autorizada pelo SightOps numa OLT FiberHome já sai com TR-069 ligado, em segundo plano.</small></div>
+      <button class="tr-switch" role="switch" aria-checked="${c.auto_ativar ? 'true' : 'false'}" aria-label="Ativar TR-069 ao autorizar ONU" data-tr069-auto></button></div>
+    <div class="tr-row"><div><b>Intervalo de contato</b><small>Hoje fixo em 5 minutos para todas as ONUs.</small></div>
+      <span class="tr-badge plain b-gray">5 min</span></div>`;
 }
 
 document.addEventListener('click', ev => {
@@ -308,20 +347,23 @@ function tr069CardGerencia(g) {
   return `
     <article class="tr-wan tr-locked">
       <header><div class="tr-wan-title"><span class="tr-wan-ico ico-cyan"><i data-lucide="radio-tower"></i></span>
-        <div><b>Gerência TR-069</b><small>${esc(g.nome || '')}</small></div></div>
-        <span class="tr-badge b-green">${esc(g.status || '')}</span></header>
+        <div><b>Gerência TR-069</b><small>por onde o servidor fala com a ONU</small></div></div>
+        <span class="tr-badge b-green">${esc(tr069StatusWan(g.status))}</span></header>
       <dl class="tr-wan-kv">
         <div><dt>Modo</dt><dd>${g.modo === 'dhcp' ? 'Roteador · DHCP' : esc(g.modo)}</dd></div>
         <div><dt>VLAN</dt><dd>${esc(g.vlan ?? '—')}</dd></div>
         <div><dt>Prioridade</dt><dd>${esc(g.prioridade ?? '—')}</dd></div>
-        <div><dt>IP</dt><dd class="monospace">${esc(g.ip || '—')}</dd></div>
+        <div><dt>IP</dt><dd>${esc(g.ip || '—')}</dd></div>
       </dl>
       <footer class="tr-wan-lock"><i data-lucide="lock"></i>É por este serviço que o servidor fala com a ONU. A tela não deixa apagar nem trocar a VLAN dele: sem ele, só indo a campo.</footer>
     </article>`;
 }
 
 function tr069CardServico(s, i, lans, ed) {
-  const funcao = (TR069_FUNCOES.find(f => f[0] === s.funcao) || [null, 'Serviço'])[1];
+  const modoTxt = (TR069_MODOS.find(m => m[0] === s.modo) || [null, 'Serviço'])[1];
+  const funcao = s.funcao && s.funcao !== 'outro'
+    ? (TR069_FUNCOES.find(f => f[0] === s.funcao) || [null, 'Serviço'])[1]
+    : `${modoTxt}${s.vlan ? ' · VLAN ' + s.vlan : ''}`;
   const pppoe = s.modo !== 'pppoe' ? '' : `
     <div class="tr-wan-form tr-mt">
       <div class="form-group"><label>Usuário PPPoE</label><input data-srv-campo="usuario" value="${esc(s.usuario)}" ${tr069Dis(ed)}></div>
@@ -364,8 +406,9 @@ function tr069RenderModo(previa = null) {
     ? '<button class="secondary-action" data-tr069-previa><i data-lucide="list-checks"></i> Ver o que muda</button>'
     : '<span class="tr-sub">Só leitura.</span>';
   document.getElementById('tr069DetalheBox').innerHTML = `
-    <div class="page-heading tr-sub-heading">
-      <div><p class="eyebrow">TR-069 · ${esc(d.serial)} · ${esc(d.nome || '')}</p><h1>Modo de operação</h1>
+  <div class="tr-detail">
+    <div class="page-heading">
+      <div><p class="eyebrow">TR-069 · ${esc(tr069Titulo(d))} · ${esc(d.serial)}</p><h1>Modo de operação</h1>
         <p>Os serviços que a ONT tem por dentro: cada um sai para a OLT com sua VLAN, seu modo e as portas que atende.</p></div>
       <div class="page-heading-actions">
         <button class="secondary-action" data-tr069-voltar-onu><i data-lucide="arrow-left"></i> Voltar à ONU</button>
@@ -386,7 +429,8 @@ function tr069RenderModo(previa = null) {
         <div class="panel"><div class="tr-panel-head"><div><h3>O que vai mudar na ONU</h3><p>Prévia calculada pelo servidor a partir do que está na ONU agora.</p></div></div>
           <div class="tr-pad" id="tr069Previa">${previa || acaoPrevia}</div></div>
       </div>
-    </div>`;
+    </div>
+  </div>`;
   lucide.createIcons();
 }
 
@@ -521,3 +565,126 @@ document.addEventListener('change', ev => {
   if (!card || !_tr069Modo) return;
   if (['modo', 'funcao'].includes(ev.target.dataset.srvCampo)) { tr069LerRascunho(); tr069RenderModo(); }
 });
+
+// --------------------------------------------------------------------------
+// Ativar TR-069 numa ONU: pela OLT (FiberHome) ou pelo DHCP do conector.
+// --------------------------------------------------------------------------
+let _tr069Cand = [];
+
+async function tr069AbrirAtivar() {
+  const box = document.getElementById('tr069AtivarBox');
+  if (!box) return;
+  box.classList.remove('hidden');
+  box.innerHTML = `<div class="tr-panel-head"><div><h3>Ativar TR-069</h3><p>Escolha a ONU. O SightOps sugere o caminho pelo fabricante da OLT; nada é enviado até você confirmar.</p></div>
+    <button class="secondary-action tr-small" data-tr069-ativar-fechar>Fechar</button></div>
+    <div class="tr-pad"><input class="tr-search" id="tr069CandBusca" placeholder="Buscar ONU por serial, PON ou nome" aria-label="Buscar ONU para ativar">
+    <div id="tr069CandLista" class="tr-cand-lista tr-mt"><span class="tr-sub">Carregando ONUs sem TR-069…</span></div><div id="tr069AtivarPlano"></div></div>`;
+  const r = await apiJson('/api/tr069/candidatas', { cacheTtl: 0 });
+  _tr069Cand = r?.ok ? (r.onus || []) : [];
+  if (!r?.ok) document.getElementById('tr069CandLista').innerHTML = `<span class="tr-erro">${esc(r?.error || 'Falha ao listar ONUs.')}</span>`;
+  else tr069RenderCand();
+}
+
+function tr069RenderCand() {
+  const alvo = document.getElementById('tr069CandLista');
+  const q = (document.getElementById('tr069CandBusca')?.value || '').trim().toLowerCase();
+  const lista = _tr069Cand.filter(o => !q || [o.serial, o.pon, o.nome, o.modelo, o.olt].some(v => String(v ?? '').toLowerCase().includes(q))).slice(0, 40);
+  alvo.innerHTML = lista.map(o => {
+    const on = String(o.status_onu || '').toLowerCase() === 'active';
+    return `<button class="tr-cand" data-tr069-cand="${esc(o.serial)}"><b class="tr-serial">${esc(o.serial)}</b>
+      <span>${esc(o.olt || '')} · PON ${esc(o.pon)} · ONU ${esc(o.onu_id)} · ${esc(o.modelo || '')}</span>
+      <span class="tr-badge plain ${on ? 'b-green' : 'b-red'}">${on ? 'online' : esc(o.status_onu || 'offline')}</span></button>`;
+  }).join('') || '<span class="tr-sub">Nenhuma ONU sem TR-069 com essa busca.</span>';
+}
+
+async function tr069PlanoAtivar(serial) {
+  const alvo = document.getElementById('tr069AtivarPlano');
+  document.getElementById('tr069CandLista').innerHTML = '';
+  alvo.innerHTML = '<span class="tr-sub">Preparando…</span>';
+  const p = await apiJson(`/api/tr069/ativar/${encodeURIComponent(serial)}`, { cacheTtl: 0 });
+  if (!p?.ok) { alvo.innerHTML = `<div class="tr-box tr-erro-box">${esc(p?.error || 'Não foi possível preparar.')}</div>`; return; }
+  const offline = String(p.status_onu || '').toLowerCase() !== 'active';
+  alvo.innerHTML = `
+    <div class="tr-ativ-head"><b class="tr-serial">${esc(p.serial)}</b> · ${esc(p.modelo || '')} · ${esc(p.olt || '')} PON ${esc(p.pon)} ONU ${esc(p.onu_id)}</div>
+    ${offline ? '<div class="tr-box tr-warn">A ONU está offline na OLT: a configuração fica gravada, mas o 1º contato só acontece quando ela voltar.</div>' : ''}
+    <label class="tr-choice ${p.metodo_sugerido === 'olt' ? 'on' : ''}" for="tr069MetOlt">
+      <input type="radio" name="tr069Metodo" id="tr069MetOlt" value="olt" ${p.metodo_sugerido === 'olt' ? 'checked' : ''} ${p.pela_olt_disponivel ? '' : 'disabled'}>
+      <span><b>Pela OLT</b><small>${p.pela_olt_disponivel ? 'O SightOps manda o endereço do servidor para a ONU através da OLT, confere e salva.' : 'Esta OLT ainda não faz isso pelo SightOps.'}</small></span></label>
+    <label class="tr-choice ${p.metodo_sugerido === 'dhcp' ? 'on' : ''}" for="tr069MetDhcp">
+      <input type="radio" name="tr069Metodo" id="tr069MetDhcp" value="dhcp" ${p.metodo_sugerido === 'dhcp' ? 'checked' : ''}>
+      <span><b>Pelo DHCP do conector</b><small>O MikroTik do cliente entrega o endereço na opção 43. Serve para qualquer fabricante; você cola o script no roteador.</small></span></label>
+    <div id="tr069MetOltBox" class="${p.metodo_sugerido === 'olt' ? '' : 'hidden'}">
+      <p class="tr-sub tr-mt">O que vai para a OLT (uma linha, só nesta ONU):</p><pre class="tr-pre">${esc(p.comando_olt || '')}</pre></div>
+    <div id="tr069MetDhcpBox" class="${p.metodo_sugerido === 'dhcp' ? '' : 'hidden'} tr-mt">
+      <div class="form-group"><label for="tr069RedeGer">Rede de gerência das ONUs no MikroTik</label>
+        <input id="tr069RedeGer" placeholder="ex.: 172.18.1.0/24"></div></div>
+    <div class="tr-box tr-mt">A ONU precisa ter IP de gerência (uma WAN com DHCP numa VLAN que chegue ao MikroTik, como a VLAN 7 da SIERRA). Servidor desta ONU: <span class="monospace">${esc(p.servidor)}</span></div>
+    <div class="page-heading-actions tr-mt"><button class="secondary-action" data-tr069-ativar-voltar>Escolher outra ONU</button>
+      <button class="primary-action" data-tr069-ativar-ir="${esc(p.serial)}"><i data-lucide="radio-tower"></i> Ativar nesta ONU</button></div>`;
+  lucide.createIcons();
+}
+
+async function tr069Ativar(serial, botao) {
+  const metodo = document.querySelector('input[name="tr069Metodo"]:checked')?.value || '';
+  const rede = document.getElementById('tr069RedeGer')?.value || '';
+  botao.disabled = true;
+  showToast(metodo === 'olt' ? 'Configurando na OLT…' : 'Gerando o script…');
+  const res = await api('/api/tr069/ativar', { method: 'POST', body: JSON.stringify({ serial, metodo, rede_gerencia: rede }) });
+  if (res && res.status === 403) { showToast('Seu perfil não pode alterar ONU.', true); botao.disabled = false; return; }
+  const r = res ? await res.json() : null;
+  botao.disabled = false;
+  const alvo = document.getElementById('tr069AtivarPlano');
+  if (!r?.ok) { showToast(r?.error || 'Não foi possível ativar.', true); return; }
+  if (r.metodo === 'dhcp') {
+    alvo.innerHTML = `<div class="tr-box">Cole no terminal do MikroTik do cliente. A ONU aparece como <b>Aguardando 1º contato</b> e sai sozinha desse estado quando falar com o servidor.</div>
+      <pre class="tr-pre tr-mt" id="tr069Script">${esc(r.script)}</pre>
+      <div class="page-heading-actions tr-mt"><button class="primary-action" data-tr069-copiar><i data-lucide="copy"></i> Copiar script</button></div>`;
+    lucide.createIcons();
+  } else {
+    showToast('TR-069 ligado na OLT. A ONU aparece assim que fizer o 1º contato.');
+    document.getElementById('tr069AtivarBox').classList.add('hidden');
+  }
+  loadTr069(true);
+}
+
+async function tr069CarregarAuto() {
+  const el = document.querySelector('[data-tr069-auto]');
+  if (!el) return;
+  const c = await apiJson('/api/tr069/config', { cacheTtl: 0 });
+  if (c) el.setAttribute('aria-checked', c.auto_ativar ? 'true' : 'false');
+}
+
+document.addEventListener('click', async ev => {
+  const view = document.getElementById('viewDeployTr069');
+  if (!view || !view.contains(ev.target)) return;
+  const t = ev.target.closest('button, label.tr-choice');
+  if (!t) return;
+  if (t.id === 'btnTr069Ativar') return tr069AbrirAtivar();
+  if (t.hasAttribute('data-tr069-ativar-fechar')) return document.getElementById('tr069AtivarBox').classList.add('hidden');
+  if (t.hasAttribute('data-tr069-ativar-voltar')) { document.getElementById('tr069AtivarPlano').innerHTML = ''; return tr069RenderCand(); }
+  if (t.dataset.tr069Cand) return tr069PlanoAtivar(t.dataset.tr069Cand);
+  if (t.dataset.tr069AtivarIr) return tr069Ativar(t.dataset.tr069AtivarIr, t);
+  if (t.hasAttribute('data-tr069-copiar')) {
+    const txt = document.getElementById('tr069Script')?.textContent || '';
+    try { await navigator.clipboard.writeText(txt); showToast('Script copiado.'); }
+    catch { const r = document.createRange(); r.selectNodeContents(document.getElementById('tr069Script')); getSelection().removeAllRanges(); getSelection().addRange(r); showToast('Selecionei o script: use Ctrl+C.'); }
+    return;
+  }
+  if (t.hasAttribute('data-tr069-auto')) {
+    const ligar = t.getAttribute('aria-checked') !== 'true';
+    const res = await api('/api/tr069/config', { method: 'POST', body: JSON.stringify({ auto_ativar: ligar }) });
+    const r = res ? await res.json() : null;
+    if (r?.ok) { t.setAttribute('aria-checked', String(!!r.auto_ativar)); showToast(r.auto_ativar ? 'ONU autorizada pelo SightOps já sai com TR-069.' : 'Ativação automática desligada.'); }
+    else showToast(r?.error || 'Só o administrador muda isso.', true);
+  }
+});
+
+document.addEventListener('change', ev => {
+  if (ev.target.name === 'tr069Metodo') {
+    const olt = ev.target.value === 'olt';
+    document.getElementById('tr069MetOltBox')?.classList.toggle('hidden', !olt);
+    document.getElementById('tr069MetDhcpBox')?.classList.toggle('hidden', olt);
+    document.querySelectorAll('label.tr-choice').forEach(l => l.classList.toggle('on', l.contains(ev.target)));
+  }
+});
+document.addEventListener('input', ev => { if (ev.target.id === 'tr069CandBusca') tr069RenderCand(); });

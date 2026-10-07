@@ -340,10 +340,40 @@ def listar() -> Dict[str, Any]:
     contagem = {"gerenciada": 0, "sem_contato": 0, "aguardando": 0}
     for linha in linhas:
         contagem[linha["estado"]] = contagem.get(linha["estado"], 0) + 1
-    aguardando = set((get_config_publica().get("aguardando") or {}).keys()) - vistos
-    contagem["aguardando"] += len(aguardando & set(onus))
+    pendentes = get_config_publica().get("aguardando") or {}
+    if vistos & set(pendentes):
+        _limpar_aguardando(vistos)  # fez o 1o contato: sai de "aguardando"
+    aguardando = (set(pendentes) - vistos) & set(onus)
+    contagem["aguardando"] += len(aguardando)
+    for s in sorted(aguardando):
+        onu = onus[s]
+        linhas.append({"serial": s, "estado": "aguardando", "modelo": onu.get("onu_model"), "fabricante": "",
+                       "olt": onu.get("olt_name"), "pon": onu.get("pon_label") or onu.get("pon"), "onu_id": onu.get("onu_id"),
+                       "nome": onu.get("onu_name"), "sinal_dbm": onu.get("rx_onu"), "status_onu": onu.get("oper_status"),
+                       "ativado_em": pendentes[s].get("em"), "metodo": pendentes[s].get("metodo"),
+                       "wan": None, "lan_com_link": 0, "lan_total": 0, "tem_wifi": False})
     contagem["sem_tr069"] = len(set(onus) - vistos - aguardando)
     return {"ok": True, "onus": linhas, "contagem": contagem, "total_onus": len(onus)}
+
+
+def _limpar_aguardando(vistos: set) -> None:
+    from app.services.db_store import get_json_state, set_json_state
+
+    cfg = dict(get_json_state(CONFIG_KEY, {}) or {})
+    cfg["aguardando"] = {s: v for s, v in (cfg.get("aguardando") or {}).items() if s not in vistos}
+    set_json_state(CONFIG_KEY, cfg)
+
+
+def candidatas() -> Dict[str, Any]:
+    """ONUs do inventario que ainda nao falam TR-069 (para o botao Ativar)."""
+    onus = onus_do_cliente()
+    com_tr069 = {resumo_do_dispositivo(d)["serial"] for d in _buscar_por_seriais(onus.keys(), "_id,_deviceId")}
+    linhas = [{"serial": s, "olt": r.get("olt_name"), "pon": r.get("pon_label") or r.get("pon"), "onu_id": r.get("onu_id"),
+               "modelo": r.get("onu_model"), "nome": r.get("onu_name"), "status_onu": r.get("oper_status"),
+               "sinal_dbm": r.get("rx_onu")}
+              for s, r in onus.items() if s not in com_tr069]
+    linhas.sort(key=lambda r: (str(r["status_onu"]).lower() != "active", str(r["olt"]), str(r["pon"]), int(r["onu_id"] or 0)))
+    return {"ok": True, "onus": linhas}
 
 
 def _documento_do_cliente(serial: str, projecao: str = "") -> Tuple[Dict[str, Any], Dict[str, Any]]:

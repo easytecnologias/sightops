@@ -8,6 +8,7 @@ from fastapi.concurrency import run_in_threadpool
 
 from app.services import tr069_service as tr
 from app.services import tr069_wan as wan
+from app.services import tr069_ativacao as ativ
 
 router = APIRouter(prefix="/api/tr069", tags=["tr069"])
 
@@ -97,3 +98,29 @@ async def aplicar_servicos(serial: str, payload: Dict[str, Any], request: Reques
 async def ver_job(job_id: str) -> Dict[str, Any]:
     job = wan.ver_job(job_id)
     return {"ok": True, **job} if job else {"ok": False, "error": "execucao nao encontrada"}
+
+
+@router.get("/candidatas")
+async def candidatas() -> Dict[str, Any]:
+    try:
+        return await run_in_threadpool(tr.candidatas)
+    except tr.Tr069Error as exc:
+        return _erro(exc)
+
+
+@router.get("/ativar/{serial}")
+async def plano_ativacao(serial: str) -> Dict[str, Any]:
+    try:
+        return await run_in_threadpool(ativ.plano, tr, serial)
+    except (tr.Tr069Error, ativ.AtivacaoError, ValueError) as exc:
+        return _erro(exc)
+
+
+@router.post("/ativar")
+async def ativar(payload: Dict[str, Any], request: Request) -> Dict[str, Any]:
+    p = payload or {}
+    try:
+        return await run_in_threadpool(ativ.ativar, tr, str(p.get("serial") or ""), str(p.get("metodo") or ""),
+                                       _autor(request), str(p.get("rede_gerencia") or "").strip())
+    except (tr.Tr069Error, ativ.AtivacaoError, ValueError) as exc:
+        return _erro(exc)

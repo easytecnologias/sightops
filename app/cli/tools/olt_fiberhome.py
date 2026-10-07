@@ -1581,6 +1581,64 @@ def add_onu_fiberhome_v2(
                 "commands_run": feitos}
 
 
+def parse_rmt_manage(output: str) -> dict[str, Any]:
+    """`show rmt_manage slot S link P onu O` -> TR-069 ligado e o endereco do servidor.
+
+    Formato real (SIERRA, 06/10/2026):
+        TR069 Enable/Disable:disable
+        ACL Url:
+        Inform Period Enable/Disable:disable
+        Inform Interval:0
+    "ACL Url" e o endereco do servidor (ACS), apesar do nome.
+    """
+    texto = output or ""
+    tr069 = re.search(r"TR069 Enable/Disable:\s*(\w+)", texto, re.IGNORECASE)
+    url = re.search(r"ACL Url:[ 	]*(\S*)", texto, re.IGNORECASE)
+    inform = re.search(r"Inform Interval:\s*(\d+)", texto, re.IGNORECASE)
+    return {
+        "tr069": bool(tr069) and tr069.group(1).lower() == "enable",
+        "acs_url": url.group(1) if url else "",
+        "intervalo": int(inform.group(1)) if inform else 0,
+    }
+
+
+def ativar_tr069_fiberhome(
+    olt_ip: str, user: str, password: str, pon: Any, onu: int, acs_url: str,
+    usuario: str, senha: str, intervalo: int = 300, timeout: float = 20.0,
+) -> dict[str, Any]:
+    """Liga o TR-069 de UMA ONU autorizada e aponta para o servidor do cliente.
+
+    E o comando que pos as 140PoE da SIERRA no ar (06/10/2026). Confere em
+    `show rmt_manage` antes de salvar: a OLT aceita parametro errado calada.
+    """
+    if not re.fullmatch(r"http://[\d.]+:\d+", acs_url or ""):
+        raise ValueError("endereco do servidor TR-069 invalido")
+    for valor in (usuario, senha):
+        if not re.fullmatch(r"[A-Za-z0-9]{1,32}", valor or ""):
+            raise ValueError("usuario/senha do TR-069 precisam ser letras e numeros")
+    with FiberHomeTelnet(olt_ip, user, password, timeout=timeout) as client:
+        leitor = _Leitor(client)
+        slot, p = _alvos(leitor.layout(), pon)[0]
+        if not any(int(o["onu_id"]) == int(onu) for o in leitor.autorizadas(slot, p)):
+            return {"ok": False, "error": f"ONU {onu} nao esta autorizada na PON {slot}/{p}."}
+        alvo = f"slot {slot} link {p} onu {int(onu)}"
+        cmd = (f"set remote_manage_cfg {alvo} tr069 enable acs_url {acs_url} acl_user {usuario} "
+               f"acl_pswd {senha} inform enable interval {int(intervalo)} port 7547 user {usuario} pswd {senha}")
+        out = leitor._cmd("gpononu", cmd, maximum=20.0)
+        if _command_failed(out) or "% Command incomplete" in out:
+            return {"ok": False, "error": f"A OLT recusou a ativacao: {out.strip()[-200:].replace(senha, '***')}"}
+        conferido = parse_rmt_manage(leitor._cmd("gpononu", f"show rmt_manage {alvo}", maximum=15.0))
+        if not conferido["tr069"] or conferido["acs_url"] != acs_url:
+            return {"ok": False, "conferido": conferido,
+                    "error": "A OLT aceitou o comando, mas nao mostra o TR-069 ligado com o endereco certo."}
+        client.command("cd ..", prompt="Admin#", maximum=6.0)
+        leitor.menu = ""
+        salvo = client.command("save", prompt="Admin#", maximum=60.0)
+        if "successfully" not in salvo.lower():
+            return {"ok": False, "conferido": conferido, "error": f"Ativado, mas o save falhou: {salvo.strip()[-200:]}"}
+        return {"ok": True, "olt_slot": slot, "pon": p, "onu": int(onu), "conferido": conferido}
+
+
 def reboot_onu_fiberhome(
     olt_ip: str, user: str, password: str, pon: Any, onu: Any, timeout: float = 20.0,
 ) -> dict[str, Any]:

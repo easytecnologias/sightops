@@ -1571,6 +1571,15 @@ def add_onu(req: OltAddOnuRequest) -> Dict[str, Any]:
                     serial_raw=str(getattr(req, "serial_raw", "") or ""),
                     services=pedidos, terminal=req.terminal, timeout=req.timeout,
                 )
+                if result.get("ok") and not result.get("already_authorized"):
+                    # TR-069 automatico (se o cliente ligou): em segundo plano,
+                    # nunca atrasa nem derruba a autorizacao.
+                    try:
+                        from app.services.tr069_ativacao import ativar_apos_autorizar
+                        ativar_apos_autorizar(req.olt_ip, result.get("olt_slot"), result.get("pon"),
+                                              result.get("onu"), str(result.get("serial") or req.serial))
+                    except Exception:
+                        logger.warning("nao consegui agendar o TR-069 automatico", exc_info=True)
             elif _is_intelbras_4840e(req):
                 ports = [{"port": e.port or 1, "vlan": e.vlan} for e in req.services] if req.services else (
                     [{"port": 1, "vlan": req.vlan}] if req.vlan else None

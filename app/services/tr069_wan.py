@@ -156,14 +156,14 @@ def cenario_atual(lista: List[Dict[str, Any]]) -> Dict[str, str]:
     dados = [s for s in lista if not s["gerencia"]]
     tem_gerencia = any(s["gerencia"] for s in lista)
     if not dados:
-        return {"chave": "so_gerencia", "nome": "So gerencia", "texto": "A ONT so tem o servico de gerencia."}
+        return {"chave": "so_gerencia", "nome": "Só gerência", "texto": "A ONT só tem o serviço de gerência."}
     modos = {s["modo"] for s in dados}
     if len(dados) > 1 and len(modos) > 1:
-        return {"chave": "multisservico", "nome": "Multisservico",
+        return {"chave": "multisservico", "nome": "Multisserviço",
                 "texto": " + ".join(f"{s['modo']} VLAN {s['vlan'] or '?'}" for s in dados)}
     s = dados[0]
     if modos == {"bridge"}:
-        nome = "Cameras em bridge (VEIP)" if tem_gerencia else "Bridge total"
+        nome = "Câmeras em bridge (VEIP)" if tem_gerencia else "Bridge total"
         vlans = ", ".join(str(x["vlan"]) for x in dados if x["vlan"])
         return {"chave": "cameras_bridge" if tem_gerencia else "bridge_total", "nome": nome,
                 "texto": f"Bridge na VLAN {vlans or '?'} em {', '.join(s['portas']) or 'nenhuma porta'}."}
