@@ -13,6 +13,7 @@ from app.services.hikvision_switch_service import (
     set_port_enabled as hikvision_set_port_enabled,
 )
 from app.services.db_store import load_switch_mac_state, save_switch_mac_state
+from app.services import connector_routing_vnat as _vnat
 from app.models.requests import SwitchCollectMacsRequest
 
 
@@ -113,13 +114,31 @@ def _attach_port_stats(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return out
 
 
+def _host_alcancavel(connector_id: Any, ip: str) -> str:
+    """IP pelo qual o container chega no switch.
+
+    A tela manda o conector, mas a coleta usava o IP real: 192.168.1.x existe em
+    varios clientes e a requisicao caia em outro equipamento (o 404 do switch
+    Hikvision da SIERRA era de outra rede). Sem conector ou sem mapa vnat, o
+    proprio IP -- comportamento de antes.
+    """
+    cid = _safe(connector_id)
+    if not cid:
+        return ip
+    try:
+        return _vnat.virtual_ip_for(cid, ip) or ip
+    except Exception:
+        return ip
+
+
 def collect_macs(req: SwitchCollectMacsRequest) -> Dict[str, Any]:
     platform = _safe(getattr(req, "platform", "") or "intelbras").lower()
+    host = _host_alcancavel(getattr(req, "connector_id", None), req.switch_ip)
     try:
         if platform == "hikvision":
             port = req.port if req.port and req.port != 23 else 80
             snapshot = collect_hikvision_snapshot(
-                host=req.switch_ip,
+                host=host,
                 username=req.user,
                 password=req.password,
                 include_config=False,
@@ -128,7 +147,7 @@ def collect_macs(req: SwitchCollectMacsRequest) -> Dict[str, Any]:
             )
         else:
             snapshot = collect_intelbras_snapshot(
-                host=req.switch_ip,
+                host=host,
                 username=req.user,
                 password=req.password,
                 include_config=False,

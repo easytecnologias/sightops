@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import time
 import uuid
 from typing import Any
@@ -74,9 +75,14 @@ class HikvisionSwitchSession:
 
     def _post(self, module_action: str, data: dict[str, Any] | None, require_auth: bool = True) -> dict[str, Any]:
         headers = {"SessionTag": self.session_tag} if require_auth else {}
+        headers["Content-Type"] = "application/json"
         body: dict[str, Any] = {"data": data} if data is not None else {}
+        # JSON compacto de proposito: o firmware do switch da SIERRA (192.168.1.199)
+        # devolve "Incorrect parameter" a `{"data": {...}}` com espaco depois de
+        # ':' e ',' (o padrao do json= do requests). O navegador manda sem espaco.
+        corpo = json.dumps(body, separators=(",", ":"))
         try:
-            resp = self.session.post(f"{self.base}/{module_action}", json=body, headers=headers, timeout=self.timeout, verify=False)
+            resp = self.session.post(f"{self.base}/{module_action}", data=corpo, headers=headers, timeout=self.timeout, verify=False)
         except requests.RequestException as e:
             raise HikvisionSwitchError(f"Falha de conexao com o switch: {e}") from e
 
@@ -96,6 +102,27 @@ class HikvisionSwitchSession:
 
     def search(self, module_action: str, max_results: int = 1000) -> dict[str, Any]:
         return self.call(module_action, {"searchID": _search_id(), "maxResults": max_results, "searchResultPosition": 1})
+
+    def search_all(self, module_action: str, page_size: int, list_key: str = "matchResults") -> list[dict[str, Any]]:
+        """Busca paginada, do jeito da propria UI do switch.
+
+        Ha firmware que recusa pagina grande com "Incorrect parameter" (o da
+        SIERRA aceita no maximo 512 MACs e 500 VLANs por pedido) e devolve o
+        resto com responseStatus=MORE.
+        """
+        search_id = _search_id()
+        position = 1
+        rows: list[dict[str, Any]] = []
+        for _ in range(64):
+            data = self.call(module_action, {"searchID": search_id, "maxResults": page_size,
+                                             "searchResultPosition": position})
+            page = data.get(list_key) or []
+            rows.extend(page)
+            got = int(data.get("numOfMatches") or len(page))
+            if str(data.get("responseStatus") or "").upper() != "MORE" or not page or got <= 0:
+                break
+            position += got
+        return rows
 
 
 # Mapa exato usado pela propria UI do switch (extraido do bundle JS) pra
@@ -247,8 +274,8 @@ def collect_switch_snapshot(
     port_status = session.search("PortMgr/SearchPortStatus").get("matchResults") or []
     port_basic = session.search("PortMgr/SearchPortBasicParam").get("matchResults") or []
     poe_info = session.search("POE/SearchPortPoeInfo").get("portPoeInfoList") or []
-    mac_entries = session.search("L2TableMgr/SearchPortMacAddress", max_results=1024).get("matchResults") or []
-    vlan_entries = session.search("L2Mgr/SearchVLAN", max_results=4094).get("matchResults") or []
+    mac_entries = session.search_all("L2TableMgr/SearchPortMacAddress", page_size=512)
+    vlan_entries = session.search_all("L2Mgr/SearchVLAN", page_size=500)
 
     return build_snapshot(sum_info, port_status, poe_info, mac_entries, vlan_entries, port_basic)
 
