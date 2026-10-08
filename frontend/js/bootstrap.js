@@ -2033,6 +2033,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // listeners da tela: os botoes existem no HTML desde a carga (foram movidos
   // de lugar, nao recriados), entao ligar aqui alcanca todos.
   _mntLigarChromeManutencao();
+  ligarRede();  // abas, filtros e acoes da tela de Rede
   document.getElementById('btnMntCamShiftIp')?.addEventListener('click', openMntShiftIpModal);
   document.getElementById('btnMntCamPass')?.addEventListener('click', () => {
     const ips = [...document.querySelectorAll('.chk-mnt-cam:checked')].map(c => c.value);

@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=1791000193">
+  <link rel="stylesheet" href="styles.css?v=1791000194">
 </head>
 <body>
 
@@ -3712,76 +3712,193 @@
         <div class="panel" style="padding:40px;text-align:center;color:var(--muted)">Em constru--o.</div>
       </section>
       <section class="workspace hidden" id="viewNetOperate">
-        <div class="page-heading">
+
+        <!-- Faixa do cabecalho: branca, sangrando ate a borda (igual Manutencao) -->
+        <div class="rede-faixa rede-faixa-topo">
           <div>
             <p class="eyebrow">Manutencao</p>
-            <h1>Ferramentas de rede</h1>
-            <p>Testes pontuais para analise: ping, portas, HTTP, DNS, rota e coleta pelo MikroTik.</p>
+            <h1>Rede</h1>
+            <p id="redeResumo">Medindo os túneis...</p>
+          </div>
+          <div class="rede-topo-acoes">
+            <button type="button" class="secondary-action" id="btnRedeAtualizar">
+              <i data-lucide="refresh-cw"></i> Atualizar
+            </button>
+            <button type="button" class="primary-action" id="btnRedeMedir">
+              <i data-lucide="zap"></i> <span id="btnRedeMedirTexto">Medir todos agora</span>
+            </button>
           </div>
         </div>
-        <div class="network-tools-grid">
-          <div class="panel network-tool-panel">
-            <div class="panel-header">
-              <div><h2>Executar teste</h2><p>Use servidor local/VPN ou um conector MikroTik.</p></div>
+
+        <!-- Abas -->
+        <div class="rede-faixa rede-abas" role="tablist" aria-label="Rede">
+          <button type="button" class="rede-aba ativa" data-rede-aba="tuneis" role="tab" aria-selected="true">Túneis</button>
+          <button type="button" class="rede-aba" data-rede-aba="caminho" role="tab" aria-selected="false">Onde quebrou</button>
+          <button type="button" class="rede-aba" data-rede-aba="ferramentas" role="tab" aria-selected="false">Teste pontual</button>
+        </div>
+
+        <!-- ============ ABA 1: TUNEIS ============ -->
+        <div class="rede-pane" id="redePaneTuneis">
+
+          <div class="rede-faixa rede-filtros">
+            <label class="mnt-search-box">
+              <i data-lucide="search"></i>
+              <input type="text" class="mnt-search" id="redeBusca" placeholder="Site, cliente ou faixa virtual">
+            </label>
+            <select id="redeCliente" class="mnt-filter-select"><option value="">Todos os clientes</option></select>
+            <div class="mnt-status-btns" id="redeChips">
+              <button type="button" class="mnt-status-btn active" data-rede-estado="">Todos <span class="mnt-status-n">0</span></button>
+              <button type="button" class="mnt-status-btn" data-rede-estado="pe"><span class="status-dot-mini online"></span>De pé <span class="mnt-status-n">0</span></button>
+              <button type="button" class="mnt-status-btn" data-rede-estado="caiu"><span class="status-dot-mini offline"></span>Caiu <span class="mnt-status-n">0</span></button>
+              <button type="button" class="mnt-status-btn" data-rede-estado="instavel"><span class="status-dot-mini unknown"></span>Instável <span class="mnt-status-n">0</span></button>
             </div>
-            <form id="netToolForm" class="network-tool-form">
-              <div class="form-row">
-                <div class="form-group">
-                  <label for="netToolOrigin">Origem</label>
-                  <select id="netToolOrigin">
-                    <option value="local">Servidor local / VPN</option>
-                    <option value="connector">MikroTik conector</option>
-                  </select>
-                </div>
-                <div class="form-group">
-                  <label for="netToolConnector">Conector</label>
-                  <select id="netToolConnector" disabled></select>
-                </div>
-              </div>
-              <div class="form-row">
-                <div class="form-group">
-                  <label for="netToolTest">Teste</label>
-                  <select id="netToolTest">
-                    <option value="ping">Ping inteligente</option>
-                    <option value="tcp">Teste TCP</option>
-                    <option value="port_scan">Scan de portas</option>
-                    <option value="http">HTTP/HTTPS</option>
-                    <option value="dns">DNS lookup</option>
-                    <option value="traceroute">Traceroute</option>
-                    <option value="lan_inventory">Coletar LAN MikroTik</option>
-                  </select>
-                </div>
-                <div class="form-group">
-                  <label for="netToolPorts">Portas</label>
-                  <input id="netToolPorts" placeholder="80,443,554,37777,8000,8291" value="80,443,554">
-                </div>
-              </div>
-              <div class="form-group">
-                <label for="netToolTargets">Alvos</label>
-                <textarea id="netToolTargets" rows="4" placeholder="10.10.9.20, 192.168.20.1-192.168.20.20 ou 192.168.20.0/24"></textarea>
-              </div>
-              <div class="form-row network-tool-small-row">
-                <div class="form-group">
-                  <label for="netToolTimeout">Timeout</label>
-                  <input id="netToolTimeout" type="number" min="1" max="20" value="3">
-                </div>
-                <div class="form-group">
-                  <label for="netToolConcurrency">Concorrencia</label>
-                  <input id="netToolConcurrency" type="number" min="1" max="128" value="64">
-                </div>
-              </div>
-              <button class="primary-action" id="btnRunNetTool" type="submit"><i data-lucide="play"></i> Executar</button>
-            </form>
           </div>
 
-          <div class="panel network-tool-result-panel">
-            <div class="panel-header">
-              <div><h2>Resultado</h2><p id="netToolStatus">Aguardando teste.</p></div>
-              <button class="secondary-action" id="btnClearNetToolLog" type="button"><i data-lucide="eraser"></i> Limpar</button>
+          <div class="rede-conteudo">
+            <h2 class="rede-sub" id="redeAtencaoTitulo">O que precisa de você hoje</h2>
+            <div class="rede-cards" id="redeAtencao"></div>
+
+            <div class="rede-sub-linha">
+              <h2 class="rede-sub" id="redeTabelaTitulo">Túneis</h2>
+              <span class="rede-nota">Latência, perda e MTU são medidos agora, por um equipamento do site.</span>
             </div>
-            <div id="netToolLog" class="network-tool-terminal">Nenhum teste executado ainda.</div>
+
+            <div class="rede-caixa">
+              <div class="rede-rolagem">
+                <table class="rede-tabela">
+                  <caption class="sr-only">Estado dos túneis por site</caption>
+                  <thead>
+                    <tr>
+                      <th scope="col">Site</th>
+                      <th scope="col">Cliente</th>
+                      <th scope="col">Handshake</th>
+                      <th scope="col" class="num">Latência</th>
+                      <th scope="col" class="num">Perda</th>
+                      <th scope="col" class="num">MTU</th>
+                      <th scope="col">Atrás dele</th>
+                      <th scope="col"></th>
+                    </tr>
+                  </thead>
+                  <tbody id="redeTuneisCorpo">
+                    <tr><td colspan="8" class="rede-vazio">Medindo...</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
           </div>
         </div>
+
+        <!-- ============ ABA 2: ONDE QUEBROU ============ -->
+        <div class="rede-pane hidden" id="redePaneCaminho">
+
+          <div class="rede-faixa rede-filtros">
+            <label class="rede-campo">Do
+              <select id="redeCamOrigem" class="mnt-filter-select" disabled>
+                <option>Servidor SightOps</option>
+              </select>
+            </label>
+            <span class="rede-seta" aria-hidden="true"><i data-lucide="arrow-right"></i></span>
+            <label class="rede-campo rede-campo-largo">até
+              <select id="redeCamConector" class="mnt-filter-select"></select>
+            </label>
+            <label class="rede-campo rede-campo-largo">
+              <select id="redeCamAlvo" class="mnt-filter-select">
+                <option value="">o túnel inteiro</option>
+              </select>
+            </label>
+            <button type="button" class="primary-action" id="btnRedeCaminho">
+              <i data-lucide="play"></i> Traçar o caminho
+            </button>
+          </div>
+
+          <div class="rede-conteudo rede-duas-colunas">
+            <div class="rede-col-larga">
+              <h2 class="rede-sub">Salto a salto</h2>
+              <ol class="rede-escada" id="redeEscada">
+                <li class="rede-vazio-bloco">Escolha um site e trace o caminho.</li>
+              </ol>
+              <div class="rede-veredito hidden" id="redeVeredito"></div>
+            </div>
+            <div class="rede-col-estreita" id="redeLateral"></div>
+          </div>
+        </div>
+
+        <!-- ============ ABA 3: TESTE PONTUAL ============ -->
+        <div class="rede-pane hidden" id="redePaneFerramentas">
+
+          <div class="rede-faixa rede-montar">
+            <div class="rede-testes" id="redeTestes">
+              <button type="button" class="rede-teste ativa" data-rede-teste="ping">
+                <i data-lucide="activity"></i> Responde?
+              </button>
+              <button type="button" class="rede-teste" data-rede-teste="tcp">
+                <i data-lucide="lock"></i> Portas
+              </button>
+              <button type="button" class="rede-teste" data-rede-teste="http">Web e RTSP</button>
+              <button type="button" class="rede-teste" data-rede-teste="traceroute">Rota</button>
+              <button type="button" class="rede-teste" data-rede-teste="dns">DNS</button>
+              <button type="button" class="rede-teste" data-rede-teste="lan_inventory">ARP / MAC</button>
+            </div>
+
+            <div class="rede-alvos-linha">
+              <span class="rede-campo-rotulo">Em</span>
+              <div class="rede-alvos" id="redeAlvos">
+                <input type="text" id="netToolTargets" class="rede-alvos-campo"
+                       placeholder="Escolha do inventário ou digite: 10.10.9.20, 192.168.20.0/24">
+                <button type="button" class="rede-alvo-add" id="btnRedeDoInventario">
+                  <i data-lucide="plus"></i> Do inventário
+                </button>
+              </div>
+              <button type="button" class="primary-action" id="btnRunNetTool">
+                <i data-lucide="play"></i> Executar
+              </button>
+            </div>
+
+            <p class="rede-nota" id="redeOrigemNota">
+              Sai pelo servidor e pelos IPs virtuais, que são os que alcançam.
+              <select id="netToolOrigin" class="rede-origem-select">
+                <option value="local">servidor local / VPN</option>
+                <option value="connector">MikroTik do conector</option>
+              </select>
+              <select id="netToolConnector" class="rede-origem-select"></select>
+            </p>
+            <input type="hidden" id="netToolTest" value="ping">
+            <input type="hidden" id="netToolPorts" value="80,443,554">
+            <input type="hidden" id="netToolTimeout" value="3">
+            <input type="hidden" id="netToolConcurrency" value="64">
+          </div>
+
+          <div class="rede-conteudo">
+            <div class="rede-sub-linha">
+              <h2 class="rede-sub" id="redeFerrResumo">Nenhum teste executado ainda.</h2>
+              <div class="rede-topo-acoes">
+                <button type="button" class="secondary-action" id="btnRedeCsv">Baixar CSV</button>
+                <button type="button" class="secondary-action" id="btnRedeLimpar">Limpar</button>
+              </div>
+            </div>
+            <div class="rede-caixa">
+              <div class="rede-rolagem">
+                <table class="rede-tabela">
+                  <caption class="sr-only">Resultado do teste</caption>
+                  <thead>
+                    <tr>
+                      <th scope="col">Endereço</th>
+                      <th scope="col">Quem é</th>
+                      <th scope="col" class="num">Resposta</th>
+                      <th scope="col">Portas</th>
+                      <th scope="col">Leitura</th>
+                    </tr>
+                  </thead>
+                  <tbody id="redeFerrCorpo">
+                    <tr><td colspan="5" class="rede-vazio">O resultado aparece aqui, uma linha por endereço.</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+            <div class="rede-achados hidden" id="redeAchados"></div>
+          </div>
+        </div>
+
       </section>
 
       <!-- --- VIEW: PROJETOS / PLANEJAMENTO --- -->
@@ -6822,9 +6939,10 @@
   <script src="js/recorders.js?v=1791000176"></script>
   <script src="js/windows.js?v=142"></script>
   <script src="js/snapshots.js?v=1790019880"></script>
-  <script src="js/maintenance.js?v=1791000193"></script>
+  <script src="js/maintenance.js?v=1791000194"></script>
   <script src="js/analysis.js?v=147"></script>
-  <script src="js/network.js?v=1791000150"></script>
+  <script src="js/network.js?v=1791000194"></script>
+  <script src="js/rede.js?v=1791000194"></script>
   <script src="js/deploy.js?v=1791000144"></script>
   <script src="js/cameraActivation.js?v=1791000147"></script>
   <script src="js/deployOlt.js?v=1791000145"></script>
@@ -6838,6 +6956,6 @@
   <script src="js/messenger.js?v=5"></script>
   <script src="js/alert.js?v=1789901000"></script>
   <script src="js/tr069.js?v=1791000184"></script>
-  <script src="js/bootstrap.js?v=1791000185"></script>
+  <script src="js/bootstrap.js?v=1791000194"></script>
 </body>
 </html>

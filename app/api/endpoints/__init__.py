@@ -19,6 +19,7 @@ from .dashboard import router as dashboard_router
 from .windows import router as windows_router
 from .playback import router as playback_router
 from .connectors import router as connectors_router
+from .network_map import router as network_map_router
 from .network_tools import router as network_tools_router
 from .deployments import router as deployments_router
 from .camera_activation import router as camera_activation_router

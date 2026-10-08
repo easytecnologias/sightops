@@ -665,6 +665,16 @@ function netToolSetLog(html, status = '') {
   const statusEl = document.getElementById('netToolStatus');
   if (log) log.innerHTML = html || 'Nenhum resultado.';
   if (statusEl && status) statusEl.textContent = status;
+  // A tela de Rede nao tem mais o terminal: sem esta queda, seis mensagens
+  // (inclusive a de falha) ficariam mudas.
+  if (!log) {
+    const resumo = document.getElementById('redeFerrResumo');
+    if (resumo && (status || html)) {
+      const texto = document.createElement('div');
+      texto.innerHTML = html || '';
+      resumo.textContent = status || texto.textContent.trim();
+    }
+  }
 }
 
 function netToolText(value) {
@@ -742,17 +752,6 @@ function netToolSelectedConnector() {
   return document.getElementById('netToolConnector')?.value || '';
 }
 
-async function loadNetOperate() {
-  const data = await apiJson('/api/connectors');
-  _connectors = data?.connectors || _connectors || [];
-  const sel = document.getElementById('netToolConnector');
-  if (sel) {
-    sel.innerHTML = _connectors.map(row => `<option value="${esc(row.id)}">${esc(row.name || row.id)} - ${esc(row.site || '')}</option>`).join('');
-  }
-  updateNetToolFormState();
-  lucide.createIcons();
-}
-
 function updateNetToolFormState() {
   const origin = document.getElementById('netToolOrigin')?.value || 'local';
   const test = document.getElementById('netToolTest')?.value || 'ping';
@@ -809,7 +808,7 @@ async function runNetTool(e) {
     });
     const body = await res?.json().catch(() => ({}));
     if (!res?.ok || body?.ok === false) throw new Error(body?.detail || 'Falha ao executar teste.');
-    netToolSetLog(netToolFormatLocal(body), `${body.count || 0} alvo(s) testado(s).`);
+    pintarRedeFerramentas(body);  // tabela, nao terminal
   } catch (err) {
     netToolSetLog(`<span class="network-tool-line-fail">${esc(err?.message || err)}</span>`, 'Falha no teste.');
   } finally {

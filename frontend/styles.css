@@ -11460,3 +11460,167 @@ table.recorder-tabela tbody tr:hover { background: var(--surface-soft); }
 }
 #viewMntCam .mnt-sel-todas:hover { text-decoration: underline; }
 #viewMntCam .mnt-grid-head { margin-top: 18px; margin-bottom: 12px; }
+
+/* === Rede (antiga tela de Operacoes) ===================================== */
+/* Mesma linguagem da Manutencao: faixas brancas sangrando ate a borda,
+   conteudo em cinza abaixo. Tudo prefixado por #viewNetOperate porque
+   .page-heading e os filtros sao compartilhados com as outras telas. */
+
+#viewNetOperate { padding: 0; }
+
+.rede-faixa { background: var(--surface); border-bottom: 1px solid var(--border); padding: 14px 32px; }
+.rede-faixa-topo { display: flex; flex-wrap: wrap; gap: 18px; align-items: flex-end;
+  justify-content: space-between; padding: 20px 32px; }
+.rede-faixa-topo h1 { margin: 0; font-size: 27px; font-weight: 700; letter-spacing: -.02em; }
+.rede-faixa-topo p { margin: 6px 0 0; font-size: 13.5px; color: var(--muted); }
+.rede-faixa-topo .eyebrow { margin: 0 0 6px; }
+.rede-topo-acoes { display: flex; gap: 10px; align-items: center; }
+.rede-ruim { color: var(--danger); font-weight: 600; }
+
+/* Abas */
+.rede-abas { display: flex; gap: 4px; padding: 0 32px; }
+.rede-aba { border: 0; background: none; padding: 12px 14px; margin-bottom: -1px;
+  border-bottom: 2px solid transparent; color: var(--muted);
+  font-family: inherit; font-size: 13.5px; font-weight: 600; cursor: pointer; }
+.rede-aba:hover { color: var(--text); }
+.rede-aba.ativa { color: var(--primary); border-bottom-color: var(--primary); }
+
+.rede-filtros, .rede-montar { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+.rede-montar { flex-direction: column; align-items: stretch; gap: 14px; padding: 18px 32px; }
+.rede-conteudo { padding: 24px 32px 56px; }
+.rede-sub { margin: 0 0 12px; font-size: 14px; font-weight: 600; color: var(--muted); }
+.rede-sub-linha { display: flex; flex-wrap: wrap; align-items: baseline;
+  justify-content: space-between; gap: 16px; margin: 26px 0 12px; }
+.rede-sub-linha .rede-sub { margin: 0; }
+.rede-nota { font-size: 12.5px; color: var(--muted); }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+
+/* Cards de atencao */
+.rede-cards { display: flex; flex-wrap: wrap; gap: 14px; }
+.rede-card { flex: 1 1 320px; min-width: 0; display: flex; gap: 13px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 16px 18px; }
+.rede-card-selo { flex: 0 0 auto; width: 34px; height: 34px; border-radius: 10px;
+  display: inline-flex; align-items: center; justify-content: center; }
+.rede-card.grave .rede-card-selo { background: #fdecec; color: #8a2020; }
+.rede-card.atencao .rede-card-selo { background: #fdf1df; color: #8a5200; }
+.rede-card-selo svg { width: 18px; height: 18px; }
+.rede-card-corpo { min-width: 0; }
+.rede-card h3 { margin: 0 0 3px; font-size: 14px; font-weight: 600; }
+.rede-card p { margin: 0 0 9px; font-size: 13px; color: var(--muted); line-height: 1.45; }
+
+.rede-link { border: 0; background: none; padding: 0; color: var(--primary);
+  font-family: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
+.rede-link:hover { text-decoration: underline; }
+
+/* Tabela */
+.rede-caixa { background: var(--surface); border: 1px solid var(--border);
+  border-radius: 14px; overflow: hidden; }
+.rede-rolagem { overflow-x: auto; }
+.rede-tabela { width: 100%; border-collapse: collapse; font-size: 13.5px; min-width: 900px; }
+.rede-tabela thead tr { background: #f7f9fa; color: var(--muted); text-align: left; }
+.rede-tabela th, .rede-tabela td { padding: 12px 14px; border-bottom: 1px solid #eef2f4; }
+.rede-tabela thead th { padding: 11px 14px; font-weight: 600; border-bottom: 1px solid var(--border); }
+.rede-tabela tbody tr:last-child th, .rede-tabela tbody tr:last-child td { border-bottom: 0; }
+.rede-tabela th:first-child, .rede-tabela td:first-child { padding-left: 18px; }
+.rede-tabela th:last-child, .rede-tabela td:last-child { padding-right: 18px; }
+.rede-tabela tbody th { text-align: left; font-weight: 600; }
+.rede-tabela .num { text-align: right; }
+.rede-vazio { padding: 34px 18px !important; text-align: center; color: var(--muted); }
+.rede-suave { color: var(--muted); }
+.rede-sem { color: #93a1aa; }
+.rede-alerta { color: #8a5200; font-weight: 700; }
+.rede-riscado { text-decoration: line-through; color: #93a1aa; }
+
+.rede-site { display: inline-flex; align-items: center; gap: 9px; }
+.rede-site-sub { display: block; margin: 2px 0 0 17px; font-size: 11.5px;
+  color: var(--muted); font-weight: 400; }
+.rede-bolinha { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; }
+.rede-bolinha.pe { background: var(--primary); }
+.rede-bolinha.caiu { background: var(--danger); }
+.rede-bolinha.instavel { background: var(--amber, #b86b00); }
+.rede-linha-caiu { background: #fdf6f6; }
+.rede-linha-instavel { background: #fffcf5; }
+
+.rede-chip { display: inline-flex; align-items: center; height: 22px; padding: 0 9px;
+  border-radius: 999px; font-size: 11.5px; font-weight: 700; }
+.rede-chip.bom { background: var(--primary-soft); color: #0b5c45; }
+.rede-chip.ruim { background: #fdecec; color: #8a2020; }
+
+/* Caminho */
+.rede-duas-colunas { display: flex; flex-wrap: wrap; gap: 22px; align-items: flex-start; }
+.rede-col-larga { flex: 999 1 560px; min-width: 0; }
+.rede-col-estreita { flex: 1 1 300px; min-width: 0; display: flex; flex-direction: column; gap: 16px; }
+.rede-campo { display: flex; align-items: center; gap: 9px; font-size: 13px; color: var(--muted); }
+.rede-campo-largo { flex: 1 1 260px; min-width: 0; }
+.rede-campo-largo select { flex: 1 1 auto; min-width: 0; }
+.rede-seta { color: #93a1aa; display: inline-flex; }
+.rede-seta svg { width: 17px; height: 17px; }
+
+.rede-escada { list-style: none; margin: 0; padding: 0; background: var(--surface);
+  border: 1px solid var(--border); border-radius: 14px; overflow: hidden; }
+.rede-salto { display: flex; gap: 14px; padding: 15px 18px; border-bottom: 1px solid #eef2f4; }
+.rede-salto:last-child { border-bottom: 0; }
+.rede-salto-selo { flex: 0 0 auto; width: 26px; height: 26px; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center; font-weight: 700; }
+.rede-salto.ok .rede-salto-selo { background: var(--primary-soft); color: #0b5c45; }
+.rede-salto.falhou { background: #fdf6f6; }
+.rede-salto.falhou .rede-salto-selo { background: var(--danger); color: #fff; }
+.rede-salto.falhou strong { color: #8a2020; }
+.rede-salto.nao_medido { opacity: .55; }
+.rede-salto.nao_medido .rede-salto-selo { background: #eef2f4; color: var(--muted); }
+.rede-salto-corpo { flex: 1 1 auto; min-width: 0; }
+.rede-salto-corpo strong { display: block; font-size: 14px; font-weight: 600; }
+.rede-salto-corpo span { display: block; font-size: 12px; color: var(--muted); }
+.rede-salto-fim { flex: 0 0 auto; align-self: center; font-size: 12.5px; color: var(--muted); }
+
+.rede-veredito { margin-top: 18px; background: var(--surface); border: 1px solid var(--border);
+  border-left: 4px solid var(--danger); border-radius: 14px; padding: 18px 20px; }
+.rede-veredito.rede-veredito-bom { border-left-color: var(--primary); }
+.rede-veredito h2 { margin: 0 0 8px; font-size: 15px; font-weight: 700; }
+.rede-veredito p { margin: 0; font-size: 13.5px; line-height: 1.6; max-width: 62ch; }
+
+.rede-painel { background: var(--surface); border: 1px solid var(--border);
+  border-radius: 14px; padding: 16px 18px; }
+.rede-painel h2 { margin: 0 0 9px; font-size: 14px; font-weight: 600; }
+.rede-painel p { margin: 0; font-size: 12.5px; color: var(--muted); line-height: 1.5; }
+.rede-painel-num { margin: 0 0 7px !important; font-size: 20px; font-weight: 700; color: var(--text) !important; }
+.rede-par { display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 8px 0; border-bottom: 1px solid #eef2f4; font-size: 13px; }
+.rede-par:last-of-type { border-bottom: 0; margin-bottom: 7px; }
+.rede-par > span:first-child { font-size: 12px; color: var(--muted); }
+.rede-vazio-bloco { padding: 34px 18px; text-align: center; color: var(--muted); font-size: 13.5px; }
+
+/* Ferramentas */
+.rede-testes { display: flex; flex-wrap: wrap; gap: 8px; }
+.rede-teste { height: 36px; padding: 0 14px; display: inline-flex; align-items: center; gap: 8px;
+  border: 1px solid var(--border); border-radius: 10px; background: var(--surface); color: var(--text);
+  font-family: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
+.rede-teste svg { width: 15px; height: 15px; }
+.rede-teste.ativa { border-color: var(--primary); background: var(--primary-soft); color: #0b5c45; }
+.rede-alvos-linha { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+.rede-campo-rotulo { font-size: 13px; color: var(--muted); }
+.rede-alvos { flex: 1 1 420px; min-width: 0; display: flex; align-items: center; gap: 7px;
+  min-height: 42px; padding: 4px 8px; border: 1px solid var(--border);
+  border-radius: 10px; background: var(--surface); }
+.rede-alvos-campo { flex: 1 1 auto; min-width: 0; border: 0; outline: none; background: none;
+  color: var(--text); font-family: inherit; font-size: 13.5px; }
+.rede-alvo-add { height: 28px; padding: 0 11px; display: inline-flex; align-items: center; gap: 6px;
+  border: 1px dashed #c3ccd2; border-radius: 999px; background: var(--surface); color: var(--primary);
+  font-family: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; white-space: nowrap; }
+.rede-alvo-add svg { width: 13px; height: 13px; }
+.rede-origem-select { height: 26px; border: 0; background: none; color: var(--primary);
+  font-family: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; }
+
+.rede-achados { margin-top: 18px; background: var(--sidebar); color: #fff; border-radius: 14px;
+  padding: 14px 18px; display: flex; flex-wrap: wrap; gap: 14px; align-items: center; }
+.rede-achados-n { display: inline-flex; align-items: center; justify-content: center;
+  min-width: 36px; height: 36px; padding: 0 10px; border-radius: 9px;
+  background: #20c997; color: #0b2b22; font-size: 15px; font-weight: 700; }
+.rede-achados-txt { min-width: 0; }
+.rede-achados-txt strong { display: block; font-size: 13.5px; font-weight: 600; }
+.rede-achados-txt span { display: block; font-size: 12px; color: #9fb3bd; }
+
+@media (max-width: 760px) {
+  .rede-faixa, .rede-abas, .rede-conteudo { padding-left: 16px; padding-right: 16px; }
+  .rede-faixa-topo { padding-left: 16px; padding-right: 16px; }
+}
