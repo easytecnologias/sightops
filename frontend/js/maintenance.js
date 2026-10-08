@@ -296,7 +296,9 @@ function _mntLigarChromeManutencao() {
 //  telas compartilham a definicao em vez de cada uma ter a sua.
 let _mntStreamIp = '';
 let _mntVivoHandle = null;
-let _mntVivoAlta = false;   // camera atras de tunel: comeca no leve
+let _mntVivoAlta = true;   // abre em Alta, igual a janela do gravador: abrindo
+                          // em Leve o destaque caia no botao da direita e a
+                          // dupla parecia invertida.
 let _mntVivoMudo = true;
 
 const _MNT_SVG = {
