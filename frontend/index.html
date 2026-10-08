@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=1791000186">
+  <link rel="stylesheet" href="styles.css?v=1791000187">
 </head>
 <body>
 
@@ -1026,18 +1026,14 @@
             <p id="mntCamResumo">Selecione cameras e execute operacoes em lote.</p>
           </div>
           <div class="page-heading-actions">
-            <button class="secondary-action" id="btnMntCamRefresh"><i data-lucide="refresh-cw"></i> Atualizar</button>
-          </div>
-        </div>
-
         <!-- Credencial: um selo que abre, nao um formulario sempre aberto -->
-        <div class="mnt-cred-chip-wrap">
+            <div class="mnt-cred-chip-wrap">
           <button type="button" class="mnt-cred-chip" id="btnMntCred" aria-expanded="false" aria-controls="mntCredBox">
             <i data-lucide="lock"></i>
             <span>Credencial das cameras &middot; <strong id="mntCredResumo">admin</strong></span>
             <i data-lucide="chevron-down"></i>
           </button>
-          <div class="mnt-cred-box hidden" id="mntCredBox">
+              <div class="mnt-cred-box hidden" id="mntCredBox">
             <label class="mnt-cred-field">
               <span>Usuario</span>
               <input type="text" id="mntCamUser" value="admin" placeholder="admin" class="mnt-cred-input">
@@ -1049,6 +1045,10 @@
             <p class="mnt-cred-hint">Vale para todas as acoes desta tela.</p>
           </div>
         </div>
+            <button class="secondary-action" id="btnMntCamRefresh"><i data-lucide="refresh-cw"></i> Atualizar</button>
+          </div>
+        </div>
+
 
         <!-- Filtros + selecao -->
         <div class="mnt-filter-bar">
@@ -1078,6 +1078,10 @@
         </div><!-- /mntTopFixed -->
 
         <!-- Grid de cards — área rolável -->
+        <div class="mnt-grid-head">
+          <h2 id="mntCamMostrando">Carregando...</h2>
+          <button type="button" id="btnMntSelTodas">Selecionar todas</button>
+        </div>
         <div class="mnt-cam-grid" id="mntCamGrid">
           <div style="grid-column:1/-1;text-align:center;padding:40px;color:var(--muted)">Carregando-</div>
         </div>
@@ -6877,7 +6881,7 @@
   <script src="js/recorders.js?v=1791000176"></script>
   <script src="js/windows.js?v=142"></script>
   <script src="js/snapshots.js?v=1790019880"></script>
-  <script src="js/maintenance.js?v=1791000186"></script>
+  <script src="js/maintenance.js?v=1791000187"></script>
   <script src="js/analysis.js?v=147"></script>
   <script src="js/network.js?v=1791000150"></script>
   <script src="js/deploy.js?v=1791000144"></script>

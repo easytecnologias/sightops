@@ -178,6 +178,10 @@ function _mntPintarContagens(lista) {
     const alvo = b.querySelector('.mnt-status-n');
     if (alvo) alvo.textContent = String(conta[chave] ?? 0);
   });
+  const most = document.getElementById('mntCamMostrando');
+  if (most) most.textContent = `Mostrando ${lista.length} camera${lista.length !== 1 ? 's' : ''}`;
+  const btnTodas = document.getElementById('btnMntSelTodas');
+  if (btnTodas) btnTodas.textContent = `Selecionar as ${lista.length}`;
   const sub = document.getElementById('mntCamResumo');
   if (sub) {
     const site = document.getElementById('mntCamSite')?.value || '';
@@ -252,6 +256,17 @@ function _mntLigarChromeManutencao() {
   document.getElementById('mntGavetaFundo')?.addEventListener('click', _mntFecharGaveta);
   document.querySelectorAll('#mntGaveta .mnt-gaveta-item').forEach(b =>
     b.addEventListener('click', () => setTimeout(_mntFecharGaveta, 0)));
+
+  // Seleciona o que esta VISIVEL, nao o inventario inteiro: o operador acabou
+  // de filtrar, e selecionar o que ele nao esta vendo e como a acao em lote
+  // acerta quem nao devia.
+  document.getElementById('btnMntSelTodas')?.addEventListener('click', () => {
+    document.querySelectorAll('.chk-mnt-cam').forEach(c => {
+      c.checked = true;
+      c.closest('.mnt-cam-card')?.classList.add('selected');
+    });
+    _mntCamUpdateCount();
+  });
 
   document.getElementById('btnMntSelLimpar')?.addEventListener('click', () => {
     document.querySelectorAll('.chk-mnt-cam:checked').forEach(c => {
