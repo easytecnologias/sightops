@@ -2311,7 +2311,11 @@ def maintenance_stream_register(ip: str, payload: Dict[str, Any]):
     if not password:
         return {"ok": False, "error": "credential_required"}
     try:
-        subtype = int(payload.get("subtype") or 1)
+        # `or 1` nao servia aqui: subtype 0 e o stream PRINCIPAL, e zero e
+        # falso em Python -- o "Alta" do player virava substream caladamente
+        # e a imagem nunca passava de 704x480.
+        bruto = payload.get("subtype")
+        subtype = 1 if bruto is None or bruto == "" else int(bruto)
     except (TypeError, ValueError):
         subtype = 1
     vendor = _as_str(payload.get("vendor"))
