@@ -10340,7 +10340,7 @@ table.recorder-tabela tbody tr:hover { background: var(--surface-soft); }
 @media (prefers-reduced-motion:reduce){#deployRecorderApp *{transition:none!important}}
 
 /* diálogo de edição do canal */
-#recTampa .rec-tampa{position:fixed;inset:0;background:rgba(10,20,26,.55);display:grid;place-items:center;padding:16px;z-index:120}
+#recTampa .rec-tampa,#mntTampa .rec-tampa{position:fixed;inset:0;background:rgba(10,20,26,.55);display:grid;place-items:center;padding:16px;z-index:120}
 #recTampa .rec-caixa{background:var(--surface);border:1px solid var(--border);border-radius:13px;max-width:460px;width:100%;box-shadow:0 22px 60px rgba(0,0,0,.3);max-height:88vh;overflow:auto}
 #recTampa .rec-caixa-cab{padding:14px 17px;border-bottom:1px solid var(--border)}
 #recTampa .rec-caixa-cab h3{margin:0;font-size:15px}
@@ -10506,45 +10506,45 @@ table.recorder-tabela tbody tr:hover { background: var(--surface-soft); }
    A anterior era uma caixa branca de dialogo com o video espremido dentro,
    sobrando area clara dos lados e um rodape so para o botao fechar. Aqui a
    janela E o video: moldura escura, controles na barra de cima e nada abaixo. */
-#recTampa .rec-tampa-vivo{padding:0}
-#recTampa .rec-vivo{
+.rec-tampa-vivo{padding:0}
+.rec-vivo{
   background:#0b0f14;border:1px solid rgba(255,255,255,.1);border-radius:12px;
   overflow:hidden;box-shadow:0 26px 70px rgba(0,0,0,.55);
   width:min(94vw, calc((100vh - 150px) * 16 / 9));
   display:flex;flex-direction:column;
 }
-#recTampa .rec-vivo-topo{
+.rec-vivo-topo{
   display:flex;align-items:center;gap:14px;justify-content:space-between;
   padding:10px 12px 10px 14px;border-bottom:1px solid rgba(255,255,255,.08);
 }
-#recTampa .rec-vivo-id{min-width:0}
-#recTampa .rec-vivo-id b{display:block;font-size:13.5px;color:#f2f5f8;line-height:1.3;
+.rec-vivo-id{min-width:0}
+.rec-vivo-id b{display:block;font-size:13.5px;color:#f2f5f8;line-height:1.3;
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-#recTampa .rec-vivo-id span{display:block;font-size:11.5px;color:#8b98a5;
+.rec-vivo-id span{display:block;font-size:11.5px;color:#8b98a5;
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-#recTampa .rec-vivo-acoes{display:flex;align-items:center;gap:8px;flex:0 0 auto}
-#recTampa .rec-vivo-taxa{font-size:11px;color:#6f7d8a;font-variant-numeric:tabular-nums}
-#recTampa .rec-vivo-seg{border-color:rgba(255,255,255,.14)}
-#recTampa .rec-vivo-seg button{
+.rec-vivo-acoes{display:flex;align-items:center;gap:8px;flex:0 0 auto}
+.rec-vivo-taxa{font-size:11px;color:#6f7d8a;font-variant-numeric:tabular-nums}
+.rec-vivo-seg{border-color:rgba(255,255,255,.14)}
+.rec-vivo-seg button{
   background:transparent;color:#8b98a5;border:0;padding:5px 11px;font-size:11.5px;
   font-weight:600;cursor:pointer}
-#recTampa .rec-vivo-seg button[aria-pressed="true"]{background:var(--primary);color:#fff}
-#recTampa .rec-vivo-bt{
+.rec-vivo-seg button[aria-pressed="true"]{background:var(--primary);color:#fff}
+.rec-vivo-bt{
   display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;
   border-radius:7px;border:1px solid rgba(255,255,255,.14);background:transparent;
   color:#c7d0d9;cursor:pointer}
-#recTampa .rec-vivo-bt:hover{background:rgba(255,255,255,.08);color:#fff}
-#recTampa .rec-vivo-bt svg{width:15px;height:15px}
-#recTampa .rec-vivo-palco{position:relative;width:100%;aspect-ratio:16/9;background:#000}
-#recTampa .rec-vivo-palco video{position:absolute;inset:0;width:100%;height:100%;
+.rec-vivo-bt:hover{background:rgba(255,255,255,.08);color:#fff}
+.rec-vivo-bt svg{width:15px;height:15px}
+.rec-vivo-palco{position:relative;width:100%;aspect-ratio:16/9;background:#000}
+.rec-vivo-palco video{position:absolute;inset:0;width:100%;height:100%;
   object-fit:contain;display:block;background:#000}
-#recTampa .rec-vivo-palco:fullscreen{aspect-ratio:auto;height:100%}
-#recTampa .rec-vivo-aviso{
+.rec-vivo-palco:fullscreen{aspect-ratio:auto;height:100%}
+.rec-vivo-aviso{
   position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
   text-align:center;padding:0 26px;font-size:12.5px;color:#c7d0d9;line-height:1.5}
 @media (max-width:640px){
-  #recTampa .rec-vivo{width:96vw}
-  #recTampa .rec-vivo-id span{display:none}
+  .rec-vivo{width:96vw}
+  .rec-vivo-id span{display:none}
 }
 #deployRecorderApp .cam[data-rec-vivo]{cursor:pointer}
 #deployRecorderApp .cam[data-rec-vivo]:hover{outline:2px solid var(--primary);outline-offset:-2px}
@@ -11424,3 +11424,27 @@ table.recorder-tabela tbody tr:hover { background: var(--surface-soft); }
 @media (max-width: 980px) {
   .mnt-sel-bar, .mnt-gaveta-fundo { left: 0; }
 }
+
+/* === Resultado da acao: painel do sistema, nao terminal ================== */
+#mntCamConsole { background: var(--surface); color: var(--text);
+  border-top: 1px solid var(--border); box-shadow: 0 -10px 28px rgba(23,32,38,.12);
+  max-height: 300px; }
+#mntCamConsole .mnt-console-header { padding: 11px 18px; border-bottom: 1px solid var(--border);
+  color: var(--text); font-size: 13.5px; }
+.mnt-console-tit { display: flex; align-items: center; gap: 9px; min-width: 0; font-weight: 600; }
+.mnt-console-tit svg { width: 16px; height: 16px; color: var(--primary); }
+.mnt-console-resumo { font-size: 12.5px; font-weight: 600; color: var(--muted); }
+.mnt-console-resumo.tem-falha { color: var(--danger); }
+#mntCamConsole .mnt-console-body { padding: 4px 0 10px; font-family: inherit; font-size: 13px; }
+
+.mnt-res-linha { display: flex; align-items: baseline; gap: 11px;
+  padding: 8px 18px; border-bottom: 1px solid var(--border); }
+.mnt-res-linha:last-child { border-bottom: 0; }
+.mnt-res-selo { flex-shrink: 0; display: inline-flex; align-items: center; height: 21px;
+  padding: 0 9px; border-radius: 999px; font-size: 11.5px; font-weight: 700; }
+.mnt-res-selo.ok    { background: var(--primary-soft); color: #0b5c45; }
+.mnt-res-selo.falha { background: #fff0f0; color: #8a2020; }
+.mnt-res-alvo { flex-shrink: 0; min-width: 0; }
+.mnt-res-alvo strong { font-weight: 600; }
+.mnt-res-alvo small { margin-left: 7px; color: var(--muted); font-family: Consolas, ui-monospace, monospace; font-size: 11.5px; }
+.mnt-res-msg { min-width: 0; color: var(--muted); overflow-wrap: anywhere; }

@@ -141,7 +141,7 @@ function _mntCamRender() {
     const snap = c.snapshot_url || c.imgbb_url || '';
     const sel = checked.has(ip);
     return `
-      <div class="mnt-cam-card${sel ? ' selected' : ''}" data-ip="${esc(ip)}" data-titulo="${esc(c.titulo||ip)}" onclick="_mntCamCardClick(this,event)">
+      <div class="mnt-cam-card${sel ? ' selected' : ''}" data-ip="${esc(ip)}" data-titulo="${esc(c.titulo||ip)}" data-modelo="${esc(c.modelo || c.model || '')}" data-site="${esc(c.site || c.site_name || c.local || '')}" data-connector="${esc(c.remote_connector_id || c.connector_id || '')}" onclick="_mntCamCardClick(this,event)">
         <input type="checkbox" class="mnt-cam-card-chk chk-mnt-cam" value="${esc(ip)}" ${sel ? 'checked' : ''} onclick="event.stopPropagation();_mntCamToggle(this)">
         <div class="mnt-cam-card-img">
           ${snap ? `<img src="${esc(snap)}" loading="lazy" onerror="this.style.display='none'">` : `<div class="mnt-cam-no-snap"><i data-lucide="camera-off" style="width:22px;height:22px"></i></div>`}
@@ -291,155 +291,172 @@ function _mntLigarChromeManutencao() {
   pintarResumo();
 }
 
-//  Stream modal — player MSE unico (liveStream.js)
-let _mntStreamIp   = '';
-let _mntStreamUser = '';
-let _mntStreamPass = '';
-let _mntStreamSubtype = 1; // 0=main 1080p  1=sub 480p
-let _mntStreamMuted   = true;
-let _mntLiveHandle = null;
-let _mntClockTimer = null;
+//  Ver ao vivo - a MESMA janela da implantacao de gravador (deploy.js):
+//  as classes .rec-vivo* nao sao mais presas aquele container, entao as duas
+//  telas compartilham a definicao em vez de cada uma ter a sua.
+let _mntStreamIp = '';
+let _mntVivoHandle = null;
+let _mntVivoAlta = false;   // camera atras de tunel: comeca no leve
+let _mntVivoMudo = true;
 
-const _DAYS_PT   = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
-const _MONTHS_PT = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+const _MNT_SVG = {
+  foto: '<path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3Z"/><circle cx="12" cy="13" r="3.2"/>',
+  web: '<path d="M15 3h6v6M10 14 21 3M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>',
+  reiniciar: '<path d="M12 2v10"/><path d="M18.4 6.6a9 9 0 1 1-12.8 0"/>',
+  mudo: '<path d="M11 5 6 9H2v6h4l5 4V5Z"/><path d="m23 9-6 6M17 9l6 6"/>',
+  som: '<path d="M11 5 6 9H2v6h4l5 4V5Z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/><path d="M19 5a9 9 0 0 1 0 14"/>',
+  tela: '<path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3m13-5v3a2 2 0 0 1-2 2h-3"/>',
+  fechar: '<path d="M18 6 6 18M6 6l12 12"/>',
+};
 
-function _mntTickClock() {
-  const now = new Date();
-  const hh  = String(now.getHours()).padStart(2,'0');
-  const mm  = String(now.getMinutes()).padStart(2,'0');
-  const ss  = String(now.getSeconds()).padStart(2,'0');
-  const clk = document.getElementById('mntStreamClock');
-  if (clk) clk.textContent = `${hh}:${mm}:${ss}`;
-  const dt  = document.getElementById('mntStreamDate');
-  if (dt)  dt.textContent  = `${_DAYS_PT[now.getDay()]}, ${now.getDate()} ${_MONTHS_PT[now.getMonth()]}`;
-}
-
-function openMntStream(ip, titulo) {
-  _mntStreamIp   = ip;
-  _mntStreamUser = document.getElementById('mntCamUser')?.value || 'admin';
-  _mntStreamPass = document.getElementById('mntCamPass')?.value || '';
-  _mntStreamSubtype = 1;
-  _mntStreamMuted   = true;
-  const hint = cameraStreamHint(ip);
-
-  document.getElementById('mntStreamTitle').textContent = titulo || ip;
-  document.getElementById('mntStreamIp').textContent    = ip;
-  document.getElementById('mntStreamRtspMain').value    = buildCameraRtspUrl(ip, _mntStreamUser, _mntStreamPass, 0, hint);
-  document.getElementById('mntStreamRtspSub').value     = buildCameraRtspUrl(ip, _mntStreamUser, _mntStreamPass, 1, hint);
-  const qualLabel = document.getElementById('mntStreamQualLabel');
-  if (qualLabel) qualLabel.textContent = 'Sub-stream';
-  const webLink = document.getElementById('mntStreamOpenWeb');
-  if (webLink) webLink.href = `http://${ip}/`;
-  const muteBtn = document.getElementById('mntStreamMuteBtn');
-  if (muteBtn) muteBtn.innerHTML = '<i data-lucide="volume-x" style="width:15px;height:15px"></i>';
-
-  document.getElementById('modalMntStream').classList.remove('hidden');
-  lucide.createIcons();
-
-  _mntTickClock();
-  clearInterval(_mntClockTimer);
-  _mntClockTimer = setInterval(_mntTickClock, 1000);
-
-  _startLiveView(ip, _mntStreamUser, _mntStreamPass, _mntStreamSubtype);
-}
-
-function _startLiveView(ip, user, pass, subtype) {
-  const video       = document.getElementById('mntStreamVideo');
-  const placeholder = document.getElementById('mntStreamPlaceholder');
-  const statusEl    = document.getElementById('mntStreamStatus');
-
-  if (_mntLiveHandle) { _mntLiveHandle.stop(); _mntLiveHandle = null; }
-  video.srcObject = null;
-  video.classList.add('hidden');
-  video.muted = true;
-  if (placeholder) placeholder.style.display = '';
-  if (statusEl) statusEl.textContent = 'Conectando...';
-
-  const hint = cameraStreamHint(ip);
-  _mntLiveHandle = mountLiveStream(video, {
-    ip, user, pass, subtype,
-    vendor: hint.vendor,
-    model: hint.model,
-    onStatus: (texto) => {
-      if (texto) {
-        if (statusEl) statusEl.textContent = texto;
-      } else {
-        video.muted = _mntStreamMuted;
-        video.classList.remove('hidden');
-        if (placeholder) placeholder.style.display = 'none';
-        if (statusEl) statusEl.textContent = '';
-      }
-    },
-  });
+function _mntBotaoVivo(acao, titulo, caminho) {
+  return `<button class="rec-vivo-bt" type="button" data-mnt-${acao} title="${titulo}" aria-label="${titulo}">`
+    + `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${caminho}</svg></button>`;
 }
 
 function closeMntStream() {
-  clearInterval(_mntClockTimer);
-  _mntClockTimer = null;
-  if (_mntLiveHandle) { _mntLiveHandle.stop(); _mntLiveHandle = null; }
+  if (_mntVivoHandle) { try { _mntVivoHandle.stop(); } catch (_) {} _mntVivoHandle = null; }
   _mntStreamIp = '';
-  const video = document.getElementById('mntStreamVideo');
-  if (video) { video.srcObject = null; video.classList.add('hidden'); }
-  const placeholder = document.getElementById('mntStreamPlaceholder');
-  if (placeholder) placeholder.style.display = '';
-  document.getElementById('modalMntStream').classList.add('hidden');
+  const tampa = document.getElementById('mntTampa');
+  if (tampa) tampa.innerHTML = '';
 }
 
-function _mntStreamCopy(id) {
-  const el = document.getElementById(id);
-  if (!el) return;
-  navigator.clipboard?.writeText(el.value).then(() => showToast('Copiado!')).catch(() => {});
-}
+function openMntStream(ip, titulo) {
+  const card = document.querySelector(`.mnt-cam-card[data-ip="${CSS.escape(ip)}"]`);
+  const sub = [ip, card?.dataset.modelo || '', card?.dataset.site || ''].filter(Boolean).join(' · ');
 
-function _mntStreamSnapshot() {
-  const video = document.getElementById('mntStreamVideo');
-  if (!video || video.readyState < 2) { showToast('Sem vídeo para capturar', true); return; }
-  const canvas = document.createElement('canvas');
-  canvas.width  = video.videoWidth  || 1280;
-  canvas.height = video.videoHeight || 720;
-  canvas.getContext('2d').drawImage(video, 0, 0);
-  const ts = new Date().toISOString().slice(0,19).replace(/[T:]/g,'-');
-  const a  = document.createElement('a');
-  a.download = `snapshot_${_mntStreamIp}_${ts}.png`;
-  a.href = canvas.toDataURL('image/png');
-  a.click();
-  showToast('Frame salvo');
-}
+  const tampa = document.getElementById('mntTampa') || (() => {
+    const el = document.createElement('div');
+    el.id = 'mntTampa';
+    document.body.appendChild(el);
+    return el;
+  })();
 
-function _mntStreamFullscreen() {
-  const wrap = document.getElementById('mntVideoWrap');
-  if (!wrap) return;
-  if (document.fullscreenElement) document.exitFullscreen();
-  else wrap.requestFullscreen().catch(() => {});
-}
+  _mntStreamIp = ip;
+  _mntVivoMudo = true;
 
-function _mntStreamMute() {
-  const video  = document.getElementById('mntStreamVideo');
-  const btn    = document.getElementById('mntStreamMuteBtn');
-  _mntStreamMuted = !_mntStreamMuted;
-  if (video) video.muted = _mntStreamMuted;
-  if (btn) {
-    btn.innerHTML = _mntStreamMuted
-      ? '<i data-lucide="volume-x" style="width:15px;height:15px"></i>'
-      : '<i data-lucide="volume-2" style="width:15px;height:15px"></i>';
-    lucide.createIcons();
-  }
-}
+  tampa.innerHTML = `<div class="rec-tampa rec-tampa-vivo" role="dialog" aria-modal="true" aria-label="Ao vivo">
+    <div class="rec-vivo">
+      <div class="rec-vivo-topo">
+        <div class="rec-vivo-id">
+          <b>${esc(titulo || ip)}</b>
+          <span>${esc(sub)}</span>
+        </div>
+        <div class="rec-vivo-acoes">
+          <span class="rec-vivo-taxa" id="mntVivoTaxa"></span>
+          <div class="seg rec-vivo-seg">
+            <button type="button" data-mnt-q="1" aria-pressed="${_mntVivoAlta}">Alta</button>
+            <button type="button" data-mnt-q="0" aria-pressed="${!_mntVivoAlta}">Leve</button>
+          </div>
+          ${_mntBotaoVivo('foto', 'Salvar frame', _MNT_SVG.foto)}
+          ${_mntBotaoVivo('som', 'Som', _MNT_SVG.mudo)}
+          ${_mntBotaoVivo('web', 'Interface web', _MNT_SVG.web)}
+          ${_mntBotaoVivo('reiniciar', 'Reiniciar câmera', _MNT_SVG.reiniciar)}
+          ${_mntBotaoVivo('tela', 'Tela cheia', _MNT_SVG.tela)}
+          ${_mntBotaoVivo('fechar', 'Fechar', _MNT_SVG.fechar)}
+        </div>
+      </div>
+      <div class="rec-vivo-palco" id="mntVivoPalco">
+        <video id="mntVivoVideo" autoplay muted playsinline></video>
+        <div class="rec-vivo-aviso" id="mntVivoAviso">Conectando...</div>
+      </div>
+    </div></div>`;
 
-async function _mntStreamReboot() {
-  if (!_mntStreamIp) return;
-  if (!confirm(`Reiniciar câmera ${_mntStreamIp}?`)) return;
-  try {
-    await api('/api/cameras/reboot', { method: 'POST', body: JSON.stringify({ ips: [_mntStreamIp] }) });
-    showToast('Reboot enviado');
-  } catch (e) { showToast('Erro ao reiniciar', true); }
-}
+  const video = document.getElementById('mntVivoVideo');
+  const aviso = document.getElementById('mntVivoAviso');
+  const palco = document.getElementById('mntVivoPalco');
+  const taxa  = document.getElementById('mntVivoTaxa');
 
-function _mntStreamToggleQuality() {
-  _mntStreamSubtype = _mntStreamSubtype === 1 ? 0 : 1;
-  const label = document.getElementById('mntStreamQualLabel');
-  if (label) label.textContent = _mntStreamSubtype === 1 ? 'Sub-stream' : 'Principal';
-  if (_mntLiveHandle) _mntLiveHandle.setSubtype(_mntStreamSubtype);
+  const ligar = () => {
+    if (_mntVivoHandle) { try { _mntVivoHandle.stop(); } catch (_) {} _mntVivoHandle = null; }
+    const hint = cameraStreamHint(ip);
+    if (aviso) { aviso.hidden = false; aviso.textContent = 'Conectando...'; }
+    if (taxa) taxa.textContent = '';
+    video.muted = true;
+    _mntVivoHandle = mountLiveStream(video, {
+      ip,
+      user: document.getElementById('mntCamUser')?.value || 'admin',
+      pass: document.getElementById('mntCamPass')?.value || '',
+      subtype: _mntVivoAlta ? 0 : 1,
+      vendor: hint.vendor,
+      model: hint.model,
+      // Sem isto o servidor adivinha o conector pelo IP -- e IP privado se
+      // repete entre clientes. Com ele, o IP virtual sai certo.
+      connectorId: card?.dataset.connector || '',
+      onStatus: (texto) => {
+        if (!aviso) return;
+        if (texto === 'credential_required') {
+          // Antes isto aparecia cru na tela e nao dizia nada a quem opera.
+          aviso.hidden = false;
+          aviso.textContent = 'A senha guardada desta câmera não foi aceita. '
+            + 'Abra "Credencial das câmeras" no topo da tela e informe a senha certa.';
+          return;
+        }
+        if (texto) { aviso.hidden = false; aviso.textContent = texto; return; }
+        aviso.hidden = true;
+        video.muted = _mntVivoMudo;
+        if (taxa) taxa.textContent = `${video.videoWidth || ''}×${video.videoHeight || ''}`;
+      },
+    });
+  };
+
+  video.addEventListener('loadedmetadata', () => {
+    if (taxa) taxa.textContent = `${video.videoWidth}×${video.videoHeight}`;
+  });
+
+  tampa.querySelectorAll('[data-mnt-q]').forEach(b => b.addEventListener('click', () => {
+    const alta = b.dataset.mntQ === '1';
+    if (alta === _mntVivoAlta) return;
+    _mntVivoAlta = alta;
+    tampa.querySelectorAll('[data-mnt-q]').forEach(x =>
+      x.setAttribute('aria-pressed', String((x.dataset.mntQ === '1') === _mntVivoAlta)));
+    ligar();
+  }));
+
+  tampa.querySelector('[data-mnt-foto]')?.addEventListener('click', () => {
+    if (!video || video.readyState < 2) { showToast('Sem vídeo para capturar', true); return; }
+    const canvas = document.createElement('canvas');
+    canvas.width  = video.videoWidth  || 1280;
+    canvas.height = video.videoHeight || 720;
+    canvas.getContext('2d').drawImage(video, 0, 0);
+    const ts = new Date().toISOString().slice(0, 19).replace(/[T:]/g, '-');
+    const a = document.createElement('a');
+    a.download = `snapshot_${ip}_${ts}.png`;
+    a.href = canvas.toDataURL('image/png');
+    a.click();
+    showToast('Frame salvo');
+  });
+
+  const btSom = tampa.querySelector('[data-mnt-som]');
+  btSom?.addEventListener('click', () => {
+    _mntVivoMudo = !_mntVivoMudo;
+    video.muted = _mntVivoMudo;
+    btSom.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${_mntVivoMudo ? _MNT_SVG.mudo : _MNT_SVG.som}</svg>`;
+  });
+
+  // Pelo agente: a camera esta atras do tunel do conector, entao um link
+  // http://IP/ cru so abriria para quem estivesse na rede do cliente.
+  tampa.querySelector('[data-mnt-web]')?.addEventListener('click', () => openDeviceWeb(ip, 80));
+
+  tampa.querySelector('[data-mnt-reiniciar]')?.addEventListener('click', async () => {
+    if (!confirm(`Reiniciar câmera ${ip}?`)) return;
+    try {
+      await api('/api/cameras/reboot', { method: 'POST', body: JSON.stringify({ ips: [ip] }) });
+      showToast('Reboot enviado');
+    } catch (e) { showToast('Erro ao reiniciar', true); }
+  });
+
+  tampa.querySelector('[data-mnt-tela]')?.addEventListener('click', () => {
+    if (document.fullscreenElement) document.exitFullscreen?.();
+    else palco?.requestFullscreen?.().catch(() => showToast('O navegador nao permitiu tela cheia.', true));
+  });
+
+  tampa.querySelector('[data-mnt-fechar]')?.addEventListener('click', closeMntStream);
+  tampa.querySelector('.rec-tampa').addEventListener('click', ev => {
+    if (ev.target === ev.currentTarget) closeMntStream();
+  });
+
+  ligar();
 }
 
 //  Modals de configuracao
@@ -709,14 +726,38 @@ function _mntLog(consoleId, bodyId, ip, msg, ok) {
   const body = document.getElementById(bodyId);
   if (body) {
     const line = document.createElement('div');
-    line.innerHTML = `<span style="color:${ok ? '#6ee7b7' : '#fca5a5'}">${ok ? '[ok]' : '[falha]'}</span> <span style="color:#8ab">${esc(ip || '')}</span>${ip ? '  ' : ''}${esc(msg)}`;
+    line.className = 'mnt-res-linha';
+    // O nome vem junto do IP: numero sozinho nao diz em QUEM a acao caiu, e
+    // e nisso que se confere um lote antes de repetir.
+    const card = ip ? document.querySelector(`.mnt-cam-card[data-ip="${CSS.escape(ip)}"]`) : null;
+    const nome = card?.dataset.titulo || '';
+    line.innerHTML =
+      `<span class="mnt-res-selo ${ok ? 'ok' : 'falha'}">${ok ? 'feito' : 'falhou'}</span>` +
+      (ip ? `<span class="mnt-res-alvo"><strong>${esc(nome || ip)}</strong>` +
+            (nome ? `<small>${esc(ip)}</small>` : '') + `</span>` : '') +
+      `<span class="mnt-res-msg">${esc(msg)}</span>`;
     body.appendChild(line);
     body.scrollTop = body.scrollHeight;
+    _mntResumoLog(bodyId);
   }
   if (ip) {
     const res = document.getElementById(`mntRes_${ip.replace(/\./g,'_')}`);
     if (res) res.innerHTML = `<span style="color:${ok ? 'var(--primary)' : 'var(--danger)'}">${ok ? '' : ''} ${esc(msg)}</span>`;
   }
+}
+
+// Contagem no cabecalho: numa lista de 37 linhas, rolar ate o fim para saber
+// quantas falharam e trabalho que a tela pode fazer.
+function _mntResumoLog(bodyId) {
+  const body = document.getElementById(bodyId);
+  const alvo = document.getElementById('mntCamConsoleResumo');
+  if (!body || !alvo) return;
+  const feitas = body.querySelectorAll('.mnt-res-selo.ok').length;
+  const falhas = body.querySelectorAll('.mnt-res-selo.falha').length;
+  alvo.textContent = falhas
+    ? `${feitas} feito${feitas !== 1 ? 's' : ''} · ${falhas} com falha`
+    : `${feitas} feito${feitas !== 1 ? 's' : ''}`;
+  alvo.classList.toggle('tem-falha', falhas > 0);
 }
 
 async function _mntCamRunAction(endpoint, extra = {}) {

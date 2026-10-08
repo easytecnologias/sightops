@@ -2209,6 +2209,86 @@ async def maintenance_camera_web_proxy(ip: str, request: Request, path: str = ""
     return Response(content=content, status_code=upstream.status_code, media_type=media_type, headers=resp_headers)
 
 
+# URLs que SO respondem autenticadas. Servem de prova de senha: 401 em todas
+# significa credencial errada, enquanto a raiz "/" de muita camera responde
+# 200 sem autenticar nenhuma e aprovaria qualquer senha.
+_PROVAS_DE_SENHA = (
+    "/cgi-bin/magicBox.cgi?action=getSystemInfo",  # Intelbras / Dahua
+    "/ISAPI/System/deviceInfo",                    # Hikvision
+)
+
+
+def _senha_aceita(alvo_rede: str, user: str, senha: str) -> bool:
+    """A camera aceita essa senha? Só 401 em todas as provas reprova.
+
+    Timeout de rede ou porta fechada NAO reprovam: camera fora do ar com a
+    senha certa seria "trocada" por uma errada, e o estrago ficaria salvo.
+    """
+    viu_401 = False
+    for caminho in _PROVAS_DE_SENHA:
+        try:
+            r = requests.get(
+                f"http://{alvo_rede}{caminho}",
+                auth=HTTPDigestAuth(user, senha),
+                timeout=6,
+                verify=False,
+            )
+        except Exception:
+            continue
+        if r.status_code == 401:
+            viu_401 = True
+            continue
+        return True
+    return not viu_401
+
+
+def _credencial_que_responde(ip: str, user: str, password: str, connector_id: str = "") -> tuple[str, str]:
+    """resolve_camera_password, mas conferindo se a senha salva ainda vale.
+
+    Senha por MAC tem prioridade sobre a do site e e gravada na ativacao da
+    camera -- quando o instalador troca a senha depois, aquele registro fica
+    velho e manda em tudo. Aqui a senha do site assume se a salva for
+    recusada, e a nova e gravada para o MAC.
+    """
+    user, senha = resolve_camera_password(ip, user, password, connector_id)
+    if password or not senha:
+        # Operador digitou (ele sabe mais que o banco), ou nao ha nada salvo
+        # para conferir.
+        return user, senha
+
+    alvo_rede = _reach(ip, connector_id)
+    if _senha_aceita(alvo_rede, user, senha):
+        return user, senha
+
+    linha = _camera_row_for_ip(ip, connector_id) or {}
+    site = _as_str(linha.get("site") or linha.get("site_name") or linha.get("local"))
+    mac = _as_str(linha.get("mac"))
+    if not site:
+        return user, senha
+
+    from app.services.camera_credentials import resolve_camera_credential, save_camera_credential
+
+    # Sem MAC na busca: forca a senha PADRAO DO SITE, nao a da propria camera
+    # que acabou de ser recusada.
+    do_site = resolve_camera_credential("", site) or {}
+    user_site = _as_str(do_site.get("username")) or user
+    senha_site = do_site.get("password") or ""
+    if not senha_site or senha_site == senha:
+        return user, senha
+
+    if not _senha_aceita(alvo_rede, user_site, senha_site):
+        return user, senha
+
+    if mac:
+        # Grava para o MAC: assim reboot, PTZ e raio-x desta camera tambem
+        # param de usar a senha velha, nao so o video.
+        try:
+            save_camera_credential(mac, site, user_site, senha_site)
+        except Exception:
+            pass
+    return user_site, senha_site
+
+
 @router.post("/maintenance/stream_register/{ip}")
 def maintenance_stream_register(ip: str, payload: Dict[str, Any]):
     """Registra a camera no go2rtc (idempotente) e devolve o nome do stream
@@ -2222,7 +2302,12 @@ def maintenance_stream_register(ip: str, payload: Dict[str, Any]):
     # Nao usar HTTP 401 aqui: e o codigo que o wrapper api() do frontend
     # (core.js) trata como "sessao expirada" e desloga o usuario -- e um
     # 401 diferente (senha DESTA camera desconhecida, nao do login).
-    user, password = resolve_camera_password(ip, _as_str(payload.get("user")), _as_str(payload.get("password")))
+    user, password = _credencial_que_responde(
+        ip,
+        _as_str(payload.get("user")),
+        _as_str(payload.get("password")),
+        _as_str(payload.get("remote_connector_id")),
+    )
     if not password:
         return {"ok": False, "error": "credential_required"}
     try:
