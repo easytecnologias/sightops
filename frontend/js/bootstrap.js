@@ -2029,6 +2029,10 @@ document.addEventListener('DOMContentLoaded', () => {
     if (e.key === 'Enter') runMntNtp();
   });
   document.getElementById('btnMntCamNetwork')?.addEventListener('click', openMntNetworkModal);
+  // Barra de selecao, gaveta e selo de credencial. Fica aqui junto dos outros
+  // listeners da tela: os botoes existem no HTML desde a carga (foram movidos
+  // de lugar, nao recriados), entao ligar aqui alcanca todos.
+  _mntLigarChromeManutencao();
   document.getElementById('btnMntCamShiftIp')?.addEventListener('click', openMntShiftIpModal);
   document.getElementById('btnMntCamPass')?.addEventListener('click', () => {
     const ips = [...document.querySelectorAll('.chk-mnt-cam:checked')].map(c => c.value);

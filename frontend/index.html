@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=1791000181">
+  <link rel="stylesheet" href="styles.css?v=1791000185">
 </head>
 <body>
 
@@ -1030,13 +1030,14 @@
           </div>
         </div>
 
-        <!-- Barra de credenciais + acoes -->
-        <div class="panel mnt-action-bar mnt-action-bar-grid">
-          <div class="mnt-cred-row">
-            <div class="mnt-cred-title">
-              <i data-lucide="key-round"></i>
-              <span>Credenciais</span>
-            </div>
+        <!-- Credencial: um selo que abre, nao um formulario sempre aberto -->
+        <div class="mnt-cred-chip-wrap">
+          <button type="button" class="mnt-cred-chip" id="btnMntCred" aria-expanded="false" aria-controls="mntCredBox">
+            <i data-lucide="lock"></i>
+            <span>Credencial das cameras &middot; <strong id="mntCredResumo">admin</strong></span>
+            <i data-lucide="chevron-down"></i>
+          </button>
+          <div class="mnt-cred-box hidden" id="mntCredBox">
             <label class="mnt-cred-field">
               <span>Usuario</span>
               <input type="text" id="mntCamUser" value="admin" placeholder="admin" class="mnt-cred-input">
@@ -1045,64 +1046,7 @@
               <span>Senha</span>
               <input type="password" id="mntCamPass" value="intelbras" placeholder="Senha" class="mnt-cred-input">
             </label>
-          </div>
-          <div class="mnt-action-sections">
-            <div class="mnt-action-section">
-              <span class="mnt-action-label">Estado</span>
-              <div class="mnt-actions-group">
-                <button class="mnt-action-btn" id="btnMntCamReboot" title="Reiniciar cameras selecionadas">
-                  <i data-lucide="power-circle"></i><span>Reboot</span>
-                </button>
-                <button class="mnt-action-btn" id="btnMntCamSnapshot" title="Forcar captura de snapshot agora">
-                  <i data-lucide="camera"></i><span>Snapshot</span>
-                </button>
-                <button class="mnt-action-btn" id="btnMntCamTest" title="Testar credenciais e ver firmware">
-                  <i data-lucide="shield-check"></i><span>Testar</span>
-                </button>
-              </div>
-            </div>
-            <div class="mnt-action-section">
-              <span class="mnt-action-label">Identificacao</span>
-              <div class="mnt-actions-group">
-                <button class="mnt-action-btn" id="btnMntCamRename" title="Renomear cameras selecionadas">
-                  <i data-lucide="pencil"></i><span>Renomear</span>
-                </button>
-                <button class="mnt-action-btn" id="btnMntCamPass" title="Trocar senha">
-                  <i data-lucide="shield"></i><span>Senha</span>
-                </button>
-                <button class="mnt-action-btn" id="btnMntCamTimeCheck" title="Verificar hora das cameras">
-                  <i data-lucide="clock-alert"></i><span>Hora camera</span>
-                </button>
-              </div>
-            </div>
-            <div class="mnt-action-section">
-              <span class="mnt-action-label">Imagem</span>
-              <div class="mnt-actions-group">
-                <button class="mnt-action-btn" id="btnMntCamDayNight" title="Modo dia/noite">
-                  <i data-lucide="sun-moon"></i><span>Dia/Noite</span>
-                </button>
-                <button class="mnt-action-btn" id="btnMntCamMirror" title="Espelhar ou virar imagem">
-                  <i data-lucide="flip-horizontal-2"></i><span>Espelhar</span>
-                </button>
-                <button class="mnt-action-btn" id="btnMntCamQuality" title="Qualidade de video">
-                  <i data-lucide="sliders-horizontal"></i><span>Qualidade</span>
-                </button>
-              </div>
-            </div>
-            <div class="mnt-action-section">
-              <span class="mnt-action-label">Rede</span>
-              <div class="mnt-actions-group">
-                <button class="mnt-action-btn" id="btnMntCamNtp" title="Sincronizar data e hora via NTP">
-                  <i data-lucide="clock"></i><span>Acertar NTP</span>
-                </button>
-                <button class="mnt-action-btn" id="btnMntCamNetwork" title="Trocar o IP das cameras selecionadas, uma a uma">
-                  <i data-lucide="replace"></i><span>Trocar IP</span>
-                </button>
-                <button class="mnt-action-btn" id="btnMntCamShiftIp" title="Deslocar intervalo de IPs em lote">
-                  <i data-lucide="arrow-right-left"></i><span>Deslocar IPs</span>
-                </button>
-              </div>
-            </div>
+            <p class="mnt-cred-hint">Vale para todas as acoes desta tela.</p>
           </div>
         </div>
 
@@ -1145,6 +1089,80 @@
           </div>
           <div class="mnt-console-body" id="mntCamConsoleBody"></div>
         </div>
+        <!-- Barra de acoes: so aparece quando ha selecao -->
+        <div class="mnt-sel-bar hidden" id="mntSelBar">
+          <div class="mnt-sel-info">
+            <span class="mnt-sel-n" id="mntSelN">0</span>
+            <div class="mnt-sel-txt">
+              <p class="mnt-sel-rot">selecionadas</p>
+              <p class="mnt-sel-nomes" id="mntSelNomes"></p>
+            </div>
+            <button type="button" class="mnt-sel-limpar" id="btnMntSelLimpar">limpar</button>
+          </div>
+          <div class="mnt-sel-acoes">
+              <button type="button" class="mnt-acao" id="btnMntCamSnapshot" title="Forcar captura de snapshot agora"><i data-lucide="camera"></i><span>Snapshot</span></button>
+              <button type="button" class="mnt-acao" id="btnMntCamRename" title="Renomear cameras selecionadas"><i data-lucide="pencil"></i><span>Renomear</span></button>
+              <button type="button" class="mnt-acao" id="btnMntCamNetwork" title="Trocar o IP das cameras selecionadas, uma a uma"><i data-lucide="replace"></i><span>Trocar IP</span></button>
+              <button type="button" class="mnt-acao" id="btnMntCamReboot" title="Reiniciar cameras selecionadas"><i data-lucide="power-circle"></i><span>Reiniciar</span></button>
+              <button type="button" class="mnt-acao mnt-acao-mais" id="btnMntMaisAcoes"><span>Mais acoes</span><i data-lucide="chevron-up"></i></button>
+          </div>
+        </div>
+
+        <!-- Gaveta: o resto das acoes, agrupado por intencao -->
+        <div class="mnt-gaveta-fundo hidden" id="mntGavetaFundo"></div>
+        <aside class="mnt-gaveta hidden" id="mntGaveta" aria-label="Mais acoes em lote">
+          <header class="mnt-gaveta-head">
+            <div>
+              <h2>Mais acoes</h2>
+              <p id="mntGavetaSub">Valem para as cameras selecionadas.</p>
+            </div>
+            <button type="button" class="icon-button" id="btnMntGavetaFechar" aria-label="Fechar"><i data-lucide="x"></i></button>
+          </header>
+          <div class="mnt-gaveta-corpo">
+            <div class="mnt-gaveta-grupo">
+              <h3>Identificacao</h3>
+              <button type="button" class="mnt-gaveta-item" id="btnMntCamPass" title="Trocar senha">
+                <span class="mnt-gaveta-ic"><i data-lucide="shield"></i></span>
+                <span class="mnt-gaveta-txt"><strong>Trocar a senha</strong><small>Aplica a mesma senha nas selecionadas.</small></span>
+              </button>
+              <button type="button" class="mnt-gaveta-item" id="btnMntCamTimeCheck" title="Verificar hora das cameras">
+                <span class="mnt-gaveta-ic"><i data-lucide="clock-alert"></i></span>
+                <span class="mnt-gaveta-txt"><strong>Conferir a hora</strong><small>Hora errada estraga a busca de gravacao depois.</small></span>
+              </button>
+              <button type="button" class="mnt-gaveta-item" id="btnMntCamTest" title="Testar credenciais e ver firmware">
+                <span class="mnt-gaveta-ic"><i data-lucide="shield-check"></i></span>
+                <span class="mnt-gaveta-txt"><strong>Testar credenciais</strong><small>Confere acesso e firmware, sem alterar nada.</small></span>
+              </button>
+            </div>
+            <div class="mnt-gaveta-grupo">
+              <h3>Rede</h3>
+              <button type="button" class="mnt-gaveta-item" id="btnMntCamNtp" title="Sincronizar data e hora via NTP">
+                <span class="mnt-gaveta-ic"><i data-lucide="clock"></i></span>
+                <span class="mnt-gaveta-txt"><strong>Acertar NTP</strong><small>Sincroniza data e hora pelo servidor.</small></span>
+              </button>
+              <button type="button" class="mnt-gaveta-item" id="btnMntCamShiftIp" title="Deslocar intervalo de IPs em lote">
+                <span class="mnt-gaveta-ic"><i data-lucide="arrow-right-left"></i></span>
+                <span class="mnt-gaveta-txt"><strong>Deslocar IPs</strong><small>Move uma faixa inteira por um mesmo salto.</small></span>
+              </button>
+            </div>
+            <div class="mnt-gaveta-grupo">
+              <h3>Imagem</h3>
+              <button type="button" class="mnt-gaveta-item" id="btnMntCamDayNight" title="Modo dia/noite">
+                <span class="mnt-gaveta-ic"><i data-lucide="sun-moon"></i></span>
+                <span class="mnt-gaveta-txt"><strong>Dia / Noite</strong><small>Modo de comutacao do filtro infravermelho.</small></span>
+              </button>
+              <button type="button" class="mnt-gaveta-item" id="btnMntCamMirror" title="Espelhar ou virar imagem">
+                <span class="mnt-gaveta-ic"><i data-lucide="flip-horizontal-2"></i></span>
+                <span class="mnt-gaveta-txt"><strong>Espelhar</strong><small>Espelha ou vira a imagem.</small></span>
+              </button>
+              <button type="button" class="mnt-gaveta-item" id="btnMntCamQuality" title="Qualidade de video">
+                <span class="mnt-gaveta-ic"><i data-lucide="sliders-horizontal"></i></span>
+                <span class="mnt-gaveta-txt"><strong>Qualidade</strong><small>Bitrate, fps e codec do stream principal.</small></span>
+              </button>
+            </div>
+          </div>
+        </aside>
+
       </section>
 
       <!-- --- VIEW: MANUTEN--O DVR --- -->
@@ -6858,7 +6876,7 @@
   <script src="js/recorders.js?v=1791000176"></script>
   <script src="js/windows.js?v=142"></script>
   <script src="js/snapshots.js?v=1790019880"></script>
-  <script src="js/maintenance.js?v=1791000183"></script>
+  <script src="js/maintenance.js?v=1791000185"></script>
   <script src="js/analysis.js?v=147"></script>
   <script src="js/network.js?v=1791000150"></script>
   <script src="js/deploy.js?v=1791000144"></script>
@@ -6874,6 +6892,6 @@
   <script src="js/messenger.js?v=5"></script>
   <script src="js/alert.js?v=1789901000"></script>
   <script src="js/tr069.js?v=1791000184"></script>
-  <script src="js/bootstrap.js?v=1791000175"></script>
+  <script src="js/bootstrap.js?v=1791000185"></script>
 </body>
 </html>

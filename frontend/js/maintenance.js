@@ -149,6 +149,78 @@ function _mntCamUpdateCount() {
   const n = document.querySelectorAll('.chk-mnt-cam:checked').length;
   const el = document.getElementById('mntCamSelectedCount');
   if (el) el.textContent = n === 0 ? '0 selecionadas' : `${n} selecionada${n !== 1 ? 's' : ''}`;
+  _mntPintarBarraSelecao(n);
+}
+
+// A barra de acoes so existe quando ha selecao: antes, doze botoes ficavam
+// ligados o tempo todo sem alvo, e "Reboot" tinha o mesmo peso de "Deslocar
+// IPs". Mostrar os NOMES do que foi escolhido e o que evita executar em lote
+// errado -- o numero sozinho nao diz em quem.
+function _mntPintarBarraSelecao(n) {
+  const barra = document.getElementById('mntSelBar');
+  if (!barra) return;
+  barra.classList.toggle('hidden', n === 0);
+  const elN = document.getElementById('mntSelN');
+  if (elN) elN.textContent = String(n);
+  const nomes = document.getElementById('mntSelNomes');
+  if (!nomes) return;
+  const titulos = [...document.querySelectorAll('.chk-mnt-cam:checked')].map(c => {
+    const card = c.closest('.mnt-cam-card');
+    return (card?.dataset.titulo || c.value || '').trim();
+  }).filter(Boolean);
+  const mostra = titulos.slice(0, 4).join(', ');
+  nomes.textContent = titulos.length > 4
+    ? `${mostra} e mais ${titulos.length - 4}`
+    : mostra;
+  nomes.title = titulos.join(', ');
+  if (n === 0) _mntFecharGaveta();
+}
+
+function _mntAbrirGaveta() {
+  const n = document.querySelectorAll('.chk-mnt-cam:checked').length;
+  if (!n) { showToast('Selecione ao menos uma camera', true); return; }
+  const sub = document.getElementById('mntGavetaSub');
+  if (sub) sub.textContent = `Valem para as ${n} camera${n !== 1 ? 's' : ''} selecionada${n !== 1 ? 's' : ''}.`;
+  document.getElementById('mntGaveta')?.classList.remove('hidden');
+  document.getElementById('mntGavetaFundo')?.classList.remove('hidden');
+  lucide.createIcons();
+}
+
+function _mntFecharGaveta() {
+  document.getElementById('mntGaveta')?.classList.add('hidden');
+  document.getElementById('mntGavetaFundo')?.classList.add('hidden');
+}
+
+// A gaveta fecha ao escolher: a acao abre o proprio modal dela, e duas
+// camadas sobrepostas escondem o que o operador precisa ler.
+function _mntLigarChromeManutencao() {
+  document.getElementById('btnMntMaisAcoes')?.addEventListener('click', _mntAbrirGaveta);
+  document.getElementById('btnMntGavetaFechar')?.addEventListener('click', _mntFecharGaveta);
+  document.getElementById('mntGavetaFundo')?.addEventListener('click', _mntFecharGaveta);
+  document.querySelectorAll('#mntGaveta .mnt-gaveta-item').forEach(b =>
+    b.addEventListener('click', () => setTimeout(_mntFecharGaveta, 0)));
+
+  document.getElementById('btnMntSelLimpar')?.addEventListener('click', () => {
+    document.querySelectorAll('.chk-mnt-cam:checked').forEach(c => {
+      c.checked = false;
+      c.closest('.mnt-cam-card')?.classList.remove('selected');
+    });
+    _mntCamUpdateCount();
+  });
+
+  const chip = document.getElementById('btnMntCred');
+  chip?.addEventListener('click', () => {
+    const caixa = document.getElementById('mntCredBox');
+    if (!caixa) return;
+    const abrindo = caixa.classList.contains('hidden');
+    caixa.classList.toggle('hidden', !abrindo);
+    chip.setAttribute('aria-expanded', abrindo ? 'true' : 'false');
+  });
+  const usuario = document.getElementById('mntCamUser');
+  const resumo = document.getElementById('mntCredResumo');
+  const pintarResumo = () => { if (resumo) resumo.textContent = (usuario?.value || 'admin').trim() || 'admin'; };
+  usuario?.addEventListener('input', pintarResumo);
+  pintarResumo();
 }
 
 //  Stream modal — player MSE unico (liveStream.js)

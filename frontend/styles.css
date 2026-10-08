@@ -11265,3 +11265,77 @@ table.recorder-tabela tbody tr:hover { background: var(--surface-soft); }
 .aviso-cliente-caixa .aviso-cliente-dica { color: var(--muted); font-size: 12.5px; }
 .aviso-cliente-caixa button { margin-top: 6px; padding: 9px 16px; border: 0; border-radius: 9px;
   background: var(--primary); color: #fff; font-weight: 600; font-size: 13.5px; cursor: pointer; }
+
+/* === Manutencao de cameras: selecao, gaveta e credencial ================= */
+
+/* Selo da credencial: estado da sessao, nao formulario sempre aberto. */
+.mnt-cred-chip-wrap { position: relative; margin-bottom: 14px; }
+.mnt-cred-chip { display: inline-flex; align-items: center; gap: 9px; height: 40px;
+  padding: 0 14px; border: 1px solid #b7e3d2; border-radius: 10px; background: var(--primary-soft);
+  color: #0b5c45; font-size: 13px; font-weight: 600; cursor: pointer; }
+.mnt-cred-chip svg { width: 16px; height: 16px; }
+.mnt-cred-box { position: absolute; z-index: 30; top: 46px; left: 0; width: min(380px, 92vw);
+  padding: 14px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface);
+  box-shadow: 0 12px 30px rgba(23,32,38,.14); display: flex; flex-direction: column; gap: 10px; }
+.mnt-cred-hint { margin: 0; font-size: 12px; color: var(--muted); }
+
+/* Barra de acoes. Fixa no rodape da janela porque a grade de cameras e longa:
+   presa ao fim do conteudo, ela sumiria da vista justamente quando o operador
+   esta rolando para escolher. */
+.mnt-sel-bar { position: fixed; z-index: 40; left: 0; right: 0; bottom: 0;
+  display: flex; flex-wrap: wrap; gap: 14px; align-items: center;
+  padding: 12px 20px; background: var(--sidebar); color: #fff;
+  box-shadow: 0 -8px 24px rgba(23,32,38,.18); }
+.mnt-sel-info { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.mnt-sel-n { display: inline-flex; align-items: center; justify-content: center;
+  min-width: 34px; height: 34px; padding: 0 10px; border-radius: 9px;
+  background: #20c997; color: #0b2b22; font-size: 15px; font-weight: 700; }
+.mnt-sel-txt { min-width: 0; }
+.mnt-sel-rot { margin: 0; font-size: 13.5px; font-weight: 600; }
+.mnt-sel-nomes { margin: 1px 0 0; font-size: 12px; color: #9fb3bd; max-width: 46ch;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mnt-sel-limpar { border: 0; background: none; padding: 0 2px; font-size: 13px;
+  font-weight: 600; color: #9fb3bd; cursor: pointer; text-decoration: underline; }
+.mnt-sel-acoes { display: flex; flex-wrap: wrap; gap: 8px; margin-left: auto; }
+.mnt-acao { display: inline-flex; align-items: center; gap: 8px; height: 42px; padding: 0 15px;
+  border: 1px solid #2c4a56; border-radius: 10px; background: #1d353f; color: #fff;
+  font-size: 13.5px; font-weight: 600; cursor: pointer; }
+.mnt-acao:hover { background: #244150; }
+.mnt-acao svg { width: 16px; height: 16px; }
+.mnt-acao-mais { background: #20c997; border-color: #20c997; color: #0b2b22; font-weight: 700; }
+.mnt-acao-mais:hover { background: #1cb98a; }
+
+/* Espaco para a barra nao cobrir a ultima fileira de cameras. */
+#viewMntCam:not(.hidden) { padding-bottom: 86px; }
+
+/* Gaveta. */
+.mnt-gaveta-fundo { position: fixed; inset: 0; z-index: 45; background: rgba(23,32,38,.42); }
+.mnt-gaveta { position: fixed; z-index: 46; top: 0; right: 0; bottom: 0; width: min(520px, 100%);
+  display: flex; flex-direction: column; background: var(--surface);
+  border-left: 1px solid var(--border); box-shadow: -16px 0 40px rgba(23,32,38,.16); }
+.mnt-gaveta-head { display: flex; align-items: flex-start; justify-content: space-between;
+  gap: 16px; padding: 18px 22px 15px; border-bottom: 1px solid var(--border); }
+.mnt-gaveta-head h2 { margin: 0; font-size: 18px; font-weight: 700; }
+.mnt-gaveta-head p { margin: 4px 0 0; font-size: 13px; color: var(--muted); }
+.mnt-gaveta-corpo { flex: 1; min-height: 0; overflow-y: auto; padding: 16px 22px 24px;
+  display: flex; flex-direction: column; gap: 20px; }
+.mnt-gaveta-grupo h3 { margin: 0 0 9px; font-size: 11px; font-weight: 700;
+  letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.mnt-gaveta-itens { display: flex; flex-direction: column; gap: 8px; }
+.mnt-gaveta-item { display: flex; align-items: flex-start; gap: 12px; width: 100%;
+  text-align: left; padding: 12px 13px; border: 1px solid var(--border);
+  border-radius: 11px; background: var(--surface); cursor: pointer; }
+.mnt-gaveta-item:hover { border-color: var(--primary); background: #f7fbf9; }
+.mnt-gaveta-ic { display: flex; align-items: center; justify-content: center;
+  width: 34px; height: 34px; border-radius: 9px; background: #eef2f4;
+  color: var(--text); flex-shrink: 0; }
+.mnt-gaveta-ic svg { width: 17px; height: 17px; }
+.mnt-gaveta-txt { min-width: 0; }
+.mnt-gaveta-txt strong { display: block; font-size: 14px; font-weight: 600; color: var(--text); }
+.mnt-gaveta-txt small { display: block; margin-top: 2px; font-size: 12.5px;
+  color: var(--muted); line-height: 1.45; }
+
+@media (max-width: 720px) {
+  .mnt-sel-acoes { margin-left: 0; width: 100%; }
+  .mnt-sel-nomes { max-width: 100%; }
+}
