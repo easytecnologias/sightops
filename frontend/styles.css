@@ -11290,13 +11290,16 @@ table.recorder-tabela tbody tr:hover { background: var(--surface-soft); }
   box-shadow: 0 -8px 24px rgba(23,32,38,.18); }
 .mnt-sel-info { display: flex; align-items: center; gap: 12px; min-width: 0; }
 .mnt-sel-n { display: inline-flex; align-items: center; justify-content: center;
-  min-width: 34px; height: 34px; padding: 0 10px; border-radius: 9px;
+  flex: 0 0 auto; min-width: 36px; height: 36px; padding: 0 10px; border-radius: 9px;
   background: #20c997; color: #0b2b22; font-size: 15px; font-weight: 700; }
 .mnt-sel-txt { min-width: 0; }
-.mnt-sel-rot { margin: 0; font-size: 13.5px; font-weight: 600; }
-.mnt-sel-nomes { margin: 1px 0 0; font-size: 12px; color: #9fb3bd; max-width: 46ch;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.mnt-sel-limpar { border: 0; background: none; padding: 0 2px; font-size: 13px;
+.mnt-sel-rot { margin: 0; font-size: 13.5px; font-weight: 600; line-height: 18px; }
+.mnt-sel-nomes { margin: 2px 0 0; font-size: 12px; color: #9fb3bd; max-width: 46ch;
+  line-height: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* Na linha do rotulo, nao no vao entre as duas: centralizado na altura do
+   bloco inteiro, o "limpar" nao batia com nenhuma das duas linhas. */
+.mnt-sel-limpar { align-self: flex-start; margin-top: 1px; border: 0; background: none;
+  padding: 0 2px; font-size: 13px; line-height: 18px;
   font-weight: 600; color: #9fb3bd; cursor: pointer; text-decoration: underline; }
 .mnt-sel-acoes { display: flex; flex-wrap: wrap; gap: 8px; margin-left: auto; }
 .mnt-acao { display: inline-flex; align-items: center; gap: 8px; height: 42px; padding: 0 15px;
