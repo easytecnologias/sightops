@@ -5,6 +5,7 @@ import contextlib
 import ipaddress
 import platform
 import socket
+import struct
 import subprocess
 import time
 from typing import Any, Dict, Iterable, List
@@ -126,6 +127,32 @@ def _run_command(args: List[str], timeout: int = 8) -> Dict[str, Any]:
         return {"ok": False, "error": str(exc), "stdout": "", "stderr": ""}
 
 
+def _ping_icmp(destino: str, timeout: float = 2.0) -> float | None:
+    """Um eco ICMP, em ms, ou None. Socket de datagrama: nao precisa de root.
+
+    O kernel preenche checksum e identificador neste tipo de socket -- por
+    isso o pacote vai so com o cabecalho e o corpo.
+    """
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_ICMP)
+    except OSError:
+        return None
+    try:
+        sock.settimeout(max(0.5, timeout))
+        pacote = struct.pack("!BBHHH", 8, 0, 0, 1, 1) + b"\x58" * 56
+        comeco = time.perf_counter()
+        sock.sendto(pacote, (destino, 0))
+        sock.recvfrom(2048)
+        return round((time.perf_counter() - comeco) * 1000, 1)
+    except Exception:
+        return None
+    finally:
+        try:
+            sock.close()
+        except Exception:
+            pass
+
+
 async def _run_ping(targets: List[str], timeout: int, concurrency: int, fallback_ports: List[int] | None = None) -> Dict[str, Any]:
     sem = asyncio.Semaphore(concurrency)
     is_windows = platform.system().lower().startswith("win")
@@ -133,17 +160,23 @@ async def _run_ping(targets: List[str], timeout: int, concurrency: int, fallback
 
     async def one(target: str) -> Dict[str, Any]:
         async with sem:
-            args = ["ping", "-n", "2", "-w", str(timeout * 1000), target] if is_windows else ["ping", "-c", "2", "-W", str(timeout), target]
-            started = time.perf_counter()
-            result = await asyncio.to_thread(_run_command, args, timeout + 4)
-            if result.get("ok"):
+            # ICMP direto, sem depender do binario `ping` (que esta imagem
+            # nao tem). Duas tentativas: perda de um pacote e comum e nao
+            # deve virar "fora do ar".
+            ms = None
+            for _ in range(2):
+                ms = await asyncio.to_thread(_ping_icmp, target, float(timeout))
+                if ms is not None:
+                    break
+            result = {"ok": ms is not None, "stdout": "", "stderr": ""}
+            if ms is not None:
                 return {
                     "target": target,
                     "online": True,
                     "method": "icmp",
-                    "rtt_ms": round((time.perf_counter() - started) * 1000, 1),
-                    "stdout": result.get("stdout", ""),
-                    "stderr": result.get("stderr", ""),
+                    "rtt_ms": ms,
+                    "stdout": "",
+                    "stderr": "",
                 }
             tcp_results: List[Dict[str, Any]] = []
             for port in ports[:12]:

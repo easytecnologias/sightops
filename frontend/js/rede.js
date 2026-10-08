@@ -176,8 +176,8 @@ async function pintarRedeAlvosEquipamento() {
   sel.innerHTML = '<option value="">o túnel inteiro</option>';
   if (!cid) return;
   try {
-    const d = await apiJson('/api/cameras', { cacheTtl: 20000 });
-    const linhas = ((d && (d.cameras || d.items)) || [])
+    const d = await apiJson('/api/cameras?mode=olt', { cacheTtl: 20000 });
+    const linhas = ((d && d.cameras) || [])
       .filter(c => String(c.remote_connector_id || c.connector_id || '') === cid && c.ip)
       .slice(0, 200);
     sel.innerHTML += linhas.map(c =>
@@ -269,15 +269,63 @@ async function tracarRedeCaminho(connectorId, ip) {
 
 //  O resultado vira TABELA, nao terminal preto: o terminal obrigava a ler
 //  linha por linha para achar o que nao respondeu.
+// Cada teste devolve um formato proprio. Em vez de a tabela adivinhar, cada
+// um e traduzido para a mesma linha: endereco, respondeu, portas, leitura.
+function _redeNormalizar(teste, r) {
+  const itens = (r && r.items) || [];
+  if (teste === 'tcp' || teste === 'port_scan') {
+    // Uma linha por host, nao por porta: o operador olha o equipamento.
+    const porHost = new Map();
+    itens.forEach(i => {
+      const h = i.host || i.target || '';
+      if (!porHost.has(h)) porHost.set(h, { target: h, online: false, portas: [], rtt_ms: null });
+      const linha = porHost.get(h);
+      if (i.open) {
+        linha.online = true;
+        linha.portas.push(i.port);
+        if (linha.rtt_ms === null) linha.rtt_ms = i.rtt_ms ?? null;
+      }
+    });
+    return [...porHost.values()];
+  }
+  if (teste === 'http') {
+    return itens.map(i => ({
+      target: i.target, online: !!i.ok, rtt_ms: i.elapsed_ms ?? null,
+      portas: [], leitura: i.ok ? `HTTP ${i.status_code}${i.server ? ' · ' + i.server : ''}` : (i.error || ''),
+    }));
+  }
+  if (teste === 'dns') {
+    return itens.map(i => ({
+      target: i.target, online: !!i.ok, rtt_ms: null, portas: [],
+      leitura: i.ok ? (i.addresses || []).join(', ') : (i.error || 'não resolveu'),
+    }));
+  }
+  if (teste === 'traceroute') {
+    // Rota nao devolve lista: e texto corrido. Vira UMA linha, com o caminho.
+    return [{
+      target: r.target || '', online: !!r.ok, rtt_ms: null, portas: [],
+      leitura: (r.stdout || r.stderr || r.error || '').split('\n').slice(0, 20).join(' | '),
+    }];
+  }
+  return itens.map(i => ({
+    target: i.target, online: !!i.online, rtt_ms: i.rtt_ms ?? null,
+    portas: (i.tcp_results || []).filter(p => p && p.open).map(p => p.port),
+    leitura: i.method === 'tcp-fallback' ? 'respondeu só em TCP' : (i.error || ''),
+  }));
+}
+
 function pintarRedeFerramentas(body) {
   const corpo = document.getElementById('redeFerrCorpo');
   const resumo = document.getElementById('redeFerrResumo');
   const achados = document.getElementById('redeAchados');
   if (!corpo) return;
 
-  const itens = (body && (body.items || body.results)) || [];
+  // O endpoint devolve {ok, test, count, result:{items}}. Ler body.items
+  // (que nao existe) fazia toda execucao terminar em "Nada respondeu".
+  const r = (body && body.result) || body || {};
+  const itens = _redeNormalizar(body && body.test, r);
   _redeFerrLinhas = itens;
-  const responderam = itens.filter(i => i.online || i.open || i.ok).length;
+  const responderam = itens.filter(i => i.online).length;
   if (resumo) resumo.textContent = `${itens.length} endereço${itens.length === 1 ? '' : 's'} testado${itens.length === 1 ? '' : 's'} · ${responderam} respondeu${responderam === 1 ? '' : 'ram'}`;
 
   if (!itens.length) {
@@ -288,10 +336,9 @@ function pintarRedeFerramentas(body) {
 
   corpo.innerHTML = itens.map(i => {
     const ip = i.target || i.host || '';
-    const vivo = !!(i.online || i.open || i.ok);
+    const vivo = !!i.online;
     const conhecido = _redeConhecido(ip);
-    const portas = (i.ports || i.tcp_results || [])
-      .filter(p => p && p.open).map(p => p.port).join(' · ');
+    const portas = (i.portas || []).join(' · ');
     return `<tr class="${conhecido ? '' : 'rede-linha-instavel'}">
       <th scope="row" class="mono">${_redeEscapar(ip)}</th>
       <td>${conhecido
@@ -300,11 +347,11 @@ function pintarRedeFerramentas(body) {
       <td class="num mono">${vivo ? (i.rtt_ms !== null && i.rtt_ms !== undefined ? i.rtt_ms + ' ms' : 'respondeu')
         : '<span class="rede-ruim">sem resposta</span>'}</td>
       <td class="mono">${portas ? _redeEscapar(portas) : '<span class="rede-sem">—</span>'}</td>
-      <td class="rede-suave">${_redeEscapar(i.method === 'tcp-fallback' ? 'respondeu só em TCP' : (i.error || ''))}</td>
+      <td class="rede-suave">${_redeEscapar(i.leitura || '')}</td>
     </tr>`;
   }).join('');
 
-  const fora = itens.filter(i => (i.online || i.open) && !_redeConhecido(i.target || i.host || ''));
+  const fora = itens.filter(i => i.online && !_redeConhecido(i.target || ''));
   if (achados) {
     achados.classList.toggle('hidden', !fora.length);
     achados.innerHTML = fora.length ? `
@@ -322,15 +369,17 @@ function _redeConhecido(ip) {
   return _redeInventarioIps.get(String(ip)) || '';
 }
 
+// As tres visoes, nao so a OLT (que e o padrao do endpoint): cliente de
+// switch teria o inventario inteiro marcado como "fora do inventario".
 async function carregarRedeInventario() {
-  try {
-    const d = await apiJson('/api/cameras', { cacheTtl: 30000 });
-    const mapa = new Map();
-    ((d && (d.cameras || d.items)) || []).forEach(c => {
-      if (c.ip) mapa.set(String(c.ip), c.titulo || c.ip);
-    });
-    _redeInventarioIps = mapa;
-  } catch (e) { _redeInventarioIps = new Map(); }
+  const mapa = new Map();
+  for (const modo of ['olt', 'basico', 'switch']) {
+    try {
+      const d = await apiJson(`/api/cameras?mode=${modo}`, { cacheTtl: 30000 });
+      ((d && d.cameras) || []).forEach(c => { if (c.ip) mapa.set(String(c.ip), c.titulo || c.ip); });
+    } catch (e) { /* visao sem inventario e normal */ }
+  }
+  _redeInventarioIps = mapa;
 }
 
 //  ── Entrada da tela ────────────────────────────────────────────────────────
@@ -376,8 +425,47 @@ function ligarRede() {
     document.querySelectorAll('[data-rede-teste]').forEach(x => x.classList.toggle('ativa', x === b));
     const campo = document.getElementById('netToolTest');
     if (campo) campo.value = b.dataset.redeTeste;
+    // A coleta de ARP/MAC nao existe no teste local -- ela le as tabelas do
+    // proprio MikroTik. Mandar para o local respondia "teste invalido" e o
+    // operador nao tinha como adivinhar por que.
+    const origem = document.getElementById('netToolOrigin');
+    if (origem) {
+      if (b.dataset.redeTeste === 'lan_inventory') origem.value = 'connector';
+      else if (origem.value === 'connector' && b.dataset.redeTeste !== 'ping') origem.value = 'local';
+    }
     updateNetToolFormState();
   }));
 
-  document.getElementById('btnRedeLimpar')?.addEventListener('click', () => pintarRedeFerramentas({ items: [] }));
+  document.getElementById('btnRedeLimpar')?.addEventListener('click',
+    () => pintarRedeFerramentas({ result: { items: [] } }));
+
+  // "Do inventário": preenche com as faixas /24 onde o cliente realmente tem
+  // equipamento. Varrer a faixa inteira digitada a mao e como se descobre
+  // equipamento que ninguem cadastrou -- e era o que o botao prometia.
+  document.getElementById('btnRedeDoInventario')?.addEventListener('click', async () => {
+    const campo = document.getElementById('netToolTargets');
+    if (!campo) return;
+    if (!_redeInventarioIps) await carregarRedeInventario();
+    const faixas = [...new Set([..._redeInventarioIps.keys()]
+      .map(ip => { const p = String(ip).split('.'); return p.length === 4 ? `${p[0]}.${p[1]}.${p[2]}.0/24` : ''; })
+      .filter(Boolean))];
+    if (!faixas.length) { showToast('Nenhum equipamento no inventário deste cliente.', true); return; }
+    campo.value = faixas.join(', ');
+    showToast(`${faixas.length} faixa${faixas.length === 1 ? '' : 's'} do inventário`);
+  });
+
+  document.getElementById('btnRedeCsv')?.addEventListener('click', () => {
+    if (!_redeFerrLinhas.length) { showToast('Nada para baixar ainda.', true); return; }
+    const linhas = [['endereco', 'quem_e', 'respondeu', 'ms', 'portas', 'leitura']];
+    _redeFerrLinhas.forEach(i => linhas.push([
+      i.target || '', _redeConhecido(i.target || '') || 'fora do inventario',
+      i.online ? 'sim' : 'nao', i.rtt_ms ?? '', (i.portas || []).join(' '), (i.leitura || '').replace(/[\r\n;]+/g, ' '),
+    ]));
+    const csv = linhas.map(l => l.map(c => `"${String(c).replace(/"/g, '""')}"`).join(';')).join('\n');
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8' }));
+    a.download = `rede_${new Date().toISOString().slice(0, 19).replace(/[T:]/g, '-')}.csv`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  });
 }
