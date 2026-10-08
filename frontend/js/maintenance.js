@@ -77,9 +77,19 @@ function _mntCamRender() {
   // Separa query em termos por vírgula (OR entre termos)
   const terms = ql ? ql.split(',').map(t => t.trim()).filter(Boolean) : [];
 
+  // Lista sem o filtro de ESTADO: e sobre ela que as contagens sao feitas,
+  // senao clicar em "Fora do ar" zera os outros numeros e o operador perde a
+  // referencia de quantos existem.
+  let semEstado = [];
   let filtered = _mntCamAll.filter(c => {
     if (site && (c.local || '') !== site) return false;
-    if (status && (c.status || '').toLowerCase() !== status) return false;
+    if (status) {
+      // Camera sem medicao tem status vazio, nunca a string "unknown": o
+      // terceiro estado e tudo que NAO e online nem offline.
+      const st = (c.status || '').toLowerCase();
+      const grupo = st === 'online' ? 'online' : st === 'offline' ? 'offline' : 'unknown';
+      if (grupo !== status) return false;
+    }
     if (!terms.length) return true;
     const camIp   = (c.ip || '').trim();
     const haystack = [
@@ -97,11 +107,30 @@ function _mntCamRender() {
     });
   });
 
+  semEstado = _mntCamAll.filter(c => {
+    if (site && (c.local || '') !== site) return false;
+    if (!terms.length) return true;
+    const camIp = (c.ip || '').trim();
+    const haystack = [
+      c.ip, c.host, c.camera_ip, c.ip_camera,
+      c.titulo, c.title, c.nome, c.name,
+      c.local, c.site,
+      c.modelo, c.model, c.fabricante, c.brand,
+      c.mac, c.onu_name, c.onu_serial,
+    ].map(_mntSearchText).join(' ');
+    return terms.some(term => {
+      const ipMatch = _mntIpMatchTerm(camIp, term);
+      if (ipMatch !== null) return ipMatch;
+      return haystack.includes(term);
+    });
+  });
+
   filtered.sort((a, b) => (a.titulo || a.ip || '').localeCompare(b.titulo || b.ip || '', 'pt', { numeric: true }));
 
   if (!filtered.length) {
     grid.innerHTML = '<div style="grid-column:1/-1;text-align:center;padding:40px;color:var(--muted)">Nenhuma camera encontrada.</div>';
     _mntCamUpdateCount();
+    _mntPintarContagens(semEstado);
     return;
   }
 
@@ -116,7 +145,7 @@ function _mntCamRender() {
         <input type="checkbox" class="mnt-cam-card-chk chk-mnt-cam" value="${esc(ip)}" ${sel ? 'checked' : ''} onclick="event.stopPropagation();_mntCamToggle(this)">
         <div class="mnt-cam-card-img">
           ${snap ? `<img src="${esc(snap)}" loading="lazy" onerror="this.style.display='none'">` : `<div class="mnt-cam-no-snap"><i data-lucide="camera-off" style="width:22px;height:22px"></i></div>`}
-          <span class="mnt-cam-dot ${dot}"></span>
+          <span class="mnt-cam-selo ${dot}">${dot === 'online' ? 'respondendo' : dot === 'offline' ? 'fora do ar' : 'sem leitura'}</span>
           <button class="mnt-stream-btn" onclick="event.stopPropagation();openMntStream('${esc(ip)}','${esc(c.titulo||ip)}','${esc(snap)}')" title="Ver stream / links">
             <i data-lucide="play-circle" style="width:16px;height:16px"></i>
           </button>
@@ -132,6 +161,30 @@ function _mntCamRender() {
 
   lucide.createIcons();
   _mntCamUpdateCount();
+  _mntPintarContagens(semEstado);
+}
+
+// A tela ja sabia esses numeros -- eles so nao apareciam em lugar nenhum.
+// Contar sobre o conjunto JA filtrado por busca/site e o que faz o numero
+// bater com o que esta na frente do operador.
+function _mntPintarContagens(lista) {
+  const conta = { '': lista.length, online: 0, offline: 0, unknown: 0 };
+  for (const c of lista) {
+    const st = (c.status || '').toLowerCase();
+    conta[st === 'online' ? 'online' : st === 'offline' ? 'offline' : 'unknown']++;
+  }
+  document.querySelectorAll('#viewMntCam .mnt-status-btn').forEach(b => {
+    const chave = b.dataset.mntStatus ?? '';
+    const alvo = b.querySelector('.mnt-status-n');
+    if (alvo) alvo.textContent = String(conta[chave] ?? 0);
+  });
+  const sub = document.getElementById('mntCamResumo');
+  if (sub) {
+    const site = document.getElementById('mntCamSite')?.value || '';
+    sub.textContent = `${lista.length} camera${lista.length !== 1 ? 's' : ''}`
+      + (site ? ` em ${site}` : '')
+      + ` · ${conta.online} respondendo, ${conta.offline} fora do ar, ${conta.unknown} sem leitura`;
+  }
 }
 
 function _mntCamCardClick(card, event) {

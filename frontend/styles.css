@@ -2999,7 +2999,7 @@ a { color: inherit; text-decoration: none; }
   padding: 12px 20px 100px;
   margin: 0;
 }
-.mnt-cam-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(160px,1fr)); gap:10px; }
+.mnt-cam-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(250px,1fr)); gap:14px; }
 .mnt-cam-card { background:var(--surface); border:2px solid var(--border); border-radius:12px; overflow:hidden; cursor:pointer; transition:border-color .15s, box-shadow .15s; position:relative; }
 .mnt-cam-card:hover { border-color:var(--primary); box-shadow:0 4px 16px rgba(8,127,91,.1); }
 .mnt-cam-card.selected { border-color:var(--primary); }
@@ -11339,3 +11339,23 @@ table.recorder-tabela tbody tr:hover { background: var(--surface-soft); }
   .mnt-sel-acoes { margin-left: 0; width: 100%; }
   .mnt-sel-nomes { max-width: 100%; }
 }
+
+/* Estado da camera: selo com TEXTO, nao um ponto de 10px. Ponto obriga a
+   decorar a cor, e cor sozinha falha para quem nao distingue verde de
+   vermelho. O ponto antigo continua definido: outras telas usam. */
+.mnt-cam-selo { position:absolute; right:8px; bottom:8px; display:inline-flex; align-items:center;
+  height:22px; padding:0 9px; border-radius:999px; background:rgba(255,255,255,.94);
+  font-size:11px; font-weight:600; letter-spacing:.01em; }
+.mnt-cam-selo.online  { color:#0b5c45; }
+.mnt-cam-selo.offline { color:#8a2020; }
+.mnt-cam-selo.unknown { color:#7a5200; }
+
+/* Contagem dentro do filtro: o numero e a informacao, o rotulo e o contexto. */
+.mnt-status-n { margin-left:5px; padding:1px 6px; border-radius:999px;
+  background:#eef2f4; color:var(--text); font-size:11px; font-weight:700; }
+.mnt-status-btn.active .mnt-status-n { background:rgba(255,255,255,.22); color:#fff; }
+.status-dot-mini.unknown { background:var(--amber); }
+
+/* Card maior: com 160px o titulo truncava em quase toda camera. */
+#viewMntCam .mnt-cam-card-title { font-size:13.5px; font-weight:600; }
+#viewMntCam .mnt-cam-card-info { padding:11px 12px 13px; }

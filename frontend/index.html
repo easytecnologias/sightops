@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=1791000185">
+  <link rel="stylesheet" href="styles.css?v=1791000186">
 </head>
 <body>
 
@@ -1023,7 +1023,7 @@
           <div>
             <p class="eyebrow">Manutencao</p>
             <h1>Cameras IP</h1>
-            <p>Selecione cameras e execute operacoes em lote.</p>
+            <p id="mntCamResumo">Selecione cameras e execute operacoes em lote.</p>
           </div>
           <div class="page-heading-actions">
             <button class="secondary-action" id="btnMntCamRefresh"><i data-lucide="refresh-cw"></i> Atualizar</button>
@@ -1063,9 +1063,10 @@
           </select>
           <select id="mntCamSite" class="mnt-filter-select"><option value="">Todos os sites</option></select>
           <div class="mnt-status-btns">
-            <button class="mnt-status-btn active" data-mnt-status="">Todos</button>
-            <button class="mnt-status-btn" data-mnt-status="online"><span class="status-dot-mini online"></span>Online</button>
-            <button class="mnt-status-btn" data-mnt-status="offline"><span class="status-dot-mini offline"></span>Offline</button>
+            <button class="mnt-status-btn active" data-mnt-status="">Todas <span class="mnt-status-n">0</span></button>
+            <button class="mnt-status-btn" data-mnt-status="online"><span class="status-dot-mini online"></span>Respondendo <span class="mnt-status-n">0</span></button>
+            <button class="mnt-status-btn" data-mnt-status="offline"><span class="status-dot-mini offline"></span>Fora do ar <span class="mnt-status-n">0</span></button>
+            <button class="mnt-status-btn" data-mnt-status="unknown"><span class="status-dot-mini unknown"></span>Sem leitura <span class="mnt-status-n">0</span></button>
           </div>
           <div class="mnt-selection-actions">
             <span id="mntCamSelectedCount" style="font-size:12px;color:var(--muted);white-space:nowrap">0 selecionadas</span>
@@ -6876,7 +6877,7 @@
   <script src="js/recorders.js?v=1791000176"></script>
   <script src="js/windows.js?v=142"></script>
   <script src="js/snapshots.js?v=1790019880"></script>
-  <script src="js/maintenance.js?v=1791000185"></script>
+  <script src="js/maintenance.js?v=1791000186"></script>
   <script src="js/analysis.js?v=147"></script>
   <script src="js/network.js?v=1791000150"></script>
   <script src="js/deploy.js?v=1791000144"></script>
