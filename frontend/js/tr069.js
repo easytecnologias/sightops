@@ -198,6 +198,8 @@ async function tr069AbrirDetalhe(serial) {
             <button class="secondary-action" data-tr069-acao="reiniciar"><i data-lucide="power"></i> Reiniciar ONU</button>
             <button class="secondary-action" data-tr069-abrir="poe"><i data-lucide="plug-zap"></i> Religar PoE</button>
             <button class="secondary-action" data-tr069-abrir="ping"><i data-lucide="activity"></i> Ping pela ONU</button>
+            <button class="secondary-action" data-tr069-acao="acl" title="Grava a faixa de gerencia na regra de WAN da ONU"><i data-lucide="shield-check"></i> Liberar acesso web</button>
+            <button class="secondary-action" data-tr069-acao="senha_web" title="Aplica a senha padrao deste cliente na interface web da ONU"><i data-lucide="key-round"></i> Senha padrão</button>
             ${r.dhcp_lan === null || r.dhcp_lan === undefined ? '' :
               `<button class="secondary-action" data-tr069-dhcp="${r.dhcp_lan ? '0' : '1'}"><i data-lucide="network"></i> ${r.dhcp_lan ? 'Desligar' : 'Ligar'} DHCP da LAN</button>`}
           ${(d.servicos || []).find(x => x.gerencia && x.ip) ? `<a class="secondary-action tr-web-btn" data-tr069-web-href data-tr069-web-ip="${esc((d.servicos || []).find(x => x.gerencia && x.ip).ip)}" href="${API_BASE}/api/maintenance/web/${encodeURIComponent((d.servicos || []).find(x => x.gerencia && x.ip).ip)}/" target="_blank" rel="noopener"><i data-lucide="globe"></i> Abrir web da ONU · ${esc((d.servicos || []).find(x => x.gerencia && x.ip).ip)}</a>` : ''}

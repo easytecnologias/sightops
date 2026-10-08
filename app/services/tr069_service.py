@@ -798,9 +798,71 @@ def _ping(doc, resumo, onu, dados) -> Tuple[str, str, str, Dict[str, Any]]:
     return desc, "aplicada", detalhe, {"ping": resultado}
 
 
+def _modulo():
+    """O proprio modulo. tr069_acl/tr069_senha_web recebem `tr` e usam
+    tr.CONFIG_KEY, tr._documento_do_cliente, tr.Tr069Error -- quem chama de
+    fora passa o modulo; daqui de dentro, somos ele."""
+    import sys as _sys
+    return _sys.modules[__name__]
+
+
 def executar(serial: str, acao: str, dados: Optional[Dict[str, Any]], autor: str) -> Dict[str, Any]:
     dados = dados or {}
     doc, onu = _documento_do_cliente(serial)
+    if acao in ("acl", "senha_web"):
+        resumo = resumo_do_dispositivo(doc)
+        if acao == "acl":
+            from app.services import tr069_acl as _acl
+            r = _acl.aplicar(_modulo(), serial)
+            desc = "Liberar o acesso web (ACL)"
+            detalhe = ("a ONU ja estava com a faixa certa" if not r.get("mudou")
+                       else "regras " + ", ".join(r.get("regras") or []))
+            # A regra estar certa nao quer dizer que a web abriu: esta 140PoE
+            # so sobe o servidor da WAN no boot seguinte. Conferir e barato.
+            precisa_reiniciar = False
+            wan = next((w for w in resumo["wan"] if w.get("habilitada")), {})
+            ip_ger = str(wan.get("ip") or "")
+            if ip_ger:
+                import socket as _sock
+                from app.api.endpoints.maintenance import _reach as _alcance
+                _s = _sock.socket()
+                _s.settimeout(2.5)
+                try:
+                    _s.connect((_alcance(ip_ger), 80))
+                except Exception:
+                    precisa_reiniciar = True
+                finally:
+                    _s.close()
+            if precisa_reiniciar:
+                detalhe += (". A faixa esta correta, mas a ONU ainda nao atende em "
+                            + ip_ger + ":80 -- este modelo so sobe o servidor web no "
+                            "proximo boot. Use Reiniciar ONU.")
+        else:
+            from app.services import tr069_senha_web as _sw
+            senha = _sw.senha_do_cliente(_modulo())
+            if not senha:
+                raise Tr069Error("nenhuma senha padrao definida neste cliente -- "
+                                 "defina em Configuracoes antes de aplicar")
+            r = _sw.aplicar(_modulo(), serial, senha)
+            if not r.get("ok"):
+                raise Tr069Error(str(r.get("detalhe") or r.get("erro") or "a ONU recusou"))
+            # Marca a impressao para o laco nao reaplicar a mesma senha depois.
+            from app.services.db_store import get_json_state, set_json_state
+            est = dict(get_json_state(_sw.ESTADO_KEY, {}) or {})
+            est[resumo["serial"]] = {"impressao": _sw.impressao(senha), "ok": True,
+                                     "em": datetime.now(timezone.utc).isoformat()}
+            set_json_state(_sw.ESTADO_KEY, est)
+            desc = "Aplicar a senha padrao da web"
+            detalhe = str(r.get("estado") or "")
+        registro = {"em": datetime.now(timezone.utc).isoformat(), "serial": resumo["serial"],
+                    "acao": acao, "descricao": desc, "autor": autor,
+                    "resultado": "aplicada", "detalhe": detalhe}
+        _registrar(registro)
+        saida = {"ok": True, "acao": acao, "descricao": desc,
+                 "resultado": "aplicada", "detalhe": detalhe}
+        if acao == "acl":
+            saida["precisa_reiniciar"] = bool(precisa_reiniciar)
+        return saida
     if acao in ("religar_porta", "ping"):
         resumo = resumo_do_dispositivo(doc)
         desc, resultado, detalhe, extra = (_religar_porta if acao == "religar_porta" else _ping)(doc, resumo, onu, dados)
