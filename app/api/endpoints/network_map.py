@@ -239,12 +239,21 @@ def _alvo_de_referencia(linha: Dict[str, Any], equipamentos: Dict[str, List[str]
     except Exception:
         _reach = lambda ip, c="": ip  # noqa: E731
 
-    for ip in (equipamentos.get(cid) or [])[:3]:
-        alvo = _reach(ip, cid) or ip
-        if alvo:
+    # Testa ate achar um que responda: parar no primeiro da lista fazia o
+    # silencio de UM aparelho (a OLT, que vem primeiro) valer como silencio
+    # do site inteiro.
+    candidatos = [(_reach(ip, cid) or ip) for ip in (equipamentos.get(cid) or [])[:5]]
+    for alvo in candidatos:
+        if alvo and _ping(alvo, timeout=1.2) is not None:
             return alvo, "equipamento do site"
 
     wg = _wg_reportado(linha)
+    if wg and _ping(wg, timeout=1.2) is not None:
+        return wg, "MikroTik, pelo túnel"
+    # Ninguem respondeu. Devolve o primeiro candidato assim mesmo, para a
+    # medicao registrar a perda em cima de um alvo com nome -- e nao sumir.
+    if candidatos:
+        return candidatos[0], "equipamento do site"
     if wg:
         return wg, "MikroTik, pelo túnel"
     return "", ""
