@@ -11282,7 +11282,9 @@ table.recorder-tabela tbody tr:hover { background: var(--surface-soft); }
 /* Barra de acoes. Fixa no rodape da janela porque a grade de cameras e longa:
    presa ao fim do conteudo, ela sumiria da vista justamente quando o operador
    esta rolando para escolher. */
-.mnt-sel-bar { position: fixed; z-index: 40; left: 0; right: 0; bottom: 0;
+/* left casa com o console de execucao (220px = largura da lateral): em left:0
+   a barra passava por baixo do menu. */
+.mnt-sel-bar { position: fixed; z-index: 40; left: 220px; right: 0; bottom: 0;
   display: flex; flex-wrap: wrap; gap: 14px; align-items: center;
   padding: 12px 20px; background: var(--sidebar); color: #fff;
   box-shadow: 0 -8px 24px rgba(23,32,38,.18); }
@@ -11309,7 +11311,8 @@ table.recorder-tabela tbody tr:hover { background: var(--surface-soft); }
 #viewMntCam:not(.hidden) { padding-bottom: 86px; }
 
 /* Gaveta. */
-.mnt-gaveta-fundo { position: fixed; inset: 0; z-index: 45; background: rgba(23,32,38,.42); }
+.mnt-gaveta-fundo { position: fixed; top: 0; right: 0; bottom: 0; left: 220px;
+  z-index: 45; background: rgba(23,32,38,.42); }
 .mnt-gaveta { position: fixed; z-index: 46; top: 0; right: 0; bottom: 0; width: min(520px, 100%);
   display: flex; flex-direction: column; background: var(--surface);
   border-left: 1px solid var(--border); box-shadow: -16px 0 40px rgba(23,32,38,.16); }
@@ -11415,4 +11418,9 @@ table.recorder-tabela tbody tr:hover { background: var(--surface-soft); }
   #viewMntCam .mnt-cam-grid,
   #viewMntCam .mnt-grid-head,
   #viewMntCam .mnt-console { margin-left: 16px; margin-right: 16px; }
+}
+
+/* Em tela estreita a lateral some, e as duas barras voltam a ocupar tudo. */
+@media (max-width: 980px) {
+  .mnt-sel-bar, .mnt-gaveta-fundo { left: 0; }
 }
