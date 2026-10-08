@@ -11429,16 +11429,16 @@ table.recorder-tabela tbody tr:hover { background: var(--surface-soft); }
 }
 
 /* === Resultado da acao: painel do sistema, nao terminal ================== */
-#mntCamConsole { background: var(--surface); color: var(--text);
+.mnt-console { background: var(--surface); color: var(--text);
   border-top: 1px solid var(--border); box-shadow: 0 -10px 28px rgba(23,32,38,.12);
   max-height: 300px; }
-#mntCamConsole .mnt-console-header { padding: 11px 18px; border-bottom: 1px solid var(--border);
+.mnt-console .mnt-console-header { padding: 11px 18px; border-bottom: 1px solid var(--border);
   color: var(--text); font-size: 13.5px; }
 .mnt-console-tit { display: flex; align-items: center; gap: 9px; min-width: 0; font-weight: 600; }
 .mnt-console-tit svg { width: 16px; height: 16px; color: var(--primary); }
 .mnt-console-resumo { font-size: 12.5px; font-weight: 600; color: var(--muted); }
 .mnt-console-resumo.tem-falha { color: var(--danger); }
-#mntCamConsole .mnt-console-body { padding: 4px 0 10px; font-family: inherit; font-size: 13px; }
+.mnt-console .mnt-console-body { padding: 4px 0 10px; font-family: inherit; font-size: 13px; }
 
 .mnt-res-linha { display: flex; align-items: baseline; gap: 11px;
   padding: 8px 18px; border-bottom: 1px solid var(--border); }

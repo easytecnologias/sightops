@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=1791000192">
+  <link rel="stylesheet" href="styles.css?v=1791000193">
 </head>
 <body>
 
@@ -1087,7 +1087,7 @@
             <div class="mnt-console-tit">
               <i data-lucide="list-checks"></i>
               <span>Resultado da acao</span>
-              <span class="mnt-console-resumo" id="mntCamConsoleResumo"></span>
+              <span class="mnt-console-resumo"></span>
             </div>
             <button onclick="document.getElementById('mntCamConsole').classList.add('hidden')" aria-label="Fechar"><i data-lucide="x" style="width:15px;height:15px"></i></button>
           </div>
@@ -1229,8 +1229,12 @@
         </div>
         <div class="mnt-console hidden" id="mntDvrConsole">
           <div class="mnt-console-header">
-            <span><i data-lucide="terminal" style="width:13px;height:13px;margin-right:6px"></i>Log de execu--o</span>
-            <button onclick="document.getElementById('mntDvrConsole').classList.add('hidden')"><i data-lucide="x" style="width:14px;height:14px"></i></button>
+            <div class="mnt-console-tit">
+              <i data-lucide="list-checks"></i>
+              <span>Resultado da acao</span>
+              <span class="mnt-console-resumo"></span>
+            </div>
+            <button onclick="document.getElementById('mntDvrConsole').classList.add('hidden')" aria-label="Fechar"><i data-lucide="x" style="width:15px;height:15px"></i></button>
           </div>
           <div class="mnt-console-body" id="mntDvrConsoleBody"></div>
         </div>
@@ -1296,8 +1300,12 @@
         </div>
         <div class="mnt-console hidden" id="mntNvrConsole">
           <div class="mnt-console-header">
-            <span><i data-lucide="terminal" style="width:13px;height:13px;margin-right:6px"></i>Log de execu--o</span>
-            <button onclick="document.getElementById('mntNvrConsole').classList.add('hidden')"><i data-lucide="x" style="width:14px;height:14px"></i></button>
+            <div class="mnt-console-tit">
+              <i data-lucide="list-checks"></i>
+              <span>Resultado da acao</span>
+              <span class="mnt-console-resumo"></span>
+            </div>
+            <button onclick="document.getElementById('mntNvrConsole').classList.add('hidden')" aria-label="Fechar"><i data-lucide="x" style="width:15px;height:15px"></i></button>
           </div>
           <div class="mnt-console-body" id="mntNvrConsoleBody"></div>
         </div>
@@ -6814,7 +6822,7 @@
   <script src="js/recorders.js?v=1791000176"></script>
   <script src="js/windows.js?v=142"></script>
   <script src="js/snapshots.js?v=1790019880"></script>
-  <script src="js/maintenance.js?v=1791000192"></script>
+  <script src="js/maintenance.js?v=1791000193"></script>
   <script src="js/analysis.js?v=147"></script>
   <script src="js/network.js?v=1791000150"></script>
   <script src="js/deploy.js?v=1791000144"></script>

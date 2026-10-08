@@ -2219,12 +2219,19 @@ _PROVAS_DE_SENHA = (
 
 
 def _senha_aceita(alvo_rede: str, user: str, senha: str) -> bool:
-    """A camera aceita essa senha? Só 401 em todas as provas reprova.
+    """A camera aceita essa senha?
 
-    Timeout de rede ou porta fechada NAO reprovam: camera fora do ar com a
-    senha certa seria "trocada" por uma errada, e o estrago ficaria salvo.
+    So 2xx PROVA que aceita. As provas sao de marcas diferentes, entao a de
+    outra marca costuma responder 404 -- e 404 nao diz nada sobre a senha.
+    Tratar "nao foi 401" como aprovacao era o furo: numa Intelbras o
+    magicBox devolvia 401 (recusa correta) e o /ISAPI/ seguinte devolvia
+    404, aprovando a senha errada.
+
+    Sem nenhuma resposta conclusiva (timeout, porta fechada, so 404), aceita:
+    camera fora do ar com a senha CERTA nao pode ter a senha trocada por uma
+    errada, porque o estrago ficaria salvo.
     """
-    viu_401 = False
+    viu_recusa = False
     for caminho in _PROVAS_DE_SENHA:
         try:
             r = requests.get(
@@ -2235,11 +2242,12 @@ def _senha_aceita(alvo_rede: str, user: str, senha: str) -> bool:
             )
         except Exception:
             continue
-        if r.status_code == 401:
-            viu_401 = True
-            continue
-        return True
-    return not viu_401
+        if 200 <= r.status_code < 300:
+            return True
+        if r.status_code in (401, 403):
+            viu_recusa = True
+        # 404/5xx: a prova nao existe nesta marca -- nao conclui nada.
+    return not viu_recusa
 
 
 def _credencial_que_responde(ip: str, user: str, password: str, connector_id: str = "") -> tuple[str, str]:

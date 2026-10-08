@@ -752,7 +752,9 @@ function _mntLog(consoleId, bodyId, ip, msg, ok) {
 // quantas falharam e trabalho que a tela pode fazer.
 function _mntResumoLog(bodyId) {
   const body = document.getElementById(bodyId);
-  const alvo = document.getElementById('mntCamConsoleResumo');
+  // O resumo do console QUE registrou a linha: com um id fixo, uma rodada
+  // de DVR escrevia a contagem no console de cameras.
+  const alvo = body?.closest('.mnt-console')?.querySelector('.mnt-console-resumo');
   if (!body || !alvo) return;
   const feitas = body.querySelectorAll('.mnt-res-selo.ok').length;
   const falhas = body.querySelectorAll('.mnt-res-selo.falha').length;
