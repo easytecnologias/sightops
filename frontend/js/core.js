@@ -99,7 +99,9 @@ let _moduleCatalogCache = null; // /api/auth/modules/catalog, buscado uma vez po
 let _shellMode = 'client'; // 'owner' (painel do dono) ou 'client' (painel operacional) -- so admin de plataforma pode estar em 'owner'
 
 const SIGHTOPS_CLIENT_BUILD = 'production-zabbix-access-20260811a';
-const DISABLED_VIEWS = new Set(['access-whatsapp-triage']);
+// 'ia-nvr' saiu do menu em 09/10/2026: a Investigacao (data-view 'playback')
+// faz o mesmo com o indice do gravador, sem janela de 10 min.
+const DISABLED_VIEWS = new Set(['access-whatsapp-triage', 'ia-nvr']);
 
 // Telas de infraestrutura da Easy, nao do cliente. Zabbix e Grafana tem UMA
 // conta cada (Admin / admin), de super-usuario, que enxerga os hosts de TODOS
@@ -465,7 +467,7 @@ const VIEW_META = {
   'snap-dvr':      { title: 'Snapshots  DVR',   sub: 'Fotos dos canais DVR' },
   'snap-nvr':      { title: 'Snapshots  NVR',   sub: 'Fotos dos canais NVR' },
   'mnt-cam':       { title: 'Manutencao  Cameras', sub: 'Operacoes em lote' },
-  playback:        { title: 'Reproducao',       sub: 'Busca de gravacoes por DVR' },
+  playback:        { title: 'Investigação',     sub: 'Ache o momento nas gravações' },
   'ia-nvr':        { title: 'IA  NVR',          sub: 'Indexacao e busca inteligente' },
   'access-live':    { title: 'Acesso ao Vivo', sub: 'Movimentacao em tempo real' },
   'access-messenger': { title: 'Messenger', sub: 'Conversas de WhatsApp enviadas e recebidas' },
@@ -507,7 +509,7 @@ const VIEW_ID_MAP = {
   'snap-dvr':       'viewSnapDvr',
   'snap-nvr':       'viewSnapNvr',
   'mnt-cam':        'viewMntCam',
-  playback:         'viewPlayback',
+  playback:         'viewInvestigacao',
   'ia-nvr':         'viewIaNvr',
   'access-live':     'viewAccessLive',
   'access-messenger': 'viewAccessMessenger',
@@ -601,7 +603,7 @@ function loadView(view) {
     case 'snap-dvr':    loadSnapDvr();      break;
     case 'snap-nvr':    loadSnapNvr();      break;
     case 'mnt-cam':     loadMntCam();       break;
-    case 'playback':    loadPlayback();     break;
+    case 'playback':    loadInvestigacao(); break;
     case 'ia-nvr':      loadIaNvr();        break;
     case 'access-live':    loadAccessLive();    break;
     case 'access-messenger': loadAccessMessenger(); break;

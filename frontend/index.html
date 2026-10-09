@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=1791000199">
+  <link rel="stylesheet" href="styles.css?v=1791000200">
 </head>
 <body>
 
@@ -115,7 +115,7 @@
 
         <!-- Analise -->
         <div class="nav-section-label">Analise</div>
-        <button class="nav-item" data-view="playback"><i data-lucide="film"></i><span>Reproducao</span></button>
+        <button class="nav-item" data-view="playback"><i data-lucide="search"></i><span>Investigação</span></button>
         <button class="nav-item" data-view="ia-nvr"><i data-lucide="cpu"></i><span>IA - NVR</span></button>
 
         <!-- Controle de Acesso -->
@@ -1457,6 +1457,133 @@
             </div>
             <div id="iaNvrResults" class="playback-result"></div>
           </div>
+        </div>
+      </section>
+
+      <!-- --- VIEW: INVESTIGACAO (substitui Reproducao + IA - NVR) --- -->
+      <section class="workspace hidden inv-view" id="viewInvestigacao">
+        <div class="page-heading">
+          <div>
+            <p class="eyebrow">Análise</p>
+            <h1>Investigação</h1>
+            <p>Ache o momento nas gravações sem precisar saber o horário exato.</p>
+          </div>
+          <div class="page-heading-actions inv-anteriores-wrap">
+            <button class="secondary-action" type="button" id="invBtnAnteriores"><i data-lucide="history"></i> Buscas anteriores</button>
+            <div class="inv-anteriores" id="invAnteriores" hidden></div>
+          </div>
+        </div>
+
+        <section class="inv-panel">
+          <div class="inv-query">
+            <div class="inv-field">
+              <label>Câmeras</label>
+              <div class="inv-box">
+                <span id="invChips" class="inv-chips"></span>
+                <input id="invChipInput" placeholder="+ câmera ou site" autocomplete="off">
+              </div>
+            </div>
+            <div class="inv-field">
+              <label>Período</label>
+              <div class="inv-box mono"><i data-lucide="clock"></i> <span id="invPeriodoTexto"></span></div>
+              <div class="inv-presets" id="invPresets">
+                <button type="button" data-preset="hora">Última hora</button>
+                <button type="button" data-preset="hoje">Hoje</button>
+                <button type="button" data-preset="ontem">Ontem à noite</button>
+                <button type="button" data-preset="custom">Personalizado</button>
+              </div>
+              <div class="inv-periodo-custom" id="invPeriodoCustom" hidden>
+                <input type="datetime-local" id="invIni"> <span>→</span> <input type="datetime-local" id="invFim">
+              </div>
+            </div>
+            <div class="inv-field">
+              <label>O que procurar</label>
+              <div class="inv-box">
+                <span class="inv-chip on">Qualquer movimento</span>
+                <span class="inv-chip off" title="Em breve: detecção de pessoa nos trechos com movimento">Pessoa</span>
+                <span class="inv-chip off" title="Em breve: detecção de veículo nos trechos com movimento">Veículo</span>
+              </div>
+            </div>
+            <div><button class="primary-action inv-go" type="button" id="btnInvestigar"><i data-lucide="search"></i> Investigar</button></div>
+          </div>
+          <div class="inv-job" id="invJob" hidden></div>
+        </section>
+
+        <div class="inv-grid">
+          <section class="inv-panel">
+            <div class="inv-panel-h"><div><h2>Câmeras</h2><p>Do inventário · senha salva</p></div></div>
+            <label class="inv-tree-search"><i data-lucide="search"></i><input id="invBusca" placeholder="Buscar câmera, canal ou site" autocomplete="off"></label>
+            <div class="inv-tree" id="invArvore"></div>
+          </section>
+
+          <div class="inv-centro">
+            <section class="inv-panel">
+              <div class="inv-player">
+                <video id="invVideo" muted playsinline></video>
+                <div class="inv-player-vazio" id="invPlayerVazio"><i data-lucide="film"></i><span>Clique num trecho ou na linha do tempo para assistir.</span></div>
+                <div class="inv-osd mono" id="invOsdCamera"></div>
+                <div class="inv-osd inv-osd-r mono" id="invOsdHora"></div>
+                <div class="inv-player-status" id="invPlayerStatus" hidden></div>
+                <div class="inv-badge-live">Gravação · RTSP via go2rtc</div>
+              </div>
+              <div class="inv-controls">
+                <button class="inv-ghost" type="button" id="invBtnVoltar" title="-10 s"><i data-lucide="chevrons-left"></i></button>
+                <button class="primary-action inv-play" type="button" id="invBtnPlay" title="Tocar / pausar"><i data-lucide="play"></i></button>
+                <button class="inv-ghost" type="button" id="invBtnAvancar" title="+10 s"><i data-lucide="chevrons-right"></i></button>
+                <span class="inv-seg on">1x</span>
+                <span class="inv-seg off" title="Em breve: acelerar pelo download do trecho">4x</span>
+                <span class="inv-seg off" title="Em breve: acelerar pelo download do trecho">16x</span>
+                <label class="inv-toggle"><input type="checkbox" id="invPularParado" checked><i></i> Pular partes sem movimento</label>
+                <span class="inv-sp">
+                  <button class="secondary-action" type="button" id="invBtnAddCaso"><i data-lucide="plus"></i> Adicionar ao caso</button>
+                  <button class="secondary-action" type="button" id="invBtnTrecho"><i data-lucide="download"></i> Baixar trecho</button>
+                </span>
+              </div>
+              <div class="inv-tl">
+                <div class="inv-tl-ruler"><div></div><div class="mono" id="invRegua"></div></div>
+                <div id="invLinhas"></div>
+                <div class="inv-legend">
+                  <span><i class="inv-sw" style="background:#cfd8dd"></i> Gravado</span>
+                  <span><i class="inv-sw" style="background:#ffd8a8"></i> Movimento (índice do gravador)</span>
+                  <span><i class="inv-sw inv-sw-dot"></i> Trecho com movimento</span>
+                  <span class="inv-erro" id="invBuracos"></span>
+                </div>
+              </div>
+            </section>
+
+            <section class="inv-panel">
+              <div class="inv-panel-h">
+                <div><h2>Aparições encontradas</h2><p id="invResultadosSub">Movimento marcado pelo próprio gravador</p></div>
+                <div class="inv-right" id="invOrdem">
+                  <button type="button" class="inv-seg on" data-ordem="hora">Por horário</button>
+                  <button type="button" class="inv-seg" data-ordem="camera">Por câmera</button>
+                </div>
+              </div>
+              <div class="inv-results" id="invResultados"></div>
+            </section>
+          </div>
+
+          <section class="inv-panel inv-case">
+            <div class="inv-case-h">
+              <div class="inv-case-top">
+                <small>Caso <span class="inv-pill" id="invCasosBadge" hidden>0</span></small>
+                <button class="inv-mini" type="button" id="invCasoNovo"><i data-lucide="plus"></i> Novo caso</button>
+              </div>
+              <select id="invCasoSel" class="inv-caso-sel" aria-label="Caso"></select>
+              <h3 id="invCasoTitulo">Nenhum caso aberto</h3>
+              <p id="invCasoSub"></p>
+            </div>
+            <div class="inv-warn" id="invCasoAviso" hidden></div>
+            <div id="invCasoItens"></div>
+            <div class="inv-sugestao" id="invCasoSugestao" hidden></div>
+            <textarea class="inv-note" id="invCasoNotas" placeholder="Anotações do caso…" disabled></textarea>
+            <div class="inv-case-actions">
+              <button class="primary-action" type="button" disabled title="Em breve"><i data-lucide="file-text"></i> Relatório PDF com fotos</button>
+              <button class="secondary-action" type="button" id="invCasoBaixar" disabled><i data-lucide="download"></i> Baixar trechos (MP4)</button>
+              <button class="secondary-action" type="button" disabled title="Em breve"><i data-lucide="share-2"></i> Link para o cliente (expira em 7 dias)</button>
+              <div id="invCasoDownloads"></div>
+            </div>
+          </section>
         </div>
       </section>
 
@@ -6878,7 +7005,7 @@
        trechos do app.js original na sequencia em que estavam, entao carregar
        fora de ordem muda o comportamento. Ao adicionar um arquivo novo, entre
        antes de bootstrap.js, que e quem liga os botoes no DOMContentLoaded. -->
-  <script src="js/core.js?v=1791000199"></script>
+  <script src="js/core.js?v=1791000200"></script>
   <script src="js/dashboard.js?v=1791000199"></script>
   <script src="js/liveStream.js?v=1791000199"></script>
   <script src="js/cameras.js?v=1791000199"></script>
@@ -6887,6 +7014,7 @@
   <script src="js/snapshots.js?v=1791000199"></script>
   <script src="js/maintenance.js?v=1791000199"></script>
   <script src="js/analysis.js?v=1791000199"></script>
+  <script src="js/investigacao.js?v=1791000200"></script>
   <script src="js/network.js?v=1791000199"></script>
   <script src="js/rede.js?v=1791000199"></script>
   <script src="js/deploy.js?v=1791000199"></script>

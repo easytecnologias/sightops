@@ -9,6 +9,8 @@ pelo IP virtual quando o cliente e isolado.
 """
 from __future__ import annotations
 
+import threading
+import time
 from datetime import datetime, timedelta
 from typing import Any, Dict, List
 
@@ -122,3 +124,188 @@ def api_driver_relogio(host: str, http_port: int = 80, connector_id: str = "") -
         return g.relogio()
     except ErroDriver as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+# ------------------------------------------------------------- Investigacao
+class PlaybackRequest(BaseModel):
+    host: str
+    http_port: int = Field(default=80, ge=1, le=65535)
+    canal: int = Field(ge=1, le=256)
+    inicio: str
+    connector_id: str = ""
+
+
+@router.post("/playback")
+def api_driver_playback(req: PlaybackRequest) -> Dict[str, Any]:
+    """Registra no go2rtc a GRAVACAO a partir de um horario e devolve o stream.
+
+    Mesmo caminho do ao vivo de gravador (ffmpeg:...#video=h264: H.264 so e
+    copiado, H.265 e convertido). O prefixo `rec_` faz o reap periodico limpar
+    o stream -- e a senha RTSP junto -- quando ninguem mais assiste.
+    """
+    import hashlib
+
+    import requests as _rq
+
+    from app.services import live_stream_service as lss
+
+    inicio = _data(req.inicio, "inicio")
+    fim = min(inicio + timedelta(hours=4), datetime.now())
+    if fim <= inicio:
+        raise HTTPException(status_code=400, detail="esse horario ainda nao foi gravado")
+    g = _abrir(req.host, req.http_port, req.connector_id)
+    fonte = f"ffmpeg:{g.url_playback(req.canal, inicio, fim)}#video=h264"
+    nome = "rec_pb_" + hashlib.sha1(f"{req.host}|{req.canal}|{inicio}".encode()).hexdigest()[:12]
+    lss._registered_at[nome] = time.time()
+    try:
+        if not lss._stream_registered_with_source(nome, fonte):
+            put = _rq.put(f"{lss.GO2RTC_BASE_URL}/api/streams", params={"name": nome, "src": fonte}, timeout=8)
+            if put.status_code not in (200, 201, 204) and not lss._stream_registered_with_source(nome, fonte):
+                raise HTTPException(status_code=502, detail=f"go2rtc recusou o playback (HTTP {put.status_code})")
+    except _rq.RequestException as exc:
+        raise HTTPException(status_code=502, detail="go2rtc fora do ar") from exc
+    return {"stream_name": nome, "inicio": inicio.strftime(FMT), "fim": fim.strftime(FMT)}
+
+
+# Gravador Intelbras aceita poucas sessoes RTSP de uma vez e, quando acabam,
+# aceita a conexao e nunca responde (visto no NVD de Perucaba). Miniatura e
+# so conforto: no maximo duas por vez, e cada uma vira arquivo em cache.
+_QUADROS = threading.BoundedSemaphore(2)
+
+
+@router.get("/quadro")
+def api_driver_quadro(host: str, canal: int, ts: str, http_port: int = 80, connector_id: str = ""):
+    """Miniatura (320 px) da gravacao num instante. Cache por tenant."""
+    import subprocess
+
+    from fastapi.responses import FileResponse
+
+    momento = _data(ts, "ts")
+    pasta = tenant_scoped_path("investigacao_quadros")
+    pasta.mkdir(parents=True, exist_ok=True)
+    arq = pasta / f"{host.replace('.', '_').replace(':', '_')}_{int(canal)}_{momento:%Y%m%d%H%M%S}.jpg"
+    if not arq.exists():
+        g = _abrir(host, http_port, connector_id)
+        url = g.url_playback(int(canal), momento, momento + timedelta(minutes=1))
+        if not _QUADROS.acquire(timeout=40):
+            raise HTTPException(status_code=503, detail="gravador ocupado, tente de novo")
+        try:
+            p = subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-rtsp_transport", "tcp",
+                                "-timeout", "10000000", "-i", url, "-frames:v", "1", "-vf", "scale=320:-2",
+                                "-q:v", "5", "-y", str(arq)], capture_output=True, timeout=30)
+        except subprocess.TimeoutExpired as exc:
+            raise HTTPException(status_code=504, detail="o gravador demorou para mandar a imagem") from exc
+        finally:
+            _QUADROS.release()
+        if p.returncode != 0 or not arq.exists():
+            arq.unlink(missing_ok=True)
+            raise HTTPException(status_code=404, detail="sem gravacao nesse instante")
+    return FileResponse(arq, media_type="image/jpeg", headers={"Cache-Control": "private, max-age=86400"})
+
+
+class TrechoRequest(BaseModel):
+    host: str
+    http_port: int = Field(default=80, ge=1, le=65535)
+    canal: int = Field(ge=1, le=256)
+    inicio: str
+    fim: str
+    connector_id: str = ""
+
+
+@router.post("/trecho")
+def api_driver_trecho(req: TrechoRequest) -> Dict[str, Any]:
+    """Baixa o trecho em MP4 na resolucao original (ate 30 min).
+
+    O download em si e o de recorder_media_service: loadfile.cgi e, se o
+    gravador devolver lixo (iNVD 5132), o indice + RPC_Loadfile.
+    """
+    import secrets
+
+    from app.services.recorder_media_service import (
+        RecorderAuthError, RecordingNotFoundError, download_clip_mp4)
+
+    inicio, fim = _data(req.inicio, "inicio"), _data(req.fim, "fim")
+    if not (timedelta(0) < fim - inicio <= timedelta(minutes=30)):
+        raise HTTPException(status_code=400, detail="trecho de ate 30 minutos")
+    g = _abrir(req.host, req.http_port, req.connector_id)
+    if g.marca != "intelbras":
+        raise HTTPException(status_code=501, detail=f"baixar trecho ainda nao esta disponivel para {g.marca}")
+    porta = int(g.base.rsplit(":", 1)[1]) if g.base.count(":") > 1 else 80
+    try:
+        mp4 = download_clip_mp4(host=g.alcance, http_port=porta, user=g.user, password=g.password,
+                                channel=int(req.canal), start_dt=inicio, end_dt=fim, timeout_sec=600,
+                                scale="scale=trunc(iw/2)*2:trunc(ih/2)*2")
+    except RecorderAuthError as exc:
+        raise HTTPException(status_code=401, detail=str(exc)) from exc
+    except RecordingNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except (RuntimeError, TimeoutError) as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    # O nome padrao e previsivel (host+canal+horario) e a pasta de exportacao
+    # e comum; o sufixo aleatorio impede adivinhar o arquivo de outro cliente.
+    final = mp4.with_name(f"{mp4.stem}-{secrets.token_hex(6)}.mp4")
+    mp4.replace(final)
+    return {"url": f"/api/playback/files/{final.name}", "filename": final.name, "size": final.stat().st_size}
+
+
+# ------------------------------------------------------------------- Casos
+class CasoNovo(BaseModel):
+    titulo: str
+    site: str = ""
+    autor: str = ""
+
+
+class CasoItem(BaseModel):
+    host: str
+    http_port: int = 80
+    canal: int
+    camera: str = ""
+    momento: str
+    inicio: str = ""
+    fim: str = ""
+    nota: str = ""
+
+
+class CasoNotas(BaseModel):
+    notas: str | None = None
+    item_id: str = ""
+    nota_item: str | None = None
+
+
+def _caso(func, *args, **kwargs):
+    try:
+        return func(*args, **kwargs)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="caso nao encontrado") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/casos")
+def api_casos_listar() -> Dict[str, Any]:
+    from app.services import investigation_cases as ic
+    return {"casos": ic.listar()}
+
+
+@router.post("/casos")
+def api_casos_criar(req: CasoNovo) -> Dict[str, Any]:
+    from app.services import investigation_cases as ic
+    return _caso(ic.criar, req.titulo, req.site, req.autor)
+
+
+@router.post("/casos/{caso_id}/itens")
+def api_casos_item(caso_id: str, req: CasoItem) -> Dict[str, Any]:
+    from app.services import investigation_cases as ic
+    return _caso(ic.adicionar_item, caso_id, req.model_dump())
+
+
+@router.post("/casos/{caso_id}/itens/{item_id}/remover")
+def api_casos_item_remover(caso_id: str, item_id: str) -> Dict[str, Any]:
+    from app.services import investigation_cases as ic
+    return _caso(ic.remover_item, caso_id, item_id)
+
+
+@router.post("/casos/{caso_id}/notas")
+def api_casos_notas(caso_id: str, req: CasoNotas) -> Dict[str, Any]:
+    from app.services import investigation_cases as ic
+    return _caso(ic.atualizar, caso_id, req.notas, req.item_id, req.nota_item)
