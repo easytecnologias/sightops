@@ -670,9 +670,11 @@ function netToolSetLog(html, status = '') {
   if (!log) {
     const resumo = document.getElementById('redeFerrResumo');
     if (resumo && (status || html)) {
+      // O texto real antes do status generico: era ele que dizia POR QUE
+      // falhou, e "Falha no teste." engolia a explicacao.
       const texto = document.createElement('div');
       texto.innerHTML = html || '';
-      resumo.textContent = status || texto.textContent.trim();
+      resumo.textContent = texto.textContent.trim() || status;
     }
   }
 }

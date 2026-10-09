@@ -253,13 +253,53 @@ def _run_dns(targets: List[str]) -> Dict[str, Any]:
     return {"items": items}
 
 
+def _traceroute_icmp(destino: str, max_saltos: int = 20, timeout: float = 1.5) -> List[Dict[str, Any]]:
+    """Rota em Python, com ICMP de TTL crescente.
+
+    O container nao tem `traceroute` nem `tracepath` -- a versao anterior
+    devolvia "[Errno 2] No such file or directory" para o operador. O socket
+    de datagrama ICMP recebe tambem os "tempo excedido" dos roteadores do
+    caminho, e o endereco de origem deles e justamente o salto.
+    """
+    saltos: List[Dict[str, Any]] = []
+    for ttl in range(1, max_saltos + 1):
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_ICMP)
+        except OSError as exc:
+            saltos.append({"ttl": ttl, "ip": "", "ms": None, "erro": str(exc)})
+            break
+        try:
+            sock.setsockopt(socket.IPPROTO_IP, socket.IP_TTL, ttl)
+            sock.settimeout(timeout)
+            pacote = struct.pack("!BBHHH", 8, 0, 0, 1, ttl) + b"\x58" * 32
+            comeco = time.perf_counter()
+            sock.sendto(pacote, (destino, 0))
+            _, origem = sock.recvfrom(2048)
+            saltos.append({"ttl": ttl, "ip": origem[0],
+                           "ms": round((time.perf_counter() - comeco) * 1000, 1)})
+            if origem[0] == destino:
+                break
+        except socket.timeout:
+            saltos.append({"ttl": ttl, "ip": "*", "ms": None})
+        except OSError as exc:
+            saltos.append({"ttl": ttl, "ip": "*", "ms": None, "erro": str(exc)})
+        finally:
+            try:
+                sock.close()
+            except Exception:
+                pass
+    return saltos
+
+
 def _run_traceroute(target: str, timeout: int) -> Dict[str, Any]:
-    is_windows = platform.system().lower().startswith("win")
-    args = ["tracert", "-d", "-h", "20", target] if is_windows else ["traceroute", "-n", "-m", "20", target]
-    result = _run_command(args, max(timeout, 8) + 12)
-    if not result.get("ok") and not is_windows:
-        result = _run_command(["tracepath", "-n", target], max(timeout, 8) + 12)
-    return {"target": target, **result}
+    saltos = _traceroute_icmp(target, timeout=max(1.0, float(timeout)))
+    chegou = bool(saltos) and saltos[-1].get("ip") == target
+    return {"target": target, "ok": chegou, "saltos": saltos,
+            "stdout": " | ".join(
+                "%d %s%s" % (h["ttl"], h.get("ip") or "*",
+                             (" %sms" % h["ms"]) if h.get("ms") is not None else "")
+                for h in saltos),
+            "stderr": ""}
 
 
 @router.post("/tools/run")
@@ -313,6 +353,11 @@ async def api_network_tools_run(payload: Dict[str, Any]) -> Dict[str, Any]:
                 if real:
                     item["alvo_virtual"] = item[campo]
                     item[campo] = real
+        for salto in (result.get("saltos") or []):
+            real_salto = de_volta.get(str(salto.get("ip") or ""))
+            if real_salto:
+                salto["ip_virtual"] = salto["ip"]
+                salto["ip"] = real_salto
         real_topo = de_volta.get(str(result.get("target") or ""))
         if real_topo:
             result["alvo_virtual"] = result["target"]

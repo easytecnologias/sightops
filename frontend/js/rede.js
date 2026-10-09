@@ -301,11 +301,18 @@ function _redeNormalizar(teste, r) {
     }));
   }
   if (teste === 'traceroute') {
-    // Rota nao devolve lista: e texto corrido. Vira UMA linha, com o caminho.
-    return [{
-      target: r.target || '', online: !!r.ok, rtt_ms: null, portas: [],
-      leitura: (r.stdout || r.stderr || r.error || '').split('\n').slice(0, 20).join(' | '),
-    }];
+    // Uma linha por SALTO: a rota so serve se der para ver onde parou.
+    const saltos = r.saltos || [];
+    if (saltos.length) {
+      return saltos.map(h => ({
+        target: h.ip === '*' ? `salto ${h.ttl}` : h.ip,
+        online: h.ip !== '*' && !!h.ip,
+        rtt_ms: h.ms, portas: [],
+        leitura: h.ip === '*' ? 'nao respondeu neste salto' : `salto ${h.ttl}`,
+      }));
+    }
+    return [{ target: r.target || '', online: !!r.ok, rtt_ms: null, portas: [],
+              leitura: r.stdout || r.error || 'sem resposta' }];
   }
   return itens.map(i => ({
     target: i.target, online: !!i.online, rtt_ms: i.rtt_ms ?? null,
@@ -432,6 +439,11 @@ function ligarRede() {
     document.querySelectorAll('[data-rede-teste]').forEach(x => x.classList.toggle('ativa', x === b));
     const campo = document.getElementById('netToolTest');
     if (campo) campo.value = b.dataset.redeTeste;
+    // Limpa o resultado anterior: sem isto, a aba DNS mostrava o erro da
+    // Rota e parecia que o DNS tinha falhado.
+    pintarRedeFerramentas({ result: { items: [] } });
+    const resumo = document.getElementById('redeFerrResumo');
+    if (resumo) resumo.textContent = 'Nenhum teste executado ainda.';
     // A coleta de ARP/MAC nao existe no teste local -- ela le as tabelas do
     // proprio MikroTik. Mandar para o local respondia "teste invalido" e o
     // operador nao tinha como adivinhar por que.
