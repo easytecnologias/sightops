@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=1791000197">
+  <link rel="stylesheet" href="styles.css?v=1791000198">
 </head>
 <body>
 
@@ -59,12 +59,29 @@
         <!-- Implantacao -->
         <div class="nav-section-label">Implantacao</div>
         <button class="nav-item" data-view="planning"><i data-lucide="drafting-compass"></i><span>Projetos</span></button>
-        <button class="nav-item" data-view="deploy-olt"><i data-lucide="radio-tower"></i><span>OLT</span></button>
-        <button class="nav-item" data-view="deploy-onu"><i data-lucide="wifi"></i><span>ONU</span></button>
-        <button class="nav-item" data-view="deploy-tr069"><i data-lucide="radio-tower"></i><span>TR-069</span></button>
-        <button class="nav-item" data-view="deploy-recorder"><i data-lucide="hard-drive-upload"></i><span>Gravadores</span></button>
-        <button class="nav-item" data-view="deploy-new"><i data-lucide="clipboard-check"></i><span>CFTV</span></button>
-        <button class="nav-item" data-view="deploy-activation"><i data-lucide="key-round"></i><span>Ativacao de Cameras</span></button>
+        <div class="nav-group" id="ngDeployRedes">
+          <button class="nav-item nav-group-toggle">
+            <i data-lucide="share-2"></i><span>Redes</span>
+            <i data-lucide="chevron-right" class="nav-chevron"></i>
+          </button>
+          <div class="nav-sub">
+            <button class="nav-item nav-sub-item" data-view="deploy-olt"><i data-lucide="radio-tower"></i><span>OLT</span></button>
+            <button class="nav-item nav-sub-item" data-view="deploy-onu"><i data-lucide="wifi"></i><span>ONU</span></button>
+            <button class="nav-item nav-sub-item" data-view="deploy-tr069"><i data-lucide="satellite-dish"></i><span>TR-069</span></button>
+            <button class="nav-item nav-sub-item" data-view="switch"><i data-lucide="server"></i><span>Switch</span></button>
+          </div>
+        </div>
+        <div class="nav-group" id="ngDeployCftv">
+          <button class="nav-item nav-group-toggle">
+            <i data-lucide="video"></i><span>CFTV</span>
+            <i data-lucide="chevron-right" class="nav-chevron"></i>
+          </button>
+          <div class="nav-sub">
+            <button class="nav-item nav-sub-item" data-view="deploy-activation"><i data-lucide="key-round"></i><span>Ativacao de Cameras</span></button>
+            <button class="nav-item nav-sub-item" data-view="deploy-new"><i data-lucide="camera"></i><span>Cameras IP</span></button>
+            <button class="nav-item nav-sub-item" data-view="deploy-recorder"><i data-lucide="hard-drive-upload"></i><span>Gravadores</span></button>
+          </div>
+        </div>
 
         <!-- Inventario -->
         <div class="nav-section-label">Inventario</div>
@@ -81,7 +98,6 @@
             <button class="nav-item nav-sub-item" data-view="snap-dvr"><i data-lucide="hard-drive-upload"></i><span>Gravadores</span></button>
           </div>
         </div>
-        <button class="nav-item" data-view="switch"><i data-lucide="server"></i><span>Switch</span></button>
         <button class="nav-item" data-view="inv-windows"><i data-lucide="monitor"></i><span>Windows</span></button>
 
         <!-- Integracoes (logo apos Inventario) -->
@@ -6927,35 +6943,35 @@
   </div>
 
   <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js"></script>
-  <script src="config.js?v=1791000197"></script>
+  <script src="config.js?v=1791000198"></script>
   <!-- app.js foi dividido por assunto. A ORDEM importa: os arquivos sao os
        trechos do app.js original na sequencia em que estavam, entao carregar
        fora de ordem muda o comportamento. Ao adicionar um arquivo novo, entre
        antes de bootstrap.js, que e quem liga os botoes no DOMContentLoaded. -->
-  <script src="js/core.js?v=1791000197"></script>
-  <script src="js/dashboard.js?v=1791000197"></script>
-  <script src="js/liveStream.js?v=1791000197"></script>
-  <script src="js/cameras.js?v=1791000197"></script>
-  <script src="js/recorders.js?v=1791000197"></script>
-  <script src="js/windows.js?v=1791000197"></script>
-  <script src="js/snapshots.js?v=1791000197"></script>
-  <script src="js/maintenance.js?v=1791000197"></script>
-  <script src="js/analysis.js?v=1791000197"></script>
-  <script src="js/network.js?v=1791000197"></script>
-  <script src="js/rede.js?v=1791000197"></script>
-  <script src="js/deploy.js?v=1791000197"></script>
-  <script src="js/cameraActivation.js?v=1791000197"></script>
-  <script src="js/deployOlt.js?v=1791000197"></script>
-  <script src="js/connectors.js?v=1791000197"></script>
-  <script src="js/monitoring.js?v=1791000197"></script>
-  <script src="js/planning.js?v=1791000197"></script>
-  <script src="js/helpers.js?v=1791000197"></script>
-  <script src="js/accessControl.js?v=1791000197"></script>
-  <script src="js/accessLive.js?v=1791000197"></script>
-  <script src="js/accessWhatsappTriage.js?v=1791000197"></script>
-  <script src="js/messenger.js?v=1791000197"></script>
-  <script src="js/alert.js?v=1791000197"></script>
-  <script src="js/tr069.js?v=1791000197"></script>
-  <script src="js/bootstrap.js?v=1791000197"></script>
+  <script src="js/core.js?v=1791000198"></script>
+  <script src="js/dashboard.js?v=1791000198"></script>
+  <script src="js/liveStream.js?v=1791000198"></script>
+  <script src="js/cameras.js?v=1791000198"></script>
+  <script src="js/recorders.js?v=1791000198"></script>
+  <script src="js/windows.js?v=1791000198"></script>
+  <script src="js/snapshots.js?v=1791000198"></script>
+  <script src="js/maintenance.js?v=1791000198"></script>
+  <script src="js/analysis.js?v=1791000198"></script>
+  <script src="js/network.js?v=1791000198"></script>
+  <script src="js/rede.js?v=1791000198"></script>
+  <script src="js/deploy.js?v=1791000198"></script>
+  <script src="js/cameraActivation.js?v=1791000198"></script>
+  <script src="js/deployOlt.js?v=1791000198"></script>
+  <script src="js/connectors.js?v=1791000198"></script>
+  <script src="js/monitoring.js?v=1791000198"></script>
+  <script src="js/planning.js?v=1791000198"></script>
+  <script src="js/helpers.js?v=1791000198"></script>
+  <script src="js/accessControl.js?v=1791000198"></script>
+  <script src="js/accessLive.js?v=1791000198"></script>
+  <script src="js/accessWhatsappTriage.js?v=1791000198"></script>
+  <script src="js/messenger.js?v=1791000198"></script>
+  <script src="js/alert.js?v=1791000198"></script>
+  <script src="js/tr069.js?v=1791000198"></script>
+  <script src="js/bootstrap.js?v=1791000198"></script>
 </body>
 </html>

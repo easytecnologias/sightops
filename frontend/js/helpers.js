@@ -85,12 +85,38 @@ function filterTable(inputId, tableBodyId) {
 
 //  Nav groups (accordion) 
 function initNavGroups() {
+  //  Sanfona: abrir um grupo fecha os outros. Antes cada um alternava
+  //  sozinho, entao dava para deixar todos abertos e a lateral virava uma
+  //  lista quilometrica -- justamente o que os grupos vieram evitar.
+  const fecharOutros = (manter) => {
+    document.querySelectorAll('.nav-group.open').forEach(g => {
+      if (g !== manter) g.classList.remove('open');
+    });
+  };
+
   document.querySelectorAll('.nav-group-toggle').forEach(btn => {
     btn.addEventListener('click', () => {
       const group = btn.closest('.nav-group');
-      group.classList.toggle('open');
+      const abrindo = !group.classList.contains('open');
+      fecharOutros(group);
+      group.classList.toggle('open', abrindo);
     });
   });
+
+  //  Navegar para uma tela de dentro de um grupo mantem o grupo dela aberto
+  //  e fecha os outros. Sem isto o item ativo fica escondido e o operador
+  //  perde a referencia de onde esta.
+  document.querySelectorAll('.nav-item[data-view]').forEach(item => {
+    item.addEventListener('click', () => {
+      const group = item.closest('.nav-group');
+      fecharOutros(group);
+      if (group) group.classList.add('open');
+    });
+  });
+
+  //  Na carga, abre o grupo que contem a tela atual.
+  const ativo = document.querySelector('.nav-group .nav-item.active');
+  if (ativo) ativo.closest('.nav-group')?.classList.add('open');
 }
 
 //  Eventos 
