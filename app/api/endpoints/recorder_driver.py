@@ -9,7 +9,6 @@ pelo IP virtual quando o cliente e isolado.
 """
 from __future__ import annotations
 
-import threading
 import time
 from datetime import datetime, timedelta
 from typing import Any, Dict, List
@@ -167,40 +166,74 @@ def api_driver_playback(req: PlaybackRequest) -> Dict[str, Any]:
     return {"stream_name": nome, "inicio": inicio.strftime(FMT), "fim": fim.strftime(FMT)}
 
 
-# Gravador Intelbras aceita poucas sessoes RTSP de uma vez e, quando acabam,
-# aceita a conexao e nunca responde (visto no NVD de Perucaba). Miniatura e
-# so conforto: no maximo duas por vez, e cada uma vira arquivo em cache.
-_QUADROS = threading.BoundedSemaphore(2)
-
-
 @router.get("/quadro")
 def api_driver_quadro(host: str, canal: int, ts: str, http_port: int = 80, connector_id: str = ""):
-    """Miniatura (320 px) da gravacao num instante. Cache por tenant."""
-    import subprocess
+    """Foto (640 px) da gravacao num instante. Cache por tenant.
 
+    E o mesmo arquivo que a classificacao usa: o retangulo desenhado na tela
+    cai em cima do que foi detectado. O gravador Intelbras trava calado quando
+    passa do numero de sessoes RTSP -- no maximo 2 por gravador, somando a
+    classificacao (investigation_classify.sessao_do_gravador).
+    """
     from fastapi.responses import FileResponse
 
+    from app.services import investigation_classify as ic
+
     momento = _data(ts, "ts")
-    pasta = tenant_scoped_path("investigacao_quadros")
-    pasta.mkdir(parents=True, exist_ok=True)
-    arq = pasta / f"{host.replace('.', '_').replace(':', '_')}_{int(canal)}_{momento:%Y%m%d%H%M%S}.jpg"
+    arq = ic.arquivo_quadro(host, int(canal), momento)
     if not arq.exists():
         g = _abrir(host, http_port, connector_id)
         url = g.url_playback(int(canal), momento, momento + timedelta(minutes=1))
-        if not _QUADROS.acquire(timeout=40):
+        sessao = ic.sessao_do_gravador(host)
+        if not sessao.acquire(timeout=40):
             raise HTTPException(status_code=503, detail="gravador ocupado, tente de novo")
         try:
-            p = subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-rtsp_transport", "tcp",
-                                "-timeout", "10000000", "-i", url, "-frames:v", "1", "-vf", "scale=320:-2",
-                                "-q:v", "5", "-y", str(arq)], capture_output=True, timeout=30)
-        except subprocess.TimeoutExpired as exc:
-            raise HTTPException(status_code=504, detail="o gravador demorou para mandar a imagem") from exc
+            ok = arq.exists() or ic.tirar_quadro(url, arq, largura=640)
         finally:
-            _QUADROS.release()
-        if p.returncode != 0 or not arq.exists():
-            arq.unlink(missing_ok=True)
+            sessao.release()
+        if not ok:
             raise HTTPException(status_code=404, detail="sem gravacao nesse instante")
     return FileResponse(arq, media_type="image/jpeg", headers={"Cache-Control": "private, max-age=86400"})
+
+
+class TrechoRef(BaseModel):
+    ini: str
+    fim: str
+
+
+class ClassificarRequest(BaseModel):
+    host: str
+    http_port: int = Field(default=80, ge=1, le=65535)
+    canal: int = Field(ge=1, le=256)
+    trechos: List[TrechoRef] = Field(default_factory=list)
+    connector_id: str = ""
+    job_id: str = ""
+
+
+@router.post("/classificar")
+def api_driver_classificar(req: ClassificarRequest) -> Dict[str, Any]:
+    """Comeca a dizer, trecho a trecho, se o movimento foi pessoa, veiculo ou nada."""
+    from app.services import investigation_classify as ic
+
+    g = _abrir(req.host, req.http_port, req.connector_id)
+    canal = int(req.canal)
+    job_id = ic.iniciar(req.host, canal, [t.model_dump() for t in req.trechos],
+                        lambda m: g.url_playback(canal, m, m + timedelta(minutes=1)))
+    return {"job_id": job_id}
+
+
+@router.post("/classificar/situacao")
+def api_driver_classificar_situacao(req: ClassificarRequest) -> Dict[str, Any]:
+    """Andamento do job e os rotulos que ja existem (cache inclusive de buscas antigas)."""
+    from app.services import investigation_classify as ic
+
+    job = None
+    if req.job_id:
+        try:
+            job = ic.situacao(req.job_id)
+        except KeyError:
+            job = None
+    return {"job": job, "resultados": ic.resultados(req.host, int(req.canal), [t.model_dump() for t in req.trechos])}
 
 
 class TrechoRequest(BaseModel):

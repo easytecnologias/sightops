@@ -34,7 +34,11 @@ const _inv = {
   quadros: new Map(),        // url -> objectURL
   timerPulo: null,
   casoVisivel: false,
-  abertos: null,             // hosts de gravador abertos na lista (null = ainda nao decidido)
+  abertos: null,
+  rotulos: new Map(),        // `${chave}|${ini}` -> {rotulo, dets, foto}
+  classJobs: new Map(),      // chave -> {job_id, status, feito, total, erro}
+  filtro: 'todos',
+  pollTimer: null,             // hosts de gravador abertos na lista (null = ainda nao decidido)
 };
 
 function _invChave(t) { return `${t.host}|${t.http_port || 80}|${t.channel}`; }
@@ -101,11 +105,12 @@ function bindInvestigacao() {
   $('invIni')?.addEventListener('change', invPeriodoManual);
   $('invFim')?.addEventListener('change', invPeriodoManual);
   $('btnInvestigar')?.addEventListener('click', invInvestigar);
-  document.querySelectorAll('#invOrdem [data-ordem]').forEach(b => b.addEventListener('click', () => {
-    _inv.ordem = b.dataset.ordem;
-    document.querySelectorAll('#invOrdem [data-ordem]').forEach(x => x.classList.toggle('on', x === b));
+  document.getElementById('invOrdem')?.addEventListener('click', e => {
+    const b = e.target.closest('[data-filtro]');
+    if (!b) return;
+    _inv.filtro = b.dataset.filtro;
     invRenderResultados();
-  }));
+  });
   $('invBtnVoltar')?.addEventListener('click', () => invPular(-10));
   $('invBtnAvancar')?.addEventListener('click', () => invPular(10));
   $('invBtnPlay')?.addEventListener('click', invPlayPause);
@@ -271,6 +276,7 @@ async function invInvestigar() {
   btn.disabled = true;
   _inv.linhas.clear();
   _inv.eventos = [];
+  _inv.classJobs.clear();
   invGuardarBusca();
   _inv.selecionadas.forEach((t, k) => _inv.linhas.set(k, { carregando: true, segs: [] }));
   invMostrarPaineis();
@@ -297,6 +303,7 @@ async function invInvestigar() {
       invRenderJob();
       invRenderLinhaTempo();
       invRenderResultados();
+      if (!_inv.linhas.get(k)?.erro) invClassificar(k);
     }
   };
   // Tres gravadores por vez: o indice e leve, mas a mesma maquina responde a todos.
@@ -304,6 +311,112 @@ async function invInvestigar() {
   btn.disabled = false;
   invRelogiosDosGravadores();
   if (!_inv.player && _inv.eventos.length) invTocar(_inv.eventos[0].chave, _inv.eventos[0].ini);
+}
+
+// ----------------------------------------------------------- classificacao
+// Pessoa / veiculo / so movimento, trecho a trecho, pelo detector no servidor
+// (YOLOX). O servidor guarda em cache: refazer a mesma busca e instantaneo.
+function _invTrechosDe(k) {
+  return _inv.eventos.filter(e => e.chave === k).slice(0, 400).map(e => ({ ini: _invFmt(e.ini), fim: _invFmt(e.fim) }));
+}
+
+async function invClassificar(k) {
+  const t = _inv.selecionadas.get(k);
+  const trechos = _invTrechosDe(k);
+  if (!t || !trechos.length) return;
+  const corpo = { host: t.host, http_port: t.http_port || 80, canal: t.channel, trechos };
+  try {
+    const res = await api('/api/nvr/driver/classificar', { method: 'POST', body: JSON.stringify(corpo) });
+    const d = await jsonOrReadableError(res, 'Falha ao classificar.');
+    _inv.classJobs.set(k, { job_id: d.job_id, status: 'fila', feito: 0, total: trechos.length });
+  } catch (e) {
+    _inv.classJobs.set(k, { status: 'erro', erro: e.message, feito: 0, total: trechos.length, final: true });
+  }
+  invRenderJob();
+  if (!_inv.pollTimer) _inv.pollTimer = setTimeout(invAcompanharClassificacao, 1500);
+}
+
+async function invAcompanharClassificacao() {
+  _inv.pollTimer = null;
+  const ativos = [..._inv.classJobs.entries()].filter(([, j]) => j.job_id && !j.final);
+  await Promise.all(ativos.map(async ([k, j]) => {
+    const t = _inv.selecionadas.get(k);
+    if (!t) { j.final = true; return; }
+    const res = await api('/api/nvr/driver/classificar/situacao', {
+      method: 'POST',
+      body: JSON.stringify({ host: t.host, http_port: t.http_port || 80, canal: t.channel, trechos: _invTrechosDe(k), job_id: j.job_id }),
+    });
+    if (!res || !res.ok) return;
+    const d = await res.json();
+    Object.entries(d.resultados || {}).forEach(([ini, r]) => _inv.rotulos.set(`${k}|${ini}`, r));
+    if (d.job) Object.assign(j, d.job);
+    if (!d.job || ['pronto', 'erro'].includes(j.status)) j.final = true;
+  }));
+  invRenderJob();
+  invAtualizarCartoes();
+  invRenderLinhaTempo();
+  if ([..._inv.classJobs.values()].some(j => j.job_id && !j.final)) {
+    _inv.pollTimer = setTimeout(invAcompanharClassificacao, 3000);
+  }
+}
+
+function _invRotulo(e) {
+  return _inv.rotulos.get(`${e.chave}|${_invFmt(e.ini)}`) || null;
+}
+
+function _invContagem() {
+  const c = { todos: _inv.eventos.length, pessoa: 0, veiculo: 0, movimento: 0 };
+  _inv.eventos.forEach(e => {
+    const r = _invRotulo(e)?.rotulo;
+    if (r === 'pessoa') c.pessoa++;
+    else if (r === 'veiculo') c.veiculo++;
+    else if (r === 'movimento') c.movimento++;
+  });
+  return c;
+}
+
+const _INV_ETIQUETA = { pessoa: 'PESSOA', veiculo: 'VEÍCULO', movimento: 'MOVIMENTO', sem_imagem: 'SEM IMAGEM' };
+
+function _invCaixas(r) {
+  return (r?.dets || []).filter(d => !d.fixo).slice(0, 6).map(d =>
+    `<i class="inv-caixa ${d.classe === 'pessoa' ? 'p' : 'v'}" style="left:${d.x1 * 100}%;top:${d.y1 * 100}%;width:${(d.x2 - d.x1) * 100}%;height:${(d.y2 - d.y1) * 100}%"></i>`).join('');
+}
+
+// Atualiza os cartoes no lugar (so etiqueta, caixas e foto): re-desenhar tudo
+// a cada consulta fazia a lista piscar.
+function invAtualizarCartoes() {
+  let precisaRefazer = false;
+  document.querySelectorAll('#invResultados .inv-card').forEach(c => {
+    const e = _inv.eventos.find(x => x.chave === c.dataset.k && x.ini.getTime() === Number(c.dataset.ts));
+    if (!e) return;
+    const r = _invRotulo(e);
+    const estado = r?.rotulo || 'analisando';
+    if (c.dataset.rotulo === estado) return;
+    if (_inv.filtro !== 'todos' && estado !== _inv.filtro) { precisaRefazer = true; return; }
+    c.dataset.rotulo = estado;
+    const kind = c.querySelector('.inv-kind');
+    kind.className = `inv-kind ${estado}`;
+    kind.textContent = _INV_ETIQUETA[estado] || 'ANALISANDO…';
+    const ph = c.querySelector('.inv-ph');
+    ph.querySelectorAll('.inv-caixa').forEach(x => x.remove());
+    ph.insertAdjacentHTML('afterbegin', _invCaixas(r));
+    if (r?.foto && _invParse(r.foto).getTime() !== Number(ph.dataset.ts)) {
+      ph.dataset.ts = _invParse(r.foto).getTime();
+      const t = _inv.selecionadas.get(e.chave);
+      if (t) _invQuadro(t, _invParse(r.foto)).then(url => { if (url) ph.style.backgroundImage = `url("${url}")`; });
+    }
+  });
+  _invRenderFiltros();
+  if (precisaRefazer) invRenderResultados();
+}
+
+function _invRenderFiltros() {
+  const box = document.getElementById('invOrdem');
+  if (!box) return;
+  const c = _invContagem();
+  const opc = [['todos', 'Todos'], ['pessoa', 'Pessoa'], ['veiculo', 'Veículo'], ['movimento', 'Só movimento']];
+  box.innerHTML = opc.map(([v, nome]) =>
+    `<button type="button" class="inv-seg${_inv.filtro === v ? ' on' : ''}" data-filtro="${v}">${nome} <b>${c[v]}</b></button>`).join('');
 }
 
 function invMontarEventos() {
@@ -347,9 +460,23 @@ function invRenderJob() {
     <span class="inv-steps">
       <span><i class="inv-dot ${ok ? 'ok' : 'run'}"></i> Indice lido ${prontas}/${total}${falhas ? ` · ${falhas} com falha` : ''}</span>
       <span><i class="inv-dot ${ok ? 'ok' : ''}"></i> ${_invHoras(movS)} de movimento em ${_invHoras(periodoS)}</span>
+      ${_invEtapaClassificacao()}
     </span>
     <div class="inv-bar"><i style="width:${pct}%"></i></div>
     <span><b class="mono">${pct}%</b> · ${_inv.eventos.length} trecho${_inv.eventos.length === 1 ? '' : 's'} com movimento</span>`;
+}
+
+function _invEtapaClassificacao() {
+  const jobs = [..._inv.classJobs.values()];
+  if (!jobs.length) return '';
+  const feito = jobs.reduce((n, j) => n + (j.feito || 0), 0);
+  const total = jobs.reduce((n, j) => n + (j.total || 0), 0);
+  const erro = jobs.find(j => j.status === 'erro');
+  const pronto = jobs.every(j => j.final || j.status === 'erro');
+  if (erro && jobs.every(j => j.status === 'erro')) {
+    return `<span class="inv-erro" title="${esc(erro.erro || '')}"><i class="inv-dot"></i> Classificacao falhou: ${esc((erro.erro || '').slice(0, 80))}</span>`;
+  }
+  return `<span><i class="inv-dot ${pronto ? 'ok' : 'run'}"></i> ${pronto ? 'Classificado' : 'Classificando'} ${feito}/${total} · <b>${_invContagem().pessoa}</b> com pessoa</span>`;
 }
 
 // ------------------------------------------------------- linha do tempo
@@ -399,8 +526,11 @@ function invRenderLinhaTempo() {
     }
     // Camera de rua gera centenas de trechos: bolinha em cima de bolinha so polui.
     // Acima de 60, ficam so as faixas (clicar nelas abre o horario do mesmo jeito).
-    (evs.length <= 60 ? evs : []).forEach(e => {
-      trilha += `<i class="inv-hit" style="left:${_invPct(e.ini)}%" data-k="${esc(k)}" data-ts="${e.ini.getTime()}" title="${_invHora(e.ini)} · ${_invDur((e.fim - e.ini) / 1000)}"></i>`;
+    const comRotulo = evs.map(e => ({ e, r: _invRotulo(e)?.rotulo }));
+    // Camera de rua: so as bolinhas de PESSOA (o resto vira faixa amarela).
+    const pontos = evs.length <= 60 ? comRotulo : comRotulo.filter(x => x.r === 'pessoa').slice(0, 60);
+    pontos.forEach(({ e, r }) => {
+      trilha += `<i class="inv-hit ${r === 'veiculo' ? 'car' : r === 'pessoa' ? 'pessoa' : r === 'movimento' ? 'nada' : ''}" style="left:${_invPct(e.ini)}%" data-k="${esc(k)}" data-ts="${e.ini.getTime()}" title="${_invHora(e.ini)} · ${_invDur((e.fim - e.ini) / 1000)}"></i>`;
     });
     if (_inv.player?.chave === k) trilha += `<i class="inv-cursor" id="invCursor" style="left:${_invPct(invPosicao())}%"></i>`;
     html += `<div class="inv-tl-row">
@@ -511,14 +641,41 @@ function invAtualizarBotaoPlay() {
 }
 
 // ---------------------------------------------------------- resultados
+// O gravador atende poucas sessoes por vez: pedir 30 fotos juntas fazia o
+// servidor recusar com 503 ("gravador ocupado") e o cartao ficava sem imagem.
+// No maximo 2 pedidos por vez daqui, e 503 tenta de novo depois.
+const _invFilaQuadros = [];
+let _invQuadrosRodando = 0;
+function _invNaFila(fn) {
+  return new Promise(resolve => {
+    _invFilaQuadros.push({ fn, resolve });
+    _invAndarFila();
+  });
+}
+function _invAndarFila() {
+  while (_invQuadrosRodando < 2 && _invFilaQuadros.length) {
+    const { fn, resolve } = _invFilaQuadros.shift();
+    _invQuadrosRodando++;
+    fn().then(resolve, () => resolve('')).finally(() => { _invQuadrosRodando--; _invAndarFila(); });
+  }
+}
+
 async function _invQuadro(t, momento) {
   const qs = new URLSearchParams({ host: t.host, http_port: t.http_port || 80, canal: t.channel, ts: _invFmt(momento) });
   const chave = qs.toString();
   if (_inv.quadros.has(chave)) return _inv.quadros.get(chave);
-  const res = await api(`/api/nvr/driver/quadro?${qs}`);
-  if (!res || !res.ok) return '';
-  const url = URL.createObjectURL(await res.blob());
-  _inv.quadros.set(chave, url);
+  const pendente = _invNaFila(async () => {
+    for (let tentativa = 0; tentativa < 3; tentativa++) {
+      const res = await api(`/api/nvr/driver/quadro?${qs}`);
+      if (res?.ok) return URL.createObjectURL(await res.blob());
+      if (res?.status !== 503) return '';
+      await new Promise(r => setTimeout(r, 3000 * (tentativa + 1)));
+    }
+    return '';
+  });
+  _inv.quadros.set(chave, pendente);  // pedidos repetidos esperam o mesmo
+  const url = await pendente;
+  if (url) _inv.quadros.set(chave, url); else _inv.quadros.delete(chave);
   return url;
 }
 
@@ -544,23 +701,26 @@ function invRenderResultados() {
   const sub = document.getElementById('invResultadosSub');
   if (!box) return;
   let evs = [..._inv.eventos];
-  if (_inv.ordem === 'camera') evs.sort((a, b) => a.chave.localeCompare(b.chave, 'pt', { numeric: true }) || a.ini - b.ini);
+  if (_inv.filtro !== 'todos') evs = evs.filter(e => _invRotulo(e)?.rotulo === _inv.filtro);
+  _invRenderFiltros();
   if (sub) sub.textContent = evs.length
     ? `${evs.length} trecho${evs.length === 1 ? '' : 's'} com movimento · movimento continuo e cortado a cada 2 min${evs.length > 200 ? ' · mostrando os 200 primeiros' : ''}`
     : 'Movimento marcado pelo proprio gravador';
   if (!evs.length) {
-    box.innerHTML = `<p class="inv-vazio">${_inv.linhas.size ? 'Nenhum movimento marcado no periodo.' : 'Os trechos com movimento aparecem aqui.'}</p>`;
+    box.innerHTML = `<p class="inv-vazio">${_inv.filtro !== 'todos' ? 'Nenhum trecho desse tipo ainda -- a classificacao pode estar rodando.' : _inv.linhas.size ? 'Nenhum movimento marcado no periodo.' : 'Os trechos com movimento aparecem aqui.'}</p>`;
     return;
   }
   box.innerHTML = evs.slice(0, 200).map(e => {
     const t = _inv.selecionadas.get(e.chave);
     if (!t) return '';
     // A etiqueta comeca na pre-gravacao; a foto vem do momento do disparo.
-    const foto = new Date(Math.min(e.ini.getTime() + INV_PRE_GRAVACAO_S * 1000, e.fim.getTime()));
+    const r = _invRotulo(e);
+    const estado = r?.rotulo || 'analisando';
+    const foto = r?.foto ? _invParse(r.foto) : new Date(Math.min(e.ini.getTime() + INV_PRE_GRAVACAO_S * 1000, e.fim.getTime()));
     const noite = foto.getHours() >= 18 || foto.getHours() < 6;
-    return `<div class="inv-card" data-k="${esc(e.chave)}" data-ts="${e.ini.getTime()}">
+    return `<div class="inv-card" data-k="${esc(e.chave)}" data-ts="${e.ini.getTime()}" data-rotulo="${estado}">
       <div class="inv-ph${noite ? ' night' : ''}" data-k="${esc(e.chave)}" data-ts="${foto.getTime()}">
-        <span class="inv-kind">MOVIMENTO</span><span class="inv-tm mono">${_invHora(e.ini)}</span></div>
+        ${_invCaixas(r)}<span class="inv-kind ${estado}">${_INV_ETIQUETA[estado] || 'ANALISANDO…'}</span><span class="inv-tm mono">${_invHora(e.ini)}</span></div>
       <div class="inv-meta"><b>${esc(_invCurto(t))}</b><span>${_invDur((e.fim - e.ini) / 1000)} de movimento</span>
         <div class="inv-row"><span>${_invHora(e.fim)}</span><button class="inv-mini" type="button" data-add>+ caso</button></div></div></div>`;
   }).join('');
