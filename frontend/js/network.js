@@ -804,7 +804,10 @@ async function runNetTool(e) {
     if (!targetsRaw) throw new Error('Informe ao menos um alvo.');
     const res = await api('/api/network/tools/run', {
       method: 'POST',
-      body: JSON.stringify({ test, targets: targetsRaw, ports, timeout, concurrency }),
+      // O conector diz ao servidor por qual tunel sair -- IP privado se repete
+      // entre clientes, e sem isso o teste pode bater no site errado.
+      body: JSON.stringify({ test, targets: targetsRaw, ports, timeout, concurrency,
+                             connector_id: netToolSelectedConnector() }),
     });
     const body = await res?.json().catch(() => ({}));
     if (!res?.ok || body?.ok === false) throw new Error(body?.detail || 'Falha ao executar teste.');

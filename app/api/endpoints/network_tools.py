@@ -274,6 +274,23 @@ async def api_network_tools_run(payload: Dict[str, Any]) -> Dict[str, Any]:
     if not targets:
         raise HTTPException(status_code=400, detail="informe ao menos um alvo")
 
+    # Conector isolado fala pelo IP virtual. Sem isto o teste bate no IP real,
+    # que nao tem rota, e a tela reporta tudo fechado.
+    cid = _text(payload.get("connector_id") or payload.get("remote_connector_id"))
+    de_volta: Dict[str, str] = {}
+    try:
+        from app.api.endpoints.maintenance import _reach
+
+        traduzidos = []
+        for alvo in targets:
+            virtual = _reach(alvo, cid) or alvo
+            if virtual != alvo:
+                de_volta[virtual] = alvo
+            traduzidos.append(virtual)
+        targets = traduzidos
+    except Exception:
+        pass
+
     if test == "ping":
         result = await _run_ping(targets, timeout, concurrency, _ports(payload.get("ports") or payload.get("port") or "80,443,554,37777,8000,8080,8291"))
     elif test in {"tcp", "port_scan"}:
@@ -287,5 +304,19 @@ async def api_network_tools_run(payload: Dict[str, Any]) -> Dict[str, Any]:
         result = _run_traceroute(targets[0], timeout)
     else:
         raise HTTPException(status_code=400, detail="teste invalido")
+
+    # Devolve o IP REAL na tabela: e o que o operador digitou e reconhece.
+    if de_volta:
+        for item in (result.get("items") or []):
+            for campo in ("target", "host"):
+                real = de_volta.get(str(item.get(campo) or ""))
+                if real:
+                    item["alvo_virtual"] = item[campo]
+                    item[campo] = real
+        real_topo = de_volta.get(str(result.get("target") or ""))
+        if real_topo:
+            result["alvo_virtual"] = result["target"]
+            result["target"] = real_topo
+        targets = [de_volta.get(t, t) for t in targets]
 
     return {"ok": True, "test": test, "count": len(targets), "targets": targets, "result": result}

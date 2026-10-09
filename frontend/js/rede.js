@@ -418,6 +418,13 @@ function ligarRede() {
     if (alvo) tracarRedeCaminho(alvo.dataset.redeDiagnosticar, '');
   });
 
+  // O Executar vinha do submit de um <form> que a tela nova nao tem mais.
+  // Sem isto, o clique nao fazia nada -- nem erro.
+  document.getElementById('btnRunNetTool')?.addEventListener('click', runNetTool);
+  document.getElementById('netToolTargets')?.addEventListener('keydown', ev => {
+    if (ev.key === 'Enter') { ev.preventDefault(); runNetTool(ev); }
+  });
+
   document.getElementById('redeCamConector')?.addEventListener('change', pintarRedeAlvosEquipamento);
   document.getElementById('btnRedeCaminho')?.addEventListener('click', () => tracarRedeCaminho());
 
