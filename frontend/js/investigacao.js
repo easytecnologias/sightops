@@ -13,7 +13,10 @@
 
 const INV_MAX_CAMERAS = 8;
 const INV_PRE_GRAVACAO_S = 10;   // perfil do driver: a etiqueta comeca 10 s antes do disparo
-const INV_JUNTA_EVENTOS_S = 30;  // movimentos a menos de 30 s viram uma aparicao so
+// Juntar so o que esta colado: com 30 s de folga, camera de rua (movimento
+// quase continuo) encadeava tudo e 13 h viravam 6 "trechos" de ate 32 min.
+const INV_JUNTA_EVENTOS_S = 2;
+const INV_MAX_EVENTO_S = 120;    // trecho longo e cortado em pedacos de 2 min, cada um com sua foto
 
 const _inv = {
   bound: false,
@@ -309,13 +312,19 @@ function invMontarEventos() {
     const mov = (linha.segs || []).filter(s => s.tipo === 'movimento')
       .map(s => ({ ini: _invParse(s.inicio), fim: _invParse(s.fim) }))
       .sort((a, b) => a.ini - b.ini);
-    let atual = null;
+    const blocos = [];
     mov.forEach(m => {
-      if (atual && (m.ini - atual.fim) / 1000 <= INV_JUNTA_EVENTOS_S) {
-        if (m.fim > atual.fim) atual.fim = m.fim;
+      const ult = blocos[blocos.length - 1];
+      if (ult && (m.ini - ult.fim) / 1000 <= INV_JUNTA_EVENTOS_S) {
+        if (m.fim > ult.fim) ult.fim = m.fim;
       } else {
-        atual = { chave: k, ini: m.ini, fim: m.fim };
-        evs.push(atual);
+        blocos.push({ ini: m.ini, fim: m.fim });
+      }
+    });
+    blocos.forEach(b => {
+      for (let ini = b.ini.getTime(); ini < b.fim.getTime(); ini += INV_MAX_EVENTO_S * 1000) {
+        const fim = Math.min(ini + INV_MAX_EVENTO_S * 1000, b.fim.getTime());
+        if (fim - ini >= 5000 || ini === b.ini.getTime()) evs.push({ chave: k, ini: new Date(ini), fim: new Date(fim) });
       }
     });
   });
@@ -388,7 +397,9 @@ function invRenderLinhaTempo() {
       const limite = new Date(Math.min(fim, Date.now() - 120e3));
       if ((limite - cursor) / 1000 > 120 && segs.length) buracos.push(`${_invCurto(t)} sem gravacao desde ${_invHora(cursor).slice(0, 5)}`);
     }
-    evs.forEach(e => {
+    // Camera de rua gera centenas de trechos: bolinha em cima de bolinha so polui.
+    // Acima de 60, ficam so as faixas (clicar nelas abre o horario do mesmo jeito).
+    (evs.length <= 60 ? evs : []).forEach(e => {
       trilha += `<i class="inv-hit" style="left:${_invPct(e.ini)}%" data-k="${esc(k)}" data-ts="${e.ini.getTime()}" title="${_invHora(e.ini)} · ${_invDur((e.fim - e.ini) / 1000)}"></i>`;
     });
     if (_inv.player?.chave === k) trilha += `<i class="inv-cursor" id="invCursor" style="left:${_invPct(invPosicao())}%"></i>`;
@@ -535,7 +546,7 @@ function invRenderResultados() {
   let evs = [..._inv.eventos];
   if (_inv.ordem === 'camera') evs.sort((a, b) => a.chave.localeCompare(b.chave, 'pt', { numeric: true }) || a.ini - b.ini);
   if (sub) sub.textContent = evs.length
-    ? `${evs.length} trecho${evs.length === 1 ? '' : 's'} com movimento · movimentos a menos de ${INV_JUNTA_EVENTOS_S} s viram um so`
+    ? `${evs.length} trecho${evs.length === 1 ? '' : 's'} com movimento · movimento continuo e cortado a cada 2 min${evs.length > 200 ? ' · mostrando os 200 primeiros' : ''}`
     : 'Movimento marcado pelo proprio gravador';
   if (!evs.length) {
     box.innerHTML = `<p class="inv-vazio">${_inv.linhas.size ? 'Nenhum movimento marcado no periodo.' : 'Os trechos com movimento aparecem aqui.'}</p>`;
