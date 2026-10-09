@@ -39,6 +39,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import select
 import socket
 import struct
 import sys
@@ -87,59 +88,76 @@ def _normalizar_mac(valor: str) -> str:
     return ":".join(so_hex[i:i + 2] for i in range(0, 12, 2)).upper()
 
 
-def _enderecos_de_broadcast() -> List[str]:
-    """Broadcast alem do multicast: switch barato e rede com IGMP snooping mal
-    configurado engolem multicast, e ai so o broadcast chega."""
-    alvos = {"255.255.255.255"}
+def _ips_locais() -> List[str]:
+    """Todos os IPv4 desta maquina, sem loopback."""
+    saida: List[str] = []
     try:
         for info in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET):
             ip = info[4][0]
-            if ip.startswith("127."):
-                continue
-            partes = ip.split(".")
-            if len(partes) == 4:
-                alvos.add(".".join(partes[:3]) + ".255")
+            if not ip.startswith("127.") and ip not in saida:
+                saida.append(ip)
     except Exception:
         pass
-    return sorted(alvos)
+    return saida
 
 
-def descobrir(segundos: float = 8.0, verboso: bool = False) -> List[Dict[str, Any]]:
-    """Pergunta na rede e junta quem responder. Nao levanta excecao por
-    interface que recusa: numa maquina com VPN/Hyper-V varias recusam, e
-    desistir na primeira deixaria a varredura vazia sem motivo."""
-    sock = None
+def _broadcast_de(ip: str) -> str:
+    partes = ip.split(".")
+    return ".".join(partes[:3]) + ".255" if len(partes) == 4 else "255.255.255.255"
+
+
+def _abrir(ip: str) -> socket.socket | None:
+    """Um socket preso a UMA interface. Preso de proposito: num notebook com
+    Wi-Fi + VPN + Hyper-V, um socket solto manda tudo pela rota padrao -- e
+    se a rota padrao for a VPN (foi o caso no NOTEBOOK-EASY, PPP com metrica
+    46), a pergunta entra no tunel e nunca chega na rede das cameras."""
     for porta in PORTAS_DE_ESCUTA:
         try:
             s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-            s.bind(("", porta))
-            sock = s
-            if verboso:
-                print(f"[i] escutando na porta UDP {s.getsockname()[1]}", file=sys.stderr)
-            break
+            s.bind((ip, porta))
+            try:
+                s.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_IF, socket.inet_aton(ip))
+                s.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 2)
+                s.setsockopt(
+                    socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP,
+                    struct.pack("4s4s", socket.inet_aton(GRUPO_SADP), socket.inet_aton(ip)),
+                )
+            except OSError:
+                pass
+            return s
         except OSError:
             continue
-    if sock is None:
-        raise RuntimeError("nao consegui abrir socket UDP para a descoberta")
+    return None
+
+
+def descobrir(segundos: float = 8.0, verboso: bool = False,
+              origens: List[str] | None = None) -> List[Dict[str, Any]]:
+    """Pergunta por TODAS as interfaces e junta quem responder.
+
+    Uma interface que recusa nao interrompe as outras: numa maquina com VPN e
+    adaptadores virtuais varias recusam, e desistir na primeira deixaria a
+    varredura vazia sem motivo.
+    """
+    ips = origens or _ips_locais()
+    if not ips:
+        raise RuntimeError("nao encontrei nenhum IPv4 nesta maquina")
+
+    socks: List[tuple[str, socket.socket]] = []
+    for ip in ips:
+        s = _abrir(ip)
+        if s is not None:
+            socks.append((ip, s))
+            if verboso:
+                print(f"[i] perguntando por {ip} (porta {s.getsockname()[1]})", file=sys.stderr)
+        elif verboso:
+            print(f"[i] {ip}: nao consegui abrir socket", file=sys.stderr)
+    if not socks:
+        raise RuntimeError("nao consegui abrir socket UDP em nenhuma interface")
 
     try:
-        # Entrar no grupo multicast em TODAS as interfaces: numa maquina com
-        # Wi-Fi + cabo + VPN, entrar so na padrao costuma ser a interface
-        # errada -- e a camera esta justamente na outra.
-        try:
-            sock.setsockopt(
-                socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP,
-                struct.pack("4sl", socket.inet_aton(GRUPO_SADP), socket.INADDR_ANY),
-            )
-        except OSError:
-            pass
-        sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 2)
-
-        alvos = [(GRUPO_SADP, PORTA_SADP)] + [(b, PORTA_SADP) for b in _enderecos_de_broadcast()]
         achados: Dict[str, Dict[str, Any]] = {}
-        sock.settimeout(0.5)
         fim = time.monotonic() + segundos
         proxima_pergunta = 0.0
 
@@ -149,35 +167,39 @@ def descobrir(segundos: float = 8.0, verboso: bool = False) -> List[Dict[str, An
             # em conflito de IP.
             if time.monotonic() >= proxima_pergunta:
                 pacote = _probe()
-                for alvo in alvos:
-                    try:
-                        sock.sendto(pacote, alvo)
-                    except OSError:
-                        continue
+                for ip, s in socks:
+                    for alvo in ((GRUPO_SADP, PORTA_SADP), (_broadcast_de(ip), PORTA_SADP),
+                                 ("255.255.255.255", PORTA_SADP)):
+                        try:
+                            s.sendto(pacote, alvo)
+                        except OSError:
+                            continue
                 proxima_pergunta = time.monotonic() + 2.0
-            try:
-                dados, origem = sock.recvfrom(8192)
-            except socket.timeout:
-                continue
-            except OSError:
-                continue
-            xml = dados.decode("utf-8", "replace")
-            if "ProbeMatch" not in xml:
-                continue
-            item = {campo: _valor(xml, campo) for campo in _CAMPOS}
-            item["MAC"] = _normalizar_mac(item.get("MAC", ""))
-            item["origem_pacote"] = origem[0]
-            chave = item["MAC"] or f"{origem[0]}:{item.get('DeviceSN')}"
-            if chave:
-                achados[chave] = item
-            if verboso:
-                print(f"[+] {chave} respondeu", file=sys.stderr)
+
+            prontos, _, _ = select.select([s for _, s in socks], [], [], 0.5)
+            for s in prontos:
+                try:
+                    dados, origem = s.recvfrom(8192)
+                except OSError:
+                    continue
+                xml = dados.decode("utf-8", "replace")
+                if "ProbeMatch" not in xml:
+                    continue
+                item = {campo: _valor(xml, campo) for campo in _CAMPOS}
+                item["MAC"] = _normalizar_mac(item.get("MAC", ""))
+                item["origem_pacote"] = origem[0]
+                chave = item["MAC"] or f"{origem[0]}:{item.get('DeviceSN')}"
+                if chave:
+                    achados[chave] = item
+                if verboso:
+                    print(f"[+] {chave} respondeu", file=sys.stderr)
         return sorted(achados.values(), key=lambda x: (x.get("IPv4Address") or "", x.get("MAC") or ""))
     finally:
-        try:
-            sock.close()
-        except Exception:
-            pass
+        for _, s in socks:
+            try:
+                s.close()
+            except Exception:
+                pass
 
 
 def _ativada(item: Dict[str, Any]) -> bool:
@@ -192,6 +214,12 @@ def imprimir(itens: List[Dict[str, Any]]) -> None:
         print("  - a maquina nao esta na mesma rede fisica das cameras (multicast nao passa por roteador)")
         print("  - o Windows Firewall bloqueou a resposta UDP (libere o python.exe na rede privada)")
         print("  - a porta 37020 esta ocupada pelo SADP.exe da Hikvision -- feche ele e rode de novo")
+        print()
+        print("ATENCAO: estar numa VPN do site NAO e estar na rede das cameras. Multicast nao")
+        print("atravessa tunel. Para esta descoberta funcionar, a maquina precisa estar ligada")
+        print("no MESMO switch das cameras. Interfaces usadas nesta tentativa:")
+        for ip in (_ips_locais() or ["(nenhuma)"]):
+            print("   ", ip)
         return
 
     print(f"{len(itens)} camera(s) responderam\n")
@@ -241,12 +269,15 @@ def main() -> int:
                    help="tempo de escuta (padrao 8; use 15 em rede grande)")
     p.add_argument("--json", metavar="ARQUIVO",
                    help="grava o resultado em JSON para o SightOps consumir")
+    p.add_argument("--origem", action="append", metavar="IP",
+                   help="manda a pergunta SO por este IP local (repetivel). "
+                        "Use quando houver VPN ativa roubando a rota padrao.")
     p.add_argument("-v", "--verboso", action="store_true")
     args = p.parse_args()
 
     print(f"Perguntando na rede por {args.segundos:.0f}s (multicast {GRUPO_SADP}:{PORTA_SADP} + broadcast)...\n")
     try:
-        itens = descobrir(segundos=args.segundos, verboso=args.verboso)
+        itens = descobrir(segundos=args.segundos, verboso=args.verboso, origens=args.origem)
     except Exception as exc:
         print(f"Falhou: {exc}", file=sys.stderr)
         return 1
