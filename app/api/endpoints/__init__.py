@@ -27,3 +27,4 @@ from .monitoring import router as monitoring_router
 from .planning import router as planning_router
 from .access_control import router as access_control_router
 from .alert import router as alert_router
+from .recorder_driver import router as recorder_driver_router
