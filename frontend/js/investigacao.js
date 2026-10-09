@@ -30,6 +30,7 @@ const _inv = {
   relogios: new Map(),       // host -> diferenca_s
   quadros: new Map(),        // url -> objectURL
   timerPulo: null,
+  casoVisivel: false,
 };
 
 function _invChave(t) { return `${t.host}|${t.http_port || 80}|${t.channel}`; }
@@ -66,14 +67,32 @@ async function loadInvestigacao() {
   _inv.targets = data?.targets || [];
   invRenderArvore();
   invRenderChips();
+  invMostrarPaineis();
   invCarregarCasos();
+}
+
+// Antes da primeira busca a tela mostra so a lista e o botao; player, linha
+// do tempo e resultados aparecem quando ha o que mostrar.
+function invMostrarPaineis() {
+  const tem = _inv.linhas.size > 0;
+  const $ = id => document.getElementById(id);
+  if ($('invInicio')) $('invInicio').hidden = tem;
+  if ($('invPainelPlayer')) $('invPainelPlayer').hidden = !tem;
+  if ($('invPainelResultados')) $('invPainelResultados').hidden = !tem;
+}
+
+function invMostrarCaso(ver) {
+  _inv.casoVisivel = !!ver;
+  const painel = document.getElementById('invPainelCaso');
+  if (painel) painel.hidden = !_inv.casoVisivel;
+  document.getElementById('invGrid')?.classList.toggle('com-caso', _inv.casoVisivel);
+  document.getElementById('invBtnCasos')?.classList.toggle('on', _inv.casoVisivel);
 }
 
 function bindInvestigacao() {
   _inv.bound = true;
   const $ = id => document.getElementById(id);
   $('invBusca')?.addEventListener('input', invRenderArvore);
-  $('invChipInput')?.addEventListener('input', e => { $('invBusca').value = e.target.value; invRenderArvore(); });
   document.querySelectorAll('#invPresets [data-preset]').forEach(b => b.addEventListener('click', () => invAplicarPreset(b.dataset.preset)));
   $('invIni')?.addEventListener('change', invPeriodoManual);
   $('invFim')?.addEventListener('change', invPeriodoManual);
@@ -94,6 +113,8 @@ function bindInvestigacao() {
   $('invCasoNotas')?.addEventListener('input', invSalvarNotasDepois);
   $('invCasoBaixar')?.addEventListener('click', invBaixarTrechosDoCaso);
   $('invBtnAnteriores')?.addEventListener('click', invMostrarAnteriores);
+  $('invBtnCasos')?.addEventListener('click', () => invMostrarCaso(!_inv.casoVisivel));
+  $('invCasoFechar')?.addEventListener('click', () => invMostrarCaso(false));
 }
 
 // --------------------------------------------------------------- periodo
@@ -180,14 +201,14 @@ function invRenderArvore() {
     porHost.forEach((cams, host) => {
       const total = _inv.targets.filter(t => t.host === host).length;
       const modelo = cams[0]?.modelo ? `${cams[0].modelo} · ` : '';
-      html += `<div class="inv-t-rec">${esc(modelo + nomes[host])}<small>${total} canais</small></div>`;
+      html += `<div class="inv-t-rec">${esc(nomes[host])}<small>${esc(modelo.replace(' · ', ''))}</small></div>`;
       cams.sort((a, b) => a.channel - b.channel).forEach(t => {
         const k = _invChave(t);
         const sel = _inv.selecionadas.has(k);
         const off = /off|down|fora/i.test(String(t.status || '')) ? ' off' : '';
         html += `<label class="inv-t-cam${sel ? ' sel' : ''}" title="${esc(host)} · canal ${t.channel}">
           <input type="checkbox" data-k="${esc(k)}"${sel ? ' checked' : ''}>
-          <i class="inv-thumb-mini"></i><span>${esc(_invCurto(t))}</span><i class="inv-st${off}"></i></label>`;
+          <span>${esc(_invCurto(t))}</span>${off ? '<i class="inv-st off" title="Fora do ar"></i>' : ''}</label>`;
       });
     });
   });
@@ -212,10 +233,12 @@ function invAlternar(k, ligar) {
 }
 
 function invRenderChips() {
-  const box = document.getElementById('invChips');
+  const box = document.getElementById('invResumoCams');
   if (!box) return;
-  box.innerHTML = [..._inv.selecionadas.entries()].map(([k, t]) =>
-    `<span class="inv-chip on">${esc(_invCurto(t))} <button type="button" class="inv-x" data-k="${esc(k)}" aria-label="Tirar">×</button></span>`).join('');
+  const sel = [..._inv.selecionadas.entries()];
+  if (!sel.length) { box.innerHTML = '<span class="inv-muted">Nenhuma câmera escolhida</span>'; return; }
+  box.innerHTML = `<b>${sel.length} câmera${sel.length === 1 ? '' : 's'}</b>` + sel.map(([k, t]) =>
+    `<span class="inv-chip">${esc(_invCurto(t))}<button type="button" class="inv-x" data-k="${esc(k)}" aria-label="Tirar">×</button></span>`).join('');
   box.querySelectorAll('.inv-x').forEach(b => b.addEventListener('click', () => invAlternar(b.dataset.k, false)));
 }
 
@@ -229,6 +252,7 @@ async function invInvestigar() {
   _inv.eventos = [];
   invGuardarBusca();
   _inv.selecionadas.forEach((t, k) => _inv.linhas.set(k, { carregando: true, segs: [] }));
+  invMostrarPaineis();
   invRenderJob();
   invRenderLinhaTempo();
   invRenderResultados();
@@ -296,7 +320,6 @@ function invRenderJob() {
     <span class="inv-steps">
       <span><i class="inv-dot ${ok ? 'ok' : 'run'}"></i> Indice lido ${prontas}/${total}${falhas ? ` · ${falhas} com falha` : ''}</span>
       <span><i class="inv-dot ${ok ? 'ok' : ''}"></i> ${_invHoras(movS)} de movimento em ${_invHoras(periodoS)}</span>
-      <span title="Fase 2: detectar pessoa e veiculo nos trechos com movimento"><i class="inv-dot"></i> Deteccao de pessoas · em breve</span>
     </span>
     <div class="inv-bar"><i style="width:${pct}%"></i></div>
     <span><b class="mono">${pct}%</b> · ${_inv.eventos.length} trecho${_inv.eventos.length === 1 ? '' : 's'} com movimento</span>`;
@@ -576,7 +599,7 @@ async function invCarregarCasos(selecionar) {
   if (sel) {
     sel.innerHTML = _inv.casos.length
       ? _inv.casos.map(c => `<option value="${esc(c.id)}">#${String(c.numero).padStart(4, '0')} · ${esc(c.titulo)}</option>`).join('')
-      : '<option value="">Nenhum caso aberto</option>';
+      : '<option value="">Nenhum caso — crie com +</option>';
     sel.value = alvo;
   }
   const badge = document.getElementById('invCasosBadge');
@@ -621,6 +644,7 @@ async function invAdicionarAoCaso(ev) {
   }
   const t = _inv.selecionadas.get(chave);
   if (!t) return;
+  invMostrarCaso(true);
   if (!_inv.caso && !(await invNovoCaso())) return;
   const ini = alvoEv ? alvoEv.ini : new Date(momento.getTime() - 30e3);
   let fim = alvoEv ? alvoEv.fim : new Date(momento.getTime() + 90e3);
@@ -685,10 +709,10 @@ function invRenderCaso() {
   const c = _inv.caso;
   const $ = id => document.getElementById(id);
   const vazio = !c;
-  $('invCasoTitulo').textContent = c ? `#${String(c.numero).padStart(4, '0')} · ${c.titulo}` : 'Nenhum caso aberto';
+  $('invCasoTitulo').textContent = c ? c.titulo : '';
   $('invCasoSub').textContent = c
     ? [c.site, c.autor ? `aberto por ${c.autor}` : '', c.criado_em ? _invDataHora(_invParse(c.criado_em)).slice(0, 16) : ''].filter(Boolean).join(' · ')
-    : 'Crie um caso para juntar os momentos que interessam.';
+    : 'Um caso junta os momentos que interessam, com anotação.';
   const notas = $('invCasoNotas');
   if (notas && document.activeElement !== notas) notas.value = c?.notas || '';
   if (notas) notas.disabled = vazio;
