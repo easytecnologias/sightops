@@ -31,6 +31,7 @@ const _inv = {
   quadros: new Map(),        // url -> objectURL
   timerPulo: null,
   casoVisivel: false,
+  abertos: null,             // hosts de gravador abertos na lista (null = ainda nao decidido)
 };
 
 function _invChave(t) { return `${t.host}|${t.http_port || 80}|${t.channel}`; }
@@ -195,13 +196,24 @@ function invRenderArvore() {
     if (!porHost.has(t.host)) porHost.set(t.host, []);
     porHost.get(t.host).push(t);
   });
+  // Gravadores comecam recolhidos quando ha mais de um; so abre de cara o
+  // unico gravador, ou os que ja tem camera escolhida.
+  if (_inv.abertos === null) {
+    const hosts = new Set(_inv.targets.map(t => t.host));
+    _inv.abertos = new Set(hosts.size === 1 ? hosts : [..._inv.selecionadas.values()].map(t => t.host));
+  }
   let html = '';
   porSite.forEach((porHost, site) => {
     html += `<div class="inv-t-site">${esc(site)}</div>`;
     porHost.forEach((cams, host) => {
       const total = _inv.targets.filter(t => t.host === host).length;
-      const modelo = cams[0]?.modelo ? `${cams[0].modelo} · ` : '';
-      html += `<div class="inv-t-rec">${esc(nomes[host])}<small>${esc(modelo.replace(' · ', ''))}</small></div>`;
+      const escolhidas = _inv.targets.filter(t => t.host === host && _inv.selecionadas.has(_invChave(t))).length;
+      // Com busca digitada, tudo que casa fica aberto.
+      const aberto = !!q || _inv.abertos.has(host);
+      html += `<button type="button" class="inv-t-rec${aberto ? ' aberto' : ''}" data-host="${esc(host)}" title="${esc(cams[0]?.modelo || host)}">
+        <i data-lucide="chevron-right" class="inv-seta"></i><span>${esc(nomes[host])}</span>
+        <small>${escolhidas ? `<b>${escolhidas}</b>/` : ''}${total}</small></button>`;
+      if (!aberto) return;
       cams.sort((a, b) => a.channel - b.channel).forEach(t => {
         const k = _invChave(t);
         const sel = _inv.selecionadas.has(k);
@@ -214,6 +226,12 @@ function invRenderArvore() {
   });
   box.innerHTML = html;
   box.querySelectorAll('input[data-k]').forEach(cb => cb.addEventListener('change', () => invAlternar(cb.dataset.k, cb.checked)));
+  box.querySelectorAll('.inv-t-rec[data-host]').forEach(b => b.addEventListener('click', () => {
+    const h = b.dataset.host;
+    if (_inv.abertos.has(h)) _inv.abertos.delete(h); else _inv.abertos.add(h);
+    invRenderArvore();
+  }));
+  lucide.createIcons();
 }
 
 function invAlternar(k, ligar) {

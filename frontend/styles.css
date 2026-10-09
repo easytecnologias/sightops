@@ -11693,9 +11693,14 @@ table.recorder-tabela tbody tr:hover { background: var(--surface-soft); }
 .inv-tree-search input { border: 0; outline: 0; flex: 1; font-size: 12.5px; background: none; padding: 0; min-width: 0; }
 .inv-tree { padding: 0 6px 8px; max-height: calc(100vh - 230px); overflow: auto; }
 .inv-t-site { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); padding: 10px 8px 4px; }
-.inv-t-rec { display: flex; align-items: baseline; gap: 6px; font-size: 12px; font-weight: 600; padding: 6px 8px 2px; color: var(--muted); }
-.inv-t-rec small { margin-left: auto; font-weight: 500; font-size: 10.5px; white-space: nowrap; }
-.inv-t-cam { display: flex; align-items: center; gap: 8px; padding: 4px 8px 4px 12px; border-radius: 7px; font-size: 12.5px; cursor: pointer; }
+.inv-t-rec { display: flex; align-items: center; gap: 4px; width: 100%; border: 0; background: none; text-align: left; font: inherit; font-size: 12.5px; font-weight: 600; padding: 6px 6px; border-radius: 7px; color: var(--text); cursor: pointer; }
+.inv-t-rec:hover { background: var(--surface-soft); }
+.inv-t-rec span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.inv-seta { width: 14px; height: 14px; color: var(--muted); flex: 0 0 auto; transition: transform .15s; }
+.inv-t-rec.aberto .inv-seta { transform: rotate(90deg); }
+.inv-t-rec small b { color: var(--primary); }
+.inv-t-rec small { font-weight: 500; font-size: 11px; color: var(--muted); white-space: nowrap; }
+.inv-t-cam { display: flex; align-items: center; gap: 8px; padding: 4px 8px 4px 24px; border-radius: 7px; font-size: 12.5px; cursor: pointer; }
 .inv-t-cam:hover { background: var(--surface-soft); }
 .inv-t-cam.sel { background: var(--primary-soft); }
 .inv-t-cam input { accent-color: var(--primary); margin: 0; }
@@ -11705,7 +11710,7 @@ table.recorder-tabela tbody tr:hover { background: var(--surface-soft); }
 .inv-st.off { background: var(--danger); }
 
 /* player */
-.inv-player { position: relative; aspect-ratio: 16/9; background: #0e1a1f; border-radius: 12px 12px 0 0; overflow: hidden; }
+.inv-player { position: relative; aspect-ratio: 16/9; max-height: 52vh; width: 100%; background: #0e1a1f; border-radius: 12px 12px 0 0; overflow: hidden; }
 .inv-player video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #0e1a1f; }
 .inv-player-vazio { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; color: #8fa3ab; font-size: 13px; }
 .inv-player-vazio[hidden] { display: none; }
