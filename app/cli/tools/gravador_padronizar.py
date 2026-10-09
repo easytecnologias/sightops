@@ -7,6 +7,10 @@ mudanca vai para data/tenants/<cliente>/gravador_backups/.
   docker exec -w /app sightops-v3-api python -m app.cli.tools.gravador_padronizar \\
       --tenant default --host 10.10.9.120
   ... --tenant rads --todos --aplicar
+  ... --tenant default --todos --aplicar --sem-codec   # tudo menos a troca H.265 -> H.264
+
+A troca de codec fica separavel de proposito: ela pode mudar o espaco que o
+video ocupa (e a retencao), entao e feita em piloto e medida antes do parque.
 """
 from __future__ import annotations
 
@@ -16,7 +20,7 @@ import sys
 
 from app.core.tenant_context import set_current_tenant_slug, tenant_recorder_inventory_path, tenant_scoped_path
 from app.services.recorder_credentials import resolve_recorder_credential
-from app.services.recorder_driver import ErroDriver, Gravador
+from app.services.recorder_driver import PERFIL, ErroDriver, Gravador
 
 
 def _gravadores(tenant: str) -> list:
@@ -42,9 +46,11 @@ def main() -> int:
     ap.add_argument("--host", action="append", default=[], help="IP do gravador (repetivel)")
     ap.add_argument("--todos", action="store_true", help="todos os gravadores do inventario do cliente")
     ap.add_argument("--aplicar", action="store_true", help="escreve no gravador (sem isto, so diagnostica)")
+    ap.add_argument("--sem-codec", action="store_true", help="nao troca H.265 por H.264 (o resto do perfil sim)")
     a = ap.parse_args()
 
     set_current_tenant_slug("" if a.tenant == "default" else a.tenant)
+    perfil = dict(PERFIL, codec="") if a.sem_codec else PERFIL
     inventario = {g["host"]: g for g in _gravadores(a.tenant)}
     alvos = list(inventario) if a.todos else a.host
     if not alvos:
@@ -61,7 +67,7 @@ def main() -> int:
             continue
         try:
             g = Gravador(host, cred.get("username") or "admin", cred["password"], info["porta"], info["conector"])
-            d = g.diagnostico()
+            d = g.diagnostico(perfil)
         except ErroDriver as exc:
             print(f"  {exc}")
             falhas += 1

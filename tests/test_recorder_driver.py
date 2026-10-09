@@ -93,6 +93,14 @@ def test_codec_h265_vira_h264_e_avisa_retencao(pares):
     assert any("retencao" in a for a in alertas)
 
 
+def test_sem_codec_deixa_h265_e_aplica_o_resto(pares):
+    pares["Encode[1].MainFormat[0].Video.Compression"] = "H.265"
+    mud, alertas = rd.diagnosticar_intelbras(pares, dict(rd.PERFIL, codec=""))
+    assert not any("Compression" in m.chave for m in mud)
+    assert not any("retencao" in a for a in alertas)
+    assert any(m.chave == "NTP.Enable" for m in mud)
+
+
 def test_sem_gravacao_continua_so_avisa(pares):
     for faixa in range(6):
         pares[f"Record[1].TimeSection[3][{faixa}]"] = "2 00:00:00-24:00:00"  # so movimento na quarta
