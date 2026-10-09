@@ -2080,14 +2080,6 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   //  Manutencao NVR 
-  document.getElementById('btnMntNvrRefresh')?.addEventListener('click', loadMntNvr);
-  document.getElementById('btnMntNvrReboot')?.addEventListener('click', () => _mntNvrRunAction('reboot'));
-  document.getElementById('btnMntNvrNtp')?.addEventListener('click', () => _mntNvrRunAction('ntp'));
-  document.getElementById('btnMntNvrSelectAll')?.addEventListener('click', () => {
-    document.querySelectorAll('.chk-mnt-nvr').forEach(c => c.checked = true);
-    _mntNvrUpdateCount();
-  });
-
   // Auto-login via cookie HttpOnly.
   (async () => {
     const profile = await apiJson('/api/auth/me', { skipLogout: true });

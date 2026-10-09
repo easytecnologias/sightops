@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=1791000198">
+  <link rel="stylesheet" href="styles.css?v=1791000199">
 </head>
 <body>
 
@@ -110,9 +110,8 @@
         <!-- Manutencao -->
         <div class="nav-section-label">Manutencao</div>
         <button class="nav-item" data-view="mnt-cam"><i data-lucide="camera"></i><span>Cameras IP</span></button>
-        <button class="nav-item" data-view="mnt-nvr"><i data-lucide="hard-drive-upload"></i><span>Gravadores</span></button>
         <button class="nav-item" data-view="monitoring"><i data-lucide="activity"></i><span>Monitoramento</span></button>
-        <button class="nav-item" data-view="net-operate"><i data-lucide="zap"></i><span>Operacoes</span></button>
+        <button class="nav-item" data-view="net-operate"><i data-lucide="zap"></i><span>Rede</span></button>
 
         <!-- Analise -->
         <div class="nav-section-label">Analise</div>
@@ -1257,75 +1256,6 @@
       </section>
 
       <!-- --- VIEW: MANUTEN--O NVR --- -->
-      <section class="workspace hidden" id="viewMntNvr">
-        <div class="page-heading">
-          <div>
-            <p class="eyebrow">Manutencao</p>
-            <h1>Gravadores</h1>
-            <p>Operacoes em lote nos gravadores.</p>
-          </div>
-          <div class="page-heading-actions">
-            <button class="secondary-action" id="btnMntNvrRefresh"><i data-lucide="refresh-cw"></i> Atualizar</button>
-          </div>
-        </div>
-
-        <div class="panel mnt-action-bar">
-          <div class="mnt-cred-group">
-            <i data-lucide="key-round" style="width:14px;height:14px;color:var(--muted);flex-shrink:0"></i>
-            <span class="mnt-cred-label">Usuario</span>
-            <input type="text" id="mntNvrUser" value="admin" placeholder="admin" class="mnt-cred-input">
-            <span class="mnt-cred-sep"></span>
-            <span class="mnt-cred-label">Senha</span>
-            <input type="password" id="mntNvrPass" value="intelbras" placeholder="Senha" class="mnt-cred-input">
-          </div>
-          <div class="mnt-bar-divider"></div>
-          <div class="mnt-actions-group">
-            <button class="mnt-action-btn" id="btnMntNvrReboot"><i data-lucide="power-circle"></i><span>Reboot</span></button>
-            <button class="mnt-action-btn" id="btnMntNvrNtp"><i data-lucide="clock"></i><span>Acertar NTP</span></button>
-          </div>
-        </div>
-
-        <div class="panel">
-          <div class="panel-header">
-            <div>
-            <p>Operacoes em lote nos gravadores.</p>
-              <p>Marque e execute a operacao em lote</p>
-            </div>
-            <div style="display:flex;gap:8px;align-items:center">
-              <span id="mntNvrSelectedCount" style="font-size:12px;color:var(--muted)">0 selecionados</span>
-              <button class="secondary-action" id="btnMntNvrSelectAll"><i data-lucide="check-square"></i> Todos</button>
-            </div>
-          </div>
-          <div class="table-wrap">
-            <table class="data-table">
-              <thead>
-                <tr>
-                  <th style="width:36px"><input type="checkbox" id="chkMntNvrAll"></th>
-                  <th>IP / Host</th>
-                  <th>Marca / Modelo</th>
-                  <th>Site</th>
-                  <th>Status</th>
-                  <th>Resultado</th>
-                </tr>
-              </thead>
-              <tbody id="mntNvrTable">
-                <tr class="empty-row"><td colspan="6">Carregando-</td></tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
-        <div class="mnt-console hidden" id="mntNvrConsole">
-          <div class="mnt-console-header">
-            <div class="mnt-console-tit">
-              <i data-lucide="list-checks"></i>
-              <span>Resultado da acao</span>
-              <span class="mnt-console-resumo"></span>
-            </div>
-            <button onclick="document.getElementById('mntNvrConsole').classList.add('hidden')" aria-label="Fechar"><i data-lucide="x" style="width:15px;height:15px"></i></button>
-          </div>
-          <div class="mnt-console-body" id="mntNvrConsoleBody"></div>
-        </div>
-      </section>
 
       <section class="workspace hidden" id="viewMonitoring">
         <div class="page-heading">
@@ -6943,35 +6873,35 @@
   </div>
 
   <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js"></script>
-  <script src="config.js?v=1791000198"></script>
+  <script src="config.js?v=1791000199"></script>
   <!-- app.js foi dividido por assunto. A ORDEM importa: os arquivos sao os
        trechos do app.js original na sequencia em que estavam, entao carregar
        fora de ordem muda o comportamento. Ao adicionar um arquivo novo, entre
        antes de bootstrap.js, que e quem liga os botoes no DOMContentLoaded. -->
-  <script src="js/core.js?v=1791000198"></script>
-  <script src="js/dashboard.js?v=1791000198"></script>
-  <script src="js/liveStream.js?v=1791000198"></script>
-  <script src="js/cameras.js?v=1791000198"></script>
-  <script src="js/recorders.js?v=1791000198"></script>
-  <script src="js/windows.js?v=1791000198"></script>
-  <script src="js/snapshots.js?v=1791000198"></script>
-  <script src="js/maintenance.js?v=1791000198"></script>
-  <script src="js/analysis.js?v=1791000198"></script>
-  <script src="js/network.js?v=1791000198"></script>
-  <script src="js/rede.js?v=1791000198"></script>
-  <script src="js/deploy.js?v=1791000198"></script>
-  <script src="js/cameraActivation.js?v=1791000198"></script>
-  <script src="js/deployOlt.js?v=1791000198"></script>
-  <script src="js/connectors.js?v=1791000198"></script>
-  <script src="js/monitoring.js?v=1791000198"></script>
-  <script src="js/planning.js?v=1791000198"></script>
-  <script src="js/helpers.js?v=1791000198"></script>
-  <script src="js/accessControl.js?v=1791000198"></script>
-  <script src="js/accessLive.js?v=1791000198"></script>
-  <script src="js/accessWhatsappTriage.js?v=1791000198"></script>
-  <script src="js/messenger.js?v=1791000198"></script>
-  <script src="js/alert.js?v=1791000198"></script>
-  <script src="js/tr069.js?v=1791000198"></script>
-  <script src="js/bootstrap.js?v=1791000198"></script>
+  <script src="js/core.js?v=1791000199"></script>
+  <script src="js/dashboard.js?v=1791000199"></script>
+  <script src="js/liveStream.js?v=1791000199"></script>
+  <script src="js/cameras.js?v=1791000199"></script>
+  <script src="js/recorders.js?v=1791000199"></script>
+  <script src="js/windows.js?v=1791000199"></script>
+  <script src="js/snapshots.js?v=1791000199"></script>
+  <script src="js/maintenance.js?v=1791000199"></script>
+  <script src="js/analysis.js?v=1791000199"></script>
+  <script src="js/network.js?v=1791000199"></script>
+  <script src="js/rede.js?v=1791000199"></script>
+  <script src="js/deploy.js?v=1791000199"></script>
+  <script src="js/cameraActivation.js?v=1791000199"></script>
+  <script src="js/deployOlt.js?v=1791000199"></script>
+  <script src="js/connectors.js?v=1791000199"></script>
+  <script src="js/monitoring.js?v=1791000199"></script>
+  <script src="js/planning.js?v=1791000199"></script>
+  <script src="js/helpers.js?v=1791000199"></script>
+  <script src="js/accessControl.js?v=1791000199"></script>
+  <script src="js/accessLive.js?v=1791000199"></script>
+  <script src="js/accessWhatsappTriage.js?v=1791000199"></script>
+  <script src="js/messenger.js?v=1791000199"></script>
+  <script src="js/alert.js?v=1791000199"></script>
+  <script src="js/tr069.js?v=1791000199"></script>
+  <script src="js/bootstrap.js?v=1791000199"></script>
 </body>
 </html>

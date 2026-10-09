@@ -465,7 +465,6 @@ const VIEW_META = {
   'snap-dvr':      { title: 'Snapshots  DVR',   sub: 'Fotos dos canais DVR' },
   'snap-nvr':      { title: 'Snapshots  NVR',   sub: 'Fotos dos canais NVR' },
   'mnt-cam':       { title: 'Manutencao  Cameras', sub: 'Operacoes em lote' },
-  'mnt-nvr':       { title: 'Manutencao - Gravadores',  sub: 'Operacoes em lote' },
   playback:        { title: 'Reproducao',       sub: 'Busca de gravacoes por DVR' },
   'ia-nvr':        { title: 'IA  NVR',          sub: 'Indexacao e busca inteligente' },
   'access-live':    { title: 'Acesso ao Vivo', sub: 'Movimentacao em tempo real' },
@@ -474,7 +473,7 @@ const VIEW_META = {
   'access-control': { title: 'Controle de Acesso', sub: 'Reconhecimento facial e eventos de entrada e saida' },
   'alert-live':     { title: 'Alerta ao Vivo', sub: 'Pedidos de ajuda do botao de panico' },
   'alert-members':  { title: 'Pessoas do Alerta', sub: 'Quem usa o app de panico' },
-  'net-operate':   { title: 'Manutencao - Operacoes', sub: 'Ferramentas de diagnostico de rede' },
+  'net-operate':   { title: 'Manutencao - Rede', sub: 'Tuneis, diagnostico e teste pontual' },
   planning:        { title: 'Projetos de CFTV', sub: 'Planejamento antes da implantacao' },
   'deploy-olt':    { title: 'Implantacao - OLT', sub: 'Cadastro das OLTs usadas na operacao' },
   'deploy-onu':    { title: 'Implantacao - ONU', sub: 'Provisionamento em campo' },
@@ -508,7 +507,6 @@ const VIEW_ID_MAP = {
   'snap-dvr':       'viewSnapDvr',
   'snap-nvr':       'viewSnapNvr',
   'mnt-cam':        'viewMntCam',
-  'mnt-nvr':        'viewMntNvr',
   playback:         'viewPlayback',
   'ia-nvr':         'viewIaNvr',
   'access-live':     'viewAccessLive',
@@ -603,7 +601,6 @@ function loadView(view) {
     case 'snap-dvr':    loadSnapDvr();      break;
     case 'snap-nvr':    loadSnapNvr();      break;
     case 'mnt-cam':     loadMntCam();       break;
-    case 'mnt-nvr':     loadMntNvr();       break;
     case 'playback':    loadPlayback();     break;
     case 'ia-nvr':      loadIaNvr();        break;
     case 'access-live':    loadAccessLive();    break;
