@@ -91,6 +91,20 @@ def _pedir(url: str, user: str, password: str, timeout: float = _TEMPO) -> Tuple
     return 401, ""
 
 
+def _postar(url: str, user: str, password: str, corpo: str,
+            content_type: str = "application/xml", timeout: float = _TEMPO) -> Tuple[int | None, str]:
+    """POST com Digest primeiro, Basic depois -- a busca ISAPI da Hikvision e POST."""
+    for auth in (HTTPDigestAuth(user, password), HTTPBasicAuth(user, password)):
+        try:
+            r = requests.post(url, data=corpo.encode("utf-8"), auth=auth, timeout=timeout,
+                              verify=False, headers={"Content-Type": content_type})
+            if r.status_code not in (401, 403):
+                return r.status_code, (r.text or "")
+        except Exception as exc:  # timeout, conexao recusada, DNS
+            return None, str(exc)
+    return 401, ""
+
+
 def _base(host: str, porta: Any, connector_id: str = "") -> str:
     """Conector isolado so responde no IP virtual -- quem traduz e o vnat."""
     if connector_id:

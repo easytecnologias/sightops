@@ -255,19 +255,29 @@ def api_driver_trecho(req: TrechoRequest) -> Dict[str, Any]:
     import secrets
 
     from app.services.recorder_media_service import (
-        RecorderAuthError, RecordingNotFoundError, download_clip_mp4)
+        RecorderAuthError, RecordingNotFoundError, download_clip_mp4,
+        download_clip_mp4_hikvision)
 
     inicio, fim = _data(req.inicio, "inicio"), _data(req.fim, "fim")
     if not (timedelta(0) < fim - inicio <= timedelta(minutes=30)):
         raise HTTPException(status_code=400, detail="trecho de ate 30 minutos")
     g = _abrir(req.host, req.http_port, req.connector_id)
-    if g.marca != "intelbras":
-        raise HTTPException(status_code=501, detail=f"baixar trecho ainda nao esta disponivel para {g.marca}")
     porta = int(g.base.rsplit(":", 1)[1]) if g.base.count(":") > 1 else 80
     try:
-        mp4 = download_clip_mp4(host=g.alcance, http_port=porta, user=g.user, password=g.password,
-                                channel=int(req.canal), start_dt=inicio, end_dt=fim, timeout_sec=600,
-                                scale="scale=trunc(iw/2)*2:trunc(ih/2)*2")
+        if g.marca == "hikvision":
+            # RTSP de playback -> MP4 (-c copy). O gravador entrega ~tempo real,
+            # entao o timeout acompanha a duracao do trecho (ate 30 min).
+            rtsp = g.url_playback(int(req.canal), inicio, fim)
+            mp4 = download_clip_mp4_hikvision(
+                rtsp_url=rtsp, host=g.alcance, channel=int(req.canal),
+                start_dt=inicio, end_dt=fim,
+                timeout_sec=int((fim - inicio).total_seconds()) + 120)
+        elif g.marca == "intelbras":
+            mp4 = download_clip_mp4(host=g.alcance, http_port=porta, user=g.user, password=g.password,
+                                    channel=int(req.canal), start_dt=inicio, end_dt=fim, timeout_sec=600,
+                                    scale="scale=trunc(iw/2)*2:trunc(ih/2)*2")
+        else:
+            raise HTTPException(status_code=501, detail=f"baixar trecho ainda nao esta disponivel para {g.marca}")
     except RecorderAuthError as exc:
         raise HTTPException(status_code=401, detail=str(exc)) from exc
     except RecordingNotFoundError as exc:

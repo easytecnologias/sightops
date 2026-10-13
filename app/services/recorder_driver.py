@@ -23,13 +23,15 @@ from __future__ import annotations
 
 import re
 import time
+import uuid
+import xml.etree.ElementTree as ET
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 from urllib.parse import quote
 
-from app.services.recorder_xray import _base, _pedir, detectar_marca
+from app.services.recorder_xray import _base, _pedir, _postar, detectar_marca
 
 FMT = "%Y-%m-%d %H:%M:%S"
 
@@ -120,6 +122,39 @@ def parse_indice(texto: str) -> List[Segmento]:
     return segs
 
 
+_HIK_NS = "http://www.hikvision.com/ver20/XMLSchema"
+
+
+def _iso_hik(valor: str) -> str:
+    """'2026-10-10T22:27:25Z' -> '2026-10-10 22:27:25'. O "Z" e hora LOCAL do
+    gravador (nao UTC real), confirmado contra o relogio da imagem."""
+    return (valor or "").replace("T", " ").replace("Z", "").strip()[:19]
+
+
+def parse_indice_hik(xml: str) -> Tuple[List[Segmento], str]:
+    """CMSearchResult (ISAPI) -> (segmentos, status). status "MORE" => ha mais
+    paginas. metadataDescriptor .../motion (ou VMD) etiqueta o trecho como movimento."""
+    try:
+        raiz = ET.fromstring(xml)
+    except ET.ParseError:
+        return [], ""
+    ns = {"h": _HIK_NS}
+    status = (raiz.findtext("h:responseStatusStrg", "", ns) or "").strip()
+    segs: List[Segmento] = []
+    for item in raiz.findall(".//h:searchMatchItem", ns):
+        ts = item.find("h:timeSpan", ns)
+        if ts is None:
+            continue
+        ini = (ts.findtext("h:startTime", "", ns) or "").strip()
+        fim = (ts.findtext("h:endTime", "", ns) or "").strip()
+        if not ini or not fim:
+            continue
+        descr = " ".join(d.text or "" for d in item.findall(".//h:metadataDescriptor", ns)).lower()
+        movimento = "motion" in descr or "vmd" in descr
+        segs.append(Segmento(_iso_hik(ini), _iso_hik(fim), "movimento" if movimento else "continuo", 0))
+    return segs, status
+
+
 def diagnosticar_intelbras(pares: Dict[str, str], perfil: Dict[str, Any] = PERFIL
                            ) -> Tuple[List[Mudanca], List[str]]:
     """Compara a configuracao lida com o perfil. Funcao pura (testavel sem gravador).
@@ -199,7 +234,8 @@ class Gravador:
 
     def __init__(self, host: str, user: str, password: str, porta: Any = 80,
                  connector_id: str = "", pedir: Optional[Callable[[str], Tuple[Optional[int], str]]] = None,
-                 marca: str = ""):
+                 marca: str = "",
+                 postar: Optional[Callable[[str, str], Tuple[Optional[int], str]]] = None):
         if not host or not password:
             raise ErroDriver("sem host ou sem senha do gravador")
         self.host = host
@@ -207,6 +243,7 @@ class Gravador:
         self.password = password
         self.base = _base(host, porta, connector_id)
         self._pedir = pedir or (lambda url: _pedir(url, self.user, self.password))
+        self._postar = postar or (lambda url, corpo: _postar(url, self.user, self.password, corpo))
         self.marca = marca or detectar_marca(self.base, self.user, self.password)
 
     @property
@@ -219,6 +256,14 @@ class Gravador:
             raise ErroDriver("o gravador recusou usuario ou senha")
         if not cod or cod >= 400:
             raise ErroDriver(f"o gravador nao respondeu ({cod or txt[:80]})")
+        return txt
+
+    def _post(self, caminho: str, corpo: str) -> str:
+        cod, txt = self._postar(f"{self.base}{caminho}", corpo)
+        if cod in (401, 403):
+            raise ErroDriver("o gravador recusou usuario ou senha")
+        if not cod or cod >= 400:
+            raise ErroDriver(f"o gravador recusou a busca ({cod or txt[:80]})")
         return txt
 
     def _so_intelbras(self, o_que: str) -> None:
@@ -250,6 +295,8 @@ class Gravador:
 
     def indice(self, canal: int, inicio: datetime, fim: datetime) -> List[Segmento]:
         """Arquivos gravados no intervalo, etiquetados continuo/movimento."""
+        if self.marca == "hikvision":
+            return self._indice_hik(canal, inicio, fim)
         self._so_intelbras("indice de gravacao")
         txt = self._get("/cgi-bin/mediaFileFind.cgi?action=factory.create")
         m = re.search(r"result=(\d+)", txt)
@@ -273,6 +320,33 @@ class Gravador:
                     self._get(f"/cgi-bin/mediaFileFind.cgi?action={acao}&object={obj}")
                 except ErroDriver:
                     pass
+        return segs
+
+    def _indice_hik(self, canal: int, inicio: datetime, fim: datetime) -> List[Segmento]:
+        """Indice via ISAPI (/ISAPI/ContentMgmt/search). Validado no NVR da TELHA
+        (DS, H.264): o XML EXIGE o xmlns e usa <trackList>; o "Z" do timeSpan e
+        hora local do gravador, igual ao url_playback. Pagina com searchResultPostion."""
+        segs: List[Segmento] = []
+        pos = 0
+        for _ in range(40):  # teto de paginas
+            corpo = (
+                '<?xml version="1.0" encoding="utf-8"?>'
+                f'<CMSearchDescription version="1.0" xmlns="{_HIK_NS}">'
+                f'<searchID>{uuid.uuid4()}</searchID>'
+                f'<trackList><trackID>{int(canal)}01</trackID></trackList>'
+                '<timeSpanList><timeSpan>'
+                f'<startTime>{inicio:%Y-%m-%dT%H:%M:%SZ}</startTime>'
+                f'<endTime>{fim:%Y-%m-%dT%H:%M:%SZ}</endTime>'
+                '</timeSpan></timeSpanList>'
+                '<maxResults>40</maxResults>'
+                f'<searchResultPostion>{pos}</searchResultPostion>'
+                '</CMSearchDescription>'
+            )
+            pagina, status = parse_indice_hik(self._post("/ISAPI/ContentMgmt/search", corpo))
+            segs.extend(pagina)
+            pos += len(pagina)
+            if status != "MORE" or not pagina:
+                break
         return segs
 
     def url_playback(self, canal: int, inicio: datetime, fim: datetime, porta_rtsp: int = 554) -> str:

@@ -295,3 +295,40 @@ def download_clip_mp4(
         return mp4_path
     finally:
         dav_path.unlink(missing_ok=True)
+
+
+def download_clip_mp4_hikvision(
+    *,
+    rtsp_url: str,
+    host: str,
+    channel: int,
+    start_dt: datetime,
+    end_dt: datetime,
+    out_dir: Path = EXPORT_DIR,
+    timeout_sec: int = 900,
+) -> Path:
+    """Baixa um trecho Hikvision pelo RTSP de playback e salva em MP4 (-c copy,
+    mantem o codec original). O gravador entrega ~tempo real, entao o download
+    demora ~a duracao do trecho -- por isso o `-t` fecha no fim e o timeout
+    acompanha a duracao pedida.
+    """
+    out_dir.mkdir(parents=True, exist_ok=True)
+    stem = safe_stem(clean_host(host), channel, start_dt, end_dt)
+    mp4_path = out_dir / f"{stem}.mp4"
+    # `-t` corta na duracao pedida. A URL (gerada pelo chamador) deve ter a janela
+    # MAIOR que isto -- o NVR nao fecha o RTSP no endtime, entao o ffmpeg nao pode
+    # depender do EOF: ele para pelo -t, e a janela maior garante que ha frames.
+    dur = max(1, int((end_dt - start_dt).total_seconds()))
+    run_ffmpeg(
+        [
+            "-rtsp_transport", "tcp",
+            "-i", rtsp_url,
+            "-t", str(dur),
+            "-c", "copy", "-movflags", "+faststart",
+            str(mp4_path),
+        ],
+        timeout_sec,
+    )
+    if not mp4_path.exists() or mp4_path.stat().st_size == 0:
+        raise RecordingNotFoundError("sem gravacao nesse trecho")
+    return mp4_path

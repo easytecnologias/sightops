@@ -67,9 +67,20 @@ class FiberHomeTelnet:
         self.timeout = timeout
         self.sock: socket.socket | None = None
         self._lock_acquired = False
+        self._proc_lock = None  # lock entre processos (olt_session_lock)
 
     def __enter__(self) -> "FiberHomeTelnet":
+        # lock ENTRE PROCESSOS: a AN5516 so aceita uma sessao admin, e quem bate
+        # nela sao containers diferentes (telemetria, bot, CLI). Sem isto duas
+        # sessoes caem juntas e a OLT trava a gerencia. Ver olt_session_lock.
+        from app.services.olt_session_lock import olt_process_lock
+        self._proc_lock = olt_process_lock(self.host, timeout=max(60.0, self.timeout * 5))
+        self._proc_lock.__enter__()
         if not self._admin_lock.acquire(timeout=max(30.0, self.timeout * 4)):
+            try:
+                self._proc_lock.__exit__(None, None, None)
+            except Exception:
+                pass
             raise TimeoutError(
                 "A OLT FiberHome esta ocupada com outra operacao do SightOps. "
                 "Aguarde a operacao atual terminar e tente novamente."
@@ -96,19 +107,30 @@ class FiberHomeTelnet:
             raise
 
     def __exit__(self, *_: Any) -> None:
+        # Na AN5516, `quit` direto de Admin# deixa o lock de configuracao
+        # preso. Desca ate User> e so entao encerre.
+        #
+        # Ate cinco `exit`: quando o comando anterior falhou ("% Unknown
+        # command") a sessao fica num submenu, e um `exit` so nao chega la.
+        # Foi assim que a OLT ficou "locked by other user" com ninguem
+        # conectado, segurando o acesso ate o idle timeout dela.
         try:
-            # Na AN5516, `quit` executado diretamente em Admin# pode deixar o
-            # lock de configuracao preso. Desca primeiro para User> e so entao
-            # encerre a sessao Telnet.
-            self.send("exit")
-            self._read_until(("User>", "Login:"), maximum=2.5)
+            for _tentativa in range(5):
+                self.send("exit")
+                saida = self._read_quiet(maximum=1.5)
+                if "User>" in saida or "Login:" in saida:
+                    break
+        except Exception:
+            pass
+        # O quit vai de qualquer jeito: encerrar a sessao nao pode depender
+        # do estado em que o prompt ficou.
+        try:
             self.send("quit")
             self._read_quiet(maximum=2.0)
-        except OSError:
+        except Exception:
             pass
-        finally:
-            self._close_socket()
-            self._release_lock()
+        self._close_socket()
+        self._release_lock()
 
     def _close_socket(self) -> None:
         if self.sock is None:
@@ -124,6 +146,13 @@ class FiberHomeTelnet:
         if self._lock_acquired:
             self._lock_acquired = False
             self._admin_lock.release()
+        proc_lock = getattr(self, "_proc_lock", None)
+        if proc_lock is not None:
+            self._proc_lock = None
+            try:
+                proc_lock.__exit__(None, None, None)
+            except Exception:
+                pass
 
     def send(self, value: str) -> None:
         if self.sock is None:
