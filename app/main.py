@@ -289,6 +289,52 @@ async def _monitoring_refresh_loop() -> None:
         await asyncio.sleep(interval)
 
 
+def _nvr_status_interval_s() -> int:
+    try:
+        return max(600, min(int(os.getenv("SIGHTOPS_NVR_STATUS_INTERVAL", "2400")), 21600))
+    except Exception:
+        return 2400
+
+
+def _verificar_nvrs_tenant(tenant_slug: str) -> dict:
+    from app.services.nvr_status_service import verificar_cliente
+
+    token = set_current_tenant_slug(tenant_slug)
+    try:
+        return verificar_cliente()
+    finally:
+        reset_current_tenant_slug(token)
+
+
+async def _nvr_status_loop() -> None:
+    # Ate 14/10/2026 nenhum canal de gravador era reverificado: 803 canais de
+    # cinco clientes seguiam "online" desde a migracao, sem data, e o painel e
+    # o Zabbix acreditavam. Um cliente por vez e, dentro dele, um gravador por
+    # vez -- gravador em link lento ja caiu com consulta em paralelo.
+    interval = _nvr_status_interval_s()
+    await asyncio.sleep(60)
+    while True:
+        resumo: dict[str, object] = {}
+        try:
+            for tenant_slug in await asyncio.to_thread(list_monitoring_tenants):
+                try:
+                    resumo[tenant_slug] = await asyncio.to_thread(_verificar_nvrs_tenant, tenant_slug)
+                except Exception as exc:  # noqa: BLE001 - um cliente nao para os outros
+                    resumo[tenant_slug] = {"ok": False, "error": str(exc)[:200]}
+                    logger.exception("nvr status: falhou para %s", tenant_slug)
+            app.state.nvr_status_last = {"ok": True, "interval_s": interval, "tenants": resumo}
+            linhas = [f"{t}: {r.get('nvrs', 0)} gravador(es), {r.get('status', {})}"
+                      for t, r in resumo.items() if isinstance(r, dict) and r.get("nvrs")]
+            if linhas:
+                logger.info("nvr status: %s", "; ".join(linhas))
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            app.state.nvr_status_last = {"ok": False, "interval_s": interval, "error": str(exc)}
+            logger.exception("nvr status loop failed")
+        await asyncio.sleep(interval)
+
+
 def _sync_uma_olt(olt_id: int) -> dict:
     """Refaz a lista de ONUs de UMA OLT, igual ao botao Sincronizar da tela."""
     _ensure_supported_registry_driver(olt_id)
@@ -568,6 +614,7 @@ async def startup_events() -> None:
     app.state.alert_escalation_task = asyncio.create_task(
         _alert_escalation_loop(), name="alert-escalation-loop"
     )
+    app.state.nvr_status_task = asyncio.create_task(_nvr_status_loop(), name="nvr-status-loop")
 
 
 @app.on_event("shutdown")
@@ -580,6 +627,7 @@ async def shutdown_events() -> None:
         "access_control_sync_task",
         "live_stream_cleanup_task",
         "alert_escalation_task",
+        "nvr_status_task",
     ):
         task = getattr(app.state, task_name, None)
         if task:

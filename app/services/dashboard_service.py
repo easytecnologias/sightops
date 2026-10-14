@@ -56,7 +56,7 @@ def _is_online(row: Dict[str, Any]) -> bool:
             row.get("remote_connector_id") or row.get("connector_id"),
             row.get("status_checked_at"),
             conectores_offline_cache(),
-            # a verificacao de canal roda no ciclo de manutencao (~40 min)
+            # canal e reverificado pelo _nvr_status_loop (main.py) a cada ~40 min
             **({"limite_min": 120} if gravador else {}),
         )
         if motivo:
@@ -69,6 +69,12 @@ def _is_online(row: Dict[str, Any]) -> bool:
 
 def _is_offline(row: Dict[str, Any]) -> bool:
     status = _lower(row.get("status") or row.get("health") or row.get("state"))
+    # camera_offline/nvr_offline: vocabulario dos canais de gravador. Antes
+    # caiam em "desconhecido" e o painel nao contava camera fora no gravador.
+    if status in ("camera_offline", "nvr_offline"):
+        from app.services.status_efetivo import avaliar
+        _efetivo, motivo = avaliar(status, "", row.get("status_checked_at"), (), limite_min=120)
+        return bool(row.get("status_checked_at")) and not motivo
     return status in ("offline", "down", "inativo", "inactive", "auth_failed", "timeout", "erro", "error")
 
 
@@ -134,6 +140,8 @@ def _status_counts(rows: Iterable[Dict[str, Any]]) -> Dict[str, int]:
     for row in rows or []:
         if not isinstance(row, dict):
             continue
+        if _lower(row.get("status")) == "sem_camera":
+            continue  # canal de gravador sem camera ligada nao e equipamento
         total += 1
         if _is_online(row):
             online += 1

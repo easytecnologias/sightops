@@ -246,16 +246,29 @@ function recHasNoCamera(r) {
 // isso de "offline" vermelho mandava tecnico a campo atras de camera que
 // podia estar funcionando -- e contradizia o proprio rodape da tela, que ja
 // contava os tres separados.
-function recStatusCell(r) {
+//
+// A verificacao de canal (nvr_status_service) e a coleta completa gravam mais
+// que "online"/"offline": camera_offline, nvr_offline, sem_camera, sem_leitura.
+// Tudo isso caia em "nao verificado" -- inclusive canal que acabou de ser
+// verificado e esta vazio. Uma funcao so decide a classe, o texto e a cor,
+// e a celula, a linha, o rodape e o painel lateral usam ela.
+const _REC_STATUS = {
+  online:         { classe: 'online',  texto: 'online',            cor: 'var(--primary)' },
+  offline:        { classe: 'offline', texto: 'offline',           cor: 'var(--danger)' },
+  camera_offline: { classe: 'offline', texto: 'camera offline',    cor: 'var(--danger)' },
+  nvr_offline:    { classe: 'offline', texto: 'gravador sem resposta', cor: 'var(--danger)' },
+  sem_camera:     { classe: 'vazio',   texto: 'sem camera',        cor: 'var(--muted)' },
+};
+function recStatusInfo(r) {
   const st = String(r?.status || '').toLowerCase();
-  if (st === 'online') {
-    return `<span style="color:var(--primary);font-weight:600;font-size:12px">online</span>`;
-  }
-  if (st === 'offline') {
-    return `<span style="color:var(--danger);font-weight:600;font-size:12px">offline</span>`;
-  }
-  const motivo = r?.status_motivo ? ` title="${esc(r.status_motivo)}"` : '';
-  return `<span${motivo} style="color:var(--amber);font-weight:600;font-size:12px">nao verificado</span>`;
+  return _REC_STATUS[st] || { classe: 'unknown', texto: 'nao verificado', cor: 'var(--amber)' };
+}
+function recStatusCell(r) {
+  const info = recStatusInfo(r);
+  const quando = r?.status_checked_at ? `verificado em ${new Date(r.status_checked_at).toLocaleString('pt-BR')}` : '';
+  const dica = r?.status_motivo || quando;
+  const title = dica ? ` title="${esc(dica)}"` : '';
+  return `<span${title} style="color:${info.cor};font-weight:600;font-size:12px">${esc(info.texto)}</span>`;
 }
 
 const NVR_COLS = {
@@ -508,17 +521,19 @@ function populateNvrFilters() {
       hosts.map(h => `<option value="${esc(h)}"${h===cur?' selected':''}>${esc(_names[h]||h)} (${esc(h)})</option>`).join('');
   }
 
-  const rows   = _currentNvrRows();
-  const online = rows.filter(r => r.status==='online').length;
+  // Canal vazio (sem camera) nao entra em conta nenhuma, nem no total.
+  const rows   = _currentNvrRows().filter(r => recStatusInfo(r).classe !== 'vazio');
+  const online = rows.filter(r => recStatusInfo(r).classe === 'online').length;
   // "nao verificado" NAO pode entrar na conta de offline. Offline afirma que o
   // equipamento caiu; unknown diz que o sistema nao conseguiu medir (conector
   // fora do ar, leitura velha). Somar os dois mandaria tecnico a campo atras
-  // de gravador que esta funcionando.
-  const semInfo = rows.filter(r => String(r.status||'').toLowerCase()==='unknown').length;
+  // de gravador que esta funcionando. Por isso offline e contado, nao deduzido.
+  const offline = rows.filter(r => recStatusInfo(r).classe === 'offline').length;
+  const semInfo = rows.filter(r => recStatusInfo(r).classe === 'unknown').length;
   const vloss  = rows.filter(recTemVideoLoss).length;
   setText('nvrTotal',   rows.length);
   setText('nvrOnline',  online);
-  setText('nvrOffline', rows.length - online - semInfo);
+  setText('nvrOffline', offline);
   setText('nvrDesconhecido', semInfo);
   setText('nvrVloss',   vloss);
 }
@@ -692,9 +707,9 @@ function renderNvrTable(rows) {
     if (_recCollapsedHosts.has(host)) return;
     // Tres estados. Antes qualquer coisa fora de "online" levava a classe
     // vermelha, entao canal sem medicao aparecia como canal caido.
-    const _st = (r.status||'').toLowerCase();
-    const classeLinha = _st === 'online' ? ''
-      : _st === 'offline' ? ' nvr-row-offline'
+    const _classe = recStatusInfo(r).classe;
+    const classeLinha = _classe === 'online' || _classe === 'vazio' ? ''
+      : _classe === 'offline' ? ' nvr-row-offline'
       : ' nvr-row-unknown';
     const cells = def.row(r);
     pieces.push(`<tr class="inv-nvr-row${classeLinha}" data-key="${esc(r.host+'_'+r.channel)}" style="cursor:pointer">
@@ -766,10 +781,10 @@ function openRecPanel(row) {
   if (typeof closeRecPanelLive === 'function') closeRecPanelLive();
   _recActive = { ...row, _type: _recType };
   const r = _recActive;
-  const isOnline = (r.status || '').toLowerCase() === 'online';
+  const _info = recStatusInfo(r);
   const status = document.getElementById('recPanelStatus');
-  status.textContent = r.status || '';
-  status.style.color = isOnline ? 'var(--primary)' : 'var(--danger)';
+  status.textContent = _info.texto;
+  status.style.color = _info.cor;
   setText('recPanelTitulo', r.title || `${r.host} CH${r.channel}`);
   setText('rpTipo', recTypeName(r._type));
   setText('rpHost', r.host || '');

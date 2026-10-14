@@ -13,6 +13,10 @@ vez -- gravador com rede lenta ja caiu com consulta em paralelo:
 
 "Nao consegui perguntar" NUNCA vira online: NVR sem resposta marca os canais
 como "nvr_offline"; consulta de perda de video que falhou nao conta.
+
+Quem roda: `_nvr_status_loop` em app/main.py, cliente por cliente. Em
+14/10/2026 este modulo existia ha uma semana sem ninguem chama-lo, e os 803
+canais dos cinco clientes continuavam "online" sem data nenhuma.
 """
 from __future__ import annotations
 
@@ -26,8 +30,68 @@ import requests
 logger = logging.getLogger("cam-snapshot")
 
 
+# Mesmo vocabulario da coleta completa (nvr.py), mais os dois desta verificacao.
+CANAL_ONLINE = {"online"}
+CANAL_OFFLINE = {"offline", "camera_offline", "nvr_offline"}
+CANAL_VAZIO = {"sem_camera"}  # canal sem camera ligada: nao e queda
+# Leitura de canal vale por 2 h: o ciclo roda a cada ~40 min, entao so perde a
+# validade quem ficou duas rodadas seguidas sem resposta.
+LIMITE_CANAL_MIN = 120
+
+
 def _agora() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def resumo_gravador(linhas: List[Dict[str, Any]], conectores_fora: Set[str] = frozenset(),
+                    limite_min: float = LIMITE_CANAL_MIN) -> Dict[str, Any]:
+    """Estado de UM gravador a partir de todos os seus canais (puro, testavel).
+
+    Antes o host do gravador no monitoramento/Zabbix herdava o status do
+    PRIMEIRO canal da lista: canal 1 "online" sem data = gravador online, ainda
+    que nunca tivesse sido consultado.
+
+    status: "online" (respondeu na ultima leitura valida), "offline" (todas as
+    leituras validas dizem que o gravador nao respondeu) ou "unknown".
+    """
+    from app.services.status_efetivo import avaliar
+
+    total = online = offline = 0
+    gravador_respondeu = gravador_fora = False
+    ultima = ""
+    for l in linhas:
+        lido = str(l.get("status") or "").strip().lower()
+        if lido in CANAL_VAZIO:
+            continue
+        checado = l.get("status_checked_at") or ""
+        efetivo, motivo = avaliar(lido, l.get("remote_connector_id") or l.get("connector_id"),
+                                  checado, conectores_fora, limite_min=limite_min)
+        if motivo or not checado:
+            continue  # sem data ou velha demais: nao conta para nada
+        if efetivo not in CANAL_ONLINE and efetivo not in CANAL_OFFLINE:
+            # "sem_leitura" tem data, mas nao e resposta: contar no total
+            # mandava "0 de 19 canais com imagem" ao Zabbix quando o gravador
+            # so demorou a responder a perda de video.
+            continue
+        total += 1
+        ultima = max(ultima, str(checado))
+        if efetivo in CANAL_ONLINE:
+            online += 1
+            gravador_respondeu = True
+        elif efetivo in CANAL_OFFLINE:
+            offline += 1
+            if efetivo == "nvr_offline":
+                gravador_fora = True
+            else:
+                gravador_respondeu = True  # camera fora, mas o gravador falou
+    if gravador_respondeu:
+        status = "online"
+    elif gravador_fora:
+        status = "offline"
+    else:
+        status = "unknown"
+    return {"status": status, "canais_total": total, "canais_online": online,
+            "canais_offline": offline, "checado_em": ultima}
 
 
 def _perda_de_video(base: str, auth: Any, timeout: float) -> Optional[Set[int]]:
@@ -87,6 +151,18 @@ def _verificar_nvr(host: str, porta: int, linhas: List[Dict[str, Any]], cameras_
         raise RuntimeError("sem senha salva para este gravador")
     conector = str(next((l.get("remote_connector_id") or l.get("connector_id") for l in linhas
                          if l.get("remote_connector_id") or l.get("connector_id")), "") or "")
+    if conector:
+        # Mesma guarda do tr069_service: o laco roda sem ninguem olhando, entao
+        # gravador atras de conector so e consultado pelo IP virtual. IP real
+        # (fora das LANs do conector) pode cair na rede de outro cliente -- e
+        # o probe manda a senha em Basic se o Digest falhar. IP_BLOQUEADO =
+        # conector nao e deste cliente: sondar so geraria "gravador fora" falso.
+        from app.services import connector_routing_vnat as vnat
+        virtual = vnat.virtual_ip_for(conector, host)
+        if not virtual or virtual == vnat.IP_BLOQUEADO:
+            raise RuntimeError("conector do gravador nao pertence a este cliente")
+        if virtual == host and vnat.has_mapping(conector):
+            raise RuntimeError("IP fora das LANs mapeadas do conector; nao consultado")
     tok = N._rec_req_connector.set(conector)
     try:
         base = N._base(host, porta)
@@ -101,7 +177,10 @@ def _verificar_nvr(host: str, porta: int, linhas: List[Dict[str, Any]], cameras_
             for ch, info in N._hik_collect_channel_runtime_statuses(base, auth, 5.0, canais).items():
                 runtime[int(ch)] = info.get("online")
         else:
-            perda = _perda_de_video(base, auth, 5.0)
+            # 10 s e nao 5: o 192.168.1.118 (RADS, link lento) leva 14 s so no
+            # probe e respondeu a perda de video ora em 3 s, ora depois dos 5 --
+            # e cada estouro virava 19 canais "sem_leitura".
+            perda = _perda_de_video(base, auth, 10.0)
     finally:
         N._rec_req_connector.reset(tok)
     out = {}
@@ -116,7 +195,12 @@ def _verificar_nvr(host: str, porta: int, linhas: List[Dict[str, Any]], cameras_
 
 
 def verificar_cliente(max_nvrs: int = 0) -> Dict[str, Any]:
-    """Verifica os NVRs do cliente da sessao, um por vez, e grava o status."""
+    """Verifica os NVRs do cliente da sessao, um por vez, e grava o status.
+
+    O cliente vem do contexto (set_current_tenant_slug): _read_rows/_write_rows
+    resolvem o arquivo do tenant por ele. Chamar fora desse contexto leria e
+    gravaria o inventario de outro cliente.
+    """
     from app.api.endpoints import nvr as N
 
     linhas = N._read_rows()

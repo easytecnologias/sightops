@@ -396,17 +396,25 @@ def refresh_from_inventory() -> Dict[str, Any]:
         "status": _efetivo(r), "detail": {"ip": r.get("ip"), "mode": r.get("_mode"), "model": r.get("modelo") or r.get("model"),
                                           "status_lido": r.get("status"), "checado_em": r.get("status_checked_at")},
     } for r in cameras if r.get("ip")), prune_entity_type="camera")
+    # O gravador e julgado por TODOS os canais (resumo_gravador). Antes herdava
+    # o status do primeiro canal da lista: canal "online" sem data nenhuma =
+    # gravador online no Zabbix, sem nunca ter sido consultado.
+    from app.services.nvr_status_service import resumo_gravador
     for source in ("dvr", "nvr"):
-        recorders = {}
+        canais_por_host: Dict[str, List[Dict[str, Any]]] = {}
         for r in _recorder_rows(source):
             host = _text(r.get("host") or r.get("ip"))
-            if host: recorders.setdefault(host, r)
+            if host: canais_por_host.setdefault(host, []).append(r)
+        resumos = {host: resumo_gravador(ls, sem_caminho) for host, ls in canais_por_host.items()}
         counts[source] = _observe_many(({
-            "entity_key": f"{source}:{r.get('remote_connector_id') or r.get('connector_id') or 'local'}:{host}",
-            "entity_type": source, "entity_id": host, "site": r.get("local"), "connector_id": r.get("remote_connector_id") or r.get("connector_id"),
-            "display_name": r.get("recorder_name") or r.get("nvr_name") or host, "status": _efetivo(r),
-            "detail": {"host": host, "model": r.get("recorder_model") or r.get("nvr_model"), "status_lido": r.get("status")},
-        } for host, r in recorders.items()), prune_entity_type=source)
+            "entity_key": f"{source}:{ls[0].get('remote_connector_id') or ls[0].get('connector_id') or 'local'}:{host}",
+            "entity_type": source, "entity_id": host, "site": ls[0].get("local"),
+            "connector_id": ls[0].get("remote_connector_id") or ls[0].get("connector_id"),
+            "display_name": ls[0].get("recorder_name") or ls[0].get("nvr_name") or host, "status": resumos[host]["status"],
+            "detail": {"host": host, "model": ls[0].get("recorder_model") or ls[0].get("nvr_model"),
+                       "canais_total": resumos[host]["canais_total"], "canais_online": resumos[host]["canais_online"],
+                       "canais_offline": resumos[host]["canais_offline"], "checado_em": resumos[host]["checado_em"]},
+        } for host, ls in canais_por_host.items()), prune_entity_type=source)
     try:
         counts["switch"] = _observe_many(_switch_entities(), prune_entity_type="switch")
     except Exception as exc:

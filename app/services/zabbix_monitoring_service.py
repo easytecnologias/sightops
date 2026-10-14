@@ -80,6 +80,12 @@ def _host_key(tenant: str, row: Dict[str, Any]) -> str:
 
 
 def _number(value: Any) -> float | None:
+    # Numero de verdade direto: `_text(0)` vira "" (o `or ""` engole o zero) e o
+    # valor sumia -- OLT com 0 ONUs online, switch com 0 portas com link e
+    # gravador com 0 canais sem imagem nunca chegavam ao Zabbix, que e
+    # justamente o valor que dispara alarme.
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return float(value)
     match = re.search(r"-?\d+(?:[.,]\d+)?", _text(value))
     try:
         return float(match.group(0).replace(",", ".")) if match else None
@@ -509,7 +515,8 @@ def sync_monitoring_to_zabbix(entity_types: tuple[str, ...] = ("olt", "onu", "ca
                    "sightops.ports_up", "sightops.ports_total", "sightops.poe_watts",
                    "sightops.onus_up", "sightops.onus_total", "sightops.uptime_days",
                    "sightops.uplinks_up", "sightops.uplinks_total", "sightops.pons_up", "sightops.pons_total",
-                   "sightops.uplink_in_bps", "sightops.uplink_out_bps"]
+                   "sightops.uplink_in_bps", "sightops.uplink_out_bps",
+                   "sightops.canais_online", "sightops.canais_offline", "sightops.canais_total"]
     items = _call(
         url, "item.get",
         {"output": ["itemid", "hostid", "key_"], "hostids": all_hostids, "filter": {"key_": wanted_keys}},
@@ -533,6 +540,9 @@ def sync_monitoring_to_zabbix(entity_types: tuple[str, ...] = ("olt", "onu", "ca
         "sightops.pons_total": ("SightOps - PONs", 3, "Portas PON da OLT (SNMP)"),
         "sightops.uplink_in_bps": ("SightOps - Uplink entrada", 0, "Trafego de entrada somado dos uplinks em bit/s (media entre duas leituras SNMP)"),
         "sightops.uplink_out_bps": ("SightOps - Uplink saida", 0, "Trafego de saida somado dos uplinks em bit/s (media entre duas leituras SNMP)"),
+        "sightops.canais_online": ("SightOps - Canais com imagem", 3, "Canais do gravador com camera respondendo (verificacao de ate 2 h)"),
+        "sightops.canais_offline": ("SightOps - Canais sem imagem", 3, "Canais do gravador com camera fora ou gravador sem resposta"),
+        "sightops.canais_total": ("SightOps - Canais lidos", 3, "Canais com camera e leitura valida na ultima verificacao (exclui canal vazio e sem leitura)"),
     }
     # bit/s ja vem calculado (olt_snmp_health, entre duas leituras SNMP). A
     # primeira versao criou estes itens com pre-processamento "x8 + diferenca
@@ -555,6 +565,8 @@ def sync_monitoring_to_zabbix(entity_types: tuple[str, ...] = ("olt", "onu", "ca
         "olt": ["sightops.onus_up", "sightops.onus_total", "sightops.uptime_days", "sightops.uplinks_up",
                 "sightops.uplinks_total", "sightops.pons_up", "sightops.pons_total",
                 "sightops.uplink_in_bps", "sightops.uplink_out_bps"],
+        "nvr": ["sightops.canais_online", "sightops.canais_offline", "sightops.canais_total"],
+        "dvr": ["sightops.canais_online", "sightops.canais_offline", "sightops.canais_total"],
     }
     create_items = []
     for technical_name, row in technical_names.items():
@@ -607,6 +619,11 @@ def sync_monitoring_to_zabbix(entity_types: tuple[str, ...] = ("olt", "onu", "ca
             ("sightops.pons_total", _number(detail.get("pons_total"))),
             ("sightops.uplink_in_bps", _number(detail.get("uplink_in_bps"))),
             ("sightops.uplink_out_bps", _number(detail.get("uplink_out_bps"))),
+            # So com leitura valida: sem `checado_em` o resumo e zero por nao
+            # saber, e mandar 0 desenharia "nenhum canal com imagem".
+            ("sightops.canais_online", _number(detail.get("canais_online")) if detail.get("checado_em") else None),
+            ("sightops.canais_offline", _number(detail.get("canais_offline")) if detail.get("checado_em") else None),
+            ("sightops.canais_total", _number(detail.get("canais_total")) if detail.get("checado_em") else None),
         ):
             metric_itemid = item_by_host_key.get((hostid, key), "")
             if metric_itemid and value is not None:
