@@ -56,6 +56,47 @@ function apKpi(icone, cor, rot, val, sub) {
 }
 
 // ---------------------------------------------------------------- ao vivo
+function apMovimento(horas) {
+  horas = horas || [];
+  const agoraH = new Date().getHours();
+  const max = Math.max(1, ...horas.map(h => h.entradas + h.saidas));
+  const pico = horas.reduce((m, h) => (h.entradas > (m ? m.entradas : -1) ? h : m), null);
+  const ate = horas.filter(h => h.h <= agoraH);
+  const total = ate.reduce((n, h) => n + h.entradas + h.saidas, 0);
+  const altura = n => Math.round(n * 100 / max) + '%';
+  return `<section class="panel ap-mov">
+    <div class="panel-header ap-cab"><div><h3>Movimento de hoje</h3>
+      <p>${pico && pico.entradas ? `pico de entrada às ${String(pico.h).padStart(2, '0')}h · ${pico.entradas} entradas` : 'sem movimento ainda'} · ${total} passagens até agora</p></div>
+      <div class="ap-legenda"><span><i class="lido"></i>entradas</span><span><i class="ap-saida-cor"></i>saídas</span></div></div>
+    <div class="ap-mov-corpo">
+      <div class="ap-mov-barras">${horas.map(h => `<div class="ap-mov-h ${h.h === agoraH ? 'agora' : ''} ${h.h > agoraH ? 'futuro' : ''}"
+          title="${String(h.h).padStart(2, '0')}h: ${h.entradas} entradas, ${h.saidas} saídas">
+          <i class="sai" style="height:${altura(h.saidas)}"></i><i class="ent" style="height:${altura(h.entradas)}"></i>
+          ${h.h === agoraH ? '<span class="ap-mov-agora">agora</span>' : ''}</div>`).join('')}</div>
+      <div class="ap-mov-eixo monospace"><span>0h</span><span>6h</span><span>12h</span><span>18h</span><span>23h</span></div>
+    </div></section>`;
+}
+
+function apSpark(horas) {
+  horas = horas || [];
+  const max = Math.max(1, ...horas);
+  const agoraH = new Date().getHours();
+  return `<div class="ap-spark" aria-hidden="true">${horas.map((n, h) =>
+    `<i class="${h === agoraH ? 'agora' : ''}" style="height:${n ? Math.max(8, Math.round(n * 100 / max)) : 4}%"></i>`).join('')}</div>`;
+}
+
+function apDentro(d) {
+  const lista = d.dentro || [];
+  const total = d.dentro_total ?? lista.length;
+  if (!total) return '';
+  const mostra = lista.slice(0, 24);
+  return `<section class="panel ap-dentro">
+    <div class="panel-header ap-cab"><div><h3>Quem está aqui agora</h3><p>${total} pessoa${total === 1 ? '' : 's'} · última marcação foi entrada</p></div></div>
+    <div class="ap-mosaico">${mostra.map(p => `<div class="ap-rosto" title="${esc([p.nome, p.turma || apTipo(p.tipo_pessoa), 'desde ' + apHm(apLocal(p.desde))].filter(Boolean).join(' · '))}">
+        ${apIniciais(p.nome)}${apFoto(p)}<span>${esc(String(p.nome || '').split(/\s+/)[0] || '')}</span></div>`).join('')}
+      ${total > mostra.length ? `<div class="ap-rosto mais">+${total - mostra.length}</div>` : ''}</div>
+  </section>`;
+}
 function apRecibo(p) {
   const a = p.aviso || {};
   if (a.status === 'sem_pessoa') return '<div class="ap-recibo">Pessoa sem cadastro no SightOps: sem aviso.</div>';
@@ -127,6 +168,8 @@ function apDesenharVivo(d) {
     </div>
     ${avisos.join('')}
     <div class="ap-grade">
+      <div class="ap-principal">
+      ${apMovimento(d.horas)}
       <section class="panel ap-agora" aria-label="Passagens de hoje">
         <div class="panel-header ap-cab"><div><h3>Agora</h3><p>${total} passagens hoje · mais recente primeiro</p></div></div>
         ${passagens.length ? `<div class="ap-lista">${passagens.slice(0, 30).map(p => `
@@ -140,6 +183,7 @@ function apDesenharVivo(d) {
             <div class="ap-hora monospace">${apHm(apLocal(p.hora))}</div>
           </div>`).join('')}</div>` : '<p class="ap-vazio">Nenhuma passagem hoje.</p>'}
       </section>
+      </div>
 
       <div class="ap-lado">
         ${ult ? `<section class="panel ap-ultima">
@@ -152,13 +196,14 @@ function apDesenharVivo(d) {
           </div>
           ${apRecibo(ult)}
         </section>` : ''}
+        ${apDentro(d)}
         <section class="panel ap-portas-painel">
           <div class="panel-header ap-cab"><div><h3>Portas</h3><p>${(d.portas || []).filter(apPortaViva).length} de ${(d.portas || []).length} com sinal</p></div></div>
           ${(d.portas || []).map(p => {
             const viva = apPortaViva(p);
             return `<div class="ap-porta-linha"><span class="ap-pt ${viva ? 'ok' : 'ruim'}"></span>
               <div class="ap-cresce"><b title="${esc(p.nome)}">${esc(apPorta(p.nome))}</b><small>${p.ultima ? 'última ' + apHm(apLocal(p.ultima)) : 'sem marcação hoje'}${viva ? '' : ' · sem sinal'}</small></div>
-              <span class="ap-num monospace">${p.hoje}</span></div>`;
+              ${apSpark(p.horas)}<span class="ap-num monospace">${p.hoje}</span></div>`;
           }).join('') || '<p class="ap-vazio">Nenhum leitor.</p>'}
         </section>
         ${temTurmas ? `<section class="panel ap-turmas"><div class="panel-header ap-cab"><div><h3>Presença por turma</h3></div></div>
