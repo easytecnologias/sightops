@@ -393,10 +393,10 @@ def _xray_hikvision(base: str, user: str, password: str) -> Dict[str, Any]:
             cru[_ROTAS_ISAPI[rota]] = corpo
 
     def arvore(chave: str):
-        try:
-            return ET.fromstring(cru.get(chave) or "")
-        except Exception:
-            return None
+        # hik_xml.ler aceita o namespace do firmware novo (isapi.org); com
+        # ET.fromstring direto o DS-7732NXI V5 vinha sem modelo nem canais.
+        from app.services.hik_xml import ler
+        return ler(cru.get(chave) or "")
 
     eq = arvore("equipamento")
     equipamento = {
@@ -952,6 +952,16 @@ def buscar_cameras(host: str, user: str, password: str, porta: Any = None,
 def raio_x(host: str, user: str, password: str, porta: Any = None,
            connector_id: str = "") -> Dict[str, Any]:
     """Le tudo que o gravador expoe. Levanta ValueError se nao entrar."""
+    if connector_id and _vnat.has_mapping(connector_id):
+        # Conector isolado so alcanca o que esta nas LANs dele. IP fora delas
+        # cai no IP REAL -- em 14/10/2026 o 192.168.18.80 da Mega Alarmes, com
+        # o conector errado (UFV-RODOANEL), foi parar num "Intelbras" qualquer
+        # e o raio-x levou 112 s para nao trazer nada, com a senha do cliente.
+        virtual = _vnat.virtual_ip_for(connector_id, host)
+        if not virtual or virtual == _vnat.IP_BLOQUEADO:
+            raise ValueError("este conector nao pertence a este cliente")
+        if virtual == host:
+            raise ValueError(f"{host} nao esta nas redes deste conector -- escolha o conector do site do gravador")
     base = _base(host, porta, connector_id)
     marca = detectar_marca(base, user, password)
     dados = (_xray_hikvision if marca == "hikvision" else _xray_intelbras)(base, user, password)

@@ -134,9 +134,9 @@ def _iso_hik(valor: str) -> str:
 def parse_indice_hik(xml: str) -> Tuple[List[Segmento], str]:
     """CMSearchResult (ISAPI) -> (segmentos, status). status "MORE" => ha mais
     paginas. metadataDescriptor .../motion (ou VMD) etiqueta o trecho como movimento."""
-    try:
-        raiz = ET.fromstring(xml)
-    except ET.ParseError:
+    from app.services.hik_xml import ler
+    raiz = ler(xml)  # firmware novo responde em isapi.org: sem isto, zero trechos calado
+    if raiz is None:
         return [], ""
     ns = {"h": _HIK_NS}
     status = (raiz.findtext("h:responseStatusStrg", "", ns) or "").strip()

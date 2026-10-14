@@ -166,9 +166,11 @@ def _intelbras_renomear(base, user, password, canal: int, nome: str, **_) -> Dic
 
 # ------------------------------------------------------------------ Hikvision
 def _hik_erro(corpo: str) -> str:
-    try:
-        raiz = ET.fromstring(corpo or "")
-    except Exception:
+    # Firmware novo responde em isapi.org: lido com o namespace antigo, o
+    # statusString vinha vazio e um erro de escrita passava como sucesso.
+    from app.services.hik_xml import ler
+    raiz = ler(corpo or "")
+    if raiz is None:
         return ""
     estado = (raiz.findtext("h:statusString", "", NS) or "").strip()
     sub = (raiz.findtext("h:subStatusCode", "", NS) or "").strip()
