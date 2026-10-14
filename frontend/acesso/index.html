@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Controle de Acesso · SightOps</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+  <link rel="stylesheet" href="acesso.css?v=1792000030">
+</head>
+<body>
+  <!-- Painel novo do controle de acesso (fase 1, so leitura). Convive com as
+       telas antigas em /v3/: mesmo login (cookie), mesma API, mesmos dados. -->
+  <header class="topo">
+    <a class="marca" href="../" title="Voltar ao SightOps"><span>S</span>SightOps</a>
+    <nav class="abas" aria-label="Telas">
+      <button type="button" data-tela="vivo" aria-pressed="true">Ao vivo</button>
+      <button type="button" data-tela="geral" aria-pressed="false">Visão geral</button>
+    </nav>
+    <label class="site"><span class="sr">Site</span><select id="site" aria-label="Site"><option value="">Todos os sites</option></select></label>
+    <span class="beta" title="Versão nova em teste. As telas antigas continuam no menu do SightOps.">versão nova · em teste</span>
+    <a class="legado" href="../">Voltar às telas atuais</a>
+  </header>
+
+  <main>
+    <section id="tela-vivo" class="vivo" aria-label="Ao vivo"></section>
+    <section id="tela-geral" class="geral" aria-label="Visão geral" hidden></section>
+  </main>
+
+  <script src="../config.js?v=1792000030"></script>
+  <script src="acesso.js?v=1792000030"></script>
+</body>
+</html>

@@ -992,6 +992,20 @@ def api_access_control_report_present(
     return {"ok": True, "count": len(people), "people": people}
 
 
+# Painel novo (/v3/acesso/), so leitura: convive com as telas antigas sem
+# mudar nenhuma rota que elas usam.
+@router.get("/painel/visao-geral")
+def api_access_control_painel_visao_geral(site: str = Query("")) -> Dict[str, Any]:
+    from app.services.access_control_painel import visao_geral
+    return visao_geral(site=site)
+
+
+@router.get("/painel/ao-vivo")
+def api_access_control_painel_ao_vivo(site: str = Query(""), limit: int = Query(40)) -> Dict[str, Any]:
+    from app.services.access_control_painel import ao_vivo
+    return ao_vivo(site=site, limite=limit)
+
+
 @router.get("/live/stream")
 async def api_access_control_live_stream(
     request: Request,

@@ -508,13 +508,31 @@ def refresh_from_inventory() -> Dict[str, Any]:
         counts["access_device"] = 0
     try:
         whatsapp_channels = list_access_whatsapp_channels()
+        # "Conectado" so diz que o token da Meta vale. De 15/09 a 07/10/2026 o
+        # token valia, o canal aparecia online, e a Meta recusava os avisos por
+        # pendencia de pagamento: 1.208 nao chegaram aos pais. O canal so esta
+        # bem se os envios de verdade estao saindo.
+        try:
+            from app.services.access_control_painel import saude_avisos
+            envios = saude_avisos()
+        except Exception as exc:
+            # Sem medir os envios, "conectado" nao prova nada (foi o caso de
+            # 15/09 a 07/10): desconhecido, nao online.
+            logger.warning("Falha ao medir envios de WhatsApp: %s", exc)
+            envios = {"sem_medida": True}
         counts["whatsapp"] = _observe_many(({
             "entity_key": f"whatsapp:{c.get('site') or '__default__'}", "entity_type": "whatsapp",
             "entity_id": c.get("site") or "__default__", "site": c.get("site"), "display_name": c.get("label"),
-            "status": "online" if c.get("connected") else "offline",
+            "status": "offline" if (not c.get("connected") or envios.get("alerta"))
+                      else ("unknown" if envios.get("sem_medida") else "online"),
             "detail": {
                 "phone_number_id": c.get("phone_number_id"), "display_phone_number": c.get("display_phone_number"),
                 "quality_rating": c.get("quality_rating"),
+                "avisos_janela_min": envios.get("janela_min"), "avisos_enviados": envios.get("enviados"),
+                "avisos_falhas": envios.get("falhas"), "avisos_taxa_falha": envios.get("taxa_falha"),
+                "avisos_erro": envios.get("erro_principal"),
+                "motivo": ("avisos falhando: " + str(envios.get("erro_principal") or "sem motivo da Meta"))
+                          if envios.get("alerta") else "",
             },
         } for c in whatsapp_channels), prune_entity_type="whatsapp")
     except Exception as exc:

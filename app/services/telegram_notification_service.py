@@ -26,7 +26,7 @@ def get_telegram_config() -> Dict[str, Any]:
         "enabled": bool(cfg.get("enabled")), "configured": bool(cfg.get("bot_token") and cfg.get("chat_id")),
         "chat_id": _text(cfg.get("chat_id")), "warn_rx": float(cfg.get("warn_rx", -27)),
         "critical_rx": float(cfg.get("critical_rx", -29)), "notify_recovery": bool(cfg.get("notify_recovery", True)),
-        "types": list(cfg.get("types") or ["connector", "olt", "onu", "camera", "nvr", "dvr", "windows"]),
+        "types": list(cfg.get("types") or ["connector", "olt", "onu", "camera", "nvr", "dvr", "windows", "whatsapp"]),
     }
 
 
@@ -38,7 +38,7 @@ def save_telegram_config(payload: Dict[str, Any]) -> Dict[str, Any]:
         "enabled": bool(payload.get("enabled")), "bot_token": token, "chat_id": _text(payload.get("chat_id")),
         "warn_rx": float(payload.get("warn_rx", -27)), "critical_rx": float(payload.get("critical_rx", -29)),
         "notify_recovery": bool(payload.get("notify_recovery", True)),
-        "types": list(payload.get("types") or ["connector", "olt", "onu", "camera", "nvr", "dvr", "windows"]),
+        "types": list(payload.get("types") or ["connector", "olt", "onu", "camera", "nvr", "dvr", "windows", "whatsapp"]),
     }
     save_app_settings(settings)
     return get_telegram_config()
@@ -102,6 +102,12 @@ def process_monitoring_notifications() -> Dict[str, Any]:
         down_state = _state(key, "offline")
         if status == "down" and not down_state.get("active"):
             msg = f"🔴 <b>EQUIPAMENTO OFFLINE</b>\n\nTipo: {html.escape(entity_type.upper())}\nEquipamento: {html.escape(name)}\nSite: {html.escape(site)}\nDetectado: {html.escape(_now())}"
+            # Motivo vindo do monitoramento (ex.: WhatsApp "conectado" mas a
+            # Meta recusando os avisos): sem ele o alerta so dizia "offline".
+            try: motivo = _text(json.loads(_text(row.get("detail_json")) or "{}").get("motivo"))
+            except Exception: motivo = ""
+            if motivo:
+                msg += f"\nMotivo: {html.escape(motivo)}"
             result = _send(raw_cfg, msg)
             if result.get("ok"): _set_state(key, "offline", True, status); sent += 1
             else: errors.append(result.get("error"))
