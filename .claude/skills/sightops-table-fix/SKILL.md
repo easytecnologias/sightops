@@ -61,24 +61,25 @@ O frontend servido em `http://10.10.12.7/v2/` **nao e sincronizado automaticamen
 
 ```bash
 # 1. Backup do que esta rodando (SEMPRE antes de sobrescrever producao)
-MSYS_NO_PATHCONV=1 "/c/Program Files/PuTTY/plink" -ssh -batch -pw <senha> central@10.10.12.7 \
+MSYS_NO_PATHCONV=1 ssh sightops \
   "BK=/home/central/backups/sightops_v2_\$(date +%Y%m%d_%H%M%S) && mkdir -p \$BK && \
    docker cp sightops-nginx:/usr/share/nginx/html/v2/app.js \$BK/app.js && \
    docker cp sightops-nginx:/usr/share/nginx/html/v2/index.html \$BK/index.html && echo BACKUP_OK:\$BK"
 
 # 2. Upload dos arquivos atualizados
-MSYS_NO_PATHCONV=1 "/c/Program Files/PuTTY/pscp" -pw <senha> "C:\PROJETOS\cam-snapshot-web-v2\frontend\app.js" central@10.10.12.7:/tmp/app.js.new
-MSYS_NO_PATHCONV=1 "/c/Program Files/PuTTY/pscp" -pw <senha> "C:\PROJETOS\cam-snapshot-web-v2\frontend\index.html" central@10.10.12.7:/tmp/index.html.new
+MSYS_NO_PATHCONV=1 scp "C:\PROJETOS\cam-snapshot-web-v2\frontend\app.js" sightops:/tmp/app.js.new
+MSYS_NO_PATHCONV=1 scp "C:\PROJETOS\cam-snapshot-web-v2\frontend\index.html" sightops:/tmp/index.html.new
 
 # 3. Aplica dentro do container e recarrega nginx
-MSYS_NO_PATHCONV=1 "/c/Program Files/PuTTY/plink" -ssh -batch -pw <senha> central@10.10.12.7 \
+MSYS_NO_PATHCONV=1 ssh sightops \
   "docker cp /tmp/app.js.new sightops-nginx:/usr/share/nginx/html/v2/app.js && \
    docker cp /tmp/index.html.new sightops-nginx:/usr/share/nginx/html/v2/index.html && \
    docker exec sightops-nginx nginx -t && docker exec sightops-nginx nginx -s reload && echo DEPLOY_OK"
 ```
 
 Notas importantes:
-- No Git Bash do Windows, sempre prefixe os comandos `plink`/`pscp` com `MSYS_NO_PATHCONV=1` — sem isso, caminhos Unix (`/home/...`, `/tmp/...`) dentro da string do comando remoto sao "corrigidos" incorretamente pelo MSYS e a linha de comando fica corrompida.
+- Acesso por chave: `sightops` e o alias de `~/.ssh/config` (central@10.10.12.7). Nunca senha na linha de comando do PuTTY: ela fica na transcricao, e o hook `barrar_comando.py` nega.
+- No Git Bash do Windows, sempre prefixe os comandos `ssh`/`scp` com `MSYS_NO_PATHCONV=1` — sem isso, caminhos Unix (`/home/...`, `/tmp/...`) dentro da string do comando remoto sao "corrigidos" incorretamente pelo MSYS e a linha de comando fica corrompida.
 - Sempre faca backup antes de sobrescrever (passo 1) — e producao real de cliente.
 - Depois do deploy, confirme que o arquivo certo subiu antes de avisar o usuario: `docker exec sightops-nginx grep -c "<algum trecho unico do que voce mudou>" /usr/share/nginx/html/v2/app.js` deve retornar `1`.
 - Nunca afirme "deve ter funcionado" sem essa confirmacao — e nunca afirme que testou visualmente: nao ha ferramenta de browser/screenshot neste ambiente. Peca ao usuario para dar Ctrl+Shift+R e confirmar.

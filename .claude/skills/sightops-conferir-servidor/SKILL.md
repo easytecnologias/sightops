@@ -37,8 +37,8 @@ O script `conferir.sh` (neste diretorio) roda tudo de uma vez. Copie para o
 servidor e execute:
 
 ```bash
-pscp conferir.sh central@10.10.12.7:/tmp/     # ou cat > /tmp/conferir.sh
-ssh central@10.10.12.7 'bash /tmp/conferir.sh'
+scp conferir.sh sightops:/tmp/       # alias de ~/.ssh/config, por chave
+ssh sightops 'bash /tmp/conferir.sh'
 ```
 
 Rodar a mao tambem serve; o que **nao** serve e pular blocos. Cada um dos doze
@@ -282,7 +282,7 @@ sair. Confira `docker inspect -f '{{.State.Status}}'` depois.
 reusar serve JS velho com HTML novo e voce conclui que a correcao nao funcionou.
 
 **Heredoc grande via plink.** Acima de ~100 linhas o shell local quebra com
-`unexpected EOF`. Escreva o arquivo localmente e mande com `pscp`.
+`unexpected EOF`. Escreva o arquivo localmente e mande com `scp`.
 
 ## Relacionado
 

@@ -66,6 +66,7 @@ Prova é número de produção antes/depois, não "deve funcionar".
 ## Skills do projeto (`.claude/skills/`)
 
 `sightops-publicar` (deploy), `sightops-conferir-servidor` (antes de push/reboot),
+`sightops-sincronizar` (deixar produção, servidor, GitHub e esta cópia iguais),
 `sightops-bug-producao` (sintoma em produção), `sightops-auditar-estado`
 (tela mostra estado errado), `sightops-audit` / `sightops-resolver` (varredura e
 correções seguras), `sightops-integracoes` (acoplamento entre serviços).
@@ -73,6 +74,8 @@ Algumas citam caminhos do v2; neste repo vale a tabela acima.
 
 Subagente `revisor-isolamento` (`.claude/agents/`): rode depois de mexer em
 `app/services`, `app/api/endpoints` ou `app/core`, antes de publicar recurso novo.
+Subagente `revisor-zabbix`: rode depois de mexer em verificação de status ou criar
+tipo novo de equipamento — confere se o dado chega ao Zabbix.
 
 Hooks (`.claude/hooks/`): `checar_edicao.py` confere sintaxe e o `?v=` a cada
 edicao; `barrar_comando.py` nega `prune -a`, `volume rm`, push forcado e
