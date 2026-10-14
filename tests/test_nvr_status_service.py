@@ -12,7 +12,36 @@ def test_hikvision_usa_o_estado_do_proprio_nvr():
 
 def test_intelbras_perda_de_video():
     assert nvr.decidir(3, "GALPAO", "", None, {3, 7}, set()) == "camera_offline"
-    assert nvr.decidir(4, "GALPAO", "", None, {3, 7}, set()) == "online"
+    # Fora da lista de perda de video NAO e online: o evento so existe com
+    # LossDetect ligado (Easy: 0 de 32). Era o bug de 14/10/2026.
+    assert nvr.decidir(4, "GALPAO", "", None, {3, 7}, set()) == "sem_leitura"
+
+
+def test_intelbras_imagem_do_canal_decide():
+    # 10.10.10.120 ch6 (camera .25): sem perda de video, mas o gravador recusa a foto
+    assert nvr.decidir(6, "JARDINS", "10.10.10.25", None, set(), set(), imagem=False) == "camera_offline"
+    assert nvr.decidir(1, "JARDINS", "10.10.10.21", None, set(), set(), imagem=True) == "online"
+    assert nvr.decidir(9, "Canal 9", "", None, set(), set(), imagem=False) == "sem_camera"
+    # o gravador recusou a foto: o inventario dizer online nao desmente o gravador
+    assert nvr.decidir(6, "JARDINS", "10.10.10.25", None, set(), {"10.10.10.25"}, imagem=False) == "camera_offline"
+
+
+def test_imagem_do_canal_le_so_o_cabecalho(monkeypatch):
+    class R:
+        def __init__(self, cod, tipo):
+            self.status_code, self.headers, self.fechada = cod, {"content-type": tipo}, False
+        def close(self):
+            self.fechada = True
+    respostas = {"1": R(200, "image/jpeg"), "6": R(400, "text/plain"), "7": R(401, "text/plain")}
+    pedidos = []
+    def get(url, **k):
+        pedidos.append(k.get("stream"))
+        return respostas[url.rsplit("=", 1)[1]]
+    monkeypatch.setattr(nvr.requests, "get", get)
+    assert nvr._imagem_do_canal("http://x", None, 1, 1) is True
+    assert nvr._imagem_do_canal("http://x", None, 6, 1) is False
+    assert nvr._imagem_do_canal("http://x", None, 7, 1) is None  # senha recusada: nao sei
+    assert all(pedidos) and all(r.fechada for r in respostas.values())
 
 
 def test_consulta_que_falhou_nao_vira_online():
@@ -141,3 +170,39 @@ def test_sem_leitura_nao_vira_zero_canais_com_imagem():
     r = nvr.resumo_gravador(linhas)
     assert r["status"] == "unknown"
     assert (r["canais_total"], r["canais_online"], r["canais_offline"], r["checado_em"]) == (0, 0, 0, "")
+
+
+def test_foto_lenta_so_e_offline_se_o_zabbix_concordar():
+    # 10.10.9.151 ch8 (camera 10.10.11.59): foto estourou o prazo e o Zabbix da fora
+    assert nvr.decidir(8, "JARDINS", "10.10.11.59", None, set(), set(), imagem=nvr.LENTO,
+                       cameras_offline={"10.10.11.59"}) == "camera_offline"
+    # so a demora, com o Zabbix dizendo online: nao sei
+    assert nvr.decidir(19, "JARDINS", "10.10.10.38", None, set(), {"10.10.10.38"}, imagem=nvr.LENTO) == "sem_leitura"
+
+
+def test_foto_que_estoura_o_prazo_e_lenta(monkeypatch):
+    def get(url, **k):
+        raise nvr.requests.exceptions.ReadTimeout()
+    monkeypatch.setattr(nvr.requests, "get", get)
+    assert nvr._imagem_do_canal("http://x", None, 8, 1) == nvr.LENTO
+
+
+def test_verificacao_em_paralelo_leva_o_cliente_para_a_thread(monkeypatch):
+    from app.api.endpoints import nvr as N
+    from app.core.tenant_context import get_current_tenant_slug, reset_current_tenant_slug, set_current_tenant_slug
+    vistos = []
+    linhas = [{"host": f"10.0.0.{i}", "http_port": 80, "channel": 1} for i in range(1, 7)]
+    monkeypatch.setattr(N, "_read_rows", lambda: [dict(l) for l in linhas])
+    monkeypatch.setattr(N, "_write_rows", lambda rows: None)
+    monkeypatch.setattr(nvr, "_cameras_recentes", lambda status="online": set())
+
+    def falso(host, porta, ls, on, off=frozenset()):
+        vistos.append(get_current_tenant_slug())
+        return {1: ("online", False)}
+    monkeypatch.setattr(nvr, "_verificar_nvr", falso)
+    tok = set_current_tenant_slug("cliente-x")
+    try:
+        r = nvr.verificar_cliente()
+    finally:
+        reset_current_tenant_slug(tok)
+    assert r["nvrs"] == 6 and vistos == ["cliente-x"] * 6

@@ -20,8 +20,10 @@ canais dos cinco clientes continuavam "online" sem data nenhuma.
 """
 from __future__ import annotations
 
+import contextvars
 import logging
 import re
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Set, Tuple
 
@@ -107,33 +109,81 @@ def _perda_de_video(base: str, auth: Any, timeout: float) -> Optional[Set[int]]:
     return {int(v) + 1 for v in re.findall(r"channels\[\d+\]=(\d+)", r.text or "")}  # indice base-0
 
 
+LENTO = "lento"  # a foto nao veio no prazo: o gravador ficou tentando falar com a camera
+
+
+def _imagem_do_canal(base: str, auth: Any, canal: int, timeout: float) -> Any:
+    """O gravador (Intelbras/Dahua) entrega imagem deste canal agora?
+
+    True = entregou JPEG; False = recusou na hora (canal sem video: a camera
+    caiu ou nao ha camera); LENTO = estourou o prazo; None = nao deu para
+    perguntar. Le so o cabecalho: com stream=True a foto (~190 KB) nao
+    atravessa o tunel.
+
+    LENTO sozinho nao prova nada (pode ser rede). Em 14/10/2026 os tres casos
+    de LENTO nos 10.10.9.15x eram cameras que o Zabbix tambem dava fora --
+    por isso so vira camera_offline quando as duas fontes concordam.
+
+    Existe porque a perda de video NAO serve de prova: o evento so dispara em
+    canal com LossDetect ligado, e nos gravadores da Easy ele estava ligado em
+    0 de 32. Em 14/10/2026 isso marcou como online 9 cameras que o Zabbix (e o
+    proprio gravador, pela foto) mostravam fora do ar.
+    """
+    url = f"{base}/cgi-bin/snapshot.cgi?channel={int(canal)}"
+    try:
+        r = requests.get(url, auth=auth, timeout=timeout, stream=True)
+    except requests.exceptions.ReadTimeout:
+        return LENTO
+    except Exception:
+        return None
+    try:
+        tipo = str(r.headers.get("content-type") or "").lower()
+        if r.status_code == 200 and tipo.startswith("image/"):
+            return True
+        if r.status_code in (400, 404, 500, 503) or (r.status_code == 200 and not tipo.startswith("image/")):
+            return False
+        return None  # 401/403 e afins: nao sei
+    finally:
+        r.close()
+
+
 def decidir(canal: int, titulo: str, camera_ip: str, runtime: Optional[bool], perda: Optional[Set[int]],
-            cameras_online: Set[str]) -> str:
-    """Status de um canal a partir do que deu para ler (puro, testavel)."""
+            cameras_online: Set[str], imagem: Any = None, cameras_offline: Set[str] = frozenset()) -> str:
+    """Status de um canal a partir do que deu para ler (puro, testavel).
+
+    "Nao esta na lista de perda de video" NAO e online: o evento so existe com
+    LossDetect ligado no canal. Quem prova o Intelbras e a imagem do canal.
+    """
     padrao = bool(re.fullmatch(r"canal\s*\d*", str(titulo or "").strip().lower()))
     if runtime is True:
         return "online"
     if runtime is False:
         return "sem_camera" if padrao else "camera_offline"
-    if perda is not None:
-        if canal in perda:
-            return "sem_camera" if padrao else "camera_offline"
+    if perda is not None and canal in perda:
+        return "sem_camera" if padrao else "camera_offline"
+    if imagem is True:
         return "online"
+    if imagem is False:
+        return "sem_camera" if padrao else "camera_offline"
+    if imagem == LENTO and camera_ip and camera_ip in cameras_offline:
+        return "camera_offline"  # gravador sem imagem E Zabbix sem resposta
+    if imagem == LENTO:
+        return "sem_leitura"  # o gravador nao confirmou: o inventario nao basta
     if camera_ip and camera_ip in cameras_online:
         return "online"
     return "sem_leitura"
 
 
-def _cameras_online_recentes() -> Set[str]:
-    """IPs de camera online com leitura de ate 30 min (o Zabbix confere a cada
-    minuto). No v3 as cameras ficam no inventario JSON, nao no banco."""
+def _cameras_recentes(status: str = "online") -> Set[str]:
+    """IPs de camera com o status pedido e leitura de ate 30 min (o Zabbix
+    confere a cada minuto). No v3 as cameras ficam no inventario JSON."""
     from app.api.endpoints.cameras import load_inventory_json
     from app.services.status_efetivo import idade_minutos
 
     out: Set[str] = set()
     for modo in ("basic", "olt", "switch"):
         for r in load_inventory_json(mode=modo) or []:
-            if not isinstance(r, dict) or str(r.get("status") or "").lower() != "online":
+            if not isinstance(r, dict) or str(r.get("status") or "").lower() != status:
                 continue
             idade = idade_minutos(r.get("status_checked_at"))
             if idade is not None and idade <= 30 and r.get("ip"):
@@ -141,7 +191,12 @@ def _cameras_online_recentes() -> Set[str]:
     return out
 
 
-def _verificar_nvr(host: str, porta: int, linhas: List[Dict[str, Any]], cameras_online: Set[str]) -> Dict[int, Tuple[str, bool]]:
+def _cameras_online_recentes() -> Set[str]:
+    return _cameras_recentes("online")
+
+
+def _verificar_nvr(host: str, porta: int, linhas: List[Dict[str, Any]], cameras_online: Set[str],
+                   cameras_offline: Set[str] = frozenset()) -> Dict[int, Tuple[str, bool]]:
     """{canal: (status, perda_de_video)} de UM NVR."""
     from app.api.endpoints import nvr as N
     from app.services.recorder_credentials import resolve_recorder_credential
@@ -173,6 +228,7 @@ def _verificar_nvr(host: str, porta: int, linhas: List[Dict[str, Any]], cameras_
         auth, modo = probe.get("auth"), str(probe.get("mode") or "")
         runtime: Dict[int, Optional[bool]] = {}
         perda: Optional[Set[int]] = None
+        imagem: Dict[int, Optional[bool]] = {}
         if modo == "hik":
             for ch, info in N._hik_collect_channel_runtime_statuses(base, auth, 5.0, canais).items():
                 runtime[int(ch)] = info.get("online")
@@ -181,6 +237,11 @@ def _verificar_nvr(host: str, porta: int, linhas: List[Dict[str, Any]], cameras_
             # probe e respondeu a perda de video ora em 3 s, ora depois dos 5 --
             # e cada estouro virava 19 canais "sem_leitura".
             perda = _perda_de_video(base, auth, 10.0)
+            # Um canal por vez: o gravador atende poucas sessoes simultaneas.
+            for ch in canais:
+                # 8 s: canal com camera viva responde em ~1 s; o que passa disso
+                # e o gravador esperando uma camera que nao responde (LENTO).
+                imagem[ch] = _imagem_do_canal(base, auth, ch, 8.0)
     finally:
         N._rec_req_connector.reset(tok)
     out = {}
@@ -189,13 +250,18 @@ def _verificar_nvr(host: str, porta: int, linhas: List[Dict[str, Any]], cameras_
         if ch <= 0:
             continue
         cip = str(l.get("camera_ip") or "").strip()
-        st = decidir(ch, l.get("title") or "", cip, runtime.get(ch), perda, cameras_online)
+        st = decidir(ch, l.get("title") or "", cip, runtime.get(ch), perda, cameras_online, imagem.get(ch),
+                     cameras_offline)
         out[ch] = (st, bool(perda and ch in perda) or runtime.get(ch) is False)
     return out
 
 
 def verificar_cliente(max_nvrs: int = 0) -> Dict[str, Any]:
-    """Verifica os NVRs do cliente da sessao, um por vez, e grava o status.
+    """Verifica os NVRs do cliente da sessao e grava o status.
+
+    Ate 4 gravadores ao mesmo tempo, mas cada um com UM canal por vez (o
+    gravador atende poucas sessoes). Sequencial, a foto por canal levava ~80 s
+    por gravador e os 803 canais passariam de 30 min.
 
     O cliente vem do contexto (set_current_tenant_slug): _read_rows/_write_rows
     resolvem o arquivo do tenant por ele. Chamar fora desse contexto leria e
@@ -209,16 +275,27 @@ def verificar_cliente(max_nvrs: int = 0) -> Dict[str, Any]:
         host = str(l.get("host") or "").strip()
         if host:
             grupos.setdefault((host, int(l.get("http_port") or 80)), []).append(l)
-    cameras_online = _cameras_online_recentes()
+    cameras_online = _cameras_recentes("online")
+    cameras_offline = _cameras_recentes("offline")
     resultados: Dict[Tuple[str, int], Dict[int, Tuple[str, bool]]] = {}
     erros: Dict[str, str] = {}
-    for i, ((host, porta), ls) in enumerate(sorted(grupos.items())):
-        if max_nvrs and i >= max_nvrs:
-            break
-        try:
-            resultados[(host, porta)] = _verificar_nvr(host, porta, ls, cameras_online)
-        except Exception as exc:
-            erros[f"{host}:{porta}"] = str(exc)[:160]
+    alvos = sorted(grupos.items())
+    if max_nvrs:
+        alvos = alvos[:max_nvrs]
+
+    def _um(item):
+        (host, porta), ls = item
+        return _verificar_nvr(host, porta, ls, cameras_online, cameras_offline)
+
+    # copy_context: a thread do pool NAO herda o cliente do contexto -- sem
+    # isto a credencial e o vnat seriam resolvidos fora do tenant.
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        futuros = {pool.submit(contextvars.copy_context().run, _um, item): item[0] for item in alvos}
+        for fut, (host, porta) in futuros.items():
+            try:
+                resultados[(host, porta)] = fut.result()
+            except Exception as exc:
+                erros[f"{host}:{porta}"] = str(exc)[:160]
     if not resultados:
         return {"ok": True, "nvrs": 0, "erros": erros}
     agora = _agora()
