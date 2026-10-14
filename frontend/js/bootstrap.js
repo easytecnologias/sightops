@@ -2014,7 +2014,7 @@ document.addEventListener('DOMContentLoaded', () => {
   //  Manutencao Cameras 
   document.getElementById('btnMntCamRefresh')?.addEventListener('click', () => { _mntCamAll = []; loadMntCam(); });
   document.getElementById('btnMntCamReboot')?.addEventListener('click', () => _mntCamRunAction('reboot'));
-  document.getElementById('btnMntCamSnapshot')?.addEventListener('click', () => _mntCamRunAction('snapshot_force'));
+  document.getElementById('btnMntCamSnapshot')?.addEventListener('click', _mntCamSnapshotLote);
   document.getElementById('btnMntCamTest')?.addEventListener('click', () => _mntCamRunAction('test'));
   document.getElementById('btnMntCamRename')?.addEventListener('click', openMntRenameModal);
   document.getElementById('btnMntCamTimeCheck')?.addEventListener('click', () => _mntCamRunAction('time_check'));

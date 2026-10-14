@@ -1847,6 +1847,37 @@ def _set_video_quality_one(ip: str, user: str, password: str,
     return r
 
 
+def _capturar_snapshot_arquivo(ip: str, user: str, password: str, dst_dir) -> Dict[str, Any]:
+    """So captura e grava o JPG. NAO toca no inventario -- por isso roda em thread.
+
+    `dst_dir` vem pronto de fora: `snapshot_storage_dir()` depende do tenant e
+    a thread do pool nao herda esse contexto (mesma regra do probe de offline
+    mais abaixo neste arquivo). Resolver aqui dentro gravaria na pasta errada.
+
+    Devolve tambem `out_name`, que e o que quem chamou precisa para associar a
+    foto a camera no inventario depois, de uma vez so.
+    """
+    import shutil
+    from app.services.camsnapshot.device_info import get_snapshot
+    try:
+        saved_path = get_snapshot(ip, user, password, str(dst_dir), timeout=(1.5, 8.0), retries=1)
+    except Exception as e:
+        return {"ok": False, "ip": ip, "error": str(e)}
+    safe_ip = ip.replace(":", "__").replace(".", "_").replace("/", "_")
+    out_name = f"{safe_ip}.jpg"
+    out_path = dst_dir / out_name
+    try:
+        legacy = Path(str(saved_path)) if saved_path else dst_dir / f"{ip}.jpg"
+        if legacy.exists() and legacy.resolve() != out_path.resolve():
+            if out_path.exists(): out_path.unlink()
+            shutil.move(str(legacy), str(out_path))
+    except Exception:
+        pass
+    if not out_path.exists():
+        return {"ok": False, "ip": ip, "error": "Não foi possível capturar snapshot"}
+    return {"ok": True, "ip": ip, "out_name": out_name, "message": "Snapshot capturado"}
+
+
 def _force_snapshot_one_mnt(ip: str, user: str, password: str) -> Dict[str, Any]:
     import shutil
     from app.services.photo_store import attach_snapshot_fields, snapshot_storage_dir
@@ -2940,7 +2971,44 @@ def maintenance_batch_snapshot_force(payload: Dict[str, Any]) -> Dict[str, Any]:
         return {"ok": False, "error": "user e pass sao obrigatorios"}
     if not isinstance(ips, list) or not ips:
         return {"ok": False, "error": "ips vazio"}
-    results = [_force_snapshot_one_mnt(_as_str(ip), user, password) for ip in ips]
+    from app.services.photo_store import attach_snapshot_fields, snapshot_storage_dir
+
+    # Resolvido AQUI, com o contexto do tenant vivo: a thread do pool nao o
+    # herda e gravaria a foto na pasta de outro cliente (ou na raiz).
+    dst_dir = snapshot_storage_dir()
+    dst_dir.mkdir(parents=True, exist_ok=True)
+    alvos = [_as_str(ip) for ip in ips]
+
+    def _uma(ip: str) -> Dict[str, Any]:
+        try:
+            return _capturar_snapshot_arquivo(ip, user, password, dst_dir)
+        except Exception as e:  # noqa: BLE001 - uma camera nao derruba o lote
+            return {"ok": False, "ip": ip, "error": str(e)}
+
+    with ThreadPoolExecutor(max_workers=min(8, len(alvos))) as pool:
+        results = list(pool.map(_uma, alvos))
+
+    # Inventario UMA vez, fora do pool. Era uma leitura e uma gravacao do
+    # arquivo inteiro POR CAMERA; em paralelo isso seria corrida e a ultima
+    # thread apagaria o que as outras escreveram.
+    capturados = {r["ip"]: r["out_name"] for r in results if r.get("ok") and r.get("out_name")}
+    if capturados:
+        try:
+            rows = load_inventory_json() or []
+            for cam in rows:
+                if not isinstance(cam, dict):
+                    continue
+                nome = capturados.get(str(cam.get("ip") or "").strip())
+                if nome:
+                    attach_snapshot_fields(cam, str(cam.get("ip") or "").strip(), nome)
+            save_inventory_json(rows)
+        except Exception as e:  # noqa: BLE001
+            # As fotos ESTAO no disco; so a associacao falhou. Dizer isso, em
+            # vez de reportar sucesso e o operador nao ver a miniatura trocar.
+            return {"ok": False,
+                    "message": f"Snapshot: {len(capturados)} capturado(s), mas falhou ao gravar o inventario: {e}",
+                    "results": results}
+
     ok_n = sum(1 for r in results if r.get("ok"))
     fail_n = len(results) - ok_n
     return {"ok": fail_n == 0, "message": f"Snapshot forçado: {ok_n} ok, {fail_n} falhas.", "results": results}

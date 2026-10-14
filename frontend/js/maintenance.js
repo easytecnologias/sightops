@@ -138,7 +138,14 @@ function _mntCamRender() {
     const ip  = c.ip || '';
     const st  = (c.status || '').toLowerCase();
     const dot = st === 'online' ? 'online' : st === 'offline' ? 'offline' : 'unknown';
-    const snap = c.snapshot_url || c.imgbb_url || '';
+    //  `_mntSnapBust` e a hora da ultima captura em lote. Sem ele o caminho
+    //  do JPG continua igual e o navegador mostra a foto velha, mesmo com a
+    //  nova ja gravada no disco -- foi o que fez a tela parecer travada.
+    //  Nao se aplica a URL externa (imgbb): o link de la e assinado.
+    const snapBruto = c.snapshot_url || c.imgbb_url || '';
+    const snap = (_mntSnapBust && snapBruto && !/^https?:/i.test(snapBruto))
+      ? snapBruto + (snapBruto.includes('?') ? '&' : '?') + 'v=' + _mntSnapBust
+      : snapBruto;
     const sel = checked.has(ip);
     return `
       <div class="mnt-cam-card${sel ? ' selected' : ''}" data-ip="${esc(ip)}" data-titulo="${esc(c.titulo||ip)}" data-modelo="${esc(c.modelo || c.model || '')}" data-site="${esc(c.site || c.site_name || c.local || '')}" data-connector="${esc(c.remote_connector_id || c.connector_id || '')}" onclick="_mntCamCardClick(this,event)">
@@ -762,6 +769,98 @@ function _mntResumoLog(bodyId) {
     ? `${feitas} feito${feitas !== 1 ? 's' : ''} · ${falhas} com falha`
     : `${feitas} feito${feitas !== 1 ? 's' : ''}`;
   alvo.classList.toggle('tem-falha', falhas > 0);
+}
+
+let _mntSnapBust = 0;
+
+//  Seis ao mesmo tempo. A captura e espera de rede (a camera demora a
+//  responder), nao CPU nem banda, entao paralelizar e o que encurta o lote.
+const _MNT_SNAP_PARALELO = 6;
+
+async function _mntCamSnapshotLote() {
+  const ips = [...document.querySelectorAll('.chk-mnt-cam:checked')].map(c => c.value);
+  if (!ips.length) { showToast('Selecione ao menos uma camera', true); return; }
+  const user = document.getElementById('mntCamUser')?.value?.trim() || 'admin';
+  const pass = document.getElementById('mntCamPass')?.value || '';
+
+  const body = document.getElementById('mntCamConsoleBody');
+  if (body) body.innerHTML = '';
+  const log = (ip, msg, ok) => _mntLog('mntCamConsole', 'mntCamConsoleBody', ip, msg, ok);
+  log('', `[${new Date().toLocaleTimeString('pt-BR')}] SNAPSHOT em ${ips.length} camera(s), ${_MNT_SNAP_PARALELO} por vez`, true);
+
+  const btn = document.getElementById('btnMntCamSnapshot');
+  if (btn) btn.disabled = true;
+
+  let ok = 0, falhou = 0, feitas = 0;
+
+  //  MESMO endpoint do Inventario (tela Cameras IP). Ele nomeia o arquivo
+  //  como <conector>__<ip>.jpg, grava no inventario DO MODO da tela e traduz
+  //  o IP pelo vnat. A rota de lote fazia as tres coisas diferente, e era por
+  //  isso que a foto ia para o disco e a miniatura nunca mudava.
+  async function capturar(ip) {
+    const cam = (_mntCamAll || []).find(c => String(c.ip || '').trim() === ip) || {};
+    const conector = cam.remote_connector_id || cam.connector_id || '';
+    try {
+      const res = await api('/api/cameras/snapshot/capture', {
+        method: 'POST',
+        body: JSON.stringify({
+          ip, user, password: pass,
+          mode: _mntCamView || 'olt',
+          remote_connector_id: conector,
+        }),
+      });
+      if (!res) return { ip, ok: false, msg: 'sessao expirada' };
+      const texto = await res.text();
+      let data = null;
+      try { data = JSON.parse(texto); } catch {}
+      if (!res.ok || !data || data.ok === false) {
+        //  api() NAO lanca em erro HTTP, devolve a resposta: sem olhar o
+        //  status aqui, um 504 virava "sem resposta" e nao dizia nada.
+        const motivo = data?.detail || data?.error
+          || (res.status === 428 ? 'senha desta camera e desconhecida'
+              : res.status === 504 || res.status === 502 ? 'o servidor demorou demais'
+              : (texto || '').slice(0, 80));
+        return { ip, ok: false, msg: `HTTP ${res.status} - ${motivo}` };
+      }
+      //  Guarda a URL nova na lista em memoria: e dela que _mntCamRender
+      //  monta a miniatura, entao basta redesenhar depois.
+      if (cam && data.url) cam.snapshot_url = data.url;
+      return { ip, ok: true, msg: 'Snapshot atualizado' };
+    } catch (err) {
+      return { ip, ok: false, msg: err.message };
+    }
+  }
+
+  function registrar(r) {
+    r.ok ? ok++ : falhou++;
+    feitas++;
+    log(r.ip, r.msg, r.ok);
+    const el = document.getElementById(`mntRes_${(r.ip || '').replace(/\./g, '_')}`);
+    if (el) el.innerHTML = `<span style="color:${r.ok ? 'var(--primary)' : 'var(--danger)'}">${esc(r.msg)}</span>`;
+    if (feitas % _MNT_SNAP_PARALELO === 0 || feitas === ips.length) {
+      log('', `-- ${feitas}/${ips.length} (${ok} ok, ${falhou} falhas)`, falhou === 0);
+    }
+  }
+
+  try {
+    //  Fila com N trabalhadores: cada um puxa a proxima assim que termina a
+    //  sua, entao uma camera lenta nao deixa as outras cinco paradas.
+    const fila = [...ips];
+    const trabalhador = async () => {
+      while (fila.length) registrar(await capturar(fila.shift()));
+    };
+    await Promise.all(Array.from({ length: Math.min(_MNT_SNAP_PARALELO, ips.length) }, trabalhador));
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+
+  //  Redesenha com as URLs novas. O `?v=` continua necessario porque o nome
+  //  do arquivo nao muda entre capturas -- sem ele o navegador serve a copia
+  //  em cache. E o que a tela do Inventario ja faz com `?t=Date.now()`.
+  _mntSnapBust = Date.now();
+  _mntCamRender();
+  log('', `Fim: ${ok} ok, ${falhou} falhas.`, falhou === 0);
+  showToast(`Snapshot: ${ok} ok, ${falhou} falhas`, falhou > 0);
 }
 
 async function _mntCamRunAction(endpoint, extra = {}) {
