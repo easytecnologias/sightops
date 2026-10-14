@@ -31,6 +31,16 @@ function apFoto(p) {
     ? `<img src="${API_BASE}/api/access-control/people/${encodeURIComponent(p.pessoa_id)}/face-photo" alt="" loading="lazy" onerror="this.remove()">` : '';
 }
 function apSaida(tipo) { return String(tipo || '').startsWith('saida'); }
+const AP_TIPO = { student: 'Aluno', employee: 'Funcionário', visitor: 'Visitante', resident: 'Morador' };
+function apTipo(t) { return AP_TIPO[String(t || '').toLowerCase()] || ''; }
+// "ENTRADA - ESCOLA PRESIDENTE DUTRA" -> "ENTRADA": o site ja esta no filtro e
+// o nome inteiro nao cabia na linha.
+function apPorta(nome) {
+  // So com um site escolhido: em "Todos os sites" duas portas virariam "SAIDA".
+  const n = String(nome || '');
+  const suf = _apSite ? ' - ' + _apSite : '';
+  return suf && n.toUpperCase().endsWith(suf.toUpperCase()) && n.length > suf.length ? n.slice(0, -suf.length) : n;
+}
 function apPct(a, b) { return b ? Math.round(a * 100 / b) : 0; }
 
 // O status gravado do leitor nao e confiavel (os dois da escola apareciam
@@ -70,7 +80,7 @@ function apZap(p) {
   if (s === 'entregue') return '<span>entregue</span>';
   if (s === 'enviado') return '<span>enviado</span>';
   if (s === 'falha') return '<span class="ap-ruim">aviso falhou</span>';
-  if (s === 'sem_pessoa') return '<span class="ap-ruim">sem cadastro</span>';
+  if (s === 'sem_pessoa') return _apUsaAvisos ? '<span class="ap-ruim">sem aviso</span>' : '';
   return _apUsaAvisos ? '<span>sem aviso</span>' : '';
 }
 
@@ -84,53 +94,80 @@ function apDesenharVivo(d) {
   const ah = d.avisos_hoje || {};
   const totAv = (ah.lido || 0) + (ah.entregue || 0) + (ah.enviado || 0) + (ah.falha || 0);
   const ag = d.avisos_agora || {};
-  const alertas = [];
+  const semCad = r.without_person || 0, total = r.total || 0;
+  // Pessoa fora do cadastro so e ALERTA quando e excecao. No condominio 92%
+  // das passagens sao de moradores que so estao no leitor: la a faixa vermelha
+  // ficava acesa o dia inteiro e virava ruido. Nesse caso vira uma nota.
+  const semCadComum = total >= 20 && semCad / total >= 0.2;
+  const avisos = [];
   if (ag.alerta) {
-    alertas.push(`<div class="ap-alerta"><i data-lucide="alert-triangle"></i><div><b>Avisos de WhatsApp falhando agora:</b>
+    avisos.push(`<div class="ap-alerta"><i data-lucide="alert-triangle"></i><div><b>Avisos de WhatsApp falhando agora:</b>
       ${ag.falhas} de ${ag.enviados} · ${esc(ag.erro_principal || 'sem motivo informado pela Meta')}</div></div>`);
   }
-  if (ult && !ult.pessoa_id && Date.now() - (apLocal(ult.hora) || 0) < 5 * 60000) {
-    alertas.push(`<div class="ap-alerta"><i data-lucide="user-x"></i><div><b>Passagem de pessoa sem cadastro no SightOps</b>
+  if (ult && !ult.pessoa_id && !semCadComum && Date.now() - (apLocal(ult.hora) || 0) < 5 * 60000) {
+    avisos.push(`<div class="ap-alerta"><i data-lucide="user-x"></i><div><b>Passagem de pessoa sem cadastro no SightOps</b>
       · ${esc(ult.porta)} · ${apHm(apLocal(ult.hora))}${ult.nome ? ' · o leitor informa "' + esc(ult.nome) + '"' : ''}</div></div>`);
+  }
+  if (semCadComum) {
+    avisos.push(`<div class="ap-nota"><i data-lucide="info"></i><div><b>${apPct(semCad, total)}% das passagens de hoje são de pessoas que só estão no leitor</b>
+      (${semCad} de ${total}). Elas ficam fora da presença, dos relatórios e dos avisos.
+      <a href="#" data-ap-ir="geral">Ver por porta</a></div></div>`);
   }
   const turmas = (d.turmas || []).filter(t => t.total);
   const temTurmas = turmas.length > 1 || (turmas[0] && turmas[0].turma !== 'Sem turma');
+  const novo = p => Date.now() - (apLocal(p.hora) || 0) < 60000;
 
   el.innerHTML = `
-    <div class="metrics">
+    <div class="metrics ap-kpis">
       ${apKpi('users', 'cyan', 'Presentes agora', r.inside_now ?? 0, 'última marcação foi entrada')}
       ${apKpi('log-in', 'green', 'Entradas hoje', r.entries ?? 0, 'marcações de entrada')}
       ${apKpi('log-out', 'amber', 'Saídas hoje', r.exits ?? 0, (r.manual_exits ? r.manual_exits + ' manuais' : 'inclui saída manual'))}
-      ${apKpi('user-x', r.without_person ? 'red' : 'blue', 'Sem cadastro', r.without_person ?? 0, 'pessoa só no leitor')}
+      ${apKpi('user-x', semCad ? (semCadComum ? 'amber' : 'red') : 'blue', 'Sem cadastro', semCad, 'pessoa só no leitor')}
       ${_apUsaAvisos ? apKpi('message-circle', ah.falha ? 'red' : 'green', 'Avisos lidos', totAv ? apPct(ah.lido || 0, totAv) + '%' : '—', `${ah.falha || 0} não entregues hoje`) : ''}
     </div>
-    ${alertas.join('')}
-    <div class="ap-portas">${(d.portas || []).map(p => {
-      const viva = apPortaViva(p);
-      return `<div class="ap-porta ${viva ? '' : 'ruim'}"><span class="ap-pt ${viva ? 'ok' : 'ruim'}"></span>
-        <div><b>${esc(p.nome)}</b><small>${p.hoje} hoje · ${p.ultima ? 'última ' + apHm(apLocal(p.ultima)) : 'sem marcação hoje'}</small></div></div>`;
-    }).join('')}</div>
-    <div class="ap-meio">
-      <section class="panel ap-hero">
-        ${ult ? `<div class="ap-foto">${apIniciais(ult.nome)}${apFoto(ult)}<span class="ap-dir ${apSaida(ult.tipo) ? 'saida' : ''}">${apSaida(ult.tipo) ? 'SAIU' : 'ENTROU'}</span></div>
-        <div class="ap-info">
-          <span class="ap-rot">Última passagem · ${apHa(apLocal(ult.hora))}</span>
-          <h2>${esc(ult.nome || 'Pessoa não identificada')}</h2>
-          <p>${esc([ult.turma, ult.pessoa_id ? '' : 'sem cadastro no SightOps'].filter(Boolean).join(' · ')) || '&nbsp;'}</p>
-          <div class="ap-dados"><div><small>Porta</small><b>${esc(ult.porta)}</b></div><div><small>Horário</small><b class="monospace">${apHms(apLocal(ult.hora))}</b></div></div>
-          ${apRecibo(ult)}
-        </div>` : '<p class="ap-vazio">Nenhuma passagem hoje.</p>'}
+    ${avisos.join('')}
+    <div class="ap-grade">
+      <section class="panel ap-agora" aria-label="Passagens de hoje">
+        <div class="panel-header ap-cab"><div><h3>Agora</h3><p>${total} passagens hoje · mais recente primeiro</p></div></div>
+        ${passagens.length ? `<div class="ap-lista">${passagens.slice(0, 30).map(p => `
+          <div class="ap-item ${novo(p) ? 'novo' : ''} ${p.pessoa_id ? '' : 'semcad'}">
+            <div class="ap-av">${apIniciais(p.nome)}${apFoto(p)}</div>
+            <div class="ap-quem"><b>${esc(p.nome || 'sem nome no leitor')}</b>
+              <small>${p.pessoa_id ? esc(p.turma || apTipo(p.tipo_pessoa)) : '<span class="ap-chip aviso">só no leitor</span>'}</small></div>
+            <div class="ap-onde" title="${esc(p.porta)}">${esc(apPorta(p.porta))}</div>
+            <span class="ap-chip ${apSaida(p.tipo) ? 'saida' : 'entrada'}">${apSaida(p.tipo) ? 'Saiu' : 'Entrou'}</span>
+            <div class="ap-zap">${apZap(p)}</div>
+            <div class="ap-hora monospace">${apHm(apLocal(p.hora))}</div>
+          </div>`).join('')}</div>` : '<p class="ap-vazio">Nenhuma passagem hoje.</p>'}
       </section>
-      ${temTurmas ? `<section class="panel ap-turmas"><h3>Presença por turma</h3><div class="ap-turmas-grade">${turmas.map(t => `<div class="ap-turma">
-          <div><b>${esc(t.turma)}</b><span class="monospace">${t.presentes}/${t.total}</span></div>
-          <div class="ap-trilho"><i style="width:${apPct(t.presentes, t.total)}%"></i></div></div>`).join('')}</div></section>` : ''}
-    </div>
-    <section class="panel ap-fila-painel">
-      <div class="ap-fila-cab"><h3>Passagens recentes</h3><span>${r.total ?? passagens.length} hoje</span></div>
-      <div class="ap-fila">${passagens.slice(1, 25).map(p => `<div class="ap-cartao ${p.pessoa_id ? '' : 'ruim'}">
-        <div class="ap-mini">${apIniciais(p.nome)}${apFoto(p)}<span class="ap-dir ${apSaida(p.tipo) ? 'saida' : ''}">${apSaida(p.tipo) ? 'SAIU' : 'ENTROU'}</span><span class="ap-h monospace">${apHm(apLocal(p.hora))}</span></div>
-        <b>${esc(p.nome || 'sem nome')}</b><small><span>${esc(p.turma || p.porta)}</span>${apZap(p)}</small></div>`).join('') || '<p class="ap-vazio">Sem outras passagens hoje.</p>'}</div>
-    </section>`;
+
+      <div class="ap-lado">
+        ${ult ? `<section class="panel ap-ultima">
+          <div class="panel-header ap-cab"><div><h3>Última passagem</h3><p>${apHa(apLocal(ult.hora))}</p></div></div>
+          <div class="ap-ultima-corpo">
+            <div class="ap-foto">${apIniciais(ult.nome)}${apFoto(ult)}<span class="ap-dir ${apSaida(ult.tipo) ? 'saida' : ''}">${apSaida(ult.tipo) ? 'SAIU' : 'ENTROU'}</span></div>
+            <div class="ap-info"><b>${esc(ult.nome || 'Pessoa não identificada')}</b>
+              <small>${esc([ult.turma || apTipo(ult.tipo_pessoa), ult.pessoa_id ? '' : 'só no leitor'].filter(Boolean).join(' · ')) || '&nbsp;'}</small>
+              <small>${esc(apPorta(ult.porta))} · <span class="monospace">${apHms(apLocal(ult.hora))}</span></small></div>
+          </div>
+          ${apRecibo(ult)}
+        </section>` : ''}
+        <section class="panel ap-portas-painel">
+          <div class="panel-header ap-cab"><div><h3>Portas</h3><p>${(d.portas || []).filter(apPortaViva).length} de ${(d.portas || []).length} com sinal</p></div></div>
+          ${(d.portas || []).map(p => {
+            const viva = apPortaViva(p);
+            return `<div class="ap-porta-linha"><span class="ap-pt ${viva ? 'ok' : 'ruim'}"></span>
+              <div class="ap-cresce"><b title="${esc(p.nome)}">${esc(apPorta(p.nome))}</b><small>${p.ultima ? 'última ' + apHm(apLocal(p.ultima)) : 'sem marcação hoje'}${viva ? '' : ' · sem sinal'}</small></div>
+              <span class="ap-num monospace">${p.hoje}</span></div>`;
+          }).join('') || '<p class="ap-vazio">Nenhum leitor.</p>'}
+        </section>
+        ${temTurmas ? `<section class="panel ap-turmas"><div class="panel-header ap-cab"><div><h3>Presença por turma</h3></div></div>
+          <div class="ap-turmas-grade">${turmas.map(t => `<div class="ap-turma">
+            <div><b>${esc(t.turma)}</b><span class="monospace">${t.presentes}/${t.total}</span></div>
+            <div class="ap-trilho"><i style="width:${apPct(t.presentes, t.total)}%"></i></div></div>`).join('')}</div></section>` : ''}
+      </div>
+    </div>`;
+  el.querySelectorAll('[data-ap-ir]').forEach(a => a.addEventListener('click', ev => { ev.preventDefault(); apTrocarTela(a.dataset.apIr); }));
   lucide.createIcons();
 }
 
