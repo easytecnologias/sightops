@@ -44,6 +44,11 @@ def _is_online(row: Dict[str, Any]) -> bool:
     Sem isto o painel somava como online 224 cameras de um site cujo tunel
     tinha caido -- ver app/services/status_efetivo.py.
     """
+    # Canal de gravador sem data de verificacao NAO e online: ate 07/10/2026 os
+    # canais vinham da migracao todos "online" e o painel mostrava 388/388.
+    gravador = _lower(row.get("source")) in ("nvr", "dvr") or "channel" in row
+    if gravador and not row.get("status_checked_at"):
+        return False
     try:
         from app.services.status_efetivo import avaliar, conectores_offline_cache
         efetivo, motivo = avaliar(
@@ -51,6 +56,8 @@ def _is_online(row: Dict[str, Any]) -> bool:
             row.get("remote_connector_id") or row.get("connector_id"),
             row.get("status_checked_at"),
             conectores_offline_cache(),
+            # a verificacao de canal roda no ciclo de manutencao (~40 min)
+            **({"limite_min": 120} if gravador else {}),
         )
         if motivo:
             return False
