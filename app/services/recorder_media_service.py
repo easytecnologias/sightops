@@ -224,14 +224,42 @@ def download_dav(
         # loadfile.cgi e conhecido por devolver algo sem cabecalho DAV valido
         # (ou vazio) em pelo menos um firmware real, mesmo quando a gravacao
         # existe de verdade -- tenta o caminho de reserva antes de desistir.
-        _rpc_loadfile_fallback(
+        _fallback_rpc_ou_erro(
             host=host, http_port=http_port, user=user, password=password,
-            channel=channel, start=start, end=end, out_path=out_path, timeout_sec=timeout_sec,
+            channel=channel, start=start, end=end, out_path=out_path,
+            timeout_sec=timeout_sec, erro_base=None,
         )
     except (RecorderAuthError, RuntimeError):
         raise
     except requests.RequestException as exc:
-        raise RuntimeError(f"Falha ao consultar DVR: {exc}") from exc
+        # loadfile.cgi as vezes DERRUBA a conexao no meio (ChunkedEncodingError /
+        # IncompleteRead: "0 bytes read, N more expected") antes de entregar um DAV
+        # valido -- visto nos NVDs Perucaba. Tenta o RPC_Loadfile antes de desistir.
+        _fallback_rpc_ou_erro(
+            host=host, http_port=http_port, user=user, password=password,
+            channel=channel, start=start, end=end, out_path=out_path,
+            timeout_sec=timeout_sec, erro_base=exc,
+        )
+
+
+def _fallback_rpc_ou_erro(*, host, http_port, user, password, channel, start, end,
+                          out_path, timeout_sec, erro_base) -> None:
+    """Chama o RPC_Loadfile e NUNCA deixa vazar excecao crua de requests.
+
+    Qualquer falha inesperada (ex.: ChunkedEncodingError quando o DVR tambem nao
+    entrega pelo RPC_Loadfile) vira RuntimeError -- assim quem chama (o download
+    do trecho) sabe cascatear para o RTSP de playback. RecordingNotFoundError,
+    RecorderAuthError e RuntimeError passam direto."""
+    try:
+        _rpc_loadfile_fallback(
+            host=host, http_port=http_port, user=user, password=password,
+            channel=channel, start=start, end=end, out_path=out_path, timeout_sec=timeout_sec,
+        )
+    except (RecordingNotFoundError, RecorderAuthError, RuntimeError):
+        raise
+    except Exception as exc:
+        base = erro_base if erro_base is not None else exc
+        raise RuntimeError(f"Falha ao baixar do DVR (loadfile e RPC): {base}") from exc
 
 
 def run_ffmpeg(args: list[str], timeout_sec: int) -> None:
@@ -307,24 +335,33 @@ def download_clip_mp4_hikvision(
     out_dir: Path = EXPORT_DIR,
     timeout_sec: int = 900,
 ) -> Path:
-    """Baixa um trecho Hikvision pelo RTSP de playback e salva em MP4 (-c copy,
-    mantem o codec original). O gravador entrega ~tempo real, entao o download
-    demora ~a duracao do trecho -- por isso o `-t` fecha no fim e o timeout
-    acompanha a duracao pedida.
+    """Baixa um trecho Hikvision pelo RTSP de playback e salva em MP4 (video
+    copiado, mantem o codec original H.265/H.264). O gravador entrega ~tempo
+    real, entao o download demora ~a duracao do trecho.
+
+    Dois detalhes fazem ou quebram isto (medido em NVR Hikvision via tunel):
+    - O playback Hikvision manda os pacotes SEM timestamp (PTS/DTS). Com
+      `-c copy` puro o muxer nao consegue escrever, para de consumir a entrada
+      e o stream estanca no burst inicial (~6s) -> trava ate o timeout.
+      `-use_wallclock_as_timestamps 1` carimba cada pacote com o relogio, o `-t`
+      passa a fechar na duracao certa e a entrada volta a fluir.
+    - Sem audio (`-an`): a trilha MPEG4-GENERIC/AAC do NVR entra sem frame size
+      e so atrapalha o mux; o trecho e so o video.
     """
     out_dir.mkdir(parents=True, exist_ok=True)
     stem = safe_stem(clean_host(host), channel, start_dt, end_dt)
     mp4_path = out_dir / f"{stem}.mp4"
-    # `-t` corta na duracao pedida. A URL (gerada pelo chamador) deve ter a janela
-    # MAIOR que isto -- o NVR nao fecha o RTSP no endtime, entao o ffmpeg nao pode
-    # depender do EOF: ele para pelo -t, e a janela maior garante que ha frames.
+    # `-t` corta na duracao pedida (pelo relogio, com wallclock). A URL (gerada
+    # pelo chamador) deve ter a janela MAIOR que isto -- o NVR nao fecha o RTSP no
+    # endtime, entao o ffmpeg para pelo -t e a janela maior garante que ha frames.
     dur = max(1, int((end_dt - start_dt).total_seconds()))
     run_ffmpeg(
         [
+            "-use_wallclock_as_timestamps", "1",
             "-rtsp_transport", "tcp",
             "-i", rtsp_url,
             "-t", str(dur),
-            "-c", "copy", "-movflags", "+faststart",
+            "-an", "-c:v", "copy", "-movflags", "+faststart",
             str(mp4_path),
         ],
         timeout_sec,

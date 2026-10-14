@@ -9,8 +9,11 @@ pelo IP virtual quando o cliente e isolado.
 """
 from __future__ import annotations
 
+import threading
 import time
+import uuid
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Any, Dict, List
 
 from fastapi import APIRouter, HTTPException
@@ -245,50 +248,160 @@ class TrechoRequest(BaseModel):
     connector_id: str = ""
 
 
-@router.post("/trecho")
-def api_driver_trecho(req: TrechoRequest) -> Dict[str, Any]:
-    """Baixa o trecho em MP4 na resolucao original (ate 30 min).
+def _baixar_trecho(g: Gravador, canal: int, inicio: datetime, fim: datetime) -> Path:
+    """Baixa o trecho e devolve o Path final (com sufixo aleatorio no nome).
 
-    O download em si e o de recorder_media_service: loadfile.cgi e, se o
-    gravador devolver lixo (iNVD 5132), o indice + RPC_Loadfile.
+    Reutilizado pelo /trecho (sincrono) e pelo worker de /trecho/iniciar (async).
+    Levanta RecorderAuthError/RecordingNotFoundError/RuntimeError/TimeoutError.
     """
     import secrets
 
     from app.services.recorder_media_service import (
-        RecorderAuthError, RecordingNotFoundError, download_clip_mp4,
-        download_clip_mp4_hikvision)
+        RecordingNotFoundError, download_clip_mp4, download_clip_mp4_hikvision)
+
+    if g.marca == "hikvision":
+        # O NVR nao fecha o RTSP no endtime; o ffmpeg corta pelo -t. A janela do
+        # RTSP tem que ser MAIOR que o -t (fim+20s), senao ele trava esperando
+        # frames que nao chegam -> estoura o tempo -> Cloudflare 524.
+        rtsp = g.url_playback(canal, inicio, fim + timedelta(seconds=20))
+        mp4 = download_clip_mp4_hikvision(
+            rtsp_url=rtsp, host=g.alcance, channel=canal,
+            start_dt=inicio, end_dt=fim,
+            timeout_sec=int((fim - inicio).total_seconds()) + 120)
+    elif g.marca == "intelbras":
+        porta = int(g.base.rsplit(":", 1)[1]) if g.base.count(":") > 1 else 80
+        try:
+            # Caminho rapido: loadfile.cgi / RPC_Loadfile (transferencia de
+            # arquivo, nao tempo real) -- quando o firmware entrega, baixa ligeiro.
+            mp4 = download_clip_mp4(host=g.alcance, http_port=porta, user=g.user, password=g.password,
+                                    channel=canal, start_dt=inicio, end_dt=fim, timeout_sec=600,
+                                    scale="scale=trunc(iw/2)*2:trunc(ih/2)*2")
+        except (RecordingNotFoundError, RuntimeError, TimeoutError):
+            # Firmware que NAO entrega pelo HTTP de arquivo: loadfile.cgi E
+            # RPC_Loadfile respondem 200 com Content-Length mas corpo VAZIO
+            # (IncompleteRead "0 bytes read" -- visto no NVD da Reserva Perucaba,
+            # 10.10.9.120:8086). Reserva: baixa pelo RTSP de playback, igual ao
+            # Hikvision (ffmpeg -c:v copy, mantem o original). E ~tempo real.
+            rtsp = g.url_playback(canal, inicio, fim + timedelta(seconds=20))
+            mp4 = download_clip_mp4_hikvision(
+                rtsp_url=rtsp, host=g.alcance, channel=canal,
+                start_dt=inicio, end_dt=fim,
+                timeout_sec=int((fim - inicio).total_seconds() * 2) + 120)
+    else:
+        raise RuntimeError(f"baixar trecho ainda nao esta disponivel para {g.marca}")
+    # O nome padrao e previsivel (host+canal+horario) e a pasta de exportacao e
+    # comum; o sufixo aleatorio impede adivinhar o arquivo de outro cliente.
+    final = mp4.with_name(f"{mp4.stem}-{secrets.token_hex(6)}.mp4")
+    mp4.replace(final)
+    return final
+
+
+def _trecho_parcial_path(g: Gravador, canal: int, inicio: datetime, fim: datetime) -> Path:
+    """Caminho do MP4 enquanto o ffmpeg escreve (antes do sufixo aleatorio) --
+    usado so para reportar quantos bytes ja baixaram."""
+    from app.services.recorder_media_service import (EXPORT_DIR, clean_host,
+                                                     safe_stem)
+    return EXPORT_DIR / f"{safe_stem(clean_host(g.alcance), canal, inicio, fim)}.mp4"
+
+
+@router.post("/trecho")
+def api_driver_trecho(req: TrechoRequest) -> Dict[str, Any]:
+    """Baixa o trecho em MP4 de forma SINCRONA (ate 30 min).
+
+    Serve so para trechos curtos: o download e ~tempo real e, acima de ~90s,
+    o Cloudflare corta a requisicao com 524. Para trechos longos use
+    /trecho/iniciar + /trecho/status (download em background).
+    """
+    from app.services.recorder_media_service import (RecorderAuthError,
+                                                     RecordingNotFoundError)
 
     inicio, fim = _data(req.inicio, "inicio"), _data(req.fim, "fim")
     if not (timedelta(0) < fim - inicio <= timedelta(minutes=30)):
         raise HTTPException(status_code=400, detail="trecho de ate 30 minutos")
     g = _abrir(req.host, req.http_port, req.connector_id)
-    porta = int(g.base.rsplit(":", 1)[1]) if g.base.count(":") > 1 else 80
     try:
-        if g.marca == "hikvision":
-            # RTSP de playback -> MP4 (-c copy). O gravador entrega ~tempo real,
-            # entao o timeout acompanha a duracao do trecho (ate 30 min).
-            rtsp = g.url_playback(int(req.canal), inicio, fim)
-            mp4 = download_clip_mp4_hikvision(
-                rtsp_url=rtsp, host=g.alcance, channel=int(req.canal),
-                start_dt=inicio, end_dt=fim,
-                timeout_sec=int((fim - inicio).total_seconds()) + 120)
-        elif g.marca == "intelbras":
-            mp4 = download_clip_mp4(host=g.alcance, http_port=porta, user=g.user, password=g.password,
-                                    channel=int(req.canal), start_dt=inicio, end_dt=fim, timeout_sec=600,
-                                    scale="scale=trunc(iw/2)*2:trunc(ih/2)*2")
-        else:
-            raise HTTPException(status_code=501, detail=f"baixar trecho ainda nao esta disponivel para {g.marca}")
+        final = _baixar_trecho(g, int(req.canal), inicio, fim)
     except RecorderAuthError as exc:
         raise HTTPException(status_code=401, detail=str(exc)) from exc
     except RecordingNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except (RuntimeError, TimeoutError) as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
-    # O nome padrao e previsivel (host+canal+horario) e a pasta de exportacao
-    # e comum; o sufixo aleatorio impede adivinhar o arquivo de outro cliente.
-    final = mp4.with_name(f"{mp4.stem}-{secrets.token_hex(6)}.mp4")
-    mp4.replace(final)
     return {"url": f"/api/playback/files/{final.name}", "filename": final.name, "size": final.stat().st_size}
+
+
+# -------- download em background (sem 524) -----------------------------------
+_trecho_jobs: Dict[str, Dict[str, Any]] = {}
+_trecho_lock = threading.Lock()
+_TRECHO_TTL = 1800  # um job concluido fica consultavel por 30 min
+
+
+def _trecho_limpar() -> None:
+    agora = time.time()
+    with _trecho_lock:
+        for k in [k for k, v in _trecho_jobs.items()
+                  if v.get("estado") in ("pronto", "erro")
+                  and agora - v.get("fim_ts", agora) > _TRECHO_TTL]:
+            _trecho_jobs.pop(k, None)
+
+
+def _trecho_worker(job_id: str, g: Gravador, canal: int,
+                   inicio: datetime, fim: datetime) -> None:
+    try:
+        final = _baixar_trecho(g, canal, inicio, fim)
+        dados = {"estado": "pronto", "fim_ts": time.time(),
+                 "url": f"/api/playback/files/{final.name}",
+                 "filename": final.name, "size": final.stat().st_size}
+    except Exception as exc:  # nunca deixa o job pendurado
+        dados = {"estado": "erro", "fim_ts": time.time(), "erro": str(exc)}
+    with _trecho_lock:
+        if job_id in _trecho_jobs:
+            _trecho_jobs[job_id].update(dados)
+
+
+@router.post("/trecho/iniciar")
+def api_driver_trecho_iniciar(req: TrechoRequest) -> Dict[str, Any]:
+    """Inicia o download em background e volta na hora (sem 524).
+
+    Acompanhe por /trecho/status?job_id=... . O gravador entrega ~tempo real:
+    um trecho de N segundos leva ~N segundos para baixar.
+    """
+    _trecho_limpar()
+    inicio, fim = _data(req.inicio, "inicio"), _data(req.fim, "fim")
+    dur = int((fim - inicio).total_seconds())
+    if not (0 < dur <= 30 * 60):
+        raise HTTPException(status_code=400, detail="trecho de ate 30 minutos")
+    g = _abrir(req.host, req.http_port, req.connector_id)  # resolve credencial no request
+    parcial = _trecho_parcial_path(g, int(req.canal), inicio, fim)
+    job_id = uuid.uuid4().hex
+    with _trecho_lock:
+        _trecho_jobs[job_id] = {"estado": "baixando", "inicio_ts": time.time(),
+                                "dur": dur, "parcial": str(parcial)}
+    threading.Thread(target=_trecho_worker,
+                     args=(job_id, g, int(req.canal), inicio, fim),
+                     daemon=True).start()
+    return {"job_id": job_id, "dur": dur}
+
+
+@router.get("/trecho/status")
+def api_driver_trecho_status(job_id: str) -> Dict[str, Any]:
+    with _trecho_lock:
+        job = _trecho_jobs.get(job_id)
+        job = dict(job) if job else None
+    if not job:
+        raise HTTPException(status_code=404, detail="job nao encontrado")
+    resp: Dict[str, Any] = {"estado": job["estado"], "dur": job.get("dur", 0),
+                            "decorrido": int(time.time() - job["inicio_ts"])}
+    if job["estado"] == "baixando":
+        try:
+            resp["baixado"] = Path(job["parcial"]).stat().st_size
+        except OSError:
+            resp["baixado"] = 0
+    elif job["estado"] == "pronto":
+        resp.update(url=job["url"], filename=job["filename"], size=job["size"])
+    elif job["estado"] == "erro":
+        resp["erro"] = job.get("erro", "falhou")
+    return resp
 
 
 # ------------------------------------------------------------------- Casos
