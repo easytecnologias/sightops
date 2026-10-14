@@ -15,7 +15,12 @@ Responda ao usuário **sempre em português**.
 | Frontend | bind mount `/home/central/sightops-v3-release/frontend` | sim, mas **não está no git** até copiar |
 | Git | `/home/central/sightops-v3` → `easytecnologias/sightops` (branch `main`) | — |
 
-- Este repositório é o **do servidor**. Uma cópia em outra máquina é só leitura.
+- Este repositório é o **do servidor**. Uma cópia em outra máquina é só leitura
+  até estar em dia (remote `servidor`; o hook de início de sessão avisa se está atrás).
+- Acesso: `ssh sightops '...'` e `scp arq sightops:/tmp/` (chave, alias em
+  `~/.ssh/config`). Senha na linha de comando é negada pelo hook.
+- Banco, só leitura: `ssh sightops 'docker exec sightops-v3-postgres psql -U claude_ro -d sightops_prod -tAc "select ..."'`
+  (usuário de `deploy/postgres/claude_ro.sql`: só SELECT, sessão read-only, 15 s por consulta).
 - O repo `cam-snapshot-web-v2` é o v2/homologação: **não** é este.
 - Push é feito pelo usuário. Commit sim; push não.
 
