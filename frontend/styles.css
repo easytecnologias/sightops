@@ -11828,6 +11828,9 @@ table.recorder-tabela tbody tr:hover { background: var(--surface-soft); }
 #deployRecorderApp .inicio{flex:1 1 auto;min-height:0;overflow-y:auto;overscroll-behavior:contain;
   display:flex;flex-direction:column;gap:13px;padding-right:3px}
 #deployRecorderApp .inicio .bloco + .bloco{margin-top:0}
+/* Item flex com overflow:hidden (o .bloco) encolhe ate caber e corta o conteudo
+   em vez de rolar: a tabela sumia abaixo do cabecalho. Nada aqui encolhe. */
+#deployRecorderApp .inicio > *{flex-shrink:0}
 #deployRecorderApp .inicio .mono{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:11.5px;font-variant-numeric:tabular-nums}
 #deployRecorderApp .inicio .fraco{color:var(--muted)}
 #deployRecorderApp .inicio .acao{min-height:34px}
