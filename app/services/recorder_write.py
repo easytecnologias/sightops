@@ -54,6 +54,13 @@ def _req(metodo: str, url: str, user: str, password: str,
 
 
 def _base(host: str, porta: Any, connector_id: str = "") -> str:
+    # Escrita em gravador: com o conector errado ia pelo IP REAL, com a senha
+    # do cliente, para o equipamento que respondesse ali.
+    from app.services.recorder_xray import conferir_alcance
+    try:
+        conferir_alcance(host, connector_id)
+    except ValueError as exc:
+        raise ErroGravador(str(exc)) from exc
     if connector_id:
         try:
             _vnat.set_olt_reach_connector(connector_id)

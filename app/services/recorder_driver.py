@@ -241,7 +241,10 @@ class Gravador:
         self.host = host
         self.user = user or "admin"
         self.password = password
-        self.base = _base(host, porta, connector_id)
+        try:
+            self.base = _base(host, porta, connector_id)
+        except ValueError as exc:  # IP fora das redes do conector: nao vai ao IP real
+            raise ErroDriver(str(exc)) from exc
         self._pedir = pedir or (lambda url: _pedir(url, self.user, self.password))
         self._postar = postar or (lambda url, corpo: _postar(url, self.user, self.password, corpo))
         self.marca = marca or detectar_marca(self.base, self.user, self.password)

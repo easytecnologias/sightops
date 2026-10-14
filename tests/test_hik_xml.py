@@ -79,3 +79,81 @@ def test_raio_x_recusa_ip_fora_das_redes_do_conector(monkeypatch):
     monkeypatch.setattr(X, "detectar_marca", nao_pode)
     with pytest.raises(ValueError, match="nao esta nas redes deste conector"):
         X.raio_x("192.168.18.80", "admin", "x", 80, "4fef0f33b137a51e")
+
+
+# --- troca de IP de camera Hikvision (escreve na camera) ----------------------
+
+REDE_NOVA = (
+    '<?xml version="1.0" encoding="UTF-8"?>'
+    '<IPAddress version="2.0" xmlns="http://www.isapi.org/ver20/XMLSchema">'
+    '<ipVersion>v4</ipVersion><addressingType>dynamic</addressingType>'
+    '<ipAddress>192.168.18.51</ipAddress><subnetMask>255.255.254.0</subnetMask>'
+    '<DefaultGateway><ipAddress>192.168.18.1</ipAddress></DefaultGateway>'
+    '<PrimaryDNS><ipAddress>8.8.8.8</ipAddress></PrimaryDNS></IPAddress>'
+)
+
+
+class _Resp:
+    def __init__(self, status, text):
+        self.status_code, self.text = status, text
+
+
+def _camera_falsa(monkeypatch, xml_get):
+    from app.api.endpoints import deployments, maintenance
+    enviado = {}
+
+    def req(metodo, url, user, password, body=None, timeout=0):
+        if metodo == "GET":
+            return _Resp(200, xml_get)
+        enviado["body"] = body
+        return _Resp(200, '<ResponseStatus><statusCode>1</statusCode><statusString>OK</statusString></ResponseStatus>')
+    monkeypatch.setattr(deployments, "_hik_request", req)
+    monkeypatch.setattr(maintenance, "_reach", lambda ip: ip)
+    return maintenance, enviado
+
+
+def test_troca_de_ip_firmware_novo_muda_o_ip_de_verdade(monkeypatch):
+    m, enviado = _camera_falsa(monkeypatch, REDE_NOVA)
+    ok, _msg = m._hik_trocar_ip("192.168.18.51", "192.168.18.60", "255.255.254.0", "192.168.18.1",
+                                "", "", "admin", "x")
+    assert ok
+    corpo = enviado["body"]
+    assert "192.168.18.60" in corpo and "static" in corpo  # antes: PUT igual ao GET
+    assert "isapi.org" in corpo  # volta no namespace que a camera usa
+    assert "8.8.8.8" in corpo  # o resto da configuracao e preservado
+
+
+def test_troca_de_ip_formato_desconhecido_nao_manda_nada(monkeypatch):
+    m, enviado = _camera_falsa(monkeypatch, '<IPAddress xmlns="urn:outro"><x/></IPAddress>')
+    ok, msg = m._hik_trocar_ip("1.1.1.1", "1.1.1.2", "255.255.255.0", "1.1.1.254", "", "", "a", "b")
+    assert not ok and "nada foi alterado" in msg
+    assert "body" not in enviado
+
+
+# --- IP real: nenhum fluxo vai ao equipamento fora das redes do conector -------
+
+def _fora_do_mapa(monkeypatch):
+    from app.services import recorder_xray as X
+    monkeypatch.setattr(X._vnat, "has_mapping", lambda cid: True)
+    monkeypatch.setattr(X._vnat, "virtual_ip_for", lambda cid, ip: ip)
+
+
+def test_driver_da_investigacao_recusa_ip_real(monkeypatch):
+    from app.services.recorder_driver import ErroDriver, Gravador
+    _fora_do_mapa(monkeypatch)
+    with pytest.raises(ErroDriver, match="nao esta nas redes"):
+        Gravador("192.168.18.80", "admin", "x", 80, "c1", marca="hikvision")
+
+
+def test_escrita_no_gravador_recusa_ip_real(monkeypatch):
+    from app.services import recorder_write as W
+    _fora_do_mapa(monkeypatch)
+    with pytest.raises(W.ErroGravador, match="nao esta nas redes"):
+        W._base("192.168.18.80", 80, "c1")
+
+
+def test_conector_sem_mapa_nao_e_afetado(monkeypatch):
+    from app.services import recorder_xray as X
+    monkeypatch.setattr(X._vnat, "has_mapping", lambda cid: False)
+    X.conferir_alcance("10.0.0.5", "c-sem-mapa")  # nao levanta
+    X.conferir_alcance("10.0.0.5", "")

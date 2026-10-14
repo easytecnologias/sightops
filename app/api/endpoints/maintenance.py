@@ -915,7 +915,6 @@ def _hik_trocar_ip(ip: str, new_ip: str, mask: str, gateway: str, dns1: str, dns
 
     from app.api.endpoints.deployments import _hik_request, _hik_response_ok
 
-    NS = "http://www.hikvision.com/ver20/XMLSchema"
     url = f"http://{_reach(ip)}/ISAPI/System/Network/interfaces/1/ipAddress"
 
     try:
@@ -928,10 +927,18 @@ def _hik_trocar_ip(ip: str, new_ip: str, mask: str, gateway: str, dns1: str, dns
         return False, f"a camera respondeu HTTP {atual.status_code} ao ler a rede"
 
     try:
-        ET.register_namespace("", NS)
         raiz = ET.fromstring((atual.text or "").encode("utf-8"))
     except Exception as exc:
         return False, f"resposta da camera nao e XML valido: {exc}"
+
+    # O namespace e o que a PROPRIA camera mandou, e volta igual no PUT. Firmware
+    # novo usa isapi.org; com o hikvision.com fixo nenhum campo era achado, a
+    # camera recebia a configuracao sem mudanca, respondia OK e a tela ficava
+    # esperando um IP que ela nunca assumiu (mesmo defeito do hik_xml).
+    NS = raiz.tag[1:].split("}", 1)[0] if raiz.tag.startswith("{") else "http://www.hikvision.com/ver20/XMLSchema"
+    ET.register_namespace("", NS)
+    if raiz.find("{%s}ipAddress" % NS) is None:
+        return False, "nao achei o campo de IP na configuracao de rede da camera -- formato desconhecido, nada foi alterado"
 
     def _definir(caminho: str, valor: str) -> None:
         if not valor:

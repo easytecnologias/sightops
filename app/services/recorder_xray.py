@@ -105,8 +105,27 @@ def _postar(url: str, user: str, password: str, corpo: str,
     return 401, ""
 
 
+def conferir_alcance(host: str, connector_id: str = "") -> None:
+    """Levanta ValueError se o equipamento so seria alcancado pelo IP REAL.
+
+    Conector isolado so alcanca o que esta nas LANs dele. IP fora delas cai no
+    IP real -- em 14/10/2026 o 192.168.18.80 da Mega Alarmes, com o conector
+    errado (UFV-RODOANEL), foi parar num "Intelbras" qualquer e o raio-x levou
+    112 s para nao trazer nada, com a senha do cliente. Mesma regra do
+    tr069_service e do nvr_status_service.
+    """
+    if not connector_id or not _vnat.has_mapping(connector_id):
+        return
+    virtual = _vnat.virtual_ip_for(connector_id, host)
+    if not virtual or virtual == _vnat.IP_BLOQUEADO:
+        raise ValueError("este conector nao pertence a este cliente")
+    if virtual == host:
+        raise ValueError(f"{host} nao esta nas redes deste conector -- escolha o conector do site do equipamento")
+
+
 def _base(host: str, porta: Any, connector_id: str = "") -> str:
     """Conector isolado so responde no IP virtual -- quem traduz e o vnat."""
+    conferir_alcance(host, connector_id)
     if connector_id:
         try:
             _vnat.set_olt_reach_connector(connector_id)
@@ -715,7 +734,14 @@ def _varrer_rede(connector_id: str, user: str, password: str, so_hikvision: bool
     pares = pares[:_MAX_IPS_REDE]
     # O IP virtual sai daqui, na thread da requisicao: o contexto do cliente
     # nao atravessa o ThreadPoolExecutor.
-    alvos = [(ip, mac, _base(ip, None, connector_id)) for ip, mac in pares]
+    # IP fora das redes mapeadas (ex.: lado WAN do roteador na ARP) e pulado:
+    # consultar seria ir ao IP real, e um so nao pode derrubar a varredura.
+    alvos = []
+    for ip, mac in pares:
+        try:
+            alvos.append((ip, mac, _base(ip, None, connector_id)))
+        except ValueError:
+            continue
 
     itens: List[Dict[str, Any]] = []
     recusaram = 0
@@ -952,17 +978,7 @@ def buscar_cameras(host: str, user: str, password: str, porta: Any = None,
 def raio_x(host: str, user: str, password: str, porta: Any = None,
            connector_id: str = "") -> Dict[str, Any]:
     """Le tudo que o gravador expoe. Levanta ValueError se nao entrar."""
-    if connector_id and _vnat.has_mapping(connector_id):
-        # Conector isolado so alcanca o que esta nas LANs dele. IP fora delas
-        # cai no IP REAL -- em 14/10/2026 o 192.168.18.80 da Mega Alarmes, com
-        # o conector errado (UFV-RODOANEL), foi parar num "Intelbras" qualquer
-        # e o raio-x levou 112 s para nao trazer nada, com a senha do cliente.
-        virtual = _vnat.virtual_ip_for(connector_id, host)
-        if not virtual or virtual == _vnat.IP_BLOQUEADO:
-            raise ValueError("este conector nao pertence a este cliente")
-        if virtual == host:
-            raise ValueError(f"{host} nao esta nas redes deste conector -- escolha o conector do site do gravador")
-    base = _base(host, porta, connector_id)
+    base = _base(host, porta, connector_id)  # recusa IP fora das redes do conector
     marca = detectar_marca(base, user, password)
     dados = (_xray_hikvision if marca == "hikvision" else _xray_intelbras)(base, user, password)
     if not dados.get("equipamento", {}).get("modelo") and not dados.get("canais"):
