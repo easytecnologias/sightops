@@ -4854,6 +4854,279 @@ function recPedirNome(sugestao, d, aoConfirmar) {
   });
 }
 
+// ── Tela inicial dos gravadores (nenhum aberto) ──
+// Antes era um aviso de "nenhum gravador aberto" e mais nada. Tudo aqui sai do
+// inventario ja carregado (_deployStandaloneRecorderSavedItems): o status de
+// cada canal e o que o nvr_status_service grava a cada 40 min. Disco vem
+// da ultima leitura completa do gravador (hdd_status), que pode ter dias.
+let _recInicioFiltro = 'todos';
+let _recInicioBusca = '';
+
+function recRecentesChave() {
+  const u = (typeof _currentUser !== 'undefined' && _currentUser) || {};
+  return 'sightops.rec.recentes.' + String(u.effective_tenant_slug || u.tenant_slug || '-');
+}
+function recRecentesLer() {
+  try { return JSON.parse(localStorage.getItem(recRecentesChave()) || '[]').filter(x => typeof x === 'string'); }
+  catch (_) { return []; }
+}
+function recRecentesGuardar(key) {
+  try {
+    const lista = [key, ...recRecentesLer().filter(k => k !== key)].slice(0, 6);
+    localStorage.setItem(recRecentesChave(), JSON.stringify(lista));
+  } catch (_) {}
+}
+
+// Estado de UM gravador pelos canais. Canal vazio nao conta. "Sem resposta" so
+// quando nenhum canal verificado respondeu: um canal nvr_offline com outros
+// online e leitura parcial, nao gravador fora.
+function recEstadoGravador(item) {
+  const info = typeof recStatusInfo === 'function'
+    ? recStatusInfo : (r => ({ classe: String(r?.status || '').toLowerCase() === 'online' ? 'online' : 'unknown' }));
+  let cams = 0, online = 0, camFora = 0, gravFora = 0, semInfo = 0, vloss = 0, ultima = '';
+  // Disco: as linhas do mesmo gravador repetem o resumo da ultima leitura.
+  // "todos ok"/"normal" e bom; vazio e "nao lido"; qualquer outro texto e o
+  // estado que o proprio gravador devolveu (ex.: "unformatted", "error").
+  const comDisco = (item.rows || []).find(r => String(r.hdd_status || '').trim()) || {};
+  const hdd = String(comDisco.hdd_status || '').trim();
+  const discoRuim = !!hdd && !/^(todos ok|normal)/i.test(hdd);
+  (item.rows || []).forEach(r => {
+    const c = info(r).classe;
+    if (c === 'vazio') return;
+    cams += 1;
+    if (r.status_checked_at && String(r.status_checked_at) > ultima) ultima = String(r.status_checked_at);
+    if (typeof recTemVideoLoss === 'function' && recTemVideoLoss(r)) vloss += 1;
+    if (c === 'online') online += 1;
+    else if (c === 'offline') {
+      if (String(r.status || '').toLowerCase() === 'nvr_offline') gravFora += 1; else camFora += 1;
+    } else semInfo += 1;
+  });
+  let estado = 'ok';
+  if (gravFora && !online && !camFora) estado = 'fora';
+  else if (discoRuim) estado = 'disco';
+  else if (camFora || gravFora) estado = 'camfora';
+  else if (!cams || semInfo === cams) estado = 'semver';
+  return {
+    // camFora so conta camera que caiu com o gravador respondendo: gravador
+    // fora nao e "32 cameras fora", e um gravador fora.
+    cams, online, camFora, verif: online + camFora + gravFora, semInfo, vloss, ultima, estado,
+    discoRuim, hdd, hddN: Number(comDisco.hdd_count) || 0, hddTotal: String(comDisco.hdd_total || '').trim(),
+    hddQuando: String(comDisco.recorder_health_collected || '').trim(),
+  };
+}
+
+const _REC_INICIO_ESTADO = {
+  ok:      { rot: 'Respondendo',     classe: 'ok' },
+  fora:    { rot: 'Sem resposta',    classe: 'erro' },
+  disco:   { rot: 'Disco',           classe: 'erro' },
+  camfora: { rot: 'Camera fora',     classe: 'aviso' },
+  semver:  { rot: 'Nao verificado',  classe: 'cinza' },
+};
+
+function recQuando(iso) {
+  if (!iso) return 'nunca';
+  const t = new Date(iso).getTime();
+  if (!t) return 'nunca';
+  const min = Math.round((Date.now() - t) / 60000);
+  if (min < 1) return 'agora';
+  if (min < 60) return `ha ${min} min`;
+  if (min < 48 * 60) return `ha ${Math.round(min / 60)} h`;
+  return new Date(t).toLocaleDateString('pt-BR');
+}
+
+function recInicioLinhas() {
+  return (_deployStandaloneRecorderSavedItems || []).map(item => ({ item, e: recEstadoGravador(item) }));
+}
+
+function recPintarInicio() {
+  const todos = recInicioLinhas();
+  if (!todos.length) {
+    return `<div class="inicio"><div class="bloco"><div class="bloco-cab">
+      <div><h2>Nenhum gravador cadastrado ainda</h2>
+      <p>Use "Cadastrar gravador" ou "Entrar em gravador" ali em cima. A leitura traz canais, discos, deteccao e rede.</p></div>
+      </div></div></div>`;
+  }
+  const conta = est => todos.filter(x => x.e.estado === est).length;
+  const sites = new Set(todos.map(x => x.item.site || 'Sem site'));
+  const camForaTot = todos.reduce((s, x) => s + x.e.camFora, 0);
+  const comCamFora = todos.filter(x => x.e.camFora).length;
+  const discoRuim = todos.filter(x => x.e.discoRuim).length;
+  const semDisco = todos.filter(x => !x.e.hdd).length;
+  const ultima = todos.reduce((m, x) => (x.e.ultima > m ? x.e.ultima : m), '');
+  const nome = it => it.name || it.host;
+
+  const kpis = [
+    ['Gravadores', todos.length, `${sites.size} site${sites.size === 1 ? '' : 's'}`, ''],
+    ['Respondendo', todos.length - conta('fora') - conta('semver'), `${conta('ok')} sem nenhum alerta`, 'ok'],
+    ['Sem resposta', conta('fora'), 'nenhum canal respondeu', conta('fora') ? 'erro' : ''],
+    ['Cameras fora', camForaTot, `em ${comCamFora} gravador${comCamFora === 1 ? '' : 'es'}`, camForaTot ? 'aviso' : ''],
+    ['Disco com problema', discoRuim, `${semDisco} sem leitura de disco`, discoRuim ? 'erro' : ''],
+    ['Nao verificados', conta('semver'), 'sem leitura valida', ''],
+  ];
+
+  const ordem = { fora: 0, disco: 1, camfora: 2, semver: 3 };
+  const atencao = todos.filter(x => x.e.estado !== 'ok')
+    .sort((a, b) => (ordem[a.e.estado] - ordem[b.e.estado]) || (b.e.camFora - a.e.camFora));
+  const detalhe = ({ item, e }) => {
+    const onde = item.site || 'sem site';
+    if (e.estado === 'fora') return `Nenhum canal respondeu · ultima leitura ${recQuando(e.ultima)} · ${onde}`;
+    if (e.estado === 'disco') return `Disco: ${e.hdd} · lido ${recQuando(e.hddQuando)} · ${onde}`;
+    if (e.estado === 'camfora') return e.camFora
+      ? `${e.camFora} de ${e.verif} cameras fora · ${onde}`
+      : `Parte dos canais sem resposta do gravador · ${onde}`;
+    return e.cams ? `Canais ainda sem verificacao · ${onde}` : `Nenhum canal cadastrado · ${onde}`;
+  };
+
+  const porSite = new Map();
+  todos.forEach(({ item, e }) => {
+    const s = item.site || 'Sem site';
+    const v = porSite.get(s) || { cams: 0, online: 0, grav: 0 };
+    v.cams += e.verif; v.online += e.online; v.grav += 1;
+    porSite.set(s, v);
+  });
+  // Pior site primeiro: e o que o tecnico precisa ver.
+  const fracao = v => (v.cams ? v.online / v.cams : 1);
+  const sitesOrd = [...porSite.entries()].sort((a, b) => (fracao(a[1]) - fracao(b[1])) || (b[1].cams - a[1].cams));
+
+  const recentes = recRecentesLer()
+    .map(k => todos.find(x => x.item.key === k)).filter(Boolean).slice(0, 4);
+
+  const filtros = [
+    ['todos', 'Todos', todos.length],
+    ['fora', 'Sem resposta', conta('fora')],
+    ['disco', 'Disco', conta('disco')],
+    ['camfora', 'Camera fora', conta('camfora')],
+    ['semver', 'Nao verificados', conta('semver')],
+  ];
+
+  return `<div class="inicio">
+    <section class="bloco ini-busca">
+      <label for="recIniBusca">Entrar em gravador</label>
+      <div class="ini-busca-linha">
+        <div class="ini-campo">
+          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+          <input id="recIniBusca" type="search" autocomplete="off" placeholder="Nome, IP, site ou serial" value="${esc(_recInicioBusca)}">
+          <kbd title="Atalho para buscar">/</kbd>
+        </div>
+        <button class="acao" type="button" data-rec-ini-avulso="1">Entrar por IP avulso</button>
+      </div>
+      ${recentes.length ? `<div class="ini-recentes"><span>Abertos por ultimo:</span>
+        ${recentes.map(({ item, e }) => `<button type="button" class="ini-chip" data-rec-ini-entrar="${esc(item.key)}">
+          <i class="pt ${_REC_INICIO_ESTADO[e.estado].classe}"></i>${esc(nome(item))}</button>`).join('')}
+      </div>` : ''}
+    </section>
+
+    <section class="ini-kpis" aria-label="Resumo dos gravadores">
+      ${kpis.map(([rot, val, sub, cl]) => `<div class="ini-kpi">
+        <span>${esc(rot)}</span><b class="${cl}">${esc(val)}</b><small>${esc(sub)}</small></div>`).join('')}
+    </section>
+    <p class="ini-nota">Status dos canais verificado a cada 40 min${ultima ? ` · ultima verificacao ${esc(recQuando(ultima))}` : ''}.</p>
+
+    <div class="ini-duas">
+      <section class="bloco ini-atencao">
+        <div class="bloco-cab"><div><h2>Precisa de atencao</h2>
+          <p>${atencao.length ? `${atencao.length} gravador${atencao.length === 1 ? '' : 'es'}` : 'Nada pendente'}</p></div></div>
+        ${atencao.length ? atencao.slice(0, 6).map(x => `<div class="ini-item">
+            <span class="sinal ${_REC_INICIO_ESTADO[x.e.estado].classe}">${esc(_REC_INICIO_ESTADO[x.e.estado].rot)}</span>
+            <div class="ini-item-txt"><b>${esc(nome(x.item))}</b><span>${esc(detalhe(x))}</span></div>
+            <button class="acao" type="button" data-rec-ini-entrar="${esc(x.item.key)}">Entrar</button>
+          </div>`).join('')
+          : '<p class="ini-vazio">Todos os gravadores verificados estao respondendo, sem camera fora.</p>'}
+        ${atencao.length > 6 ? `<p class="ini-vazio">Mais ${atencao.length - 6} na tabela abaixo.</p>` : ''}
+      </section>
+
+      <section class="bloco ini-sites">
+        <div class="bloco-cab"><div><h2>Cameras respondendo por site</h2>
+          <p>Na ultima verificacao de canal</p></div></div>
+        <div class="ini-sites-lista">
+        ${sitesOrd.slice(0, 8).map(([s, v]) => {
+          const pct = v.cams ? Math.round(v.online / v.cams * 100) : 0;
+          return `<div class="ini-site"><div><b>${esc(s)}</b><span>${v.online} / ${v.cams} · ${v.grav} grav.</span></div>
+            <div class="ini-barra"><i style="width:${pct}%"></i></div></div>`;
+        }).join('')}
+        </div>
+      </section>
+    </div>
+
+    <section class="bloco ini-tabela">
+      <div class="bloco-cab"><div><h2>Todos os gravadores</h2><p>${todos.length} cadastrados</p></div>
+        <div class="bloco-dir ini-filtros" role="group" aria-label="Filtrar">
+          ${filtros.map(([id, rot, n]) => `<button type="button" data-rec-ini-filtro="${id}"
+            aria-pressed="${id === _recInicioFiltro}">${esc(rot)} · ${n}</button>`).join('')}
+        </div>
+      </div>
+      <div class="ini-rolar"><table>
+        <thead><tr><th>Gravador</th><th>Site</th><th>Modelo</th><th>Cameras respondendo</th><th>Discos</th><th>Ultima verificacao</th><th>Status</th><th></th></tr></thead>
+        <tbody id="recIniCorpo">${recInicioCorpo(todos)}</tbody>
+      </table></div>
+    </section>
+  </div>`;
+}
+
+function recInicioCorpo(todos) {
+  const alvo = _recInicioBusca.trim().toLowerCase();
+  const vistos = todos.filter(({ item, e }) =>
+    (_recInicioFiltro === 'todos' || e.estado === _recInicioFiltro) &&
+    (!alvo || [item.name, item.host, item.site, item.serial, item.model]
+      .some(v => String(v || '').toLowerCase().includes(alvo))));
+  if (!vistos.length) {
+    return `<tr><td colspan="8" class="ini-vazio">Nenhum gravador${alvo ? ` com "${esc(_recInicioBusca)}"` : ''} neste filtro.</td></tr>`;
+  }
+  return vistos.map(({ item, e }) => {
+    const st = _REC_INICIO_ESTADO[e.estado];
+    const pct = e.verif ? Math.round(e.online / e.verif * 100) : 0;
+    const disco = e.hdd ? [e.hddN ? `${e.hddN}×` : '', e.hddTotal].filter(Boolean).join(' ') || 'lido' : 'nao lido';
+    const txtSt = e.estado !== 'camfora' ? st.rot
+      : e.camFora ? `${e.camFora} camera${e.camFora === 1 ? '' : 's'} fora` : 'Leitura parcial';
+    return `<tr>
+      <td><b>${esc(item.name || item.host)}</b><small class="mono">${esc(item.host)}</small></td>
+      <td>${esc(item.site || 'Sem site')}</td>
+      <td class="fraco">${esc(item.model || (item.type === 'dvr' ? 'DVR' : 'NVR'))}</td>
+      <td><div class="ini-canais"><div class="ini-barra"><i style="width:${pct}%"></i></div><span class="mono">${e.online}/${e.verif}</span></div></td>
+      <td class="${e.discoRuim ? 'ruim' : 'fraco'}" title="${esc(e.hdd ? `${e.hdd} · lido ${recQuando(e.hddQuando)}` : 'Disco ainda nao lido')}">${esc(disco)}</td>
+      <td class="fraco">${esc(recQuando(e.ultima))}</td>
+      <td><span class="sinal ${st.classe}"><i></i>${esc(txtSt)}</span></td>
+      <td class="dir"><button class="acao" type="button" data-rec-ini-entrar="${esc(item.key)}">Entrar</button></td>
+    </tr>`;
+  }).join('');
+}
+
+function recLigarInicio(app) {
+  const entrar = key => { recRecentesGuardar(key); deployStandaloneRecorderUseSaved(key); };
+  const ligarEntrar = raiz => raiz.querySelectorAll('[data-rec-ini-entrar]').forEach(b =>
+    b.addEventListener('click', () => entrar(b.dataset.recIniEntrar)));
+  ligarEntrar(app);
+  app.querySelector('[data-rec-ini-avulso]')?.addEventListener('click', () => openDeployStandaloneRecorderModal('entry'));
+  app.querySelectorAll('[data-rec-ini-filtro]').forEach(b => b.addEventListener('click', () => {
+    _recInicioFiltro = b.dataset.recIniFiltro;
+    recPintarApp();
+    app.querySelector('.ini-tabela')?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+  }));
+  const campo = app.querySelector('#recIniBusca');
+  const corpo = app.querySelector('#recIniCorpo');
+  campo?.addEventListener('input', () => {
+    _recInicioBusca = campo.value;
+    if (corpo) { corpo.innerHTML = recInicioCorpo(recInicioLinhas()); ligarEntrar(corpo); }
+  });
+  // Enter com um resultado so entra direto: quem digita o IP inteiro quer abrir.
+  campo?.addEventListener('keydown', ev => {
+    if (ev.key !== 'Enter') return;
+    const btns = corpo ? corpo.querySelectorAll('[data-rec-ini-entrar]') : [];
+    if (btns.length === 1) entrar(btns[0].dataset.recIniEntrar);
+  });
+  if (!document.body.dataset.recIniAtalho) {
+    document.body.dataset.recIniAtalho = '1';
+    document.addEventListener('keydown', ev => {
+      if (ev.key !== '/' || ev.ctrlKey || ev.metaKey || ev.altKey) return;
+      const alvo = document.getElementById('recIniBusca');
+      const tag = (ev.target?.tagName || '').toLowerCase();
+      if (!alvo || !alvo.offsetParent || tag === 'input' || tag === 'textarea' || tag === 'select' || ev.target?.isContentEditable) return;
+      ev.preventDefault();
+      alvo.focus();
+    });
+  }
+}
+
 function recPintarApp() {
   const app = document.getElementById('deployRecorderApp');
   if (!app) return;
@@ -4880,10 +5153,8 @@ function recPintarApp() {
     return;
   }
   if (!d) {
-    app.innerHTML = `<div class="bloco"><div class="bloco-cab">
-      <div><h2>Nenhum gravador aberto</h2>
-      <p>Use "Entrar em gravador" ali em cima. A leitura traz canais, discos, deteccao e rede.</p></div>
-      </div></div>`;
+    app.innerHTML = recPintarInicio();
+    recLigarInicio(app);
     return;
   }
   const eq = d.equipamento || {}, z = d.resumo || {};
@@ -5581,6 +5852,7 @@ function recAbrirSeletor() {
     // cadastro. Abrir o formulario aqui era pedir de novo o que ja se sabe.
     lista.querySelectorAll('[data-rec-escolher]').forEach(b => b.addEventListener('click', () => {
       tampa.innerHTML = '';
+      recRecentesGuardar(b.dataset.recEscolher);
       deployStandaloneRecorderUseSaved(b.dataset.recEscolher);
     }));
   };

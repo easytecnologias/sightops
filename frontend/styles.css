@@ -11823,3 +11823,66 @@ table.recorder-tabela tbody tr:hover { background: var(--surface-soft); }
   .inv-barra-acoes { margin-left: 0; }
   .inv-tl-ruler, .inv-tl-row { grid-template-columns: 96px 1fr; }
 }
+
+/* ── Tela inicial dos gravadores (nenhum aberto), 14/10/2026 ── */
+#deployRecorderApp .inicio{flex:1 1 auto;min-height:0;overflow-y:auto;overscroll-behavior:contain;
+  display:flex;flex-direction:column;gap:13px;padding-right:3px}
+#deployRecorderApp .inicio .bloco + .bloco{margin-top:0}
+#deployRecorderApp .inicio .mono{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:11.5px;font-variant-numeric:tabular-nums}
+#deployRecorderApp .inicio .fraco{color:var(--muted)}
+#deployRecorderApp .inicio .acao{min-height:34px}
+#deployRecorderApp .ini-busca{padding:15px;display:flex;flex-direction:column;gap:11px;overflow:visible}
+#deployRecorderApp .ini-busca > label{font-size:14px;font-weight:600}
+#deployRecorderApp .ini-busca-linha{display:flex;gap:9px;flex-wrap:wrap}
+#deployRecorderApp .ini-campo{flex:1 1 320px;display:flex;align-items:center;gap:9px;height:46px;padding:0 13px;
+  border:2px solid var(--primary);border-radius:10px;background:var(--surface)}
+#deployRecorderApp .ini-campo svg{width:18px;height:18px;color:var(--muted);flex:0 0 auto}
+#deployRecorderApp .ini-campo input{flex:1;min-width:0;border:0;outline:0;background:transparent;font:inherit;font-size:15px;color:var(--text)}
+#deployRecorderApp .ini-campo kbd{font:11px ui-monospace,Consolas,monospace;color:var(--muted);border:1px solid var(--border);border-radius:4px;padding:1px 6px}
+#deployRecorderApp .ini-busca-linha > .acao{height:46px;font-size:13px;padding:0 16px}
+#deployRecorderApp .ini-recentes{display:flex;gap:7px;flex-wrap:wrap;align-items:center;font-size:12.5px;color:var(--muted)}
+#deployRecorderApp .ini-chip{display:inline-flex;align-items:center;gap:7px;min-height:34px;padding:0 12px;border-radius:999px;
+  border:1px solid var(--border);background:var(--surface-soft);font:inherit;font-size:13px;color:var(--text);cursor:pointer}
+#deployRecorderApp .ini-chip:hover{border-color:var(--primary)}
+#deployRecorderApp .pt{width:8px;height:8px;border-radius:50%;background:var(--muted);flex:0 0 auto}
+#deployRecorderApp .pt.ok{background:var(--primary)}
+#deployRecorderApp .pt.erro{background:var(--danger)}
+#deployRecorderApp .pt.aviso{background:var(--amber)}
+#deployRecorderApp .ini-kpis{display:grid;gap:11px;grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}
+#deployRecorderApp .ini-kpi{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:13px 15px;display:flex;flex-direction:column;gap:2px}
+#deployRecorderApp .ini-kpi span,#deployRecorderApp .ini-kpi small{font-size:12px;color:var(--muted)}
+#deployRecorderApp .ini-kpi b{font-size:26px;font-weight:700;font-variant-numeric:tabular-nums;line-height:1.2}
+#deployRecorderApp .ini-kpi b.ok{color:var(--primary)}
+#deployRecorderApp .ini-kpi b.erro{color:var(--danger)}
+#deployRecorderApp .ini-kpi b.aviso{color:var(--amber)}
+#deployRecorderApp .ini-nota{margin:-6px 2px 0;font-size:11.5px;color:var(--muted)}
+#deployRecorderApp .ini-duas{display:flex;flex-wrap:wrap;gap:13px;align-items:flex-start}
+#deployRecorderApp .ini-atencao{flex:2 1 440px;min-width:0}
+#deployRecorderApp .ini-sites{flex:1 1 260px;min-width:0}
+#deployRecorderApp .ini-item{display:flex;align-items:center;gap:12px;padding:10px 15px;border-top:1px solid var(--border)}
+#deployRecorderApp .bloco-cab + .ini-item{border-top:0}
+#deployRecorderApp .ini-item .sinal{flex:0 0 auto;min-width:112px;justify-content:center}
+#deployRecorderApp .ini-item-txt{flex:1;min-width:0;display:flex;flex-direction:column}
+#deployRecorderApp .ini-item-txt b{font-size:13.5px;font-weight:600}
+#deployRecorderApp .ini-item-txt span{font-size:12px;color:var(--muted);overflow-wrap:anywhere}
+#deployRecorderApp .sinal.cinza{background:var(--surface-soft);color:var(--muted);border:1px solid var(--border)}
+#deployRecorderApp .ini-vazio{margin:0;padding:12px 15px;font-size:12.5px;color:var(--muted)}
+#deployRecorderApp .ini-sites-lista{display:flex;flex-direction:column;gap:11px;padding:13px 15px}
+#deployRecorderApp .ini-site > div:first-child{display:flex;justify-content:space-between;gap:10px;font-size:12.5px;margin-bottom:5px}
+#deployRecorderApp .ini-site span{color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap}
+#deployRecorderApp .ini-barra{height:7px;border-radius:4px;background:var(--border);overflow:hidden;flex:1}
+#deployRecorderApp .ini-barra i{display:block;height:100%;background:var(--primary);border-radius:4px}
+#deployRecorderApp .ini-filtros button{min-height:32px;padding:0 11px;border-radius:999px;border:1px solid var(--border);
+  background:var(--surface);color:var(--text);font:inherit;font-size:12px;cursor:pointer;white-space:nowrap}
+#deployRecorderApp .ini-filtros button[aria-pressed="true"]{background:var(--primary);border-color:var(--primary);color:#fff;font-weight:600}
+#deployRecorderApp .ini-rolar{overflow-x:auto}
+#deployRecorderApp .ini-tabela table{width:100%;min-width:880px;border-collapse:collapse;font-size:13px}
+#deployRecorderApp .ini-tabela th{text-align:left;font-weight:500;font-size:12px;color:var(--muted);padding:9px 12px;border-bottom:1px solid var(--border)}
+#deployRecorderApp .ini-tabela td{padding:9px 12px;border-top:1px solid var(--border);vertical-align:middle}
+#deployRecorderApp .ini-tabela tbody tr:first-child td{border-top:0}
+#deployRecorderApp .ini-tabela tbody tr:hover{background:var(--surface-soft)}
+#deployRecorderApp .ini-tabela td b{display:block;font-weight:600}
+#deployRecorderApp .ini-tabela td small{display:block;color:var(--muted)}
+#deployRecorderApp .ini-tabela td.dir{text-align:right}
+#deployRecorderApp .ini-canais{display:flex;align-items:center;gap:8px;min-width:120px}
+#deployRecorderApp .ini-tabela td.ruim{color:var(--danger);font-weight:600}
