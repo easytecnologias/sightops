@@ -20,7 +20,6 @@ paramiko>=3.0.0
 # declarada aqui porque agora o codigo depende dela diretamente -- e dependencia
 # de carona some sem aviso quando o pacote de cima troca de implementacao.
 cryptography>=42.0.0
-pywinrm>=0.5.0
 opencv-python-headless>=4.9.0
 google-genai>=2.10.0
 # Importada direto (network_tools); vinha so de carona do google-genai.

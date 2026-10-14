@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=1792000020">
+  <link rel="stylesheet" href="styles.css?v=1792000021">
 </head>
 <body>
 
@@ -776,8 +776,8 @@
             <p id="winSubtitulo">Computadores Windows: hardware, seguranca, acesso remoto e caminho fisico.</p>
           </div>
           <div class="page-heading-actions">
+            <button class="secondary-action" id="btnWinAtualizar"><i data-lucide="refresh-cw"></i> Atualizar</button>
             <button class="secondary-action" id="btnWinPdf"><i data-lucide="file-text"></i> Relatorio PDF</button>
-            <button class="secondary-action" id="btnScanWindows"><i data-lucide="scan-search"></i> Varrer rede</button>
             <button class="primary-action" id="btnWinAgent"><i data-lucide="download"></i> Instalar agente</button>
           </div>
         </div>
@@ -828,57 +828,7 @@
           </div>
         </div>
 
-        <div id="winPanelBackdrop" class="cam-panel-backdrop hidden"></div>
-        <div id="winPanel" class="cam-panel hidden win-panel">
-          <div class="cam-panel-header">
-            <div>
-              <p class="eyebrow" id="winPanelStatus">-</p>
-              <strong id="winPanelTitle">Windows</strong>
-            </div>
-            <button class="icon-button" id="btnCloseWinPanel"><i data-lucide="x"></i></button>
-          </div>
-          <div class="cam-panel-info">
-            <div class="cam-info-row"><span>IP</span><span id="wpIp">-</span></div>
-            <div class="cam-info-row"><span>MAC</span><span id="wpMac">-</span></div>
-            <div class="cam-info-row"><span>Usuario</span><span id="wpUser">-</span></div>
-            <div class="cam-info-row"><span>Windows</span><span id="wpOs">-</span></div>
-            <div class="cam-info-row"><span>Fabricante</span><span id="wpManufacturer">-</span></div>
-            <div class="cam-info-row"><span>Modelo</span><span id="wpModel">-</span></div>
-            <div class="cam-info-row"><span>Serial</span><span id="wpSerial">-</span></div>
-            <div class="cam-info-row"><span>Site</span><span id="wpSite">-</span></div>
-            <div class="cam-info-row"><span>Setor</span><span id="wpSector">-</span></div>
-            <div class="cam-info-row"><span>CPU</span><span id="wpCpu">-</span></div>
-            <div class="cam-info-row"><span>Memoria</span><span id="wpMemory">-</span></div>
-            <div class="cam-info-row"><span>Disco</span><span id="wpDisk">-</span></div>
-            <div class="cam-info-row"><span>AnyDesk</span><span id="wpAnydesk">-</span></div>
-            <div class="cam-info-row"><span>Ultima coleta</span><span id="wpUpdated">-</span></div>
-          </div>
-          <div class="win-panel-section">
-            <strong>Fisico</strong>
-            <div class="win-physical-grid">
-              <span>Switch</span><b id="wpSwitch">-</b>
-              <span>Porta SW</span><b id="wpSwitchPort">-</b>
-              <span>Patch</span><b id="wpPatch">-</b>
-              <span>Porta patch</span><b id="wpPatchPort">-</b>
-              <span>Tomada</span><b id="wpOutlet">-</b>
-              <span>Rack</span><b id="wpRack">-</b>
-              <span>Cabo</span><b id="wpCable">-</b>
-              <span>Patrimonio</span><b id="wpAsset">-</b>
-              <span>Obs.</span><b id="wpNotes">-</b>
-            </div>
-          </div>
-          <div class="cam-actions">
-            <button class="cam-btn cam-btn-ping" id="wpBtnPing"><i data-lucide="activity"></i> Testar ping</button>
-            <div class="cam-btn-grid">
-              <button class="cam-btn cam-btn-secondary" id="wpBtnAnydesk"><i data-lucide="monitor-up"></i> AnyDesk</button>
-              <button class="cam-btn cam-btn-secondary" id="wpBtnEdit"><i data-lucide="pencil"></i> Fisico</button>
-              <button class="cam-btn cam-btn-secondary" id="wpBtnAgent"><i data-lucide="download"></i> Agente</button>
-              <button class="cam-btn cam-btn-secondary" id="wpBtnPrepare"><i data-lucide="terminal-square"></i> Preparar</button>
-              <button class="cam-btn cam-btn-secondary" id="wpBtnPdf"><i data-lucide="file-text"></i> PDF</button>
-              <button class="cam-btn cam-btn-secondary" id="wpBtnRefresh"><i data-lucide="refresh-cw"></i> Atualizar</button>
-            </div>
-          </div>
-        </div>      </section>
+              </section>
 
       <!-- --- VIEW: SNAPSHOTS CAM --- -->
       <section class="workspace hidden" id="viewSnapCam">
@@ -5279,51 +5229,6 @@
     </div>
   </div>
 
-  <!-- --- MODAL: EDITAR C-MERAS --- -->
-  <div id="modalWinScan" class="modal-backdrop hidden" onclick="if(event.target===this)closeWinScanModal()">
-    <div class="modal" style="max-width:560px">
-      <div class="modal-header">
-        <div><p class="eyebrow">Windows</p><h2>Varredura remota</h2></div>
-        <button class="icon-button" id="closeWinScan"><i data-lucide="x"></i></button>
-      </div>
-      <div class="modal-body">
-        <div style="display:grid;grid-template-columns:1fr 120px;gap:12px;margin-bottom:12px">
-          <label style="font-size:13px;color:var(--muted)">Alvo, range, CIDR ou lista
-            <input id="winScanTargets" placeholder="10.10.12.20-10.10.12.60" style="width:100%;margin-top:6px;padding:10px 12px;border:1px solid var(--border);border-radius:8px">
-          </label>
-          <label style="font-size:13px;color:var(--muted)">Timeout
-            <input id="winScanTimeout" type="number" min="1" max="30" value="8" style="width:100%;margin-top:6px;padding:10px 12px;border:1px solid var(--border);border-radius:8px">
-          </label>
-        </div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
-          <label style="font-size:13px;color:var(--muted)">Usuario
-            <input id="winScanUser" value="Administrador" style="width:100%;margin-top:6px;padding:10px 12px;border:1px solid var(--border);border-radius:8px">
-          </label>
-          <label style="font-size:13px;color:var(--muted)">Senha
-            <input id="winScanPass" type="password" placeholder="Senha do Windows" style="width:100%;margin-top:6px;padding:10px 12px;border:1px solid var(--border);border-radius:8px">
-          </label>
-        </div>
-        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:12px">
-          <label style="font-size:13px;color:var(--muted)">Dominio opcional
-            <input id="winScanDomain" placeholder="DOMINIO" style="width:100%;margin-top:6px;padding:10px 12px;border:1px solid var(--border);border-radius:8px">
-          </label>
-          <label style="font-size:13px;color:var(--muted)">Concorrencia
-            <input id="winScanConcurrency" type="number" min="1" max="128" value="32" style="width:100%;margin-top:6px;padding:10px 12px;border:1px solid var(--border);border-radius:8px">
-          </label>
-          <label style="font-size:13px;color:var(--muted);display:flex;align-items:end;gap:8px;padding-bottom:11px">
-            <input id="winScanHttps" type="checkbox"> WinRM HTTPS
-          </label>
-        </div>
-        <div id="winScanLog" class="mnt-console-body" style="min-height:92px;max-height:180px;border-radius:8px">Aguardando inicio...</div>
-        <p id="winScanErro" class="form-error" hidden style="margin-top:10px"></p>
-      </div>
-      <div class="modal-actions">
-        <button class="secondary-action" id="cancelWinScan">Fechar</button>
-        <button class="primary-action" id="startWinScan"><i data-lucide="scan-search"></i> Executar</button>
-      </div>
-    </div>
-  </div>
-
   <div id="modalOnuDelete" class="modal-backdrop hidden" onclick="if(event.target===this)closeOnuDeleteModal()">
     <div class="modal" style="max-width:min(92vw,520px);width:92vw">
       <div class="modal-header">
@@ -6944,7 +6849,7 @@
   <script src="js/liveStream.js?v=1791000212"></script>
   <script src="js/cameras.js?v=1791000212"></script>
   <script src="js/recorders.js?v=1792000003"></script>
-  <script src="js/windows.js?v=1792000020"></script>
+  <script src="js/windows.js?v=1792000021"></script>
   <script src="js/snapshots.js?v=1791000212"></script>
   <script src="js/maintenance.js?v=1791000212"></script>
   <script src="js/analysis.js?v=1791000212"></script>
@@ -6964,6 +6869,6 @@
   <script src="js/messenger.js?v=1791000212"></script>
   <script src="js/alert.js?v=1791000212"></script>
   <script src="js/tr069.js?v=1791000212"></script>
-  <script src="js/bootstrap.js?v=1792000020"></script>
+  <script src="js/bootstrap.js?v=1792000021"></script>
 </body>
 </html>

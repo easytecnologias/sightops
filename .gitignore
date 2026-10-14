@@ -28,6 +28,9 @@ venv/
 node_modules/
 dist/
 *.exe
+# Instalador base do agente Windows (tools/agente-windows/compilar.ps1): o
+# servidor cola a configuracao do cliente nele a cada download.
+!app/services/assets/SightOpsAgente.exe
 
 # Midia e modelos pesados
 tmp/

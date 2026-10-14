@@ -898,10 +898,8 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('searchInvDvr')?.addEventListener('input', () => filterTable('searchInvDvr', 'invDvrTable'));
   document.getElementById('searchInvNvr')?.addEventListener('input', () => filterTable('searchInvNvr', 'invNvrTable'));
   document.getElementById('searchInvWindows')?.addEventListener('input', applyWindowsFilters);
-  document.getElementById('filterWinStatus')?.addEventListener('change', applyWindowsFilters);
   document.getElementById('filterWinSite')?.addEventListener('change', applyWindowsFilters);
   document.getElementById('filterWinSector')?.addEventListener('change', applyWindowsFilters);
-  document.getElementById('btnWinClearFilters')?.addEventListener('click', clearWinFilters);
   document.getElementById('chkWinAll')?.addEventListener('change', e => {
     const checked = e.target.checked;
     _winFilteredRows.forEach(row => {
@@ -911,28 +909,15 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     renderWinRows(_winFilteredRows);
   });
-  document.getElementById('btnScanWindows')?.addEventListener('click', openWinScanModal);
-  document.getElementById('closeWinScan')?.addEventListener('click', closeWinScanModal);
-  document.getElementById('cancelWinScan')?.addEventListener('click', closeWinScanModal);
-  document.getElementById('startWinScan')?.addEventListener('click', runWinScan);
   document.getElementById('btnWinAgent')?.addEventListener('click', winBaixarAgente);
+  document.getElementById('btnWinAtualizar')?.addEventListener('click', winAtualizar);
   document.getElementById('btnWinPdf')?.addEventListener('click', () => downloadWithAuth('/api/windows/report.pdf', 'windows-inventory.pdf'));
-  document.getElementById('btnWinPhotos')?.addEventListener('click', enrichWindowsPhotos);
   document.getElementById('btnWinEdit')?.addEventListener('click', openWinPhysicalModal);
   document.getElementById('btnWinDelete')?.addEventListener('click', deleteSelectedWindows);
   document.getElementById('btnWinClearAll')?.addEventListener('click', clearWindowsInventory);
   document.getElementById('closeWinPhysical')?.addEventListener('click', closeWinPhysicalModal);
   document.getElementById('cancelWinPhysical')?.addEventListener('click', closeWinPhysicalModal);
   document.getElementById('saveWinPhysical')?.addEventListener('click', saveWinPhysical);
-  document.getElementById('winPanelBackdrop')?.addEventListener('click', closeWinPanel);
-  document.getElementById('btnCloseWinPanel')?.addEventListener('click', closeWinPanel);
-  document.getElementById('wpBtnPing')?.addEventListener('click', () => winPanelAction('ping'));
-  document.getElementById('wpBtnAnydesk')?.addEventListener('click', () => winPanelAction('anydesk'));
-  document.getElementById('wpBtnEdit')?.addEventListener('click', () => winPanelAction('edit'));
-  document.getElementById('wpBtnAgent')?.addEventListener('click', () => winPanelAction('agent'));
-  document.getElementById('wpBtnPrepare')?.addEventListener('click', () => winPanelAction('prepare'));
-  document.getElementById('wpBtnPdf')?.addEventListener('click', () => winPanelAction('pdf'));
-  document.getElementById('wpBtnRefresh')?.addEventListener('click', () => winPanelAction('refresh'));
 
   // Carrossel
   document.getElementById('carClose')?.addEventListener('click', closeCarrossel);

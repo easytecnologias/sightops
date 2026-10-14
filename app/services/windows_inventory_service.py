@@ -3,9 +3,7 @@ from __future__ import annotations
 import ipaddress
 import json
 import socket
-import base64
 import secrets
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List
@@ -79,331 +77,11 @@ def validate_windows_agent_token(token: str) -> str:
     return ""
 
 
-def _parse_targets(raw: str, limit: int = 2048) -> List[str]:
-    targets: list[str] = []
-    seen: set[str] = set()
-    chunks = (
-        str(raw or "")
-        .replace("\r", "\n")
-        .replace(",", "\n")
-        .replace(";", "\n")
-        .split()
-    )
-    for chunk in chunks:
-        item = chunk.strip()
-        if not item:
-            continue
-        try:
-            if "/" in item:
-                net = ipaddress.ip_network(item, strict=False)
-                if net.version != 4:
-                    continue
-                for ip in net.hosts():
-                    value = str(ip)
-                    if value not in seen:
-                        seen.add(value)
-                        targets.append(value)
-                    if len(targets) >= limit:
-                        return targets
-                continue
-            if "-" in item:
-                left, right = item.split("-", 1)
-                start = ipaddress.ip_address(left.strip())
-                if "." in right:
-                    end = ipaddress.ip_address(right.strip())
-                else:
-                    octets = left.strip().split(".")
-                    octets[-1] = right.strip()
-                    end = ipaddress.ip_address(".".join(octets))
-                if start.version != 4 or end.version != 4:
-                    continue
-                a, b = int(start), int(end)
-                if b < a:
-                    a, b = b, a
-                for value_int in range(a, b + 1):
-                    value = str(ipaddress.ip_address(value_int))
-                    if value not in seen:
-                        seen.add(value)
-                        targets.append(value)
-                    if len(targets) >= limit:
-                        return targets
-                continue
-            ip = ipaddress.ip_address(item)
-            if ip.version == 4:
-                value = str(ip)
-                if value not in seen:
-                    seen.add(value)
-                    targets.append(value)
-        except Exception:
-            continue
-        if len(targets) >= limit:
-            return targets
-    return targets
-
-
-def _tcp_open(ip: str, port: int, timeout: float) -> bool:
-    try:
-        with socket.create_connection((ip, int(port)), timeout=max(0.2, float(timeout or 1.0))):
-            return True
-    except Exception:
-        return False
-
-
 def _hostname(ip: str) -> str:
     try:
         return socket.gethostbyaddr(ip)[0] or ""
     except Exception:
         return ""
-
-
-def _powershell_inventory_script() -> str:
-    return r"""
-$ErrorActionPreference = "SilentlyContinue"
-$cs = Get-CimInstance Win32_ComputerSystem
-$bios = Get-CimInstance Win32_BIOS
-$bb = Get-CimInstance Win32_BaseBoard
-$os = Get-CimInstance Win32_OperatingSystem
-$cpu = Get-CimInstance Win32_Processor | Select-Object -First 1
-$mem = Get-CimInstance Win32_PhysicalMemory
-$gpu = Get-CimInstance Win32_VideoController | ForEach-Object {
-  [PSCustomObject]@{
-    name = $_.Name
-    processor = $_.VideoProcessor
-    driver_version = $_.DriverVersion
-    adapter_ram_gb = if ($_.AdapterRAM) { [math]::Round([double]$_.AdapterRAM / 1GB, 2) } else { $null }
-    resolution = if ($_.CurrentHorizontalResolution -and $_.CurrentVerticalResolution) { "$($_.CurrentHorizontalResolution)x$($_.CurrentVerticalResolution)" } else { "" }
-  }
-}
-$battery = Get-CimInstance Win32_Battery | ForEach-Object {
-  [PSCustomObject]@{
-    name = $_.Name
-    status = $_.Status
-    estimated_charge = $_.EstimatedChargeRemaining
-    chemistry = $_.Chemistry
-  }
-}
-$volumes = Get-CimInstance Win32_LogicalDisk -Filter "DriveType = 3" | ForEach-Object {
-  [PSCustomObject]@{
-    drive = $_.DeviceID
-    label = $_.VolumeName
-    file_system = $_.FileSystem
-    size_gb = if ($_.Size) { [math]::Round([double]$_.Size / 1GB, 2) } else { $null }
-    free_gb = if ($_.FreeSpace) { [math]::Round([double]$_.FreeSpace / 1GB, 2) } else { $null }
-    free_percent = if ($_.Size) { [math]::Round(([double]$_.FreeSpace / [double]$_.Size) * 100, 1) } else { $null }
-  }
-}
-$tpmInfo = $null
-try {
-  $tpm = Get-Tpm
-  $tpmInfo = [PSCustomObject]@{
-    present = $tpm.TpmPresent
-    ready = $tpm.TpmReady
-    enabled = $tpm.TpmEnabled
-    activated = $tpm.TpmActivated
-    owned = $tpm.TpmOwned
-  }
-} catch {}
-$secureBoot = $null
-try { $secureBoot = Confirm-SecureBootUEFI } catch {}
-$bitlocker = @()
-try {
-  $bitlocker = Get-BitLockerVolume | ForEach-Object {
-    [PSCustomObject]@{
-      mount_point = $_.MountPoint
-      volume_status = $_.VolumeStatus
-      protection_status = $_.ProtectionStatus
-      encryption_method = $_.EncryptionMethod
-      encryption_percentage = $_.EncryptionPercentage
-    }
-  }
-} catch {}
-$defender = $null
-try {
-  $mp = Get-MpComputerStatus
-  $defender = [PSCustomObject]@{
-    enabled = $mp.AntivirusEnabled
-    realtime = $mp.RealTimeProtectionEnabled
-    signature_version = $mp.AntivirusSignatureVersion
-    last_quick_scan = $mp.QuickScanEndTime
-    last_full_scan = $mp.FullScanEndTime
-  }
-} catch {}
-$hotfixes = @()
-try {
-  $hotfixes = Get-CimInstance Win32_QuickFixEngineering | ForEach-Object {
-    $installed = ""
-    try { $installed = ($_.InstalledOn -as [string]).Trim() } catch {}
-    [PSCustomObject]@{ id = $_.HotFixID; installed_on = $installed; description = $_.Description }
-  } | Select-Object -First 8
-} catch {}
-$memoryModules = $mem | ForEach-Object {
-  $ddr = switch ([int]$_.SMBIOSMemoryType) {
-    20 { "DDR" }
-    21 { "DDR2" }
-    24 { "DDR3" }
-    26 { "DDR4" }
-    34 { "DDR5" }
-    default { if ($_.MemoryType) { "Tipo " + $_.MemoryType } else { "" } }
-  }
-  [PSCustomObject]@{
-    bank = $_.BankLabel
-    slot = $_.DeviceLocator
-    manufacturer = $_.Manufacturer
-    part_number = ($_.PartNumber -as [string]).Trim()
-    serial = $_.SerialNumber
-    capacity_gb = if ($_.Capacity) { [math]::Round([double]$_.Capacity / 1GB, 2) } else { $null }
-    speed_mhz = $_.Speed
-    configured_speed_mhz = $_.ConfiguredClockSpeed
-    memory_type = $_.MemoryType
-    smbios_memory_type = $_.SMBIOSMemoryType
-    ddr = $ddr
-    form_factor = $_.FormFactor
-  }
-}
-$disks = Get-CimInstance Win32_DiskDrive | ForEach-Object {
-  [PSCustomObject]@{
-    model = $_.Model
-    manufacturer = $_.Manufacturer
-    serial = $_.SerialNumber
-    firmware = $_.FirmwareRevision
-    interface_type = $_.InterfaceType
-    media_type = $_.MediaType
-    pnp_device_id = $_.PNPDeviceID
-    size_gb = if ($_.Size) { [math]::Round([double]$_.Size / 1GB, 2) } else { $null }
-  }
-}
-$net = Get-CimInstance Win32_NetworkAdapterConfiguration -Filter "IPEnabled = True" | ForEach-Object {
-  [PSCustomObject]@{
-    description = $_.Description
-    mac = $_.MACAddress
-    ip = @($_.IPAddress)
-    gateway = @($_.DefaultIPGateway)
-    dns = @($_.DNSServerSearchOrder)
-  }
-}
-$payload = [PSCustomObject]@{
-  hostname = $env:COMPUTERNAME
-  domain = $cs.Domain
-  manufacturer = $cs.Manufacturer
-  model = $cs.Model
-  logged_user = $cs.UserName
-  total_ram_gb = if ($cs.TotalPhysicalMemory) { [math]::Round([double]$cs.TotalPhysicalMemory / 1GB, 2) } else { $null }
-  chassis_types = @($cs.ChassisTypes)
-  system_sku = $cs.SystemSKUNumber
-  pc_system_type = $cs.PCSystemType
-  timezone = (Get-TimeZone).Id
-  memory_slots = @($mem).Count
-  memory_modules = @($memoryModules)
-  os_name = $os.Caption
-  os_version = $os.Version
-  os_build = $os.BuildNumber
-  os_arch = $os.OSArchitecture
-  install_date = $os.InstallDate
-  last_boot = $os.LastBootUpTime
-  cpu = $cpu.Name
-  cpu_cores = $cpu.NumberOfCores
-  cpu_threads = $cpu.NumberOfLogicalProcessors
-  gpus = @($gpu)
-  batteries = @($battery)
-  bios_serial = $bios.SerialNumber
-  bios_version = $bios.SMBIOSBIOSVersion
-  bios_release_date = $bios.ReleaseDate
-  motherboard_manufacturer = $bb.Manufacturer
-  motherboard_model = $bb.Product
-  motherboard_serial = $bb.SerialNumber
-  disks = @($disks)
-  volumes = @($volumes)
-  network = @($net)
-  tpm = $tpmInfo
-  secure_boot = $secureBoot
-  bitlocker = @($bitlocker)
-  defender = $defender
-  hotfixes = @($hotfixes)
-}
-$payload | ConvertTo-Json -Depth 6 -Compress
-"""
-
-
-def _encoded_powershell_command(script: str) -> str:
-    return base64.b64encode(script.encode("utf-16le")).decode("ascii")
-
-
-def _load_winrm_module() -> Any:
-    try:
-        import winrm  # type: ignore
-
-        return winrm
-    except Exception:
-        return None
-
-
-def _collect_winrm(
-    ip: str,
-    username: str,
-    password: str,
-    *,
-    domain: str = "",
-    use_https: bool = False,
-    timeout: float = 8.0,
-) -> Dict[str, Any]:
-    winrm = _load_winrm_module()
-    if winrm is None:
-        return {
-            "ok": False,
-            "status": "dependency_missing",
-            "error": "Dependencia pywinrm nao instalada no ambiente da API.",
-        }
-
-    user = _text(username)
-    if domain and "\\" not in user and "@" not in user:
-        user = f"{_text(domain)}\\{user}"
-
-    scheme = "https" if use_https else "http"
-    port = 5986 if use_https else 5985
-    endpoint = f"{scheme}://{ip}:{port}/wsman"
-    try:
-        session = winrm.Session(
-            endpoint,
-            auth=(user, password),
-            transport="ntlm",
-            server_cert_validation="ignore",
-            read_timeout_sec=max(10, int(timeout) + 8),
-            operation_timeout_sec=max(6, int(timeout)),
-        )
-        script = _powershell_inventory_script()
-        try:
-            result = session.run_ps(script)
-        except Exception:
-            result = session.run_cmd(
-                "powershell.exe",
-                [
-                    "-NoLogo",
-                    "-NoProfile",
-                    "-NonInteractive",
-                    "-ExecutionPolicy",
-                    "Bypass",
-                    "-EncodedCommand",
-                    _encoded_powershell_command(script),
-                ],
-            )
-    except Exception as exc:
-        return {"ok": False, "status": "auth_or_connection_failed", "error": str(exc)[:500]}
-
-    stdout = bytes(result.std_out or b"").decode("utf-8", errors="replace").strip()
-    stderr = bytes(result.std_err or b"").decode("utf-8", errors="replace").strip()
-    if int(result.status_code or 0) != 0:
-        return {
-            "ok": False,
-            "status": "command_failed",
-            "error": (stderr or stdout or f"PowerShell retornou codigo {result.status_code}")[:500],
-        }
-    try:
-        data = json.loads(stdout)
-    except Exception:
-        return {"ok": False, "status": "invalid_json", "error": stdout[:500]}
-    if not isinstance(data, dict):
-        return {"ok": False, "status": "invalid_payload", "error": "Payload WinRM inesperado."}
-    return {"ok": True, "status": "online", "data": data}
 
 
 def _disk_kind(disks: List[Dict[str, Any]]) -> str:
@@ -840,7 +518,23 @@ def _eventos_de_mudanca(antigo: Dict[str, Any], novo: Dict[str, Any]) -> List[st
     return ev
 
 
-AGENTE_VERSAO = "2.0"
+AGENTE_VERSAO = "2.1"
+# Instalador com janela (tools/agente-windows). O mesmo binario para todos os
+# clientes: a configuracao de cada um vai colada no fim, a cada download.
+AGENTE_EXE_BASE = Path(__file__).resolve().parent / "assets" / "SightOpsAgente.exe"
+_AGENTE_EXE_MARCA = b"SOPSAG01"
+
+
+def build_windows_agent_exe(base_url: str, cliente: str = "") -> bytes:
+    """O instalador .exe com o script do agente deste cliente colado no fim.
+
+    Formato lido pelo SightOpsAgente.cs:
+    [exe][cliente, quebra de linha, script][int32 little-endian tamanho][b"SOPSAG01"]
+    """
+    base = AGENTE_EXE_BASE.read_bytes()
+    nome = " ".join(_text(cliente).split())[:80]
+    dados = (nome + "\n" + build_windows_agent_script(base_url=base_url)).encode("utf-8")
+    return base + dados + len(dados).to_bytes(4, "little") + _AGENTE_EXE_MARCA
 
 
 def build_windows_agent_script(base_url: str) -> str:
@@ -860,7 +554,8 @@ param(
   [switch]$Silencioso,
   [string]$Site = "",
   [string]$Setor = "",
-  [switch]$SemAgendar
+  [switch]$SemAgendar,
+  [switch]$InstalarAnyDesk
 )
 
 $ErrorActionPreference = "Stop"
@@ -964,14 +659,16 @@ function Install-And-Configure-AnyDesk {{
   $exe = Get-AnyDeskExecutable
   $passwordConfigured = $false
   $errorMessage = ""
-  if ($Silencioso) {{
-    # Sem ninguem na frente: so le o que ja existe, nao instala nada.
+  if ($Silencioso -and -not $InstalarAnyDesk) {{
+    # Sem ninguem na frente e sem pedido de instalar: so le o que ja existe.
     return Get-AnyDeskInventory -ExePath $exe -ConfiguredPassword $false -ErrorMessage ""
   }}
   try {{
-    $choice = Read-Host "Instalar/configurar AnyDesk para acesso remoto? [S/n]"
-    if ($choice -match '^[Nn]') {{
-      return Get-AnyDeskInventory -ExePath $exe -ConfiguredPassword $false -ErrorMessage "Instalacao ignorada pelo operador"
+    if (-not $Silencioso) {{
+      $choice = Read-Host "Instalar/configurar AnyDesk para acesso remoto? [S/n]"
+      if ($choice -match '^[Nn]') {{
+        return Get-AnyDeskInventory -ExePath $exe -ConfiguredPassword $false -ErrorMessage "Instalacao ignorada pelo operador"
+      }}
     }}
     if (-not $IsAdmin) {{
       return Get-AnyDeskInventory -ExePath $exe -ConfiguredPassword $false -ErrorMessage "Execute como Administrador para instalar/configurar AnyDesk"
@@ -993,7 +690,7 @@ function Install-And-Configure-AnyDesk {{
         Set-Service -Name AnyDesk -StartupType Automatic -ErrorAction SilentlyContinue
         Start-Service -Name AnyDesk -ErrorAction SilentlyContinue
       }}
-      $setPass = Read-Host "Definir senha para acesso nao supervisionado no AnyDesk? [s/N]"
+      $setPass = if ($Silencioso) {{ "n" }} else {{ Read-Host "Definir senha para acesso nao supervisionado no AnyDesk? [s/N]" }}
       if ($setPass -match '^[Ss]') {{
         $securePass = Read-Host "Digite a senha do AnyDesk" -AsSecureString
         $plainPass = Convert-SightOpsSecureStringToPlainText -SecureText $securePass
@@ -1067,60 +764,11 @@ function Get-ZabbixAgentInventory {{
 }}
 
 function Install-And-Configure-ZabbixAgent {{
-  $serverHost = Get-SightOpsServerHost
-  $errorMessage = ""
-  if ($Silencioso) {{
-    return Get-ZabbixAgentInventory -ServerHost $serverHost -ErrorMessage ""
-  }}
-  try {{
-    $choice = Read-Host "Instalar/configurar Zabbix Agent 2 para monitoramento? [S/n]"
-    if ($choice -match '^[Nn]') {{
-      return Get-ZabbixAgentInventory -ServerHost $serverHost -ErrorMessage "Instalacao ignorada pelo operador"
-    }}
-    if (-not $IsAdmin) {{
-      return Get-ZabbixAgentInventory -ServerHost $serverHost -ErrorMessage "Execute como Administrador para instalar/configurar Zabbix Agent"
-    }}
-    $service = Get-Service -Name "Zabbix Agent 2" -ErrorAction SilentlyContinue
-    if (-not $service) {{
-      $installer = Join-Path $env:TEMP "zabbix_agent2_latest.msi"
-      $urls = @(
-        "https://cdn.zabbix.com/zabbix/binaries/stable/7.0/latest/zabbix_agent2-7.0-latest-windows-amd64-openssl.msi",
-        "https://cdn.zabbix.com/zabbix/binaries/stable/6.0/latest/zabbix_agent2-6.0-latest-windows-amd64-openssl.msi"
-      )
-      foreach ($url in $urls) {{
-        try {{
-          Write-Host ("Baixando Zabbix Agent 2: " + $url) -ForegroundColor Cyan
-          Invoke-WebRequest -Uri $url -OutFile $installer -UseBasicParsing -TimeoutSec 300
-          if (Test-Path $installer) {{ break }}
-        }} catch {{
-          $errorMessage = $_.Exception.Message
-        }}
-      }}
-      if (-not (Test-Path $installer)) {{ throw "Nao foi possivel baixar o instalador do Zabbix Agent 2. $errorMessage" }}
-      $args = @(
-        "/i", "`"$installer`"",
-        "/qn",
-        "SERVER=$serverHost",
-        "SERVERACTIVE=$serverHost",
-        "HOSTNAME=$env:COMPUTERNAME",
-        "LISTENPORT=10050"
-      )
-      Write-Host "Instalando Zabbix Agent 2 em modo silencioso..." -ForegroundColor Cyan
-      $proc = Start-Process -FilePath "msiexec.exe" -ArgumentList $args -Wait -PassThru
-      if ($proc.ExitCode -ne 0) {{ Write-Host "Instalador Zabbix retornou codigo $($proc.ExitCode). Continuando validacao..." -ForegroundColor Yellow }}
-      Start-Sleep -Seconds 5
-    }}
-    $service = Get-Service -Name "Zabbix Agent 2" -ErrorAction SilentlyContinue
-    if ($service) {{
-      Set-Service -Name "Zabbix Agent 2" -StartupType Automatic -ErrorAction SilentlyContinue
-      Start-Service -Name "Zabbix Agent 2" -ErrorAction SilentlyContinue
-      New-NetFirewallRule -DisplayName "SightOps Zabbix Agent 10050" -Direction Inbound -Protocol TCP -LocalPort 10050 -Action Allow -Profile Any -ErrorAction SilentlyContinue | Out-Null
-    }}
-  }} catch {{
-    $errorMessage = $_.Exception.Message
-    Write-Host ("Zabbix Agent: " + $errorMessage) -ForegroundColor Yellow
-  }}
-  return Get-ZabbixAgentInventory -ServerHost $serverHost -ErrorMessage $errorMessage
+  # So registra o Zabbix Agent se ja existir. A instalacao saiu (14/10/2026):
+  # o PC do cliente nao alcanca o Zabbix pelo dominio (so passa HTTP), entao o
+  # agente instalado nunca conversava com o servidor. O computador chega ao
+  # Zabbix pelo proprio SightOps, com o inventario que este agente envia.
+  return Get-ZabbixAgentInventory -ServerHost (Get-SightOpsServerHost) -ErrorMessage ""
 }}
 
 $anydeskInfo = Install-And-Configure-AnyDesk
@@ -1131,11 +779,6 @@ if ($anydeskInfo.id) {{
 }}
 
 $zabbixInfo = Install-And-Configure-ZabbixAgent
-if ($zabbixInfo.installed) {{
-  Write-Host ("Zabbix Agent: " + $zabbixInfo.service_status + " / Server: " + $zabbixInfo.server_active) -ForegroundColor Green
-}} elseif ($zabbixInfo.error) {{
-  Write-Host ("Zabbix Agent nao instalado: " + $zabbixInfo.error) -ForegroundColor Yellow
-}}
 
 $cs = Get-CimInstance Win32_ComputerSystem
 $bios = Get-CimInstance Win32_BIOS
@@ -1324,223 +967,3 @@ if ($Agendar) {{
   Write-Host "Rodou sem Administrador: o inventario foi enviado uma vez, mas a tarefa que reenvia a cada 15 min nao foi criada." -ForegroundColor Yellow
 }}
 """
-
-
-def build_windows_prepare_script(username: str = "sightops_inv") -> str:
-    user = _text(username) or "sightops_inv"
-    safe_user = "".join(ch for ch in user if ch.isalnum() or ch in ("_", "-", "."))
-    if not safe_user:
-        safe_user = "sightops_inv"
-    return f"""# SightOps - Preparar Windows para inventario remoto
-# Execute este arquivo como Administrador no computador Windows alvo.
-# O script NAO contem senha gravada: ele pede a senha localmente.
-
-$ErrorActionPreference = "Stop"
-$UserName = "{safe_user}"
-
-Write-Host "Preparando WinRM/WMI para inventario SightOps..." -ForegroundColor Cyan
-
-$IsAdmin = ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
-if (-not $IsAdmin) {{
-  if ($PSCommandPath) {{
-    Write-Host "Solicitando permissao de Administrador..." -ForegroundColor Yellow
-    Start-Process -FilePath "powershell.exe" -Verb RunAs -ArgumentList @(
-      "-NoProfile",
-      "-ExecutionPolicy", "Bypass",
-      "-File", "`"$PSCommandPath`""
-    )
-    exit 0
-  }}
-  Write-Error "Execute este PowerShell como Administrador."
-  exit 1
-}}
-
-$Password = Read-Host "Digite a senha que sera usada para o usuario local $UserName" -AsSecureString
-if (-not $Password) {{
-  Write-Error "Senha obrigatoria."
-  exit 1
-}}
-
-$Existing = Get-LocalUser -Name $UserName -ErrorAction SilentlyContinue
-if ($Existing) {{
-  Set-LocalUser -Name $UserName -Password $Password -PasswordNeverExpires $true
-  Enable-LocalUser -Name $UserName
-  Write-Host "Usuario $UserName atualizado." -ForegroundColor Green
-}} else {{
-  New-LocalUser -Name $UserName -Password $Password -FullName "SightOps Inventory" -Description "Usuario local para inventario remoto SightOps" -PasswordNeverExpires
-  Write-Host "Usuario $UserName criado." -ForegroundColor Green
-}}
-
-function Add-UserToLocalGroupBySid($Sid, $Member) {{
-  $Group = Get-LocalGroup | Where-Object {{ $_.SID.Value -eq $Sid }} | Select-Object -First 1
-  if (-not $Group) {{
-    Write-Host "Aviso: grupo local com SID $Sid nao encontrado." -ForegroundColor Yellow
-    return
-  }}
-  try {{
-    Add-LocalGroupMember -Group $Group.Name -Member $Member -ErrorAction Stop
-    Write-Host "Usuario $Member adicionado ao grupo $($Group.Name)." -ForegroundColor Green
-  }} catch {{
-    if ($_.Exception.Message -match "ja.*membro|already.*member") {{
-      Write-Host "Usuario $Member ja pertence ao grupo $($Group.Name)." -ForegroundColor DarkGray
-    }} else {{
-      Write-Host "Aviso: nao foi possivel adicionar $Member ao grupo $($Group.Name): $($_.Exception.Message)" -ForegroundColor Yellow
-    }}
-  }}
-}}
-
-Add-UserToLocalGroupBySid "S-1-5-32-544" $UserName
-Add-UserToLocalGroupBySid "S-1-5-32-580" $UserName
-
-try {{
-  $PublicProfiles = Get-NetConnectionProfile -ErrorAction Stop | Where-Object {{ $_.NetworkCategory -eq "Public" }}
-  if ($PublicProfiles) {{
-    Write-Host "Rede publica detectada. Alterando perfil ativo para Privada para liberar WinRM com seguranca operacional." -ForegroundColor Yellow
-    $PublicProfiles | Set-NetConnectionProfile -NetworkCategory Private -ErrorAction Stop
-  }}
-}} catch {{
-  Write-Host "Aviso: nao foi possivel alterar o perfil de rede automaticamente: $($_.Exception.Message)" -ForegroundColor Yellow
-}}
-
-Set-Service -Name WinRM -StartupType Automatic
-Start-Service -Name WinRM
-Enable-PSRemoting -Force -SkipNetworkProfileCheck
-winrm set winrm/config/service/auth '@{{Basic="false"; Kerberos="true"; Negotiate="true"}}' | Out-Null
-winrm set winrm/config/service '@{{AllowUnencrypted="true"}}' | Out-Null
-
-Write-Host "Reparando endpoints do PowerShell Remoting..." -ForegroundColor Cyan
-$SessionConfigs = Get-PSSessionConfiguration -ErrorAction SilentlyContinue
-if (-not ($SessionConfigs | Where-Object {{ $_.Name -eq "Microsoft.PowerShell" }})) {{
-  Register-PSSessionConfiguration -Name "Microsoft.PowerShell" -Force | Out-Null
-}}
-if (-not ($SessionConfigs | Where-Object {{ $_.Name -eq "Microsoft.PowerShell32" }}) -and (Test-Path "$env:WINDIR\\SysWOW64\\WindowsPowerShell\\v1.0\\powershell.exe")) {{
-  Register-PSSessionConfiguration -Name "Microsoft.PowerShell32" -ProcessorArchitecture x86 -Force | Out-Null
-}}
-Enable-PSSessionConfiguration -Name "Microsoft.PowerShell" -Force -ErrorAction SilentlyContinue | Out-Null
-Enable-PSSessionConfiguration -Name "Microsoft.PowerShell32" -Force -ErrorAction SilentlyContinue | Out-Null
-Restart-Service -Name WinRM -Force
-
-Get-NetFirewallRule -DisplayName "SightOps WinRM HTTP 5985" -ErrorAction SilentlyContinue | Remove-NetFirewallRule -ErrorAction SilentlyContinue
-New-NetFirewallRule -DisplayName "SightOps WinRM HTTP 5985" -Direction Inbound -Action Allow -Protocol TCP -LocalPort 5985 -Profile Any | Out-Null
-
-$LocalAccountTokenFilterPolicy = "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System"
-New-Item -Path $LocalAccountTokenFilterPolicy -Force | Out-Null
-New-ItemProperty -Path $LocalAccountTokenFilterPolicy -Name LocalAccountTokenFilterPolicy -Value 1 -PropertyType DWord -Force | Out-Null
-
-Write-Host ""
-Write-Host "Validando WinRM local..." -ForegroundColor Cyan
-Test-WSMan localhost | Out-Null
-try {{
-  $Credential = New-Object System.Management.Automation.PSCredential("$env:COMPUTERNAME\\$UserName", $Password)
-  Invoke-Command -ComputerName 127.0.0.1 -Credential $Credential -Authentication Negotiate -ScriptBlock {{ hostname }} | Out-Null
-  Write-Host "Validacao de login remoto OK." -ForegroundColor Green
-}} catch {{
-  Write-Host "Aviso: WinRM respondeu, mas o login remoto ainda falhou: $($_.Exception.Message)" -ForegroundColor Yellow
-  Write-Host "Confira a senha digitada e rode este preparador novamente como Administrador." -ForegroundColor Yellow
-}}
-
-Write-Host ""
-Write-Host "Preparacao concluida." -ForegroundColor Green
-Write-Host "No SightOps, use:" -ForegroundColor Cyan
-Write-Host "  Usuario: .\\$UserName"
-Write-Host "  Senha: a senha digitada neste script"
-Write-Host "  Porta: WinRM HTTP 5985"
-Write-Host ""
-Write-Host "Teste local opcional:"
-Write-Host "  Test-WSMan localhost"
-"""
-
-
-def _merge_rows(old_rows: List[Dict[str, Any]], new_rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    index: dict[str, Dict[str, Any]] = {}
-    order: list[str] = []
-    for row in old_rows or []:
-        ip = _text(row.get("ip"))
-        if not ip:
-            continue
-        if ip not in index:
-            order.append(ip)
-        index[ip] = dict(row)
-    for row in new_rows or []:
-        ip = _text(row.get("ip"))
-        if not ip:
-            continue
-        if ip not in index:
-            order.append(ip)
-        merged = dict(index.get(ip) or {})
-        merged.update(row)
-        for keep_key in ("site", "sector"):
-            if not _text(merged.get(keep_key)) and _text(index.get(ip, {}).get(keep_key)):
-                merged[keep_key] = index[ip][keep_key]
-        if isinstance(index.get(ip, {}).get("physical"), dict) and not isinstance(row.get("physical"), dict):
-            merged["physical"] = index[ip]["physical"]
-        index[ip] = merged
-    return [index[ip] for ip in order if ip in index]
-
-
-def scan_windows_inventory(payload: Dict[str, Any]) -> Dict[str, Any]:
-    targets = _parse_targets(_text(payload.get("targets") or payload.get("alvo")), limit=int(payload.get("limit") or 2048))
-    username = _text(payload.get("username") or payload.get("usuario") or payload.get("user"))
-    password = _text(payload.get("password") or payload.get("senha") or payload.get("pass"))
-    domain = _text(payload.get("domain") or payload.get("dominio"))
-    use_https = bool(payload.get("use_https") or False)
-    timeout = max(1.0, min(float(payload.get("timeout_sec") or 8.0), 30.0))
-    concurrency = max(1, min(int(payload.get("concurrency") or 32), 128))
-    save = bool(payload.get("save", True))
-
-    if not targets:
-        raise ValueError("Informe ao menos um alvo Windows.")
-    if not username or not password:
-        raise ValueError("Usuario e senha sao obrigatorios para inventario Windows remoto.")
-
-    port = 5986 if use_https else 5985
-    rows: list[dict[str, Any]] = []
-
-    def scan_one(ip: str) -> Dict[str, Any]:
-        host = _hostname(ip)
-        if not _tcp_open(ip, port, timeout=min(timeout, 3.0)):
-            return {
-                "ip": ip,
-                "hostname": host,
-                "status": "winrm_closed",
-                "error": f"Porta WinRM {port} fechada ou sem resposta.",
-                "updated_at": _now(),
-            }
-        collected = _collect_winrm(
-            ip,
-            username,
-            password,
-            domain=domain,
-            use_https=use_https,
-            timeout=timeout,
-        )
-        if not collected.get("ok"):
-            return {
-                "ip": ip,
-                "hostname": host,
-                "status": _text(collected.get("status")) or "error",
-                "error": _text(collected.get("error")),
-                "updated_at": _now(),
-            }
-        return _normalize_inventory(ip, collected.get("data") or {}, status="online")
-
-    with ThreadPoolExecutor(max_workers=min(concurrency, max(1, len(targets)))) as executor:
-        futures = [executor.submit(scan_one, ip) for ip in targets]
-        for future in as_completed(futures):
-            rows.append(future.result())
-
-    rows.sort(key=lambda row: tuple(int(part) for part in str(row.get("ip") or "0.0.0.0").split(".") if part.isdigit()))
-    if save:
-        current = load_windows_inventory()
-        merged = _merge_rows(current, rows)
-        save_windows_inventory(merged)
-    online = sum(1 for row in rows if row.get("status") == "online")
-    return {
-        "ok": True,
-        "scanned": len(targets),
-        "online": online,
-        "failed": max(0, len(rows) - online),
-        "saved": save,
-        "inventory_path": str(_windows_inventory_path()),
-        "rows": rows,
-    }

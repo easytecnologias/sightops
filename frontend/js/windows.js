@@ -1,7 +1,7 @@
 // ── Computadores (inventario Windows) ──
 // Redesenho de 14/10/2026: resumo do parque, "precisa de atencao", saude por
 // item, tabela enxuta e detalhe do computador. Tudo sai do que o agente envia
-// (a cada 15 min, pela tarefa agendada) ou da varredura WinRM.
+// (a cada 15 min, pela tarefa agendada).
 function winText(v) { return String(v ?? '').trim(); }
 function winKey(row) { return winText(row.ip) || winText(row.hostname) || winText(row.serial); }
 
@@ -106,7 +106,7 @@ function winProblemas(row) {
   if (!winIsOnline(row)) {
     p.push({ grupo: 'contato', peso: 2, tipo: 'Sem contato',
       titulo: `${nome} · ultimo contato ${winQuando(row.last_seen || row.updated_at)}`,
-      det: row.agent_scheduled === false ? 'Agente sem tarefa agendada: rode de novo como Administrador' : onde });
+      det: row.agent_scheduled === false ? 'Agente sem tarefa agendada: rode o instalador (.exe) neste computador' : onde });
   }
   if (winBitlockerC(row) === false) {
     p.push({ grupo: 'seguranca', peso: 3, tipo: 'Seguranca', titulo: `${nome} · BitLocker desligado no C:`, det: onde });
@@ -250,46 +250,59 @@ function winPrimeiroUsoHtml() {
   return `<section class="panel win-guia">
       <div class="win-passo">
         <span class="win-num">1</span>
-        <h2>Baixe o agente deste cliente</h2>
-        <p>Um arquivo so, ja com o endereco e a chave${cliente ? ` da <b>${esc(cliente)}</b>` : ''}. Nao pede senha do computador.</p>
-        <button class="primary-action" type="button" data-win-baixar="1"><i data-lucide="download"></i> Baixar agente (.ps1)</button>
+        <h2>Baixe o instalador</h2>
+        <p>Um programa so, ja com o endereco e a chave${cliente ? ` da <b>${esc(cliente)}</b>` : ''}. Leve num pen drive ou abra direto no computador.</p>
+        <button class="primary-action" type="button" data-win-baixar="1"><i data-lucide="download"></i> Baixar instalador (.exe)</button>
       </div>
       <div class="win-passo">
         <span class="win-num">2</span>
-        <h2>Rode como Administrador</h2>
-        <p>Clique com o botao direito > Executar com o PowerShell. Para varios computadores (GPO, AnyDesk), sem perguntas:</p>
-        <div class="win-cmd"><code id="winCmd">powershell -ExecutionPolicy Bypass -File sightops-agente-windows.ps1 -Silencioso -Site "Sede" -Setor "Financeiro"</code>
-          <button type="button" data-win-copiar="1">Copiar</button></div>
+        <h2>Abra no computador</h2>
+        <p>O Windows pede permissao de administrador. Informe o site e o setor e clique em <b>Instalar</b>. Se aparecer "O Windows protegeu o computador", clique em <i>Mais informacoes</i> e <i>Executar assim mesmo</i>.</p>
       </div>
       <div class="win-passo">
         <span class="win-num">3</span>
         <h2>Pronto: aparece aqui e no Zabbix</h2>
-        <p>O computador entra na lista na hora, com hardware, seguranca e AnyDesk. Uma tarefa agendada reenvia a cada 15 min.</p>
+        <p>O computador entra na lista na hora, com hardware, seguranca e AnyDesk, e se atualiza sozinho a cada 15 min.</p>
         <div class="win-esperando"><i></i>Esperando o primeiro computador...</div>
       </div>
     </section>
     <section class="win-guia-info">
       <div class="panel"><h3>O que o agente envia</h3><p>Hardware, discos e espaco, Windows e atualizacoes, BitLocker, Defender, TPM, usuario logado e ID do AnyDesk.</p></div>
       <div class="panel"><h3>O que ele nao faz</h3><p>Nao le arquivos, nao grava tela e nao abre porta no computador. So envia o inventario para o SightOps.</p></div>
-      <div class="panel"><h3>Sem instalar nada?</h3><p>A <button type="button" class="win-link" data-win-varrer="1">varredura pela rede</button> le computadores com WinRM ligado, usando uma conta de administrador.</p></div>
+      <div class="panel"><h3>Muitos computadores?</h3><p>Para GPO ou script remoto, use o <button type="button" class="win-link" data-win-script="1">agente em PowerShell</button>, sem janela:
+        <code class="win-cmd-txt">-Silencioso -Site "Sede" -Setor "Financeiro"</code></p></div>
     </section>`;
 }
 function winLigarPrimeiroUso(guia) {
   if (!guia) return;
   guia.querySelector('[data-win-baixar]')?.addEventListener('click', winBaixarAgente);
-  guia.querySelector('[data-win-varrer]')?.addEventListener('click', openWinScanModal);
-  guia.querySelector('[data-win-copiar]')?.addEventListener('click', async () => {
-    try { await navigator.clipboard.writeText(document.getElementById('winCmd')?.textContent || ''); showToast('Comando copiado.'); }
-    catch (_) { showToast('Nao consegui copiar: selecione o texto.', true); }
-  });
+  guia.querySelector('[data-win-script]')?.addEventListener('click', winBaixarScript);
   lucide.createIcons();
 }
 // O script embute o endereco para onde o agente reporta. A v3 fica sob
 // /v3-api/: sem mandar a base, o servidor gravava a raiz do dominio, que e a
 // API de producao v2 -- o computador nunca apareceria aqui.
+function winBaseAgente() {
+  return encodeURIComponent(typeof API_BASE !== 'undefined' ? API_BASE : window.location.origin);
+}
 function winBaixarAgente() {
-  const base = typeof API_BASE !== 'undefined' ? API_BASE : window.location.origin;
-  return downloadWithAuth(`/api/windows/agent-script?base=${encodeURIComponent(base)}`, 'sightops-agente-windows.ps1');
+  return downloadWithAuth(`/api/windows/agent-exe?base=${winBaseAgente()}`, 'SightOps-Agente.exe');
+}
+// Instalacao em massa (GPO, script remoto): o mesmo agente, sem janela.
+function winBaixarScript() {
+  return downloadWithAuth(`/api/windows/agent-script?base=${winBaseAgente()}`, 'sightops-agente-windows.ps1');
+}
+async function winAtualizar() {
+  const btn = document.getElementById('btnWinAtualizar');
+  if (btn) btn.disabled = true;
+  try {
+    await loadInvWindows();
+    showToast(`Computadores atualizados: ${_winRows.length}.`);
+  } catch (err) {
+    showToast('Nao consegui atualizar a lista.', true);
+  } finally {
+    if (btn) btn.disabled = false;
+  }
 }
 
 function updateWinSummary() { winPintarResumo(); }
@@ -383,56 +396,6 @@ function clearWinFilters() {
   populateWinFilters();
   applyWindowsFilters();
 }
-function openWinScanModal() {
-  document.getElementById('winScanErro').hidden = true;
-  document.getElementById('winScanLog').textContent = 'Aguardando inicio...';
-  document.getElementById('modalWinScan')?.classList.remove('hidden');
-  setTimeout(() => document.getElementById('winScanTargets')?.focus(), 80);
-  lucide.createIcons();
-}
-function closeWinScanModal() { document.getElementById('modalWinScan')?.classList.add('hidden'); }
-async function runWinScan() {
-  const erro = document.getElementById('winScanErro');
-  const log = document.getElementById('winScanLog');
-  const btn = document.getElementById('startWinScan');
-  const payload = {
-    targets: document.getElementById('winScanTargets').value.trim(),
-    username: document.getElementById('winScanUser').value.trim(),
-    password: document.getElementById('winScanPass').value,
-    domain: document.getElementById('winScanDomain').value.trim(),
-    timeout_sec: Number(document.getElementById('winScanTimeout').value || 8),
-    concurrency: Number(document.getElementById('winScanConcurrency').value || 32),
-    use_https: document.getElementById('winScanHttps').checked,
-    save: true,
-  };
-  if (!payload.targets || !payload.username || !payload.password) {
-    erro.textContent = 'Informe alvo, usuario e senha.';
-    erro.hidden = false;
-    return;
-  }
-  erro.hidden = true;
-  log.textContent = `Conectando em ${payload.targets}...`;
-  btn.disabled = true;
-  btn.innerHTML = '<i data-lucide="loader-2"></i> Executando';
-  lucide.createIcons();
-  try {
-    const res = await api('/api/windows/scan', { method: 'POST', body: JSON.stringify(payload) });
-    const data = await res?.json().catch(() => ({}));
-    if (!res?.ok || data?.ok === false) throw new Error(data?.detail || data?.error || 'Falha na varredura.');
-    log.textContent = `Concluido. Alvos: ${data.scanned || 0}. Online: ${data.online || 0}. Falhas: ${data.failed || 0}.`;
-    showToast(`Windows atualizado: ${data.online || 0} online, ${data.failed || 0} falha(s).`);
-    await loadInvWindows();
-  } catch (err) {
-    erro.textContent = err.message || 'Falha na varredura.';
-    erro.hidden = false;
-    log.textContent += `\nErro: ${erro.textContent}`;
-    showToast(erro.textContent, true);
-  } finally {
-    btn.disabled = false;
-    btn.innerHTML = '<i data-lucide="scan-search"></i> Executar';
-    lucide.createIcons();
-  }
-}
 // ── Detalhe do computador ──
 // Substitui o painel lateral de 2026-09 (lista de campos soltos): agora em
 // blocos -- seguranca, discos, hardware, sistema, rede/caminho fisico e o
@@ -496,7 +459,7 @@ function openWinPanel(row) {
         </div>
       </header>
       ${flags.length ? `<div class="win-det-alerta" role="alert"><b>${flags.length} alerta${flags.length === 1 ? '' : 's'}:</b> ${esc(flags.join(' · '))}</div>` : ''}
-      ${row.agent_scheduled === false ? '<div class="win-det-aviso">O agente deste computador nao tem a tarefa agendada: ele so reporta quando alguem roda o script. Rode de novo como Administrador.</div>' : ''}
+      ${row.agent_scheduled === false ? '<div class="win-det-aviso">O agente deste computador nao tem a tarefa agendada: ele so reporta quando alguem roda o script. Rode o instalador (.exe) neste computador para ele se atualizar sozinho.</div>' : ''}
       <div class="win-det-grade">
         <section class="win-bloco"><h3>Seguranca</h3>
           ${winCheck('Defender em tempo real', rt == null ? null : rt === true, rt == null ? 'sem dado' : rt ? 'Ligado' : 'Desligado')}
@@ -561,7 +524,7 @@ document.addEventListener('keydown', ev => {
   if (ev.key === 'Escape' && document.getElementById('winDetalhe')?.innerHTML) closeWinPanel();
 });
 function winPanelAction(action) {
-  if (!_winActive && !['agent', 'prepare', 'pdf', 'refresh'].includes(action)) return;
+  if (!_winActive && !['agent', 'pdf', 'refresh'].includes(action)) return;
   if (action === 'ping') return openPingTerminal(_winActive.ip);
   if (action === 'anydesk') {
     const id = winText(_winActive.anydesk_id);
@@ -578,7 +541,6 @@ function winPanelAction(action) {
     return;
   }
   if (action === 'agent') return winBaixarAgente();
-  if (action === 'prepare') return downloadWithAuth('/api/windows/prepare-script', 'sightops-preparar-windows.ps1');
   if (action === 'pdf') return downloadWithAuth('/api/windows/report.pdf', 'windows-inventory.pdf');
   if (action === 'refresh') return loadInvWindows();
 }
@@ -662,14 +624,6 @@ async function clearWindowsInventory() {
   populateWinFilters();
   applyWindowsFilters();
   showToast('Inventario Windows limpo.');
-}
-async function enrichWindowsPhotos() {
-  showToast('Buscando fotos de referencia...');
-  const res = await api('/api/windows/enrich/photos', { method: 'POST', body: '{}' });
-  const data = await res?.json().catch(() => ({}));
-  if (!res?.ok || data?.ok === false) { showToast(data?.detail || data?.error || 'Falha ao buscar fotos.', true); return; }
-  showToast(`Fotos vinculadas: ${data.assets || 0}.`);
-  await loadInvWindows();
 }
 // Snapshots 
 let _snapCamAll = [];

@@ -2,17 +2,16 @@ from __future__ import annotations
 
 from typing import Any, Dict
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, Response
 
 from app.services.windows_inventory_service import (
     clear_windows_inventory,
     accept_windows_agent_report,
+    build_windows_agent_exe,
     build_windows_agent_script,
-    build_windows_prepare_script,
     load_windows_inventory,
     save_windows_inventory,
-    scan_windows_inventory,
     validate_windows_agent_token,
 )
 from app.services.windows_photo_enrichment import enrich_windows_rows_with_photos
@@ -86,16 +85,6 @@ def api_windows_inventory_delete(payload: Dict[str, Any]) -> Dict[str, Any]:
     return {"ok": True, "removed": removed, "count": len(kept)}
 
 
-@router.post("/scan")
-def api_windows_scan(payload: Dict[str, Any]) -> Dict[str, Any]:
-    try:
-        return scan_windows_inventory(payload if isinstance(payload, dict) else {})
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
-
-
 @router.post("/clear")
 def api_windows_clear() -> Dict[str, Any]:
     return clear_windows_inventory()
@@ -114,16 +103,6 @@ def api_windows_report_pdf(company_name: str = "") -> FileResponse:
     rows = load_windows_inventory()
     pdf_path = build_windows_inventory_pdf(rows, company_name=company_name)
     return FileResponse(path=pdf_path, media_type="application/pdf", filename=pdf_path.name)
-
-
-@router.get("/prepare-script")
-def api_windows_prepare_script(username: str = Query("sightops_inv")) -> Response:
-    script = build_windows_prepare_script(username=username)
-    return Response(
-        content=script,
-        media_type="text/plain; charset=utf-8",
-        headers={"Content-Disposition": 'attachment; filename="sightops-preparar-windows.ps1"'},
-    )
 
 
 def _base_do_agente(request: Request, base: str) -> str:
@@ -159,6 +138,30 @@ def api_windows_agent_script(request: Request, base: str = "") -> Response:
         content=script,
         media_type="text/plain; charset=utf-8",
         headers={"Content-Disposition": 'attachment; filename="sightops-agente-windows.ps1"'},
+    )
+
+
+@router.get("/agent-exe")
+def api_windows_agent_exe(request: Request, base: str = "") -> Response:
+    """Instalador com janela: pede admin sozinho, site/setor e cria a tarefa.
+
+    Leva a chave do agente do cliente, como o /agent-script.
+    """
+    import re
+
+    usuario = getattr(request.state, "current_user", None) or {}
+    cliente = str(usuario.get("effective_tenant_name") or usuario.get("tenant_name") or "").strip()
+    base_url = _base_do_agente(request, base)
+    try:
+        conteudo = build_windows_agent_exe(base_url=base_url, cliente=cliente)
+    except FileNotFoundError:
+        raise HTTPException(status_code=500, detail="instalador base ausente no servidor")
+    sufixo = re.sub(r"[^A-Za-z0-9]+", "-", cliente).strip("-")[:40]
+    nome = f"SightOps-Agente{'-' + sufixo if sufixo else ''}.exe"
+    return Response(
+        content=conteudo,
+        media_type="application/vnd.microsoft.portable-executable",
+        headers={"Content-Disposition": f'attachment; filename="{nome}"'},
     )
 
 

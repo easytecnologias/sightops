@@ -84,6 +84,9 @@ class ApiAuthMiddleware(BaseHTTPMiddleware):
             (("POST",), "/api/tr069/", "operator"),
             (("GET",), "/api/tr069/", "viewer"),
             (("POST",), "/api/switch/", "operator"),
+            # Instalador e script do agente levam a chave do cliente: so quem
+            # instala (operador), nao o perfil so-leitura.
+            (("GET",), "/api/windows/agent-", "operator"),
             (("POST",), "/api/windows/", "operator"),
             (("GET",), "/api/connectors", "operator"),
             (("POST",), "/api/connectors", "operator"),

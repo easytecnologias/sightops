@@ -12011,3 +12011,4 @@ table.recorder-tabela tbody tr:hover { background: var(--surface-soft); }
 #winDetalhe .win-ev:first-of-type{border-top:0}
 #winDetalhe .win-ev span:first-child{flex:0 0 92px;color:var(--muted);font-size:12.5px}
 @media(max-width:640px){#winDetalhe .win-bloco dl{grid-template-columns:1fr}#winDetalhe .win-det-tampa{padding:0}#winDetalhe .win-det{border-radius:0}}
+#viewInvWindows .win-cmd-txt{display:block;margin-top:6px;font-family:ui-monospace,Consolas,monospace;font-size:12px;background:var(--surface-soft);border:1px solid var(--border);border-radius:6px;padding:5px 8px;overflow-wrap:anywhere}

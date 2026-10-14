@@ -155,6 +155,39 @@ def test_toda_metrica_do_zabbix_esta_no_item_get():
     assert metricas and metricas <= wanted, metricas - wanted
 
 
+def test_exe_leva_cliente_e_script_no_formato_do_instalador(monkeypatch):
+    monkeypatch.setattr(W, "get_windows_agent_token", lambda tenant_slug="": "T" * 32)
+    if not W.AGENTE_EXE_BASE.exists():
+        pytest.skip("instalador base nao compilado")
+    base = W.AGENTE_EXE_BASE.read_bytes()
+    exe = W.build_windows_agent_exe("https://sightops.exemplo/v3-api", "Mega  Alarmes")
+    assert exe[:len(base)] == base and exe[-8:] == b"SOPSAG01"
+    n = int.from_bytes(exe[-12:-8], "little")
+    cliente, script = exe[-12 - n:-12].decode("utf-8").split("\n", 1)
+    assert cliente == "Mega Alarmes"
+    assert '$SightOpsUrl = "https://sightops.exemplo/v3-api"' in script and "[switch]$InstalarAnyDesk" in script
+
+
+def test_script_nao_instala_mais_zabbix_agent():
+    with pytest.MonkeyPatch.context() as m:
+        m.setattr(W, "get_windows_agent_token", lambda tenant_slug="": "T" * 32)
+        script = W.build_windows_agent_script("https://x")
+    assert "msiexec" not in script and "zabbix_agent2-7.0" not in script
+
+
+def test_download_do_agente_exige_operador():
+    from app.core.security import ApiAuthMiddleware
+    from types import SimpleNamespace
+    mw = ApiAuthMiddleware.__new__(ApiAuthMiddleware)
+    try:
+        ApiAuthMiddleware.__init__(mw, lambda *a: None, SimpleNamespace(auth_legacy_open=False))
+    except Exception:
+        pytest.skip("middleware nao instanciavel isolado")
+    assert mw._match_role_rule("/api/windows/agent-exe", "GET") == "operator"
+    assert mw._match_role_rule("/api/windows/agent-script", "GET") == "operator"
+    assert mw._match_role_rule("/api/windows/inventory", "GET") != "operator"
+
+
 class _Req:
     def __init__(self, host, base_url="http://sightops.exemplo/"):
         self.headers = {"host": host}
