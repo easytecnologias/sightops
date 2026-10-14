@@ -1006,6 +1006,12 @@ def api_access_control_painel_ao_vivo(site: str = Query(""), limit: int = Query(
     return ao_vivo(site=site, limite=limit)
 
 
+@router.get("/painel/relatorios")
+def api_access_control_painel_relatorios(site: str = Query(""), dias: int = Query(28)) -> Dict[str, Any]:
+    from app.services.access_control_painel import relatorios
+    return relatorios(site=site, dias=dias)
+
+
 @router.get("/live/stream")
 async def api_access_control_live_stream(
     request: Request,

@@ -321,6 +321,95 @@ def visao_geral(site: str = "", agora: Optional[datetime] = None) -> Dict[str, A
     }
 
 
+# Leitor com relogio zerado grava a passagem em 1999/2000: ela some dos
+# graficos e relatorios "de hoje" sem ninguem saber. Conta por leitor.
+RELOGIO_MINIMO = "2020-01-01"
+
+
+def _relogio_errado() -> Dict[str, Dict[str, Any]]:
+    linhas = _rows(
+        "SELECT device_id, count(*) AS qtd, max(synced_at) AS quando FROM access_events "
+        "WHERE tenant_slug=? AND occurred_at < ? GROUP BY device_id",
+        (_tenant(), RELOGIO_MINIMO),
+    )
+    return {_t(r.get("device_id")): {"qtd": int(r.get("qtd") or 0), "quando": _t(r.get("quando"))[:19]} for r in linhas}
+
+
+# ---------------------------------------------------------------- relatorios
+
+def relatorios(site: str = "", dias: int = 28, agora: Optional[datetime] = None) -> Dict[str, Any]:
+    """Uso do predio (dia da semana x hora), dia a dia e chegada/saida de hoje
+    por pessoa. Separado do ao vivo: e para analisar, nao para operar."""
+    agora = agora or _agora()
+    dias = max(7, min(int(dias or 28), 90))
+    tenant = _tenant()
+    local_agora = agora.astimezone(FUSO_LOCAL)
+    hoje = local_agora.strftime("%Y-%m-%d")
+    inicio = (local_agora - timedelta(days=dias - 1)).strftime("%Y-%m-%d") + " 00:00:00"
+    sql = ("SELECT person_id, person_name_raw, event_type, device_name, occurred_at FROM access_events "
+           "WHERE tenant_slug=? AND occurred_at >= ? AND occurred_at <= ?" + (" AND site=?" if site else ""))
+    fim = _local_txt(agora)
+    eventos = _rows(sql, (tenant, inicio, fim, site) if site else (tenant, inicio, fim))
+
+    mapa = [[0] * 24 for _ in range(7)]  # 0 = segunda
+    por_dia: Dict[str, Dict[str, Any]] = {}
+    por_porta: Counter = Counter()
+    for e in eventos:
+        quando = _ler_local(e.get("occurred_at"))
+        if not quando:
+            continue
+        mapa[quando.weekday()][quando.hour] += 1
+        dia = quando.strftime("%Y-%m-%d")
+        info = por_dia.setdefault(dia, {"passagens": 0, "pessoas": set()})
+        info["passagens"] += 1
+        if _t(e.get("person_id")):
+            info["pessoas"].add(_t(e.get("person_id")))
+        por_porta[_t(e.get("device_name")) or "sem porta"] += 1
+    serie = []
+    for i in range(dias - 1, -1, -1):
+        dia = (local_agora - timedelta(days=i)).strftime("%Y-%m-%d")
+        info = por_dia.get(dia) or {"passagens": 0, "pessoas": set()}
+        serie.append({"dia": dia, "passagens": info["passagens"], "pessoas": len(info["pessoas"])})
+
+    # Hoje por pessoa: primeira entrada, ultima saida, se ainda esta dentro.
+    pessoas = {_t(p.get("id")): p for p in _pessoas()}
+    hoje_p: Dict[str, Dict[str, Any]] = {}
+    for e in eventos:
+        pid = _t(e.get("person_id"))
+        quando = _t(e.get("occurred_at"))
+        if not pid or not quando.startswith(hoje):
+            continue
+        p = pessoas.get(pid) or {}
+        r = hoje_p.setdefault(pid, {"pessoa_id": pid, "nome": _t(p.get("full_name") or e.get("person_name_raw")),
+                                    "turma": _t(p.get("class_name")), "tipo_pessoa": _t(p.get("person_type")),
+                                    "chegou": "", "saiu": "", "ultima": "", "ultimo_tipo": "", "passagens": 0})
+        r["passagens"] += 1
+        saida = _t(e.get("event_type")).lower().startswith("saida")
+        if not saida and (not r["chegou"] or quando < r["chegou"]):
+            r["chegou"] = quando
+        if saida and quando > r["saiu"]:
+            r["saiu"] = quando
+        if quando > r["ultima"]:
+            r["ultima"], r["ultimo_tipo"] = quando, "saida" if saida else "entrada"
+    lista_hoje = sorted(hoje_p.values(), key=lambda x: x["chegou"] or x["ultima"])
+    # "Nao veio" so faz sentido em dia com movimento (fim de semana e feriado
+    # deixariam a escola inteira como falta).
+    nao_vieram: List[Dict[str, Any]] = []
+    if lista_hoje:
+        for pid, p in pessoas.items():
+            if (p.get("active") and _t(p.get("person_type")) == "student" and pid not in hoje_p
+                    and (not site or _t(p.get("site")).upper() == site.upper())):
+                nao_vieram.append({"pessoa_id": pid, "nome": _t(p.get("full_name")), "turma": _t(p.get("class_name"))})
+        nao_vieram.sort(key=lambda x: (x["turma"], x["nome"]))
+    return {
+        "ok": True, "gerado_em": _utc_txt(agora), "site": site, "dias": dias,
+        "mapa": mapa, "serie": serie,
+        "portas": [{"porta": k, "passagens": v} for k, v in por_porta.most_common(8)],
+        "hoje": lista_hoje[:400], "hoje_total": len(lista_hoje),
+        "nao_vieram": nao_vieram[:200], "nao_vieram_total": len(nao_vieram),
+    }
+
+
 # ---------------------------------------------------------------- ao vivo
 
 def ao_vivo(site: str = "", limite: int = 40, agora: Optional[datetime] = None) -> Dict[str, Any]:
@@ -329,7 +418,7 @@ def ao_vivo(site: str = "", limite: int = 40, agora: Optional[datetime] = None) 
     agora = agora or _agora()
     filtros = {"period": "today", "site": site}
     resumo = access_report_summary(filtros)
-    eventos = list_access_report_events({**filtros, "limit": max(1, min(int(limite or 40), 200))})
+    eventos = list_access_report_events({**filtros, "limit": max(1, min(int(limite or 40), 500))})
     pessoas = {_t(p.get("id")): p for p in _pessoas()}
 
     # Recibo do aviso: mensagem para o responsavel nos minutos seguintes a
@@ -380,8 +469,11 @@ def ao_vivo(site: str = "", limite: int = 40, agora: Optional[datetime] = None) 
             info["horas"][quando.hour] += 1
             chave = "saidas" if _t(ev.get("event_type")).lower().startswith("saida") else "entradas"
             horas[quando.hour][chave] += 1
+    relogio = _relogio_errado()
     portas = [{"id": _t(d.get("id")), "nome": _t(d.get("name")), "status": _t(d.get("status")),
                "visto": _t(d.get("last_seen_at")),
+               "relogio_errado": relogio.get(_t(d.get("id")), {}).get("qtd", 0),
+               "relogio_errado_em": relogio.get(_t(d.get("id")), {}).get("quando", ""),
                **por_leitor.get(_t(d.get("id")), {"hoje": 0, "ultima": "", "horas": [0] * 24})}
               for d in _leitores(site)]
 

@@ -1,15 +1,189 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="pt-BR">
 <head>
-  <meta charset="utf-8">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Painel de Acesso · SightOps</title>
-  <!-- Atalho: o Painel de Acesso e uma tela do proprio SightOps (menu lateral >
-       Controle de Acesso > Painel de Acesso). Este endereco so abre o sistema
-       ja nela. -->
-  <meta http-equiv="refresh" content="0; url=../?tela=access-painel">
-  <script>window.location.replace('../?tela=access-painel');</script>
+  <!-- Painel de Acesso em teste (/v3/acesso/). Pagina propria: nao muda nada
+       no SightOps em /v3/. Usa o visual e o menu do sistema; os itens do menu
+       levam de volta as telas de /v3/. Montado por acesso.js. -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../styles.css?v=1792000033">
+  <link rel="stylesheet" href="acesso.css?v=1792000035">
 </head>
 <body>
-  <p><a href="../?tela=access-painel">Abrir o Painel de Acesso</a></p>
+  <div id="appShell" class="app-shell" hidden>
+    <div id="mobileBackdrop" class="mobile-backdrop"></div>
+
+    <aside class="sidebar" id="sidebar">
+      <div class="brand">
+        <div class="brand-mark" id="brandMark">S</div>
+        <div>
+          <strong>SightOps</strong>
+          <span id="brandSubtitle">Gestao de CFTV</span>
+        </div>
+      </div>
+
+      <div class="nav-scroll">
+        <div id="navClientMode">
+        <!-- Dashboard -->
+        <button class="nav-item" data-view="dashboard">
+          <i data-lucide="layout-dashboard"></i><span>Dashboard</span>
+        </button>
+
+        <!-- Implantacao -->
+        <div class="nav-section-label">Implantacao</div>
+        <button class="nav-item" data-view="planning"><i data-lucide="drafting-compass"></i><span>Projetos</span></button>
+        <div class="nav-group" id="ngDeployRedes">
+          <button class="nav-item nav-group-toggle">
+            <i data-lucide="share-2"></i><span>Redes</span>
+            <i data-lucide="chevron-right" class="nav-chevron"></i>
+          </button>
+          <div class="nav-sub">
+            <button class="nav-item nav-sub-item" data-view="deploy-olt"><i data-lucide="radio-tower"></i><span>OLT</span></button>
+            <button class="nav-item nav-sub-item" data-view="deploy-onu"><i data-lucide="wifi"></i><span>ONU</span></button>
+            <button class="nav-item nav-sub-item" data-view="deploy-tr069"><i data-lucide="satellite-dish"></i><span>TR-069</span></button>
+            <button class="nav-item nav-sub-item" data-view="switch"><i data-lucide="server"></i><span>Switch</span></button>
+          </div>
+        </div>
+        <div class="nav-group" id="ngDeployCftv">
+          <button class="nav-item nav-group-toggle">
+            <i data-lucide="video"></i><span>CFTV</span>
+            <i data-lucide="chevron-right" class="nav-chevron"></i>
+          </button>
+          <div class="nav-sub">
+            <button class="nav-item nav-sub-item" data-view="deploy-activation"><i data-lucide="key-round"></i><span>Ativacao de Cameras</span></button>
+            <button class="nav-item nav-sub-item" data-view="deploy-new"><i data-lucide="camera"></i><span>Cameras IP</span></button>
+            <button class="nav-item nav-sub-item" data-view="deploy-recorder"><i data-lucide="hard-drive-upload"></i><span>Gravadores</span></button>
+          </div>
+        </div>
+
+        <!-- Inventario -->
+        <div class="nav-section-label">Inventario</div>
+        <button class="nav-item" data-view="inv-olt"><i data-lucide="camera"></i><span>Cameras IP</span></button>
+        <button class="nav-item" data-view="inv-nvr"><i data-lucide="hard-drive-upload"></i><span>Gravadores</span></button>
+        <button class="nav-item" data-view="olt"><i data-lucide="radio"></i><span>OLT</span></button>
+        <div class="nav-group" id="ngSnapshots">
+          <button class="nav-item nav-group-toggle">
+            <i data-lucide="image"></i><span>Snapshots</span>
+            <i data-lucide="chevron-right" class="nav-chevron"></i>
+          </button>
+          <div class="nav-sub">
+            <button class="nav-item nav-sub-item" data-view="snap-cam"><i data-lucide="camera"></i><span>Cameras IP</span></button>
+            <button class="nav-item nav-sub-item" data-view="snap-dvr"><i data-lucide="hard-drive-upload"></i><span>Gravadores</span></button>
+          </div>
+        </div>
+        <button class="nav-item" data-view="inv-windows"><i data-lucide="monitor"></i><span>Computadores</span></button>
+
+        <!-- Integracoes (logo apos Inventario) -->
+        <div class="nav-section-label">Integracoes</div>
+        <button class="nav-item" data-view="script-grafana"><i data-lucide="bar-chart-2"></i><span>Grafana</span></button>
+        <button class="nav-item" data-view="kmz"><i data-lucide="map"></i><span>Mapa</span></button>
+        <button class="nav-item" data-view="script-zabbix"><i data-lucide="eye"></i><span>Zabbix</span></button>
+        <button class="nav-item" data-view="connectors"><i data-lucide="plug"></i><span>Conectores</span></button>
+
+        <!-- Manutencao -->
+        <div class="nav-section-label">Manutencao</div>
+        <button class="nav-item" data-view="mnt-cam"><i data-lucide="camera"></i><span>Cameras IP</span></button>
+        <button class="nav-item" data-view="monitoring"><i data-lucide="activity"></i><span>Monitoramento</span></button>
+        <button class="nav-item" data-view="net-operate"><i data-lucide="zap"></i><span>Rede</span></button>
+
+        <!-- Analise -->
+        <div class="nav-section-label">Analise</div>
+        <button class="nav-item" data-view="playback"><i data-lucide="search"></i><span>Investigação</span></button>
+        <button class="nav-item" data-view="ia-nvr"><i data-lucide="cpu"></i><span>IA - NVR</span></button>
+
+        <!-- Controle de Acesso -->
+        <div class="nav-section-label">Controle de Acesso</div>
+        <button class="nav-item" data-view="access-live"><i data-lucide="activity"></i><span>Acesso ao Vivo</span></button>
+        <button class="nav-item" data-view="access-messenger"><i data-lucide="message-circle"></i><span>Messenger</span></button>
+        <button class="nav-item" data-view="access-control"><i data-lucide="scan-face"></i><span>Controle de Acesso</span></button>
+        <button class="nav-item" data-view="access-painel"><i data-lucide="layout-dashboard"></i><span>Painel de Acesso</span><span class="nav-novo">novo</span></button>
+        <button class="nav-item nav-item-hidden" data-view="access-whatsapp-triage"><i data-lucide="inbox"></i><span>Triagem WhatsApp</span></button>
+
+        <!-- Alerta (botao de panico) -->
+        <div class="nav-section-label">Alerta</div>
+        <button class="nav-item" data-view="alert-live"><i data-lucide="siren"></i><span>Alerta ao Vivo</span><span class="alert-nav-badge" id="alertNavBadge" hidden>0</span></button>
+        <button class="nav-item" data-view="alert-members"><i data-lucide="contact"></i><span>Pessoas do Alerta</span></button>
+
+        </div>
+
+        <div id="navOwnerMode" hidden>
+          <button class="nav-item active" data-view="owner-overview"><i data-lucide="layout-dashboard"></i><span>Visão geral</span></button>
+          <div class="nav-section-label">Administração SaaS</div>
+          <button class="nav-item" data-view="owner-clients"><i data-lucide="building-2"></i><span>Clientes</span></button>
+          <button class="nav-item" data-view="owner-audit"><i data-lucide="history"></i><span>Auditoria</span></button>
+          <button class="nav-item nav-item-owner-cta" id="btnEnterOperation" type="button"><i data-lucide="arrow-right-circle"></i><span>Ir para a operação</span></button>
+        </div>
+      </div>
+
+      <div class="sidebar-footer">
+        <button class="nav-item" data-view="settings" style="width:100%">
+          <i data-lucide="settings"></i><span>Configuracoes</span>
+        </button>
+        <button class="nav-item" id="logoutBtn" style="width:100%;color:#ff8787">
+          <i data-lucide="log-out"></i><span>Sair</span>
+        </button>
+        <div class="environment">
+          <span class="status-dot online"></span>
+          Producao
+        </div>
+      </div>
+    </aside>
+
+    <main class="main-area">
+      <header class="topbar">
+        <div class="topbar-left">
+          <button class="icon-button mobile-menu" id="menuBtn" aria-label="Abrir menu"><i data-lucide="menu"></i></button>
+          <div class="topbar-context">
+            <strong>Painel de Acesso</strong>
+            <span>Versão nova em teste · as telas atuais continuam no menu</span>
+          </div>
+        </div>
+        <div class="topbar-actions">
+          <a class="ghost-action" href="../?tela=access-control"><i data-lucide="arrow-left"></i> Telas atuais</a>
+          <div class="profile" id="profileMenu">
+            <div class="avatar" id="profileAvatar">?</div>
+            <div><strong id="profileName">-</strong><span id="profileRole">-</span></div>
+            <i data-lucide="chevron-down"></i>
+            <div class="profile-dropdown" id="profileDropdown">
+              <button id="logoutBtnTop"><i data-lucide="log-out"></i> Sair</button>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <section class="workspace" id="viewAccessPainel">
+        <div class="page-heading">
+          <div>
+            <p class="eyebrow">Controle de Acesso</p>
+            <h1>Painel de Acesso</h1>
+            <p>Quem está passando agora, se os responsáveis foram avisados e o que precisa de alguém.</p>
+          </div>
+          <div class="page-heading-actions">
+            <span class="ap-relogio monospace" id="apRelogio"></span>
+            <select id="apSite" aria-label="Site"><option value="">Todos os sites</option></select>
+            <button class="secondary-action" id="btnApAtualizar" type="button"><i data-lucide="refresh-cw"></i> Atualizar</button>
+          </div>
+        </div>
+        <div class="tabs access-control-tabs" role="tablist">
+          <button type="button" class="tab-btn active" data-ap-tela="vivo" role="tab" aria-selected="true">Ao vivo</button>
+          <button type="button" class="tab-btn" data-ap-tela="portas" role="tab" aria-selected="false">Portas</button>
+          <button type="button" class="tab-btn" data-ap-tela="alertas" role="tab" aria-selected="false">Alertas</button>
+          <button type="button" class="tab-btn" data-ap-tela="relatorios" role="tab" aria-selected="false">Relatórios</button>
+        </div>
+        <div id="apVivo"></div>
+        <div id="apPortas" hidden></div>
+        <div id="apAlertas" hidden></div>
+        <div id="apRel" hidden><div id="apRelTopo"></div><div id="apGeral"></div></div>
+      </section>
+    </main>
+  </div>
+
+  <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js"></script>
+  <script src="../config.js?v=1791000212"></script>
+  <script src="acesso.js?v=1792000035"></script>
 </body>
 </html>

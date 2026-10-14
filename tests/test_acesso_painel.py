@@ -84,3 +84,44 @@ def test_classe_dos_status():
 def test_hora_local_do_leitor_casa_com_utc_do_whatsapp():
     """Leitor grava 18:43 local; o aviso sai 21:43 UTC -- e o mesmo instante."""
     assert P._ler_local("2026-10-14 18:43:15") == P._ler_utc("2026-10-14 21:43:15.123+00")
+
+
+def test_relatorios_mapa_chegada_e_nao_veio(monkeypatch):
+    """AGORA = 14/10 18:00 local (quarta). Evento de 1999 nao entra no mapa."""
+    eventos = [
+        {"person_id": "a", "person_name_raw": "", "event_type": "entrada", "device_name": "PORTARIA", "occurred_at": "2026-10-14 07:10:00"},
+        {"person_id": "a", "person_name_raw": "", "event_type": "saida", "device_name": "PORTARIA", "occurred_at": "2026-10-14 12:30:00"},
+        {"person_id": "b", "person_name_raw": "", "event_type": "entrada", "device_name": "LATERAL", "occurred_at": "2026-10-14 07:40:00"},
+        {"person_id": "", "person_name_raw": "VISITANTE", "event_type": "entrada", "device_name": "LATERAL", "occurred_at": "2026-10-13 09:00:00"},
+    ]
+    vistos = {}
+
+    def rows(sql, params):
+        vistos["params"] = params
+        return [e for e in eventos if params[1] <= e["occurred_at"] <= params[2]]
+
+    pessoas = [
+        {"id": "a", "full_name": "Ana", "class_name": "7B", "person_type": "student", "active": True},
+        {"id": "b", "full_name": "Bruno", "class_name": "7B", "person_type": "student", "active": True},
+        {"id": "c", "full_name": "Carla", "class_name": "9A", "person_type": "student", "active": True},
+        {"id": "d", "full_name": "Dona", "class_name": "", "person_type": "employee", "active": True},
+    ]
+    monkeypatch.setattr(P, "_rows", rows)
+    monkeypatch.setattr(P, "_tenant", lambda: "t")
+    monkeypatch.setattr(P, "_pessoas", lambda: pessoas)
+    r = P.relatorios(agora=AGORA)
+    assert vistos["params"][1] == "2026-09-17 00:00:00"   # 28 dias contando hoje, hora local
+    assert r["mapa"][2][7] == 2 and r["mapa"][1][9] == 1  # quarta 7h, terca 9h
+    assert sum(map(sum, r["mapa"])) == 4
+    ana = next(x for x in r["hoje"] if x["pessoa_id"] == "a")
+    assert ana["chegou"].endswith("07:10:00") and ana["saiu"].endswith("12:30:00") and ana["ultimo_tipo"] == "saida"
+    assert [x["nome"] for x in r["nao_vieram"]] == ["Carla"]       # funcionario nao conta como falta
+    assert r["serie"][-1] == {"dia": "2026-10-14", "passagens": 3, "pessoas": 2}
+
+
+def test_relatorios_sem_movimento_hoje_nao_lista_falta(monkeypatch):
+    monkeypatch.setattr(P, "_rows", lambda sql, params: [])
+    monkeypatch.setattr(P, "_tenant", lambda: "t")
+    monkeypatch.setattr(P, "_pessoas", lambda: [{"id": "c", "full_name": "Carla", "person_type": "student", "active": True}])
+    r = P.relatorios(agora=AGORA)
+    assert r["nao_vieram"] == [] and r["hoje_total"] == 0
