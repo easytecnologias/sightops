@@ -757,26 +757,125 @@ function _invLinkArquivo(path) {
   return `${API_BASE}${path}${_token ? `${sep}token=${encodeURIComponent(_token)}` : ''}`;
 }
 
-async function invBaixarTrechoAtual() {
+// Duas datas -> texto curto de duracao ("2min 5s"). Date -> "HH:MM:SS".
+function _invMMSS(seg) {
+  seg = Math.max(0, Math.round(seg));
+  const m = Math.floor(seg / 60), s = seg % 60;
+  return m ? `${m}min ${s}s` : `${s}s`;
+}
+function _invFmtHora(d) {
+  const z = n => String(n).padStart(2, '0');
+  return `${z(d.getHours())}:${z(d.getMinutes())}:${z(d.getSeconds())}`;
+}
+// Date <-> valor de <input type="datetime-local"> (hora local, com segundos).
+function _invParaInputLocal(d) {
+  const z = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${z(d.getMonth() + 1)}-${z(d.getDate())}T${z(d.getHours())}:${z(d.getMinutes())}:${z(d.getSeconds())}`;
+}
+function _invDeInputLocal(v) {
+  const d = v ? new Date(v) : null;
+  return d && !isNaN(d) ? d : null;
+}
+
+// Abre a tela de baixar: o usuario escolhe inicio/fim, ve a duracao e acompanha
+// uma barra de progresso. O gravador entrega em tempo real, entao o download leva
+// ~a duracao do trecho -- a barra avanca por estimativa e completa quando chega.
+function invBaixarTrechoAtual() {
   const p = _inv.player;
   if (!p) { showToast('Abra um momento no player primeiro.', true); return; }
   const t = _inv.selecionadas.get(p.chave);
+  if (!t) { showToast('Selecione a camera primeiro.', true); return; }
   const pos = invPosicao();
   const ev = _inv.eventos.find(e => e.chave === p.chave && pos >= new Date(e.ini.getTime() - 2000) && pos <= e.fim);
-  const ini = ev ? ev.ini : new Date(pos.getTime() - 30e3);
-  let fim = ev ? ev.fim : new Date(pos.getTime() + 90e3);
-  if (fim - ini > 30 * 60e3) fim = new Date(ini.getTime() + 30 * 60e3);
-  const btn = document.getElementById('invBtnTrecho');
-  btn.disabled = true;
-  showToast('Baixando o trecho do gravador...');
-  try {
-    const d = await _invGerarTrecho(t, ini, fim);
-    window.open(_invLinkArquivo(d.url), '_blank', 'noopener');
-  } catch (e) {
-    showToast(e.message, true);
-  } finally {
-    btn.disabled = false;
-  }
+  const ini0 = ev ? ev.ini : new Date(pos.getTime() - 30e3);
+  let fim0 = ev ? ev.fim : new Date(pos.getTime() + 90e3);
+  if (fim0 - ini0 > 30 * 60e3) fim0 = new Date(ini0.getTime() + 30 * 60e3);
+
+  const inp = 'width:100%;margin:2px 0 10px;padding:7px;border-radius:7px;border:1px solid #3a3f4a;background:#12151b;color:inherit;font-family:inherit';
+  const ov = document.createElement('div');
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;z-index:9999';
+  ov.innerHTML = `
+    <div style="background:#1b1f27;color:#e8eaed;border-radius:12px;padding:20px;width:min(420px,92vw);box-shadow:0 12px 48px rgba(0,0,0,.6)">
+      <h3 style="margin:0 0 4px">Baixar trecho em MP4</h3>
+      <p style="margin:0 0 14px;font-size:13px;opacity:.72">Escolha o inicio e o fim. O gravador entrega em tempo real, entao o download leva aproximadamente o tempo do trecho.</p>
+      <label style="display:block;font-size:12px;opacity:.8">Inicio</label>
+      <input id="invDlgIni" type="datetime-local" step="1" style="${inp}">
+      <label style="display:block;font-size:12px;opacity:.8">Fim</label>
+      <input id="invDlgFim" type="datetime-local" step="1" style="${inp}">
+      <p id="invDlgDur" style="margin:4px 0 14px;font-size:13px"></p>
+      <div id="invDlgProg" hidden style="margin:0 0 14px">
+        <div style="height:9px;background:#2a2f3a;border-radius:5px;overflow:hidden"><div id="invDlgBar" style="height:100%;width:0;background:#4caf80;transition:width .3s"></div></div>
+        <p id="invDlgTxt" style="margin:7px 0 0;font-size:12px;opacity:.85"></p>
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end">
+        <button id="invDlgCancel" type="button" class="secondary-action">Cancelar</button>
+        <button id="invDlgOk" type="button" class="primary-action">Baixar</button>
+      </div>
+    </div>`;
+  document.body.appendChild(ov);
+  const q = id => ov.querySelector('#' + id);
+  q('invDlgIni').value = _invParaInputLocal(ini0);
+  q('invDlgFim').value = _invParaInputLocal(fim0);
+  let cancelado = false;
+  const fechar = () => { cancelado = true; ov.remove(); };
+  const seg = () => {
+    const a = _invDeInputLocal(q('invDlgIni').value), b = _invDeInputLocal(q('invDlgFim').value);
+    return a && b ? Math.round((b - a) / 1000) : 0;
+  };
+  const atualizar = () => {
+    const s = seg();
+    if (s <= 0) { q('invDlgDur').textContent = 'O fim precisa ser depois do inicio.'; q('invDlgOk').disabled = true; return; }
+    if (s > 30 * 60) { q('invDlgDur').textContent = `Trecho de ${_invMMSS(s)} — o maximo e 30 min.`; q('invDlgOk').disabled = true; return; }
+    q('invDlgOk').disabled = false;
+    q('invDlgDur').textContent = `Duracao do trecho: ${_invMMSS(s)}. O download deve levar ~${_invMMSS(s)}.`;
+  };
+  q('invDlgIni').oninput = atualizar;
+  q('invDlgFim').oninput = atualizar;
+  atualizar();
+  q('invDlgCancel').onclick = fechar;
+  ov.onclick = e => { if (e.target === ov) fechar(); };
+  q('invDlgOk').onclick = async () => {
+    const a = _invDeInputLocal(q('invDlgIni').value), b = _invDeInputLocal(q('invDlgFim').value);
+    const s = seg();
+    q('invDlgOk').disabled = true; q('invDlgIni').disabled = true; q('invDlgFim').disabled = true;
+    q('invDlgProg').hidden = false;
+    q('invDlgBar').style.background = '#4caf80';
+    // Download em background: inicia o job e fica consultando o progresso real
+    // (bytes baixados). Assim nao depende de uma requisicao longa -- o Cloudflare
+    // corta em ~100s e qualquer trecho de minutos estouraria o 524.
+    try {
+      const corpo = { host: t.host, http_port: t.http_port || 80, canal: t.channel, inicio: _invFmt(a), fim: _invFmt(b) };
+      const res = await api('/api/nvr/driver/trecho/iniciar', { method: 'POST', body: JSON.stringify(corpo) });
+      const ini = await jsonOrReadableError(res, 'Falha ao iniciar o download.');
+      const jobId = ini.job_id;
+      while (!cancelado) {
+        await new Promise(r => setTimeout(r, 1500));
+        if (cancelado) return;
+        const st = await apiJson(`/api/nvr/driver/trecho/status?job_id=${encodeURIComponent(jobId)}`, { cacheTtl: 0 });
+        if (st.estado === 'baixando') {
+          const pct = Math.min(97, (st.decorrido / (s + 5)) * 100);
+          q('invDlgBar').style.width = pct + '%';
+          const mb = st.baixado ? ` · ${(st.baixado / 1048576).toFixed(1)} MB` : '';
+          const resta = Math.max(0, s - st.decorrido);
+          q('invDlgTxt').textContent = `Baixando ${_invFmtHora(a)} → ${_invFmtHora(b)}${mb} … faltam ~${_invMMSS(resta)}`;
+        } else if (st.estado === 'pronto') {
+          q('invDlgBar').style.width = '100%';
+          const mb = st.size ? ` (${(st.size / 1048576).toFixed(1)} MB)` : '';
+          q('invDlgTxt').textContent = `Pronto${mb}! Abrindo o download…`;
+          window.open(_invLinkArquivo(st.url), '_blank', 'noopener');
+          setTimeout(fechar, 1600);
+          return;
+        } else {
+          throw new Error(st.erro || 'o download falhou');
+        }
+      }
+    } catch (e) {
+      if (cancelado) return;
+      q('invDlgBar').style.background = '#e0533a';
+      q('invDlgTxt').textContent = 'Falhou: ' + (e.message || e);
+      q('invDlgCancel').disabled = false; q('invDlgCancel').textContent = 'Fechar';
+    }
+  };
 }
 
 // ---------------------------------------------------------------- casos
