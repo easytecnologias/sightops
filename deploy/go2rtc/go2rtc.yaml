@@ -23,5 +23,13 @@ log:
 # zero buffer) -> pelo tunel o video congela apos 5-8s. Aqui damos um buffer
 # (-rtbufsize) e tiramos o low-latency; o ffmpeg absorve a variacao do tunel.
 # Custa ~1-2s de latencia. So o v3 usa este go2rtc.
+#
+# rtsp_gravacao: so para GRAVACAO (Investigacao), escolhido pela fonte com
+# `#input=rtsp_gravacao`. Gravador Intelbras procura o trecho no disco antes de
+# mandar o primeiro quadro e fica 9-44 s calado pelo tunel; com os 5 s do
+# `rtsp` o ffmpeg desistia e a tela mostrava "Invalid data found when
+# processing input" (14/10/2026, NVR SIERRA 02: 0 de 4 abriam; com este
+# template + `#timeout=90` na fonte, 3 de 3). O ao vivo continua com 5 s.
 ffmpeg:
   rtsp: "-rtsp_transport tcp -timeout 5000000 -rtbufsize 16M -fflags +genpts -i {input}"
+  rtsp_gravacao: "-rtsp_transport tcp -timeout 60000000 -rtbufsize 16M -fflags +genpts -i {input}"

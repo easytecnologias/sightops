@@ -156,7 +156,11 @@ def api_driver_playback(req: PlaybackRequest) -> Dict[str, Any]:
     if fim <= inicio:
         raise HTTPException(status_code=400, detail="esse horario ainda nao foi gravado")
     g = _abrir(req.host, req.http_port, req.connector_id)
-    fonte = f"ffmpeg:{g.url_playback(req.canal, inicio, fim)}#video=h264"
+    # #input=rtsp_gravacao (deploy/go2rtc/go2rtc.yaml): ffmpeg espera 60 s em vez
+    # de 5; #timeout=90: o go2rtc espera o primeiro quadro 90 s em vez de 30.
+    # O Intelbras leva 9-44 s para comecar a gravacao pelo tunel -- com os
+    # padroes a tela dava "Invalid data found when processing input".
+    fonte = f"ffmpeg:{g.url_playback(req.canal, inicio, fim)}#input=rtsp_gravacao#video=h264#timeout=90"
     nome = "rec_pb_" + hashlib.sha1(f"{req.host}|{req.canal}|{inicio}".encode()).hexdigest()[:12]
     lss._registered_at[nome] = time.time()
     try:
