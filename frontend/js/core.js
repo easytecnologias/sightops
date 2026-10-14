@@ -303,7 +303,7 @@ function applyModuleVisibility() {
   document.querySelectorAll('.nav-item[data-view]').forEach(btn => {
     const key = btn.dataset.view;
     const restricted = Array.isArray(enabled);
-    const accessAddon = restricted && key === 'access-live' && enabled.includes('access-control');
+    const accessAddon = restricted && (key === 'access-live' || key === 'access-painel') && enabled.includes('access-control');
     const visible = !DISABLED_VIEWS.has(key) && !isStaffOnlyView(key) && (!restricted || enabled.includes(key) || accessAddon);
     btn.classList.toggle('nav-item-hidden', !visible);
   });
@@ -450,8 +450,15 @@ async function showApp() {
   // Admin de plataforma cai direto no Painel do Dono, exceto se ja estiver
   // "operando como" um cliente (acting_as) -- ai o pouso e o mesmo do cliente.
   const landingIsOwner = !!(_currentUser?.is_platform_admin && !_currentUser?.acting_as);
-  setShellMode(landingIsOwner ? 'owner' : 'client');
-  navigateTo(landingIsOwner ? 'owner-overview' : 'dashboard');
+  let telaPedida = '';
+  try { telaPedida = new URLSearchParams(window.location.search).get('tela') || ''; } catch (_) {}
+  if (telaPedida && VIEW_ID_MAP[telaPedida] && !telaPedida.startsWith('owner-')) {
+    setShellMode('client');
+    navigateTo(telaPedida);
+  } else {
+    setShellMode(landingIsOwner ? 'owner' : 'client');
+    navigateTo(landingIsOwner ? 'owner-overview' : 'dashboard');
+  }
   lucide.createIcons();
 }
 
@@ -473,6 +480,7 @@ const VIEW_META = {
   'access-messenger': { title: 'Messenger', sub: 'Conversas de WhatsApp enviadas e recebidas' },
   'access-whatsapp-triage': { title: 'Triagem WhatsApp', sub: 'Fila de cadastros recebidos por grupos' },
   'access-control': { title: 'Controle de Acesso', sub: 'Reconhecimento facial e eventos de entrada e saida' },
+  'access-painel':  { title: 'Painel de Acesso', sub: 'Ao vivo, avisos e o que precisa de atencao' },
   'alert-live':     { title: 'Alerta ao Vivo', sub: 'Pedidos de ajuda do botao de panico' },
   'alert-members':  { title: 'Pessoas do Alerta', sub: 'Quem usa o app de panico' },
   'net-operate':   { title: 'Manutencao - Rede', sub: 'Tuneis, diagnostico e teste pontual' },
@@ -515,6 +523,7 @@ const VIEW_ID_MAP = {
   'access-messenger': 'viewAccessMessenger',
   'access-whatsapp-triage': 'viewAccessWhatsappTriage',
   'access-control':  'viewAccessControl',
+  'access-painel':   'viewAccessPainel',
   'alert-live':      'viewAlertLive',
   'alert-members':   'viewAlertMembers',
   'net-operate':    'viewNetOperate',
@@ -560,6 +569,11 @@ function navigateTo(view) {
   if (_currentView === 'deploy-new' && view !== 'deploy-new'
       && typeof deployClear === 'function') {
     try { deployClear(); } catch (_) {}
+  }
+
+  if (_currentView === 'access-painel' && view !== 'access-painel'
+      && typeof stopAccessPainel === 'function') {
+    try { stopAccessPainel(); } catch (_) {}
   }
 
   // Esconde todas as views
@@ -609,6 +623,7 @@ function loadView(view) {
     case 'access-messenger': loadAccessMessenger(); break;
     case 'access-whatsapp-triage': loadAccessWhatsappTriage(); break;
     case 'access-control': loadAccessControl(); break;
+    case 'access-painel':  loadAccessPainel();  break;
     case 'alert-live':     loadAlertLive();     break;
     case 'alert-members':  loadAlertMembers();  break;
     case 'olt':         loadOlt();          break;

@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=1792000021">
+  <link rel="stylesheet" href="styles.css?v=1792000031">
 </head>
 <body>
 
@@ -123,6 +123,7 @@
         <button class="nav-item" data-view="access-live"><i data-lucide="activity"></i><span>Acesso ao Vivo</span></button>
         <button class="nav-item" data-view="access-messenger"><i data-lucide="message-circle"></i><span>Messenger</span></button>
         <button class="nav-item" data-view="access-control"><i data-lucide="scan-face"></i><span>Controle de Acesso</span></button>
+        <button class="nav-item" data-view="access-painel"><i data-lucide="layout-dashboard"></i><span>Painel de Acesso</span><span class="nav-novo">novo</span></button>
         <button class="nav-item nav-item-hidden" data-view="access-whatsapp-triage"><i data-lucide="inbox"></i><span>Triagem WhatsApp</span></button>
 
         <!-- Alerta (botao de panico) -->
@@ -1938,6 +1939,30 @@
             <span id="accessMessengerLastSync">Atualiza sozinho a cada 6s</span>
           </div>
         </div>
+      </section>
+
+      <!-- --- VIEW: PAINEL DE ACESSO (novo, fase 1: so leitura) ---
+           Convive com Acesso ao Vivo e Controle de Acesso, que seguem iguais.
+           Montado por js/accessPainel.js. -->
+      <section class="workspace hidden" id="viewAccessPainel">
+        <div class="page-heading">
+          <div>
+            <p class="eyebrow">Controle de Acesso</p>
+            <h1>Painel de Acesso</h1>
+            <p>Quem está passando agora, se os responsáveis foram avisados e o que precisa de alguém.</p>
+          </div>
+          <div class="page-heading-actions">
+            <span class="ap-relogio monospace" id="apRelogio"></span>
+            <select id="apSite" aria-label="Site"><option value="">Todos os sites</option></select>
+            <button class="secondary-action" id="btnApAtualizar" type="button"><i data-lucide="refresh-cw"></i> Atualizar</button>
+          </div>
+        </div>
+        <div class="tabs access-control-tabs" role="tablist">
+          <button type="button" class="tab-btn active" data-ap-tela="vivo" role="tab" aria-selected="true">Ao vivo</button>
+          <button type="button" class="tab-btn" data-ap-tela="geral" role="tab" aria-selected="false">Visão geral</button>
+        </div>
+        <div id="apVivo"></div>
+        <div id="apGeral" hidden></div>
       </section>
 
       <!-- --- VIEW: CONTROLE DE ACESSO --- -->
@@ -6844,7 +6869,7 @@
        trechos do app.js original na sequencia em que estavam, entao carregar
        fora de ordem muda o comportamento. Ao adicionar um arquivo novo, entre
        antes de bootstrap.js, que e quem liga os botoes no DOMContentLoaded. -->
-  <script src="js/core.js?v=1792000020"></script>
+  <script src="js/core.js?v=1792000031"></script>
   <script src="js/dashboard.js?v=1791000212"></script>
   <script src="js/liveStream.js?v=1791000212"></script>
   <script src="js/cameras.js?v=1791000212"></script>
@@ -6866,6 +6891,7 @@
   <script src="js/accessControl.js?v=1791000212"></script>
   <script src="js/accessLive.js?v=1791000212"></script>
   <script src="js/accessWhatsappTriage.js?v=1791000212"></script>
+  <script src="js/accessPainel.js?v=1792000031"></script>
   <script src="js/messenger.js?v=1791000212"></script>
   <script src="js/alert.js?v=1791000212"></script>
   <script src="js/tr069.js?v=1791000212"></script>
