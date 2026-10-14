@@ -57,7 +57,8 @@ fi
 
 # ---------------------------------------------------- 3. backend x git
 titulo "3. Backend: o que roda x o que esta no git"
-dif=0
+dif=0; crlf=0
+TMP_RODANDO=$(mktemp); trap 'rm -f "$TMP_RODANDO"' EXIT
 # 'deploy/**' entra aqui porque o provisioner de isolamento mora la, e ele
 # controla roteamento e firewall dos tuneis. Em 30/09/2026 ele ficou
 # desatualizado no git enquanto rodava corrigido -- e este script deu
@@ -65,22 +66,35 @@ dif=0
 for f in $(git ls-files 'app/**/*.py' 'tools/*.py' 'deploy/**/*.py' 'deploy/**/*.sh' 2>/dev/null); do
   case "$f" in
     deploy/iso-provisioner/*)
-      a=$(docker exec sightops-v3-iso-provisioner md5sum "/app/$(basename "$f")" 2>/dev/null | cut -d' ' -f1) ;;
+      ler() { docker exec sightops-v3-iso-provisioner cat "/app/$(basename "$f")"; } ;;
     deploy/backup/*)
-      a=$(md5sum "/home/central/scripts/$(basename "$f")" 2>/dev/null | cut -d' ' -f1) ;;
+      ler() { cat "/home/central/scripts/$(basename "$f")"; } ;;
     deploy/*)
       # Sem lugar conhecido para comparar: versionado e so isso.
       continue ;;
     *)
-      a=$(docker exec "$API" md5sum "/app/$f" 2>/dev/null | cut -d' ' -f1) ;;
+      ler() { docker exec "$API" cat "/app/$f"; } ;;
   esac
-  b=$(md5sum "$f" 2>/dev/null | cut -d' ' -f1)
+  if ler > "$TMP_RODANDO" 2>/dev/null; then
+    a=$(md5sum < "$TMP_RODANDO" | cut -d' ' -f1)
+  else
+    a=""
+  fi
+  b=$(md5sum < "$f" 2>/dev/null | cut -d' ' -f1)
   if [ -z "$a" ]; then
     echo "      SO NO GIT (nunca deployado): $f"; dif=$((dif + 1))
   elif [ "$a" != "$b" ]; then
-    echo "      DIFERE: $f"; dif=$((dif + 1))
+    # docker cp feito do Windows leva CRLF: mesmo codigo, md5 diferente. Em
+    # 14/10/2026 seis arquivos assim pareciam divergencia real e escondiam os
+    # dois que eram de fato.
+    if [ "$(tr -d '\r' < "$TMP_RODANDO" | md5sum)" = "$(tr -d '\r' < "$f" | md5sum)" ]; then
+      crlf=$((crlf + 1))
+    else
+      echo "      DIFERE: $f"; dif=$((dif + 1))
+    fi
   fi
 done
+[ "$crlf" -gt 0 ] && echo "      ($crlf arquivo(s) iguais fora o CRLF -- nao e divergencia; some no proximo build)"
 [ "$dif" -eq 0 ] && ok "0 arquivos .py divergentes" || aviso "$dif arquivo(s) .py fora de sincronia"
 
 # --------------------------------------------------- 4. frontend x git
