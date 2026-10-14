@@ -496,6 +496,7 @@ function openWinPanel(row) {
         </dl></section>
         <section class="win-bloco"><h3>Rede e caminho fisico</h3><dl>
           ${winLinha('IP', row.ip)}
+          ${winLinha('Conector', row.connector_id ? `alcancado pelo conector do site (IP virtual)` : 'sem conector: site fora da lista do cliente')}
           ${winLinha('MAC', row.mac)}
           ${winLinha('Gateway', gw)}
           ${winLinha('Placa', net.description)}
@@ -525,7 +526,9 @@ document.addEventListener('keydown', ev => {
 });
 function winPanelAction(action) {
   if (!_winActive && !['agent', 'pdf', 'refresh'].includes(action)) return;
-  if (action === 'ping') return openPingTerminal(_winActive.ip);
+  // Com conector, o ping sai pelo IP virtual (vnat), igual as cameras: o IP
+  // real do computador so existe na rede do cliente.
+  if (action === 'ping') return openPingTerminal(_winActive.ip, winText(_winActive.connector_id));
   if (action === 'anydesk') {
     const id = winText(_winActive.anydesk_id);
     if (!id) return showToast('Este computador nao tem AnyDesk informado.', true);

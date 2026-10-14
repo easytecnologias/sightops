@@ -4,7 +4,11 @@
 // /api/windows/agent-exe) cola no FIM do arquivo o script do agente ja com o
 // endereco e a chave daquele cliente:
 //
-//   [exe][cliente UTF-8 '\n' script UTF-8][int32 tamanho][8 bytes "SOPSAG01"]
+//   [exe][cliente '\n' "SITES" '\t' site1 '\t' ... '\n' script][int32 tamanho][8 bytes "SOPSAG01"]
+//
+// Os sites viram uma lista: escolher em vez de digitar evita "RESERVA PERUCABA"
+// num cliente cujo site e "RESERVA" -- e o servidor liga o computador ao
+// conector daquele site (ping pelo IP virtual).
 //
 // A janela pede site e setor, e roda o script como Administrador (o manifesto
 // pede elevacao): ele envia o inventario, se copia para ProgramData e cria a
@@ -36,7 +40,8 @@ namespace SightOps
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
             string cliente, script;
-            if (!LerConfiguracao(out cliente, out script))
+            string[] sites;
+            if (!LerConfiguracao(out cliente, out sites, out script))
             {
                 MessageBox.Show(
                     "Este instalador nao tem a configuracao do cliente.\n\n" +
@@ -44,12 +49,12 @@ namespace SightOps
                     "SightOps", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
             }
-            Application.Run(new Janela(cliente, script));
+            Application.Run(new Janela(cliente, sites, script));
         }
 
-        static bool LerConfiguracao(out string cliente, out string script)
+        static bool LerConfiguracao(out string cliente, out string[] sites, out string script)
         {
-            cliente = ""; script = "";
+            cliente = ""; script = ""; sites = new string[0];
             try
             {
                 byte[] tudo = File.ReadAllBytes(Application.ExecutablePath);
@@ -62,7 +67,19 @@ namespace SightOps
                 int nl = dados.IndexOf('\n');
                 if (nl < 0) return false;
                 cliente = dados.Substring(0, nl).Trim();
-                script = dados.Substring(nl + 1);
+                string resto = dados.Substring(nl + 1);
+                if (resto.StartsWith("SITES"))
+                {
+                    int nl2 = resto.IndexOf('\n');
+                    if (nl2 < 0) return false;
+                    string[] partes = resto.Substring(0, nl2).TrimEnd('\r').Split('\t');
+                    var lista = new System.Collections.Generic.List<string>();
+                    for (int i = 1; i < partes.Length; i++)
+                        if (partes[i].Trim().Length > 0) lista.Add(partes[i].Trim());
+                    sites = lista.ToArray();
+                    resto = resto.Substring(nl2 + 1);
+                }
+                script = resto;
                 return script.Length > 100;
             }
             catch { return false; }
@@ -72,7 +89,7 @@ namespace SightOps
     class Janela : Form
     {
         readonly string script;
-        readonly TextBox txtSite = new TextBox();
+        readonly ComboBox txtSite = new ComboBox();
         readonly TextBox txtSetor = new TextBox();
         readonly CheckBox chkAnyDesk = new CheckBox();
         readonly Button btn = new Button();
@@ -84,7 +101,7 @@ namespace SightOps
         static readonly Color Escuro = Color.FromArgb(19, 37, 45);
         static readonly Color Cinza = Color.FromArgb(79, 93, 102);
 
-        public Janela(string cliente, string script)
+        public Janela(string cliente, string[] sites, string script)
         {
             this.script = script;
             Text = "SightOps - Agente de inventario";
@@ -112,6 +129,10 @@ namespace SightOps
 
             Controls.Add(new Label { Text = "Site / unidade", Location = new Point(22, y), AutoSize = true });
             txtSite.Location = new Point(22, y + 22); txtSite.Size = new Size(516, 27);
+            // Com sites cadastrados: so a lista. Sem nenhum: campo livre.
+            txtSite.DropDownStyle = sites.Length > 0 ? ComboBoxStyle.DropDownList : ComboBoxStyle.DropDown;
+            txtSite.Items.AddRange(sites);
+            txtSite.MaxDropDownItems = 15;
             Controls.Add(txtSite);
             y += 62;
             Controls.Add(new Label { Text = "Setor", Location = new Point(22, y), AutoSize = true });
@@ -157,7 +178,15 @@ namespace SightOps
                 string j = File.ReadAllText(cfg);
                 Match s = Regex.Match(j, "\"site\"\\s*:\\s*\"([^\"]*)\"");
                 Match t = Regex.Match(j, "\"setor\"\\s*:\\s*\"([^\"]*)\"");
-                if (s.Success) txtSite.Text = s.Groups[1].Value;
+                if (s.Success)
+                {
+                    string salvo = s.Groups[1].Value;
+                    if (txtSite.DropDownStyle == ComboBoxStyle.DropDown) txtSite.Text = salvo;
+                    else
+                        for (int i = 0; i < txtSite.Items.Count; i++)
+                            if (string.Equals((string)txtSite.Items[i], salvo, StringComparison.OrdinalIgnoreCase))
+                                txtSite.SelectedIndex = i;
+                }
                 if (t.Success) txtSetor.Text = t.Groups[1].Value;
             }
             catch { }
@@ -177,7 +206,7 @@ namespace SightOps
             if (Limpo(txtSite.Text).Length == 0)
             {
                 status.ForeColor = Color.FromArgb(201, 42, 42);
-                status.Text = "Informe o site ou unidade deste computador.";
+                status.Text = "Escolha o site ou unidade deste computador.";
                 txtSite.Focus();
                 return;
             }

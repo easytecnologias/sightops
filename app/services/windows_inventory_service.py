@@ -400,6 +400,16 @@ def accept_windows_agent_report(payload: Dict[str, Any], remote_ip: str = "", te
     row = _normalize_inventory(ip, data, status="agent_reported")
     row["agent_version"] = _text(data.get("agent_version"))
     row["agent_scheduled"] = bool(data.get("agent_scheduled"))
+    # Site com o nome oficial e o conector que o alcanca (para o Ping ir pelo
+    # IP virtual). Site digitado fora da lista fica como veio, sem conector.
+    if _text(row.get("site")):
+        try:
+            oficial = _site_oficial(row["site"], sites_do_cliente(tenant_slug))
+        except Exception:
+            oficial = {}
+        if oficial:
+            row["site"] = oficial["site"]
+            row["connector_id"] = oficial["connector_id"]
     current = load_windows_inventory(tenant_slug=tenant_slug)
     # O mesmo computador e achado por serial/hostname antes do IP: com o agente
     # reportando a cada 15 min, PC em DHCP trocava de IP e virava outra linha.
@@ -423,6 +433,91 @@ def accept_windows_agent_report(payload: Dict[str, Any], remote_ip: str = "", te
         row = novo
     save_windows_inventory(current, tenant_slug=tenant_slug)
     return {"ok": True, "saved": True, "row": row}
+
+
+def sites_do_cliente(tenant_slug: str = "") -> List[Dict[str, str]]:
+    """Sites do cliente com o conector que alcanca cada um.
+
+    O site e escolhido numa lista no instalador (antes era texto livre e o
+    primeiro computador entrou como "RESERVA PERUCABA" num cliente cujo site e
+    "RESERVA"). O conector vem do proprio conector do site ou, se o site nao
+    tem conector proprio, de por onde os equipamentos daquele site sao
+    alcancados -- no cliente default, RESERVA, JARDINS e PERUCABA estao todos
+    atras do conector PERUCABA. Com ele o servidor alcanca o computador pelo IP
+    virtual (vnat), igual as cameras.
+    """
+    from collections import Counter
+
+    from app.core.tenant_context import (get_current_tenant_slug, reset_current_tenant_slug,
+                                         set_current_tenant_slug, tenant_data_dir)
+
+    # O relatorio do agente chega por rota publica (so o token): sem usuario
+    # logado nao ha cliente no contexto, e list_sites/list_connectors leriam o
+    # de ninguem -- ou o legado global. Fixa o cliente dono do token aqui.
+    slug = _text(tenant_slug) or get_current_tenant_slug()
+    if not slug:
+        return []
+    marca = set_current_tenant_slug(slug)
+    try:
+        return _sites_do_cliente(slug, Counter, tenant_data_dir)
+    finally:
+        reset_current_tenant_slug(marca)
+
+
+def _sites_do_cliente(tenant_slug: str, Counter: Any, tenant_data_dir: Any) -> List[Dict[str, str]]:
+    nomes: Dict[str, str] = {}
+    por_site: Dict[str, Counter] = {}
+
+    def _anotar(nome: Any, conector: Any = "") -> None:
+        n = " ".join(_text(nome).split())
+        if not n:
+            return
+        k = n.upper()
+        nomes.setdefault(k, n)
+        if _text(conector):
+            por_site.setdefault(k, Counter())[_text(conector)] += 1
+
+    try:
+        from app.services.db_store import list_sites
+        for s in list_sites() or []:
+            _anotar(s.get("name"))
+    except Exception:
+        pass
+    proprio: Dict[str, str] = {}
+    try:
+        from app.services.connector_service import list_connectors
+        for c in (list_connectors() or {}).get("connectors") or []:
+            _anotar(c.get("site"))
+            if _text(c.get("site")) and _text(c.get("id")):
+                proprio[_text(c.get("site")).upper()] = _text(c.get("id"))
+    except Exception:
+        pass
+    pasta = tenant_data_dir(tenant_slug)
+    for arq in pasta.glob("*inventory*.json"):
+        if arq.name.startswith("windows"):
+            continue  # o computador nao define site de ninguem
+        try:
+            dados = json.loads(arq.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        if isinstance(dados, dict):
+            dados = dados.get("inventory") or []
+        for r in dados if isinstance(dados, list) else []:
+            if isinstance(r, dict):
+                _anotar(r.get("site") or r.get("local"), r.get("remote_connector_id") or r.get("connector_id"))
+    saida = []
+    for k, nome in sorted(nomes.items()):
+        cid = proprio.get(k) or (por_site[k].most_common(1)[0][0] if por_site.get(k) else "")
+        saida.append({"site": nome, "connector_id": cid})
+    return saida
+
+
+def _site_oficial(site: str, sites: List[Dict[str, str]]) -> Dict[str, str]:
+    alvo = " ".join(_text(site).split()).upper()
+    for s in sites:
+        if s["site"].upper() == alvo:
+            return s
+    return {}
 
 
 _MAX_EVENTOS = 40
@@ -529,11 +624,17 @@ def build_windows_agent_exe(base_url: str, cliente: str = "") -> bytes:
     """O instalador .exe com o script do agente deste cliente colado no fim.
 
     Formato lido pelo SightOpsAgente.cs:
-    [exe][cliente, quebra de linha, script][int32 little-endian tamanho][b"SOPSAG01"]
+    [exe][cliente \\n "SITES" \\t site1 \\t site2... \\n script][int32 little-endian tamanho][b"SOPSAG01"]
+
+    Os sites viram a lista do instalador: o operador escolhe em vez de digitar.
     """
+    from app.core.tenant_context import get_current_tenant_slug
+
     base = AGENTE_EXE_BASE.read_bytes()
     nome = " ".join(_text(cliente).split())[:80]
-    dados = (nome + "\n" + build_windows_agent_script(base_url=base_url)).encode("utf-8")
+    sites = [s["site"].replace("\t", " ") for s in sites_do_cliente(get_current_tenant_slug())]
+    linha_sites = "\t".join(["SITES"] + sites)
+    dados = (nome + "\n" + linha_sites + "\n" + build_windows_agent_script(base_url=base_url)).encode("utf-8")
     return base + dados + len(dados).to_bytes(4, "little") + _AGENTE_EXE_MARCA
 
 

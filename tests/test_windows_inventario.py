@@ -159,13 +159,46 @@ def test_exe_leva_cliente_e_script_no_formato_do_instalador(monkeypatch):
     monkeypatch.setattr(W, "get_windows_agent_token", lambda tenant_slug="": "T" * 32)
     if not W.AGENTE_EXE_BASE.exists():
         pytest.skip("instalador base nao compilado")
+    monkeypatch.setattr(W, "sites_do_cliente", lambda slug="": [
+        {"site": "RESERVA", "connector_id": "c1"}, {"site": "JARDINS I", "connector_id": "c1"}])
     base = W.AGENTE_EXE_BASE.read_bytes()
     exe = W.build_windows_agent_exe("https://sightops.exemplo/v3-api", "Mega  Alarmes")
     assert exe[:len(base)] == base and exe[-8:] == b"SOPSAG01"
     n = int.from_bytes(exe[-12:-8], "little")
-    cliente, script = exe[-12 - n:-12].decode("utf-8").split("\n", 1)
+    cliente, sites, script = exe[-12 - n:-12].decode("utf-8").split("\n", 2)
     assert cliente == "Mega Alarmes"
+    assert sites.split("\t") == ["SITES", "RESERVA", "JARDINS I"]
     assert '$SightOpsUrl = "https://sightops.exemplo/v3-api"' in script and "[switch]$InstalarAnyDesk" in script
+
+
+def test_sites_do_cliente_herdam_o_conector_dos_equipamentos(monkeypatch, tmp_path):
+    """No cliente default, RESERVA nao tem conector proprio: seus 185
+    equipamentos sao alcancados pelo conector PERUCABA."""
+    import json as _json
+    from app.core import tenant_context
+    from app.services import connector_service, db_store
+    pasta = tmp_path / "cliente"
+    pasta.mkdir()
+    (pasta / "cam-inventory.json").write_text(_json.dumps(
+        [{"site": "RESERVA", "remote_connector_id": "perucaba"}] * 3 + [{"site": "SIERRA", "remote_connector_id": "outro"}]))
+    (pasta / "windows-inventory.json").write_text(_json.dumps([{"site": "RESERVA PERUCABA"}]))
+    monkeypatch.setattr(tenant_context, "tenant_data_dir", lambda slug="": pasta)
+    monkeypatch.setattr(db_store, "list_sites", lambda *a, **k: [{"name": "RESERVA"}, {"name": "JARDINS I"}])
+    monkeypatch.setattr(connector_service, "list_connectors",
+                        lambda *a, **k: {"connectors": [{"id": "perucaba", "site": "PERUCABA"}]})
+    sites = {s["site"]: s["connector_id"] for s in W.sites_do_cliente("cliente")}
+    assert sites["RESERVA"] == "perucaba"          # herdado dos equipamentos
+    assert sites["PERUCABA"] == "perucaba"         # conector proprio
+    assert sites["JARDINS I"] == ""                # cadastrado, sem equipamento
+    assert "RESERVA PERUCABA" not in sites         # o computador nao cria site
+    assert W.sites_do_cliente("") == []            # sem cliente, nada
+
+
+def test_relatorio_grava_site_oficial_e_conector(inventario, monkeypatch):
+    monkeypatch.setattr(W, "sites_do_cliente", lambda slug="": [{"site": "RESERVA", "connector_id": "perucaba"}])
+    W.accept_windows_agent_report(_relatorio(site="reserva"), tenant_slug="t")
+    row = W.load_windows_inventory("t")[0]
+    assert row["site"] == "RESERVA" and row["connector_id"] == "perucaba"
 
 
 def test_script_nao_instala_mais_zabbix_agent():
