@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 import xml.etree.ElementTree as ET
 from typing import Any, Dict, Tuple
 from urllib.parse import quote
@@ -207,32 +208,104 @@ def _hik_xml(canal: int, ip: str, user: str, senha: str, nome: str,
     )
 
 
-def _hik_add(base, user, password, **k) -> Dict[str, Any]:
-    # HIKVISION fala com camera Hikvision (porta de gerencia 8000); ONVIF cobre
-    # as outras marcas (porta 80). Tenta os dois, nessa ordem.
-    ultimo = ""
-    for protocolo, porta in (("HIKVISION", 8000), ("ONVIF", 80)):
+# Porta de gerencia de cada protocolo no InputProxy. HIKVISION na 80 nao conecta:
+# em 14/10/2026 o canal 9 do DS-7616NI da TELHA (InforBR) ficou ONVIF:80 e
+# offline (chanDetectResult=accessFroDeviceParamFailure) enquanto o canal 10, a
+# mesma linha de camera, funcionava em HIKVISION:8000.
+_HIK_PORTA = {"HIKVISION": 8000, "ONVIF": 80}
+
+
+def _hik_protocolos(protocolo: str) -> list:
+    """Protocolos a tentar, na ordem. "" (Automatico) = os dois.
+
+    A tela manda "Onvif"/"HIKVISION"/"Private"; Private e da Intelbras e o
+    Hikvision nao conhece -- cai no automatico em vez de gravar lixo.
+    """
+    p = str(protocolo or "").strip().upper()
+    return [p] if p in _HIK_PORTA else ["HIKVISION", "ONVIF"]
+
+
+def _hik_canal_online(base: str, user: str, password: str, canal: int,
+                      espera: float = 15.0) -> Tuple[Any, str]:
+    """(True|False|None, motivo) segundo o PROPRIO gravador.
+
+    O gravador aceita o PUT com qualquer protocolo -- o 200 so diz que a
+    configuracao foi salva, nao que a camera conectou. Quem diz e o
+    InputProxy/channels/status, alguns segundos depois. None = nao deu para ler.
+    """
+    fim = time.monotonic() + espera
+    motivo = ""
+    while True:
+        try:
+            cod, txt = _req("GET", f"{base}/ISAPI/ContentMgmt/InputProxy/channels/status",
+                            user, password, timeout=10)
+        except ErroGravador:
+            return None, "nao consegui ler o status do canal"
+        if not (cod and 200 <= cod < 300):
+            return None, f"status do canal: HTTP {cod}"
+        for bloco in re.findall(r"<InputProxyChannelStatus\b.*?</InputProxyChannelStatus>", txt, re.S):
+            if not re.search(rf"<id>\s*{int(canal)}\s*</id>", bloco):
+                continue
+            if re.search(r"<online>\s*true\s*</online>", bloco, re.I):
+                return True, ""
+            m = re.search(r"<chanDetectResult>([^<]*)</chanDetectResult>", bloco)
+            motivo = (m.group(1).strip() if m else "") or "offline"
+        if time.monotonic() >= fim:
+            return False, motivo or "canal nao apareceu no status"
+        time.sleep(2.5)
+
+
+def _hik_gravar(base, user, password, metodos, **k) -> Dict[str, Any]:
+    """Grava o canal tentando os protocolos e confere se a camera conectou.
+
+    Com protocolo escolhido, grava so ele. No Automatico, se o gravador aceitar
+    mas a camera nao conectar, tenta o proximo; se nenhum conectar, fica o
+    primeiro (HIKVISION, o que o parque mais usa) e a resposta diz que a
+    camera nao conectou -- antes a tela dizia "Feito" e o canal ficava offline.
+    """
+    protocolos = _hik_protocolos(k.get("protocolo"))
+    ultimo_erro = ""
+    aceitos = []  # (protocolo, porta, metodo, url, corpo, motivo)
+    for protocolo in protocolos:
+        porta = k.get("porta") or _HIK_PORTA[protocolo]
         corpo = _hik_xml(k["canal"], k["ip"], k["cam_user"], k["cam_senha"],
-                         k.get("nome") or "", protocolo, k.get("porta") or porta)
-        for metodo, url in (("PUT", f"{base}/ISAPI/ContentMgmt/InputProxy/channels/{int(k['canal'])}"),
-                            ("POST", f"{base}/ISAPI/ContentMgmt/InputProxy/channels")):
-            cod, txt = _req(metodo, url, user, password, corpo.encode("utf-8"))
+                         k.get("nome") or "", protocolo, porta).encode("utf-8")
+        for metodo, url in metodos:
+            cod, txt = _req(metodo, url, user, password, corpo)
             if cod and 200 <= cod < 300 and not _hik_erro(txt):
-                return {"comando": f"{metodo} InputProxy ({protocolo})", "resposta": txt[:200]}
-            ultimo = _hik_erro(txt) or f"HTTP {cod}"
-    raise ErroGravador(f"o gravador nao aceitou a camera: {ultimo}")
+                break
+            ultimo_erro = _hik_erro(txt) or f"HTTP {cod}: {txt[:120]}"
+        else:
+            continue
+        online, motivo = _hik_canal_online(base, user, password, k["canal"])
+        comando = f"{metodo} InputProxy ({protocolo}:{porta})"
+        if online is not False:
+            return {"comando": comando, "resposta": txt[:200], "online": online,
+                    **({"aviso": motivo} if motivo else {})}
+        aceitos.append((protocolo, porta, metodo, url, corpo, motivo))
+    if not aceitos:
+        raise ErroGravador(f"o gravador nao aceitou a camera: {ultimo_erro}")
+    protocolo, porta, metodo, url, corpo, motivo = aceitos[0]
+    if len(aceitos) > 1:
+        # Volta ao primeiro: o ultimo gravado foi o ONVIF.
+        _req(metodo, url, user, password, corpo)
+    tentados = ", ".join(f"{a[0]}:{a[1]}" for a in aceitos)
+    return {"comando": f"{metodo} InputProxy ({protocolo}:{porta})", "online": False,
+            "aviso": (f"o gravador salvou, mas a camera nao conectou ({motivo}; "
+                      f"tentado {tentados}). Confira IP, usuario e senha da camera.")}
+
+
+def _hik_add(base, user, password, **k) -> Dict[str, Any]:
+    canal = int(k["canal"])
+    return _hik_gravar(base, user, password,
+                       (("PUT", f"{base}/ISAPI/ContentMgmt/InputProxy/channels/{canal}"),
+                        ("POST", f"{base}/ISAPI/ContentMgmt/InputProxy/channels")), **k)
 
 
 def _hik_editar(base, user, password, **k) -> Dict[str, Any]:
-    corpo = _hik_xml(k["canal"], k["ip"], k["cam_user"], k["cam_senha"],
-                     k.get("nome") or "", k.get("protocolo") or "ONVIF",
-                     k.get("porta") or 80)
-    url = f"{base}/ISAPI/ContentMgmt/InputProxy/channels/{int(k['canal'])}"
-    cod, txt = _req("PUT", url, user, password, corpo.encode("utf-8"))
-    erro = _hik_erro(txt) if cod and 200 <= cod < 300 else f"HTTP {cod}: {txt[:120]}"
-    if erro:
-        raise ErroGravador(erro)
-    return {"comando": "PUT InputProxy", "resposta": txt[:200]}
+    canal = int(k["canal"])
+    return _hik_gravar(base, user, password,
+                       (("PUT", f"{base}/ISAPI/ContentMgmt/InputProxy/channels/{canal}"),), **k)
 
 
 def _hik_excluir(base, user, password, canal: int, **_) -> Dict[str, Any]:

@@ -5801,8 +5801,19 @@ function recAbrirEdicao(acao, canal) {
         return;
       }
       caixa.hidden = false;
+      // O gravador aceita a configuracao mesmo quando a camera nao conecta: o
+      // backend confere o status do canal e manda online=false + aviso. Nesse
+      // caso a janela fica aberta para corrigir IP/senha/protocolo.
+      if (data.online === false) {
+        caixa.className = 'rec-resultado erro';
+        caixa.textContent = `Salvo no gravador (${data.comando}), mas a camera nao conectou: ${data.aviso || 'offline'}`;
+        botao.disabled = false;
+        botao.textContent = 'Aplicar no gravador';
+        deployRecorderCarregarXray();
+        return;
+      }
       caixa.className = 'rec-resultado ok';
-      caixa.textContent = `Feito no gravador (${data.comando}). Relendo...`;
+      caixa.textContent = `Feito no gravador (${data.comando})${data.online ? ' · camera online' : ''}. Relendo...`;
       showToast('Gravador atualizado.');
       setTimeout(() => { fechar(); deployRecorderCarregarXray(); }, 900);
     } catch (e) {
