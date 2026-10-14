@@ -238,6 +238,65 @@ def _switch_entities() -> List[Dict[str, Any]]:
     return saida
 
 
+# O agente Windows reporta a cada 15 min (tarefa agendada). Tres envios
+# perdidos = sem contato.
+LIMITE_WINDOWS_MIN = 45
+
+
+def _status_windows(row: Dict[str, Any], sem_caminho: Any = ()) -> str:
+    """online so com relatorio recente do agente; sem relatorio, unknown.
+
+    O status gravado e "agent_reported", que normalize_status nao conhece: todo
+    computador ia para o Zabbix como desconhecido, para sempre. E computador
+    desligado a noite e normal -- por isso falta de relatorio vira "unknown"
+    (sem contato), nao "offline": nao e o SightOps que sabe que ele caiu.
+    """
+    from app.services.status_efetivo import avaliar
+
+    lido = _text(row.get("status")).lower()
+    if lido not in ("agent_reported", "online"):
+        # timeout/auth_failed/winrm_closed sao falha da VARREDURA WinRM, nao
+        # prova de que o computador caiu: com o agente reportando, viraria
+        # "down" e alerta falso.
+        return "unknown"
+    lido = "online"
+    if not row.get("last_seen"):
+        return "unknown"
+    status, _motivo = avaliar(lido, row.get("connector_id"), row.get("last_seen"),
+                              sem_caminho, limite_min=LIMITE_WINDOWS_MIN)
+    return status
+
+
+def _chave_windows(row: Dict[str, Any]) -> str:
+    """Nome curto em minusculas: o agente manda "FIN-03", a varredura WinRM
+    pode trazer "fin-03.empresa.local" pelo DNS reverso. Chave diferente = o
+    sync apaga o host do Zabbix como orfao e cria outro, perdendo o historico."""
+    host = _text(row.get("hostname")).lower().split(".")[0]
+    return host or _text(row.get("ip"))
+
+
+def _detalhe_windows(row: Dict[str, Any], status: str = "") -> Dict[str, Any]:
+    livre_c = None
+    for v in row.get("volumes") or []:
+        if isinstance(v, dict) and _text(v.get("drive")).upper().startswith("C"):
+            livre_c = v.get("free_percent")
+    seg = row.get("security") if isinstance(row.get("security"), dict) else {}
+    rt = seg.get("defender_realtime")
+    return {
+        "ip": row.get("ip"),
+        "status_lido": row.get("status"),
+        # So com relatorio recente: sem isso disco/Defender/alertas antigos
+        # seriam reenviados a cada ciclo como se fossem leitura nova.
+        "checado_em": row.get("last_seen") if status == "online" else "",
+        "disco_c_livre_pct": livre_c,
+        "defender_tempo_real": None if rt is None else (1 if rt else 0),
+        "alertas": len(row.get("health_flags") or []),
+        "windows": _text((row.get("os") or {}).get("name")),
+        "usuario": _text(row.get("logged_user")),
+        "anydesk_id": _text(row.get("anydesk_id")),
+    }
+
+
 def refresh_from_inventory() -> Dict[str, Any]:
     from app.services.connector_service import list_connectors
     from app.services.inventory_json import load_inventory_json
@@ -421,12 +480,17 @@ def refresh_from_inventory() -> Dict[str, Any]:
         logger.warning("Falha ao observar switches no monitoramento: %s", exc)
         counts["switch"] = 0
     windows = load_windows_inventory()
-    counts["windows"] = _observe_many(({
-        "entity_key": f"windows:{r.get('connector_id') or 'local'}:{r.get('hostname') or r.get('ip')}", "entity_type": "windows",
-        "entity_id": r.get("hostname") or r.get("ip"), "site": r.get("local") or r.get("site"), "connector_id": r.get("connector_id"),
-        "display_name": r.get("hostname") or r.get("ip"), "status": _efetivo(r),
-        "detail": {"ip": r.get("ip"), "status_lido": r.get("status")},
-    } for r in windows if r.get("hostname") or r.get("ip")), prune_entity_type="windows")
+    linhas_windows = []
+    for r in windows:
+        if not (r.get("hostname") or r.get("ip")):
+            continue
+        st = _status_windows(r, sem_caminho)
+        linhas_windows.append({
+            "entity_key": f"windows:{r.get('connector_id') or 'local'}:{_chave_windows(r)}", "entity_type": "windows",
+            "entity_id": r.get("hostname") or r.get("ip"), "site": r.get("local") or r.get("site"), "connector_id": r.get("connector_id"),
+            "display_name": r.get("hostname") or r.get("ip"), "status": st, "detail": _detalhe_windows(r, st),
+        })
+    counts["windows"] = _observe_many(linhas_windows, prune_entity_type="windows")
     try:
         access_devices = list_access_devices()
         counts["access_device"] = _observe_many(({

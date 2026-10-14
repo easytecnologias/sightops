@@ -462,7 +462,7 @@ const VIEW_META = {
   'inv-switch':    { title: 'Cameras IP  Switch', sub: 'Cameras via switch gerenciavel' },
   'inv-dvr':       { title: 'Inventario  DVR',  sub: 'Gravadores DVR' },
   'inv-nvr':       { title: 'Gravadores', sub: 'Canais NVR com cameras associadas' },
-  'inv-windows':   { title: 'Inventario - Windows', sub: 'Hosts Windows' },
+  'inv-windows':   { title: 'Inventario - Computadores', sub: 'Computadores Windows' },
   'snap-cam':      { title: 'Snapshots  Cameras', sub: 'Fotos das cameras IP' },
   'snap-dvr':      { title: 'Snapshots  DVR',   sub: 'Fotos dos canais DVR' },
   'snap-nvr':      { title: 'Snapshots  NVR',   sub: 'Fotos dos canais NVR' },

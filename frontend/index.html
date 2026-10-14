@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=1792000011">
+  <link rel="stylesheet" href="styles.css?v=1792000020">
 </head>
 <body>
 
@@ -98,7 +98,7 @@
             <button class="nav-item nav-sub-item" data-view="snap-dvr"><i data-lucide="hard-drive-upload"></i><span>Gravadores</span></button>
           </div>
         </div>
-        <button class="nav-item" data-view="inv-windows"><i data-lucide="monitor"></i><span>Windows</span></button>
+        <button class="nav-item" data-view="inv-windows"><i data-lucide="monitor"></i><span>Computadores</span></button>
 
         <!-- Integracoes (logo apos Inventario) -->
         <div class="nav-section-label">Integracoes</div>
@@ -772,100 +772,62 @@
         <div class="page-heading">
           <div>
             <p class="eyebrow">Inventario</p>
-            <h1>Windows</h1>
-            <p>Inventario de computadores, hardware, acesso remoto e caminho fisico.</p>
+            <h1>Computadores</h1>
+            <p id="winSubtitulo">Computadores Windows: hardware, seguranca, acesso remoto e caminho fisico.</p>
           </div>
           <div class="page-heading-actions">
-            <button class="secondary-action" id="btnWinAgent"><i data-lucide="download"></i> Agente</button>
-            <button class="secondary-action" id="btnWinPhotos"><i data-lucide="image-plus"></i> Fotos</button>
-            <button class="secondary-action" id="btnWinPdf"><i data-lucide="file-text"></i> PDF</button>
-            <button class="primary-action" id="btnScanWindows"><i data-lucide="scan-search"></i> Varredura</button>
+            <button class="secondary-action" id="btnWinPdf"><i data-lucide="file-text"></i> Relatorio PDF</button>
+            <button class="secondary-action" id="btnScanWindows"><i data-lucide="scan-search"></i> Varrer rede</button>
+            <button class="primary-action" id="btnWinAgent"><i data-lucide="download"></i> Instalar agente</button>
           </div>
         </div>
 
-        <div class="inv-summary" id="winSummary">
-          <span>Total: <strong id="winTotal">0</strong></span>
-          <span class="inv-sum-sep">-</span>
-          <span style="color:var(--primary)">Online: <strong id="winOnline">0</strong></span>
-          <span class="inv-sum-sep">-</span>
-          <span style="color:var(--danger)">Offline: <strong id="winOffline">0</strong></span>
-          <span class="inv-sum-sep">-</span>
-          <span style="color:var(--blue)">SSD: <strong id="winSsd">0</strong></span>
-          <span class="inv-sum-sep">-</span>
-          <span style="color:var(--amber)">Sem SSD: <strong id="winNoSsd">0</strong></span>
-        </div>
+        <!-- Montado por windows.js: resumo, atencao e saude do parque. -->
+        <div id="winResumo"></div>
+        <!-- Nenhum computador ainda: passo a passo do agente. -->
+        <div id="winPrimeiroUso" hidden></div>
 
-        <div class="filters" style="padding:0 0 12px;border:none">
-          <label class="search-box" style="flex:1;min-width:320px">
-            <i data-lucide="search"></i>
-            <input id="searchInvWindows" placeholder="Buscar IP, MAC, hostname, usuario, modelo, CPU ou AnyDesk">
-          </label>
-          <select id="filterWinStatus" class="filter-select" style="min-width:150px">
-            <option value="">Todos</option>
-            <option value="online">Online</option>
-            <option value="offline">Offline</option>
-            <option value="with_ssd">Com SSD/NVMe</option>
-            <option value="without_ssd">Sem SSD</option>
-            <option value="with_anydesk">Com AnyDesk</option>
-            <option value="without_anydesk">Sem AnyDesk</option>
-            <option value="windows11">Windows 11</option>
-            <option value="windows10">Windows 10</option>
-            <option value="missing_data">Faltando dados</option>
-          </select>
-          <select id="filterWinSite" class="filter-select" style="min-width:170px"><option value="">Todos os sites</option></select>
-          <select id="filterWinSector" class="filter-select" style="min-width:170px"><option value="">Todos os setores</option></select>
-          <button class="secondary-action" id="btnWinClearFilters">Limpar</button>
-        </div>
-
-        <div class="panel">
-          <div class="table-wrap windows-table-wrap">
-            <table class="data-table windows-inventory-table">
+        <div class="panel win-tabela" id="winTabela">
+          <div class="win-barra">
+            <label class="search-box win-busca">
+              <i data-lucide="search"></i>
+              <input id="searchInvWindows" placeholder="Hostname, usuario, IP, AnyDesk, serial..." autocomplete="off">
+            </label>
+            <div class="win-filtros" id="winFiltros" role="group" aria-label="Filtrar computadores"></div>
+            <select id="filterWinSite" class="filter-select" aria-label="Site"><option value="">Todos os sites</option></select>
+            <select id="filterWinSector" class="filter-select" aria-label="Setor"><option value="">Todos os setores</option></select>
+          </div>
+          <div class="table-wrap">
+            <table class="data-table win-tab">
               <thead>
                 <tr>
-                  <th style="width:36px"><input type="checkbox" id="chkWinAll"></th>
-                  <th>IP</th>
-                  <th>MAC</th>
-                  <th>Hostname</th>
-                  <th>Usuario</th>
+                  <th style="width:36px"><input type="checkbox" id="chkWinAll" aria-label="Selecionar todos"></th>
+                  <th>Computador</th>
+                  <th>Site / setor</th>
                   <th>Windows</th>
-                  <th>Fabricante</th>
-                  <th>Modelo</th>
-                  <th>Site</th>
-                  <th>Setor</th>
-                  <th>Status</th>
-                  <th>CPU</th>
-                  <th>Memoria</th>
-                  <th>Disco modelo</th>
-                  <th>Disco tipo</th>
-                  <th>Disco GB</th>
-                  <th>Disco serial</th>
-                  <th>AnyDesk</th>
-                  <th>Switch</th>
-                  <th>Porta SW</th>
-                  <th>Patch panel</th>
-                  <th>Porta patch</th>
-                  <th>Tomada</th>
-                  <th>Rack</th>
-                  <th>Cabo</th>
-                  <th>Patrimonio</th>
-                  <th>Obs.</th>
+                  <th>Hardware</th>
+                  <th>Disco C:</th>
+                  <th>Seguranca</th>
+                  <th>Contato</th>
+                  <th></th>
                 </tr>
               </thead>
               <tbody id="invWindowsTable">
-                <tr class="empty-row"><td colspan="27">Nenhum dado. Baixe o agente ou execute uma varredura.</td></tr>
+                <tr class="empty-row"><td colspan="9">Carregando...</td></tr>
               </tbody>
             </table>
           </div>
           <div class="table-footer">
-            <span id="invWindowsFooter">0 hosts</span>
+            <span id="invWindowsFooter">0 computadores</span>
             <div style="display:flex;gap:8px;align-items:center">
               <span id="winSelectedCount" style="font-size:12px;color:var(--muted)">0 selecionados</span>
-              <button class="secondary-action" id="btnWinEdit" title="Editar fisico"><i data-lucide="pencil"></i></button>
+              <button class="secondary-action" id="btnWinEdit" title="Editar caminho fisico"><i data-lucide="pencil"></i></button>
               <button class="secondary-action" id="btnWinDelete" title="Excluir selecionados"><i data-lucide="trash-2"></i></button>
               <button class="secondary-action" id="btnWinClearAll" title="Apagar inventario"><i data-lucide="archive-x"></i></button>
             </div>
           </div>
         </div>
+
         <div id="winPanelBackdrop" class="cam-panel-backdrop hidden"></div>
         <div id="winPanel" class="cam-panel hidden win-panel">
           <div class="cam-panel-header">
@@ -6977,12 +6939,12 @@
        trechos do app.js original na sequencia em que estavam, entao carregar
        fora de ordem muda o comportamento. Ao adicionar um arquivo novo, entre
        antes de bootstrap.js, que e quem liga os botoes no DOMContentLoaded. -->
-  <script src="js/core.js?v=1791000212"></script>
+  <script src="js/core.js?v=1792000020"></script>
   <script src="js/dashboard.js?v=1791000212"></script>
   <script src="js/liveStream.js?v=1791000212"></script>
   <script src="js/cameras.js?v=1791000212"></script>
   <script src="js/recorders.js?v=1792000003"></script>
-  <script src="js/windows.js?v=1791000212"></script>
+  <script src="js/windows.js?v=1792000020"></script>
   <script src="js/snapshots.js?v=1791000212"></script>
   <script src="js/maintenance.js?v=1791000212"></script>
   <script src="js/analysis.js?v=1791000212"></script>
@@ -7002,6 +6964,6 @@
   <script src="js/messenger.js?v=1791000212"></script>
   <script src="js/alert.js?v=1791000212"></script>
   <script src="js/tr069.js?v=1791000212"></script>
-  <script src="js/bootstrap.js?v=1791000212"></script>
+  <script src="js/bootstrap.js?v=1792000020"></script>
 </body>
 </html>

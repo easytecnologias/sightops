@@ -126,9 +126,34 @@ def api_windows_prepare_script(username: str = Query("sightops_inv")) -> Respons
     )
 
 
+def _base_do_agente(request: Request, base: str) -> str:
+    """Endereco que o agente usa para reportar.
+
+    `request.base_url` aqui dentro e "http://<dominio>/": a v3 e servida sob
+    /v3-api/ e o nginx corta esse prefixo. O agente ia postar em
+    <dominio>/api/..., que e a API de PRODUCAO v2 -- o computador nunca
+    apareceria na v3. A tela manda a base que ela mesma usa (API_BASE); so
+    vale se for do mesmo dominio deste pedido, para o script nao embutir
+    endereco de terceiro.
+    """
+    from urllib.parse import urlparse
+
+    host_pedido = (request.headers.get("host") or "").split(":")[0].lower()
+    alvo = urlparse(str(base or "").strip())
+    import re
+
+    # O valor vai para dentro de uma string do PowerShell: so letras, numeros e
+    # / _ . - no caminho, nada de aspas ou $.
+    if alvo.scheme in ("http", "https") and alvo.hostname and alvo.hostname.lower() == host_pedido \
+            and not alvo.query and not alvo.fragment and "@" not in alvo.netloc \
+            and re.fullmatch(r"[A-Za-z0-9.:-]+", alvo.netloc) and re.fullmatch(r"[A-Za-z0-9/_.-]*", alvo.path):
+        return f"{alvo.scheme}://{alvo.netloc}{alvo.path}".rstrip("/")
+    return str(request.base_url).rstrip("/")
+
+
 @router.get("/agent-script")
-def api_windows_agent_script(request: Request) -> Response:
-    base_url = str(request.base_url).rstrip("/")
+def api_windows_agent_script(request: Request, base: str = "") -> Response:
+    base_url = _base_do_agente(request, base)
     script = build_windows_agent_script(base_url=base_url)
     return Response(
         content=script,

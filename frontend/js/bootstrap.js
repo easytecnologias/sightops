@@ -915,7 +915,7 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('closeWinScan')?.addEventListener('click', closeWinScanModal);
   document.getElementById('cancelWinScan')?.addEventListener('click', closeWinScanModal);
   document.getElementById('startWinScan')?.addEventListener('click', runWinScan);
-  document.getElementById('btnWinAgent')?.addEventListener('click', () => downloadWithAuth('/api/windows/agent-script', 'sightops-agente-windows.ps1'));
+  document.getElementById('btnWinAgent')?.addEventListener('click', winBaixarAgente);
   document.getElementById('btnWinPdf')?.addEventListener('click', () => downloadWithAuth('/api/windows/report.pdf', 'windows-inventory.pdf'));
   document.getElementById('btnWinPhotos')?.addEventListener('click', enrichWindowsPhotos);
   document.getElementById('btnWinEdit')?.addEventListener('click', openWinPhysicalModal);

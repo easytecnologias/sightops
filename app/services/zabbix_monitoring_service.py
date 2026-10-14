@@ -394,7 +394,7 @@ def _configurar_telegram_por_site(
     return {"acoes": feitas, "motivo": ""}
 
 
-def sync_monitoring_to_zabbix(entity_types: tuple[str, ...] = ("olt", "onu", "camera", "nvr", "dvr", "connector", "access_device", "whatsapp", "switch")) -> Dict[str, Any]:
+def sync_monitoring_to_zabbix(entity_types: tuple[str, ...] = ("olt", "onu", "camera", "nvr", "dvr", "connector", "access_device", "whatsapp", "switch", "windows")) -> Dict[str, Any]:
     settings = load_app_settings()
     raw_cfg = settings.get("zabbix_ip_sync") if isinstance(settings.get("zabbix_ip_sync"), dict) else {}
     cfg = _default_zabbix_cfg(raw_cfg)
@@ -516,7 +516,12 @@ def sync_monitoring_to_zabbix(entity_types: tuple[str, ...] = ("olt", "onu", "ca
                    "sightops.onus_up", "sightops.onus_total", "sightops.uptime_days",
                    "sightops.uplinks_up", "sightops.uplinks_total", "sightops.pons_up", "sightops.pons_total",
                    "sightops.uplink_in_bps", "sightops.uplink_out_bps",
-                   "sightops.canais_online", "sightops.canais_offline", "sightops.canais_total"]
+                   "sightops.canais_online", "sightops.canais_offline", "sightops.canais_total",
+                   # Toda chave de metricas_por_tipo TEM de estar aqui: o item.get
+                   # filtra por esta lista, e chave ausente nao e achada -- o sync
+                   # tenta criar o item de novo a cada ciclo, o Zabbix recusa a
+                   # duplicata e o sync do tenant inteiro para antes do push.
+                   "sightops.disco_c_livre_pct", "sightops.defender_tempo_real", "sightops.alertas"]
     items = _call(
         url, "item.get",
         {"output": ["itemid", "hostid", "key_"], "hostids": all_hostids, "filter": {"key_": wanted_keys}},
@@ -543,6 +548,9 @@ def sync_monitoring_to_zabbix(entity_types: tuple[str, ...] = ("olt", "onu", "ca
         "sightops.canais_online": ("SightOps - Canais com imagem", 3, "Canais do gravador com camera respondendo (verificacao de ate 2 h)"),
         "sightops.canais_offline": ("SightOps - Canais sem imagem", 3, "Canais do gravador com camera fora ou gravador sem resposta"),
         "sightops.canais_total": ("SightOps - Canais lidos", 3, "Canais com camera e leitura valida na ultima verificacao (exclui canal vazio e sem leitura)"),
+        "sightops.disco_c_livre_pct": ("SightOps - Disco C: livre (%)", 0, "Espaco livre no C: no ultimo relatorio do agente Windows"),
+        "sightops.defender_tempo_real": ("SightOps - Defender em tempo real", 3, "1 = ligado, 0 = desligado (agente Windows)"),
+        "sightops.alertas": ("SightOps - Alertas de saude", 3, "Quantos alertas o inventario Windows levantou (sem SSD, pouca memoria, disco cheio, Defender, BitLocker, TPM, Windows sem suporte)"),
     }
     # bit/s ja vem calculado (olt_snmp_health, entre duas leituras SNMP). A
     # primeira versao criou estes itens com pre-processamento "x8 + diferenca
@@ -567,6 +575,7 @@ def sync_monitoring_to_zabbix(entity_types: tuple[str, ...] = ("olt", "onu", "ca
                 "sightops.uplink_in_bps", "sightops.uplink_out_bps"],
         "nvr": ["sightops.canais_online", "sightops.canais_offline", "sightops.canais_total"],
         "dvr": ["sightops.canais_online", "sightops.canais_offline", "sightops.canais_total"],
+        "windows": ["sightops.disco_c_livre_pct", "sightops.defender_tempo_real", "sightops.alertas"],
     }
     create_items = []
     for technical_name, row in technical_names.items():
@@ -624,6 +633,10 @@ def sync_monitoring_to_zabbix(entity_types: tuple[str, ...] = ("olt", "onu", "ca
             ("sightops.canais_online", _number(detail.get("canais_online")) if detail.get("checado_em") else None),
             ("sightops.canais_offline", _number(detail.get("canais_offline")) if detail.get("checado_em") else None),
             ("sightops.canais_total", _number(detail.get("canais_total")) if detail.get("checado_em") else None),
+            # Windows: so valores do agente; sem relatorio (checado_em) nao manda nada.
+            ("sightops.disco_c_livre_pct", _number(detail.get("disco_c_livre_pct")) if detail.get("checado_em") else None),
+            ("sightops.defender_tempo_real", _number(detail.get("defender_tempo_real")) if detail.get("checado_em") else None),
+            ("sightops.alertas", _number(detail.get("alertas")) if detail.get("checado_em") else None),
         ):
             metric_itemid = item_by_host_key.get((hostid, key), "")
             if metric_itemid and value is not None:

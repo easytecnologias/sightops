@@ -532,7 +532,10 @@ def _health_flags(row: Dict[str, Any]) -> List[str]:
     if row.get("has_ssd") is False:
         flags.append("Sem SSD detectado")
     try:
-        if float(row.get("ram_gb") or 0) < 8:
+        # 7,5 e nao 8: PC com 8 GB reporta ~7,7 GB utilizaveis (video integrado
+        # reserva parte) e era marcado como "abaixo de 8 GB".
+        ram = float(row.get("ram_gb") or 0)
+        if 0 < ram < 7.5:
             flags.append("Memoria abaixo de 8 GB")
     except Exception:
         pass
@@ -549,6 +552,14 @@ def _health_flags(row: Dict[str, Any]) -> List[str]:
         flags.append("Defender em tempo real desativado")
     if security.get("tpm_ready") is False:
         flags.append("TPM nao pronto")
+    if security.get("defender_enabled") is False:
+        flags.append("Defender desativado")
+    if _bitlocker_c(row) is False:
+        flags.append("BitLocker desligado no C:")
+    os_name = _text((row.get("os") or {}).get("name"))
+    if "windows 10" in os_name.lower() or "windows 8" in os_name.lower() or "windows 7" in os_name.lower():
+        # Windows 10 deixou de receber atualizacao de seguranca em 14/10/2025.
+        flags.append("Windows sem suporte da Microsoft")
     return flags
 
 
@@ -709,28 +720,198 @@ def accept_windows_agent_report(payload: Dict[str, Any], remote_ip: str = "", te
     if not ip:
         raise ValueError("Agente nao informou IPv4 valido.")
     row = _normalize_inventory(ip, data, status="agent_reported")
+    row["agent_version"] = _text(data.get("agent_version"))
+    row["agent_scheduled"] = bool(data.get("agent_scheduled"))
     current = load_windows_inventory(tenant_slug=tenant_slug)
-    merged = _merge_rows(current, [row])
-    save_windows_inventory(merged, tenant_slug=tenant_slug)
+    # O mesmo computador e achado por serial/hostname antes do IP: com o agente
+    # reportando a cada 15 min, PC em DHCP trocava de IP e virava outra linha.
+    pos = _achar_computador(current, row)
+    if pos is None:
+        row["first_seen"] = row.get("updated_at")
+        row["eventos"] = [{"em": row.get("updated_at"), "txt": "Entrou no inventario pelo agente"}]
+        current.append(row)
+    else:
+        antigo = current[pos]
+        novo = dict(antigo)
+        novo.update(row)
+        for manter in ("site", "sector"):
+            if not _text(row.get(manter)) and _text(antigo.get(manter)):
+                novo[manter] = antigo[manter]
+        novo["first_seen"] = antigo.get("first_seen") or antigo.get("updated_at") or row.get("updated_at")
+        eventos = list(antigo.get("eventos") or []) if isinstance(antigo.get("eventos"), list) else []
+        eventos.extend({"em": row.get("updated_at"), "txt": t} for t in _eventos_de_mudanca(antigo, row))
+        novo["eventos"] = eventos[-_MAX_EVENTOS:]
+        current[pos] = novo
+        row = novo
+    save_windows_inventory(current, tenant_slug=tenant_slug)
     return {"ok": True, "saved": True, "row": row}
+
+
+_MAX_EVENTOS = 40
+# Serial de placa generica: varios PCs montados repetem o mesmo texto e virariam
+# um computador so.
+_SERIAL_GENERICO = {"", "default string", "to be filled by o.e.m.", "system serial number",
+                    "none", "0", "00000000", "123456789", "not applicable", "n/a"}
+
+
+def _achar_computador(rows: List[Dict[str, Any]], row: Dict[str, Any]) -> Any:
+    serial = _text(row.get("serial")).lower()
+    host = _text(row.get("hostname")).lower()
+    if serial not in _SERIAL_GENERICO:
+        for i, r in enumerate(rows):
+            if _text(r.get("serial")).lower() == serial and (not host or _text(r.get("hostname")).lower() == host):
+                return i
+    if host:
+        for i, r in enumerate(rows):
+            if _text(r.get("hostname")).lower() == host:
+                return i
+    ip = _text(row.get("ip"))
+    for i, r in enumerate(rows):
+        if ip and _text(r.get("ip")) == ip and not _text(r.get("hostname")):
+            return i
+    return None
+
+
+def _defender_rt(row: Dict[str, Any]) -> Any:
+    d = row.get("defender") if isinstance(row.get("defender"), dict) else {}
+    return d.get("realtime")
+
+
+def _bitlocker_c(row: Dict[str, Any]) -> Any:
+    for v in row.get("bitlocker") or []:
+        if isinstance(v, dict) and _text(v.get("mount_point")).upper().startswith("C"):
+            st = _text(v.get("protection_status")).lower()
+            return st in ("1", "on", "true")
+    return None
+
+
+def _ultimo_hotfix(row: Dict[str, Any]) -> str:
+    ids = [_text(h.get("id")) for h in (row.get("hotfixes") or []) if isinstance(h, dict) and _text(h.get("id"))]
+    return ids[0] if ids else ""
+
+
+def _eventos_de_mudanca(antigo: Dict[str, Any], novo: Dict[str, Any]) -> List[str]:
+    """O que mudou entre dois relatorios do mesmo computador, em frase de operacao.
+
+    So o que importa para quem cuida do parque: seguranca, hardware, sistema e
+    acesso. Usuario logado e IP mudam o tempo todo e nao viram evento.
+    """
+    ev: List[str] = []
+    so_a, so_n = antigo.get("os") or {}, novo.get("os") or {}
+    win_a = " ".join(x for x in (_text(so_a.get("name")), _text(so_a.get("build"))) if x)
+    win_n = " ".join(x for x in (_text(so_n.get("name")), _text(so_n.get("build"))) if x)
+    if win_a and win_n and win_a != win_n:
+        ev.append(f"Windows mudou de {win_a} para {win_n}")
+    try:
+        ra, rn = float(antigo.get("ram_gb") or 0), float(novo.get("ram_gb") or 0)
+        if ra and rn and abs(ra - rn) >= 0.5:
+            ev.append(f"Memoria passou de {ra:g} GB para {rn:g} GB")
+    except (TypeError, ValueError):
+        pass
+    da, dn = _text(antigo.get("disk_summary")), _text(novo.get("disk_summary"))
+    if da and dn and da != dn:
+        ev.append(f"Discos mudaram: {da} -> {dn}")
+    fa, fn = _defender_rt(antigo), _defender_rt(novo)
+    if fa is True and fn is False:
+        ev.append("Defender em tempo real foi desligado")
+    elif fa is False and fn is True:
+        ev.append("Defender em tempo real foi religado")
+    ba, bn = _bitlocker_c(antigo), _bitlocker_c(novo)
+    if ba is True and bn is False:
+        ev.append("BitLocker do C: deixou de proteger")
+    elif ba is False and bn is True:
+        ev.append("BitLocker do C: passou a proteger")
+    ta = (antigo.get("security") or {}).get("tpm_ready")
+    tn = (novo.get("security") or {}).get("tpm_ready")
+    if ta is True and tn is False:
+        ev.append("TPM deixou de estar pronto")
+    boot_a, boot_n = _text(so_a.get("last_boot")), _text(so_n.get("last_boot"))
+    if boot_a and boot_n and boot_a != boot_n:
+        ev.append("Computador reiniciado")
+    ha, hn = _ultimo_hotfix(antigo), _ultimo_hotfix(novo)
+    if hn and hn != ha:
+        ev.append(f"Instalou a atualizacao {hn}")
+    aa, an = _text(antigo.get("anydesk_id")), _text(novo.get("anydesk_id"))
+    if an and aa != an:
+        ev.append(f"AnyDesk ID {'mudou para' if aa else 'registrado:'} {an}")
+    if _text(antigo.get("hostname")) and _text(novo.get("hostname")) and \
+            _text(antigo.get("hostname")).lower() != _text(novo.get("hostname")).lower():
+        ev.append(f"Nome mudou de {antigo.get('hostname')} para {novo.get('hostname')}")
+    return ev
+
+
+AGENTE_VERSAO = "2.0"
 
 
 def build_windows_agent_script(base_url: str) -> str:
     server = _text(base_url).rstrip("/") or "http://127.0.0.1"
     token = get_windows_agent_token()
-    return f"""# SightOps - Agente de Inventario Windows
+    return f"""# SightOps - Agente de Inventario Windows {AGENTE_VERSAO}
 # Execute em qualquer computador Windows que consiga acessar o servidor SightOps.
 # Nao precisa senha remota, WinRM, dominio ou PIN. O computador envia o inventario para o servidor.
+#
+# Rodando como Administrador, o agente se copia para C:\\ProgramData\\SightOps e
+# cria a tarefa "SightOps Inventario" (a cada 15 min e ao ligar), que reenvia
+# o inventario sozinha. Sem isso o computador aparece como "sem contato".
+#
+# Instalar em varios computadores sem perguntas (GPO, AnyDesk, script):
+#   powershell -ExecutionPolicy Bypass -File sightops-agente-windows.ps1 -Silencioso -Site "Sede" -Setor "Financeiro"
+param(
+  [switch]$Silencioso,
+  [string]$Site = "",
+  [string]$Setor = "",
+  [switch]$SemAgendar
+)
 
 $ErrorActionPreference = "Stop"
 $SightOpsUrl = "{server}"
 $AgentToken = "{token}"
+$AgentVersion = "{AGENTE_VERSAO}"
+$SightOpsDir = Join-Path $env:ProgramData "SightOps"
+$SightOpsCopia = Join-Path $SightOpsDir "agente.ps1"
+$SightOpsCfg = Join-Path $SightOpsDir "agente.json"
+$SightOpsTarefa = "SightOps Inventario"
 
 Write-Host "Coletando inventario local para o SightOps..." -ForegroundColor Cyan
-$SightOpsSite = Read-Host "Site/unidade deste computador (ex: Matriz, Clinica Centro)"
-$SightOpsSector = Read-Host "Setor deste computador (ex: Recepcao, Financeiro, Consultorio 1)"
+$cfgSalva = $null
+if (Test-Path $SightOpsCfg) {{ try {{ $cfgSalva = Get-Content $SightOpsCfg -Raw | ConvertFrom-Json }} catch {{}} }}
+if (-not $Site -and $cfgSalva) {{ $Site = [string]$cfgSalva.site }}
+if (-not $Setor -and $cfgSalva) {{ $Setor = [string]$cfgSalva.setor }}
+if (-not $Silencioso) {{
+  if (-not $Site) {{ $Site = Read-Host "Site/unidade deste computador (ex: Matriz, Clinica Centro)" }}
+  if (-not $Setor) {{ $Setor = Read-Host "Setor deste computador (ex: Recepcao, Financeiro, Consultorio 1)" }}
+}}
+$SightOpsSite = $Site
+$SightOpsSector = $Setor
 
 $IsAdmin = ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+
+function Register-SightOpsAgendamento {{
+  # A copia em ProgramData e quem a tarefa roda: o .ps1 baixado costuma ficar
+  # em Downloads e ser apagado.
+  try {{
+    New-Item -ItemType Directory -Force -Path $SightOpsDir | Out-Null
+    if ($PSCommandPath -and ($PSCommandPath -ne $SightOpsCopia)) {{
+      Copy-Item -Path $PSCommandPath -Destination $SightOpsCopia -Force
+    }}
+    if (-not (Test-Path $SightOpsCopia)) {{ throw "rode o arquivo .ps1 (nao colado no console) para instalar a tarefa" }}
+    [PSCustomObject]@{{ site = $SightOpsSite; setor = $SightOpsSector }} | ConvertTo-Json | Set-Content -Path $SightOpsCfg -Encoding UTF8
+    $argumento = '-NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -File "' + $SightOpsCopia + '" -Silencioso'
+    $acao = New-ScheduledTaskAction -Execute "powershell.exe" -Argument $argumento
+    $aCada15 = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(2) -RepetitionInterval (New-TimeSpan -Minutes 15) -RepetitionDuration (New-TimeSpan -Days 3650)
+    $aoLigar = New-ScheduledTaskTrigger -AtStartup
+    $quem = New-ScheduledTaskPrincipal -UserId "SYSTEM" -LogonType ServiceAccount -RunLevel Highest
+    $como = New-ScheduledTaskSettingsSet -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Minutes 10) -MultipleInstances IgnoreNew
+    Register-ScheduledTask -TaskName $SightOpsTarefa -Action $acao -Trigger @($aCada15, $aoLigar) -Principal $quem -Settings $como -Force | Out-Null
+    Write-Host "Tarefa '$SightOpsTarefa' criada: o inventario sera reenviado a cada 15 min." -ForegroundColor Green
+  }} catch {{
+    Write-Host ("Nao consegui criar a tarefa agendada: " + $_.Exception.Message) -ForegroundColor Yellow
+  }}
+}}
+
+function Test-SightOpsAgendado {{
+  try {{ return [bool](Get-ScheduledTask -TaskName $SightOpsTarefa -ErrorAction Stop) }} catch {{ return $false }}
+}}
 
 function Convert-SightOpsSecureStringToPlainText {{
   param([Security.SecureString]$SecureText)
@@ -759,7 +940,8 @@ function Get-AnyDeskInventory {{
   $service = Get-Service -Name AnyDesk -ErrorAction SilentlyContinue
   $id = ""
   if ($ExePath -and (Test-Path $ExePath)) {{
-    for ($i = 0; $i -lt 12; $i++) {{
+    $tentativas = if ($Silencioso) {{ 2 }} else {{ 12 }}
+    for ($i = 0; $i -lt $tentativas; $i++) {{
       try {{
         $raw = & $ExePath --get-id 2>$null | Select-Object -First 1
         $id = ($raw -as [string]).Trim()
@@ -782,6 +964,10 @@ function Install-And-Configure-AnyDesk {{
   $exe = Get-AnyDeskExecutable
   $passwordConfigured = $false
   $errorMessage = ""
+  if ($Silencioso) {{
+    # Sem ninguem na frente: so le o que ja existe, nao instala nada.
+    return Get-AnyDeskInventory -ExePath $exe -ConfiguredPassword $false -ErrorMessage ""
+  }}
   try {{
     $choice = Read-Host "Instalar/configurar AnyDesk para acesso remoto? [S/n]"
     if ($choice -match '^[Nn]') {{
@@ -883,6 +1069,9 @@ function Get-ZabbixAgentInventory {{
 function Install-And-Configure-ZabbixAgent {{
   $serverHost = Get-SightOpsServerHost
   $errorMessage = ""
+  if ($Silencioso) {{
+    return Get-ZabbixAgentInventory -ServerHost $serverHost -ErrorMessage ""
+  }}
   try {{
     $choice = Read-Host "Instalar/configurar Zabbix Agent 2 para monitoramento? [S/n]"
     if ($choice -match '^[Nn]') {{
@@ -1022,8 +1211,8 @@ try {{
   $hotfixes = Get-CimInstance Win32_QuickFixEngineering | ForEach-Object {{
     $installed = ""
     try {{ $installed = ($_.InstalledOn -as [string]).Trim() }} catch {{}}
-    [PSCustomObject]@{{ id = $_.HotFixID; installed_on = $installed; description = $_.Description }}
-  }} | Select-Object -First 8
+    [PSCustomObject]@{{ id = $_.HotFixID; installed_on = $installed; description = $_.Description; quando = ($_.InstalledOn -as [datetime]) }}
+  }} | Sort-Object -Property quando -Descending | Select-Object -First 8 | Select-Object id, installed_on, description
 }} catch {{}}
 $memoryModules = $mem | ForEach-Object {{
   $ddr = switch ([int]$_.SMBIOSMemoryType) {{
@@ -1071,8 +1260,11 @@ $net = Get-CimInstance Win32_NetworkAdapterConfiguration -Filter "IPEnabled = Tr
   }}
 }}
 $primaryIpv4 = @($net | ForEach-Object {{ @($_.ip) }} | Where-Object {{ $_ -match '^\\d+\\.\\d+\\.\\d+\\.\\d+$' -and $_ -notmatch '^127\\.' }}) | Select-Object -First 1
+$Agendar = $IsAdmin -and -not $SemAgendar -and ($PSCommandPath -ne $SightOpsCopia)
 $payload = [PSCustomObject]@{{
   source = "agent"
+  agent_version = $AgentVersion
+  agent_scheduled = ($Agendar -or (Test-SightOpsAgendado))
   hostname = $env:COMPUTERNAME
   primary_ipv4 = $primaryIpv4
   site = $SightOpsSite
@@ -1126,6 +1318,11 @@ Write-Host "Enviando inventario para $endpoint ..." -ForegroundColor Cyan
 $resp = Invoke-RestMethod -Method Post -Uri $endpoint -ContentType "application/json; charset=utf-8" -Headers @{{ "X-SightOps-Agent-Token" = $AgentToken }} -Body $json
 Write-Host "Inventario enviado com sucesso." -ForegroundColor Green
 Write-Host ("Host: " + $resp.row.hostname + " / IP: " + $resp.row.ip)
+if ($Agendar) {{
+  Register-SightOpsAgendamento
+}} elseif (-not $IsAdmin -and -not $Silencioso) {{
+  Write-Host "Rodou sem Administrador: o inventario foi enviado uma vez, mas a tarefa que reenvia a cada 15 min nao foi criada." -ForegroundColor Yellow
+}}
 """
 
 
