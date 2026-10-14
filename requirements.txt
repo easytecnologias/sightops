@@ -23,3 +23,5 @@ cryptography>=42.0.0
 pywinrm>=0.5.0
 opencv-python-headless>=4.9.0
 google-genai>=2.10.0
+# Importada direto (network_tools); vinha so de carona do google-genai.
+httpx>=0.28.0

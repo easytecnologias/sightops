@@ -9,8 +9,9 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+COPY requirements.txt requirements.lock ./
+# -c fixa as versoes do ar; sem isso cada build resolve o >= de novo.
+RUN pip install --no-cache-dir -r requirements.txt -c requirements.lock
 
 COPY . .
 
