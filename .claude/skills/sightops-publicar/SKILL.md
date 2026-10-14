@@ -13,7 +13,10 @@ aconteceram de verdade:
 
 - copiar o arquivo do git por cima apagou 3 h de trabalho de outro agente;
 - `docker cp` sem `commit` sumiu no recreate (o relatorio em PDF voltou a ser foto);
-- `?v=` reutilizado serviu JS velho e pareceu que a correcao nao funcionava.
+- `?v=` reutilizado serviu JS velho e pareceu que a correcao nao funcionava;
+- `docker commit` sem `--pause=false` congelou a API por 14 min (14/10/2026): o
+  commit pausa o container, e dois lacos de outra sessao com `docker exec` a cada
+  2 s prenderam o Docker -- o commit terminou mas o unpause nunca voltou.
 
 ## 1. Partir do que esta no ar
 
@@ -34,13 +37,32 @@ nova `AAAAMMDD-assunto`:
 ```bash
 docker cp /tmp/novo_X.py sightops-v3-api:/app/app/services/X.py
 docker restart sightops-v3-api
-docker commit sightops-v3-api sightops-prod-api:AAAAMMDD-assunto
+docker commit --pause=false sightops-v3-api sightops-prod-api:AAAAMMDD-assunto
 cd /home/central/sightops-v3-release
+cp .env.v3 .env.v3.bak-AAAAMMDD-assunto
 sed -i 's|^CAM_SNAPSHOT_IMAGE=.*|CAM_SNAPSHOT_IMAGE=sightops-prod-api:AAAAMMDD-assunto|' .env.v3
 ```
 
-Antes: `docker history -q <imagem atual> | wc -l`. Passou de ~110, achatar
-primeiro com `deploy/imagem/achatar-imagem.sh`.
+`--pause=false` e obrigatorio: o codigo ja esta no disco e nao muda durante o
+commit, entao a pausa nao protege nada -- so arrisca deixar a API congelada.
+
+Antes de entregar os comandos, confira:
+
+- `docker history -q <imagem atual> | wc -l` -- passou de ~110, achatar primeiro
+  com `deploy/imagem/achatar-imagem.sh`.
+- Nenhum `docker exec` pendurado no container (laco de outra sessao esperando
+  health, por exemplo):
+  `ps -eo pid,etime,args | grep -E "docker exec sightops-v3-api|until docker exec" | grep -v grep`.
+  Se houver, avise o usuario antes -- e de quem e, nao mate sem dizer.
+
+Se mesmo assim ficar `(Paused)` e o `docker unpause` travar: o Docker esta preso.
+Como root, `echo 1 > /sys/fs/cgroup/system.slice/docker-<id completo>.scope/cgroup.kill`
+derruba o container antigo e o `compose up -d --no-deps cam-snapshot-api` sobe o
+novo (a imagem nova ja existe, o commit terminou). `cgroup.freeze = 0` nao bastou.
+
+Esperar a API dentro do container: a imagem NAO tem `curl`. Use
+`python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/system/health/live')"`
+-- `until docker exec ... curl` nunca termina (foi o laco que travou o commit).
 
 ## 3. Frontend
 
