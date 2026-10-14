@@ -911,7 +911,7 @@ document.addEventListener('DOMContentLoaded', () => {
   });
   document.getElementById('btnWinAgent')?.addEventListener('click', winBaixarAgente);
   document.getElementById('btnWinAtualizar')?.addEventListener('click', winAtualizar);
-  document.getElementById('btnWinPdf')?.addEventListener('click', () => downloadWithAuth('/api/windows/report.pdf', 'windows-inventory.pdf'));
+  document.getElementById('btnWinPdf')?.addEventListener('click', () => downloadWithAuth('/api/windows/report.pdf', 'computadores.pdf'));
   document.getElementById('btnWinEdit')?.addEventListener('click', openWinPhysicalModal);
   document.getElementById('btnWinDelete')?.addEventListener('click', deleteSelectedWindows);
   document.getElementById('btnWinClearAll')?.addEventListener('click', clearWindowsInventory);

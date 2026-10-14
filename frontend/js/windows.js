@@ -544,7 +544,7 @@ function winPanelAction(action) {
     return;
   }
   if (action === 'agent') return winBaixarAgente();
-  if (action === 'pdf') return downloadWithAuth('/api/windows/report.pdf', 'windows-inventory.pdf');
+  if (action === 'pdf') return downloadWithAuth('/api/windows/report.pdf', 'computadores.pdf');
   if (action === 'refresh') return loadInvWindows();
 }
 function selectedWinRows() {

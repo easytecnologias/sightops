@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any, Dict
 
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import Response
 
 from app.services.windows_inventory_service import (
     clear_windows_inventory,
@@ -14,7 +14,6 @@ from app.services.windows_inventory_service import (
     save_windows_inventory,
     validate_windows_agent_token,
 )
-from app.services.windows_photo_enrichment import enrich_windows_rows_with_photos
 from app.services.windows_pdf_report import build_windows_inventory_pdf
 
 router = APIRouter(prefix="/api/windows", tags=["windows"])
@@ -90,19 +89,28 @@ def api_windows_clear() -> Dict[str, Any]:
     return clear_windows_inventory()
 
 
-@router.post("/enrich/photos")
-def api_windows_enrich_photos() -> Dict[str, Any]:
-    rows = load_windows_inventory()
-    result = enrich_windows_rows_with_photos(rows)
-    save_windows_inventory(result.get("rows") or rows)
-    return {"ok": True, "count": len(result.get("rows") or []), "assets": result.get("assets", 0)}
-
-
 @router.get("/report.pdf")
-def api_windows_report_pdf(company_name: str = "") -> FileResponse:
-    rows = load_windows_inventory()
-    pdf_path = build_windows_inventory_pdf(rows, company_name=company_name)
-    return FileResponse(path=pdf_path, media_type="application/pdf", filename=pdf_path.name)
+def api_windows_report_pdf(request: Request) -> Response:
+    """Relatorio em texto (ReportLab), montado em memoria: nada vai para a
+    pasta comum output/reports, como no gerador antigo."""
+    import re
+
+    from app.core.tenant_context import get_current_tenant_slug, tenant_report_logo_path
+
+    usuario = getattr(request.state, "current_user", None) or {}
+    cliente = str(usuario.get("effective_tenant_name") or usuario.get("tenant_name") or "").strip()
+    logo = None
+    if get_current_tenant_slug():
+        for tipo in ("inventory", "nvr", "dvr"):
+            candidato = tenant_report_logo_path(tipo)
+            if candidato.exists():
+                logo = candidato
+                break
+    conteudo = build_windows_inventory_pdf(load_windows_inventory(), company_name=cliente, logo_path=logo)
+    sufixo = re.sub(r"[^A-Za-z0-9]+", "-", cliente).strip("-")[:40]
+    nome = f"computadores{'-' + sufixo if sufixo else ''}.pdf"
+    return Response(content=conteudo, media_type="application/pdf",
+                    headers={"Content-Disposition": f'attachment; filename="{nome}"'})
 
 
 def _base_do_agente(request: Request, base: str) -> str:

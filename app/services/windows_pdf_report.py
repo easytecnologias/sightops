@@ -1,432 +1,647 @@
+"""Relatorio de computadores (PDF em texto, ReportLab).
+
+Substitui o de 2026-09, que desenhava cada pagina como IMAGEM com PIL: sem
+texto selecionavel nem busca, e gravado em output/reports -- pasta comum a
+todos os clientes, onde os arquivos se acumulavam. Este monta o PDF em memoria
+e devolve os bytes.
+
+Paginas (mockup aprovado em 14/10/2026):
+  1. capa e resumo do parque (numeros, saude, por site, "em resumo");
+  2. precisa de atencao, agrupado, com o porque e o que fazer;
+  3. uma ficha por computador;
+  4. plano de troca e atualizacao + inventario completo.
+"""
 from __future__ import annotations
 
-from datetime import datetime
+import io
+import re
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional, Tuple
+from xml.sax.saxutils import escape
 
-from PIL import Image, ImageDraw, ImageFont, ImageOps
+from reportlab.lib import colors
+from reportlab.lib.enums import TA_RIGHT
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.styles import ParagraphStyle
+from reportlab.lib.units import mm
+from reportlab.platypus import (
+    CondPageBreak,
+    Image,
+    KeepTogether,
+    PageBreak,
+    Paragraph,
+    SimpleDocTemplate,
+    Spacer,
+    Table,
+    TableStyle,
+)
 
-from app.core.paths import OUTPUT_DIR
+# Mesmo limite da tela e do monitoramento (LIMITE_WINDOWS_MIN).
+LIMITE_CONTATO_MIN = 45
 
-A4_W = 2480
-A4_H = 3508
-MARGIN = 110
-
-
-def _text(value: Any) -> str:
-    return str(value or "").strip()
-
-
-def _font(size: int, bold: bool = False) -> ImageFont.ImageFont:
-    candidates = [
-        "C:/Windows/Fonts/segoeuib.ttf" if bold else "C:/Windows/Fonts/segoeui.ttf",
-        "C:/Windows/Fonts/arialbd.ttf" if bold else "C:/Windows/Fonts/arial.ttf",
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf" if bold else "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-    ]
-    for path in candidates:
-        try:
-            return ImageFont.truetype(path, size=size)
-        except Exception:
-            continue
-    return ImageFont.load_default()
-
-
-def _fit(draw: ImageDraw.ImageDraw, value: Any, font: ImageFont.ImageFont, width: int) -> str:
-    text = _text(value) or "-"
-    if draw.textlength(text, font=font) <= width:
-        return text
-    base = text
-    while base:
-        base = base[:-1]
-        candidate = base + "..."
-        if draw.textlength(candidate, font=font) <= width:
-            return candidate
-    return "..."
+ESCURO = colors.HexColor("#13252d")
+VERDE = colors.HexColor("#087f5b")
+VERMELHO = colors.HexColor("#c92a2a")
+AMBAR = colors.HexColor("#a35a00")
+AZUL = colors.HexColor("#1864ab")
+CINZA = colors.HexColor("#4f5d66")
+LINHA = colors.HexColor("#dfe4e8")
+FUNDO = colors.HexColor("#f6f8f9")
+TEXTO = colors.HexColor("#172026")
 
 
-def _new_page() -> tuple[Image.Image, ImageDraw.ImageDraw]:
-    page = Image.new("RGB", (A4_W, A4_H), "#f6f8fc")
-    return page, ImageDraw.Draw(page)
+def _t(v: Any) -> str:
+    return str(v or "").strip()
 
 
-def _draw_header(draw: ImageDraw.ImageDraw, title: str, subtitle: str) -> int:
-    draw.rounded_rectangle((MARGIN, 80, A4_W - MARGIN, 270), radius=28, fill="#0f2748")
-    draw.text((MARGIN + 45, 118), title, font=_font(48, True), fill="#ffffff")
-    draw.text((MARGIN + 45, 188), subtitle, font=_font(24), fill="#cbd5e1")
-    return 330
+def _e(v: Any) -> str:
+    return escape(_t(v))
 
 
-def _line(draw: ImageDraw.ImageDraw, x: int, y: int, label: str, value: Any, width: int = 700) -> None:
-    label_font = _font(21, True)
-    value_font = _font(24)
-    draw.text((x, y), label, font=label_font, fill="#64748b")
-    draw.text((x, y + 30), _fit(draw, value, value_font, width), font=value_font, fill="#0f172a")
+# ---------------------------------------------------------------- leitura
+
+def _data(v: Any) -> Optional[datetime]:
+    """ISO do servidor ou "/Date(ms)/" do PowerShell 5."""
+    s = _t(v)
+    if not s:
+        return None
+    m = re.search(r"/Date\((-?\d+)", s)
+    try:
+        if m:
+            return datetime.fromtimestamp(int(m.group(1)) / 1000, tz=timezone.utc)
+        d = datetime.fromisoformat(s.replace("Z", "+00:00"))
+        return d if d.tzinfo else d.replace(tzinfo=timezone.utc)
+    except (ValueError, OverflowError, OSError):
+        return None
 
 
-def _yesno(value: Any) -> str:
-    if value is True:
-        return "Sim"
-    if value is False:
-        return "Nao"
-    text = _text(value)
-    return text if text else "-"
+def _idade_min(row: Dict[str, Any], agora: datetime) -> float:
+    d = _data(row.get("last_seen") or row.get("updated_at"))
+    return (agora - d).total_seconds() / 60 if d else float("inf")
 
 
-def _draw_items(draw: ImageDraw.ImageDraw, x: int, y: int, width: int, items: List[str], font_size: int = 20, line_h: int = 42, limit: int = 10) -> int:
-    font = _font(font_size)
-    for item in items[:limit]:
-        draw.text((x, y), _fit(draw, item, font, width), font=font, fill="#0f172a")
-        y += line_h
-    if len(items) > limit:
-        draw.text((x, y), f"+ {len(items) - limit} itens adicionais", font=_font(font_size), fill="#64748b")
-        y += line_h
-    return y
+def _quando(d: Optional[datetime], agora: datetime) -> str:
+    if not d:
+        return "nunca"
+    m = (agora - d).total_seconds() / 60
+    if m < 60:
+        return f"ha {max(1, int(m))} min"
+    if m < 48 * 60:
+        return f"ha {int(m / 60)} h"
+    return d.astimezone().strftime("%d/%m/%Y")
 
 
-def _box(draw: ImageDraw.ImageDraw, xy: tuple[int, int, int, int], title: str) -> None:
-    draw.rounded_rectangle(xy, radius=22, fill="#ffffff", outline="#d9e2ef", width=2)
-    draw.text((xy[0] + 24, xy[1] + 18), title, font=_font(24, True), fill="#0f2748")
+def _online(row: Dict[str, Any], agora: datetime) -> bool:
+    return _t(row.get("status")).lower() in ("online", "agent_reported") and _idade_min(row, agora) <= LIMITE_CONTATO_MIN
 
 
-def _compact_kv(draw: ImageDraw.ImageDraw, x: int, y: int, label: str, value: Any, width: int, value_size: int = 20) -> int:
-    draw.text((x, y), label, font=_font(16, True), fill="#64748b")
-    draw.text((x, y + 22), _fit(draw, value, _font(value_size), width), font=_font(value_size), fill="#0f172a")
-    return y + 58
+def _os_nome(row: Dict[str, Any]) -> str:
+    return re.sub(r"^Microsoft\s+", "", _t((row.get("os") or {}).get("name")), flags=re.I)
 
 
-def _draw_photo_card(page: Image.Image, draw: ImageDraw.ImageDraw, xy: tuple[int, int, int, int], asset: Dict[str, Any]) -> None:
-    _box(draw, xy, _text(asset.get("label")) or "Foto")
-    img_box = (xy[0] + 24, xy[1] + 62, xy[2] - 24, xy[3] - 66)
-    path = Path(_text(asset.get("local_path")))
-    if path.exists():
-        try:
-            with Image.open(path) as raw:
-                img = ImageOps.exif_transpose(raw).convert("RGB")
-                img.thumbnail((img_box[2] - img_box[0], img_box[3] - img_box[1]))
-                px = img_box[0] + ((img_box[2] - img_box[0]) - img.width) // 2
-                py = img_box[1] + ((img_box[3] - img_box[1]) - img.height) // 2
-                page.paste(img, (px, py))
-        except Exception:
-            draw.text((img_box[0], img_box[1]), "Imagem indisponivel", font=_font(20), fill="#64748b")
-    title = _fit(draw, asset.get("title") or asset.get("query"), _font(15), xy[2] - xy[0] - 48)
-    source = _fit(draw, asset.get("source_url"), _font(13), xy[2] - xy[0] - 48)
-    draw.text((xy[0] + 24, xy[3] - 54), title, font=_font(15), fill="#0f172a")
-    draw.text((xy[0] + 24, xy[3] - 30), source, font=_font(13), fill="#64748b")
+def _sem_suporte(row: Dict[str, Any]) -> bool:
+    return bool(re.search(r"windows (10|8|7)\b", _os_nome(row), re.I))
 
 
-def _summary_page(rows: List[Dict[str, Any]]) -> Image.Image:
-    page, draw = _new_page()
-    y = _draw_header(
-        draw,
-        "Inventario Windows",
-        "Relatorio de computadores, hardware, armazenamento e memoria",
-    )
+def _seg(row: Dict[str, Any]) -> Dict[str, Any]:
+    return row.get("security") if isinstance(row.get("security"), dict) else {}
+
+
+def _bitlocker_c(row: Dict[str, Any]) -> Optional[bool]:
+    for v in row.get("bitlocker") or []:
+        if isinstance(v, dict) and _t(v.get("mount_point")).upper().startswith("C"):
+            return _t(v.get("protection_status")).lower() in ("1", "on", "true")
+    return None
+
+
+def _vol_c(row: Dict[str, Any]) -> Dict[str, Any]:
+    for v in row.get("volumes") or []:
+        if isinstance(v, dict) and _t(v.get("drive")).upper().startswith("C"):
+            return v
+    return {}
+
+
+def _ram(row: Dict[str, Any]) -> float:
+    try:
+        return float(row.get("ram_gb") or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _usuario(row: Dict[str, Any]) -> str:
+    """"DOMINIO\\maria" -> "maria"."""
+    return _t(row.get("logged_user")).rsplit("\\", 1)[-1]
+
+
+def _cpu(row: Dict[str, Any]) -> str:
+    c = row.get("cpu") if isinstance(row.get("cpu"), dict) else {}
+    return _t(c.get("name") or row.get("cpu"))
+
+
+def _cpu_curto(row: Dict[str, Any]) -> str:
+    s = re.sub(r"\d+th Gen |Intel\(R\)|Core\(TM\)|\(R\)|\(TM\)|CPU|Processor|@.*$", "", _cpu(row), flags=re.I)
+    return " ".join(s.split()) or "-"
+
+
+def _disco(row: Dict[str, Any]) -> str:
+    kind = _t(row.get("disk_kind")).lower()
+    tipo = "SSD" if kind in ("ssd", "mixed") else "HD" if kind == "hdd" else ""
+    try:
+        gb = float(row.get("disk_total_gb") or 0)
+    except (TypeError, ValueError):
+        gb = 0
+    tam = (f"{gb / 1024:.1f} TB".replace(".0 TB", " TB") if gb >= 1000 else f"{gb:.0f} GB") if gb else ""
+    return " ".join(x for x in (tipo, tam) if x) or _t(row.get("disk_summary")) or "-"
+
+
+def aceita_windows_11(row: Dict[str, Any]) -> Tuple[str, str]:
+    """("sim"|"nao"|"verificar", motivo) pelo processador e pelo TPM.
+
+    Regra da Microsoft resumida: Intel Core de 8a geracao em diante (ou Core
+    Ultra), AMD Ryzen 2000 em diante, e TPM 2.0. Celeron/Pentium/Xeon/Atom tem
+    lista propria modelo a modelo: fica "verificar". TPM sem dado (agente sem
+    Administrador) tambem.
+    """
+    cpu = _cpu(row)
+    tpm = _seg(row).get("tpm_present")
+    cpu_ok: Optional[bool] = None
+    m = re.search(r"\bi[3579]-(\d{4,5})", cpu, re.I)
+    g = re.search(r"(\d{1,2})th Gen", cpu)
+    r = re.search(r"Ryzen\s+\d\s+(?:PRO\s+)?(\d)\d{3}", cpu, re.I)
+    if re.search(r"core\(tm\) ultra|core ultra", cpu, re.I):
+        cpu_ok = True
+    elif g:
+        cpu_ok = int(g.group(1)) >= 8
+    elif m:
+        num = m.group(1)
+        # 5 digitos (i5-12400) ou 4 comecando em 10-14 (i3-1115G4, i5-1235U,
+        # notebooks da 10a em diante) = dois primeiros; senao (i5-7400) o primeiro.
+        geracao = int(num[:2]) if len(num) == 5 or (num[0] == "1" and num[1] in "01234") else int(num[0])
+        cpu_ok = geracao >= 8
+    elif r:
+        cpu_ok = int(r.group(1)) >= 2
+    if cpu_ok is False:
+        return "nao", "processador fora da lista"
+    if tpm is False:
+        return "nao", "sem TPM 2.0"
+    if cpu_ok and tpm is True:
+        return "sim", ""
+    return "verificar", "processador ou TPM sem confirmacao"
+
+
+def problemas(row: Dict[str, Any], agora: datetime) -> List[Dict[str, Any]]:
+    """Mesma leitura da tela (windows.js: winProblemas), do mais grave ao menos."""
+    p: List[Dict[str, Any]] = []
+    seg = _seg(row)
+    if seg.get("defender_realtime") is False or seg.get("defender_enabled") is False:
+        p.append({"grupo": "seguranca", "det": "Defender " + ("desativado" if seg.get("defender_enabled") is False
+                                                             else "em tempo real desligado")})
+    c = _vol_c(row)
+    try:
+        livre = float(c.get("free_percent")) if c.get("free_percent") is not None else None
+    except (TypeError, ValueError):
+        livre = None
+    if livre is not None and livre < 10:
+        extra = f" ({c.get('free_gb'):.0f} GB de {c.get('size_gb'):.0f} GB)" if c.get("free_gb") is not None and c.get("size_gb") else ""
+        p.append({"grupo": "disco", "det": f"C: com {livre:.0f}% livre{extra}"})
+    if not _online(row, agora):
+        p.append({"grupo": "contato", "det": f"ultimo contato {_quando(_data(row.get('last_seen') or row.get('updated_at')), agora)}"})
+    if _bitlocker_c(row) is False:
+        p.append({"grupo": "seguranca", "det": "BitLocker desligado no C:"})
+    if seg.get("tpm_ready") is False:
+        p.append({"grupo": "seguranca", "det": "TPM nao esta pronto"})
+    if _sem_suporte(row):
+        aceita, motivo = aceita_windows_11(row)
+        txt = {"sim": "aceita Windows 11", "nao": f"nao aceita Windows 11 ({motivo})",
+               "verificar": "conferir se aceita Windows 11"}[aceita]
+        p.append({"grupo": "windows", "det": f"{_os_nome(row)} · {txt}"})
+    ram = _ram(row)
+    if row.get("has_ssd") is False or (ram and ram < 7.5):
+        o = [x for x in ("HD mecanico" if row.get("has_ssd") is False else "",
+                         f"{ram:.0f} GB de RAM" if ram and ram < 7.5 else "") if x]
+        p.append({"grupo": "hardware", "det": " e ".join(o)})
+    return p
+
+
+GRUPOS = [
+    ("seguranca", "SEGURANCA", "Protecao desligada", VERMELHO, colors.HexColor("#fdecec"),
+     "Sem Defender em tempo real ou sem BitLocker, o computador fica exposto a virus e, se for furtado, os dados ficam legiveis.",
+     "religar o Defender (ou conferir se outro antivirus o substitui) e ativar o BitLocker onde houver TPM."),
+    ("disco", "DISCO", "Disco quase cheio", VERMELHO, colors.HexColor("#fdecec"),
+     "Abaixo de 10% livre o Windows deixa de atualizar e o computador fica lento.",
+     "limpar arquivos temporarios e downloads; se voltar a encher, trocar por SSD maior."),
+    ("contato", "SEM CONTATO", "Nao reporta", CINZA, colors.HexColor("#eef1f3"),
+     "Desligado, fora da rede ou com o agente parado. Sem contato, os outros dados deste computador ficam velhos.",
+     "confirmar se o computador ainda existe; se sim, rodar o instalador do agente de novo."),
+    ("windows", "WINDOWS", "Windows sem suporte", AMBAR, colors.HexColor("#fff3e0"),
+     "A Microsoft parou de corrigir falhas de seguranca do Windows 10 em 14/10/2025.",
+     "atualizar os compativeis para Windows 11; os outros entram no plano de troca (ultima pagina)."),
+    ("hardware", "HARDWARE", "Hardware fraco", AMBAR, colors.HexColor("#fff3e0"),
+     "HD mecanico e pouca memoria deixam o computador lento e travando.",
+     "trocar o HD por SSD e completar a memoria para 8 GB."),
+]
+
+
+# ---------------------------------------------------------------- estilo
+
+def _estilos() -> Dict[str, ParagraphStyle]:
+    b = dict(fontName="Helvetica", fontSize=9.5, leading=12.5, textColor=TEXTO)
+    return {
+        "corpo": ParagraphStyle("corpo", **b),
+        "peq": ParagraphStyle("peq", **{**b, "fontSize": 8.5, "leading": 11, "textColor": CINZA}),
+        "tab": ParagraphStyle("tab", **{**b, "fontSize": 8.5, "leading": 10.5}),
+        "tabb": ParagraphStyle("tabb", **{**b, "fontSize": 8.5, "leading": 10.5, "fontName": "Helvetica-Bold"}),
+        "h1": ParagraphStyle("h1", **{**b, "fontName": "Helvetica-Bold", "fontSize": 17, "leading": 21}),
+        "h2": ParagraphStyle("h2", **{**b, "fontName": "Helvetica-Bold", "fontSize": 11.5, "leading": 15, "spaceBefore": 4}),
+        "sobre": ParagraphStyle("sobre", **{**b, "fontName": "Helvetica-Bold", "fontSize": 8, "textColor": VERDE}),
+        "num": ParagraphStyle("num", **{**b, "fontName": "Helvetica-Bold", "fontSize": 20, "leading": 23}),
+        "dir": ParagraphStyle("dir", **{**b, "fontSize": 8.5, "leading": 10.5, "alignment": TA_RIGHT}),
+    }
+
+
+def _cartao(rot: str, val: Any, sub: str, cor: Any, st: Dict[str, ParagraphStyle]) -> Table:
+    t = Table([[Paragraph(_e(rot), st["peq"])],
+               [Paragraph(f'<font color="{cor.hexval()}">{_e(val)}</font>', st["num"])],
+               [Paragraph(_e(sub), st["peq"])]], colWidths=[None])
+    t.setStyle(TableStyle([("BOX", (0, 0), (-1, -1), 0.6, LINHA), ("LEFTPADDING", (0, 0), (-1, -1), 7),
+                           ("TOPPADDING", (0, 0), (-1, -1), 2), ("BOTTOMPADDING", (0, 0), (-1, -1), 2)]))
+    return t
+
+
+def _barra(pct: float, largura: float, cor: Any) -> Table:
+    pct = max(0.0, min(100.0, pct))
+    cheio = largura * pct / 100
+    cols = [w for w in (cheio, largura - cheio) if w > 0.5] or [largura]
+    t = Table([[""] * len(cols)], colWidths=cols, rowHeights=[5])
+    estilo = [("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#e6ebee"))]
+    if cheio > 0.5:
+        estilo.append(("BACKGROUND", (0, 0), (0, 0), cor))
+    t.setStyle(TableStyle(estilo + [("LEFTPADDING", (0, 0), (-1, -1), 0), ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+                                    ("TOPPADDING", (0, 0), (-1, -1), 0), ("BOTTOMPADDING", (0, 0), (-1, -1), 0)]))
+    return t
+
+
+def _tabela(linhas: List[List[Any]], larguras: List[float], cabecalho: bool = True) -> Table:
+    t = Table(linhas, colWidths=larguras, repeatRows=1 if cabecalho else 0)
+    estilo = [("VALIGN", (0, 0), (-1, -1), "TOP"), ("LINEBELOW", (0, 0), (-1, -1), 0.4, LINHA),
+              ("LEFTPADDING", (0, 0), (-1, -1), 3), ("RIGHTPADDING", (0, 0), (-1, -1), 3),
+              ("TOPPADDING", (0, 0), (-1, -1), 3), ("BOTTOMPADDING", (0, 0), (-1, -1), 3)]
+    if cabecalho:
+        estilo += [("BACKGROUND", (0, 0), (-1, 0), FUNDO)]
+    t.setStyle(TableStyle(estilo))
+    return t
+
+
+# ---------------------------------------------------------------- paginas
+
+LARG = A4[0] - 36 * mm
+
+
+def _capa(rows, cliente, logo, agora, st) -> List[Any]:
     total = len(rows)
-    online = sum(1 for r in rows if _text(r.get("status")) in ("online", "agent_reported"))
-    with_ssd = sum(1 for r in rows if r.get("has_ssd"))
+    on = sum(1 for r in rows if _online(r, agora))
+    probs = {id(r): problemas(r, agora) for r in rows}
+    conta = lambda g: sum(1 for r in rows if any(x["grupo"] == g for x in probs[id(r)]))  # noqa: E731
+    sites = sorted({_t(r.get("site")) or "Sem site" for r in rows})
+    longe = sum(1 for r in rows if not _online(r, agora) and _idade_min(r, agora) > 7 * 1440)
+    sem_sup = [r for r in rows if _sem_suporte(r)]
+    aceitam = sum(1 for r in sem_sup if aceita_windows_11(r)[0] == "sim")
+    seg_n = conta("seguranca")
+    hw_n = sum(1 for r in rows if any(x["grupo"] in ("hardware", "disco") for x in probs[id(r)]))
+
+    topo_txt = [Paragraph('<font color="#8fd3b8"><b>RELATORIO DE COMPUTADORES</b></font>', st["corpo"]),
+                Paragraph(f'<font color="#ffffff" size="22"><b>{_e(cliente) or "Parque de computadores"}</b></font>',
+                          ParagraphStyle("t", fontName="Helvetica-Bold", fontSize=22, leading=28)),
+                Paragraph(f'<font color="#c3d3d9">Parque Windows · {total} computador{"es" if total != 1 else ""} em '
+                          f'{len(sites)} site{"s" if len(sites) != 1 else ""} · gerado em '
+                          f'{agora.astimezone().strftime("%d/%m/%Y %H:%M")}</font>', st["corpo"])]
+    img = ""
+    if logo and Path(logo).exists():
+        try:
+            img = Image(str(logo), width=34 * mm, height=16 * mm, kind="proportional")
+        except Exception:
+            img = ""
+    topo = Table([[topo_txt, img]], colWidths=[LARG - 40 * mm, 40 * mm])
+    topo.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, -1), ESCURO), ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                              ("LEFTPADDING", (0, 0), (-1, -1), 12), ("TOPPADDING", (0, 0), (-1, -1), 14),
+                              ("BOTTOMPADDING", (0, 0), (-1, -1), 14), ("ALIGN", (1, 0), (1, 0), "RIGHT")]))
+    out: List[Any] = [topo, Spacer(1, 10)]
+
+    w3 = (LARG - 12) / 3
     cards = [
-        ("Computadores", total),
-        ("Online", online),
-        ("Com SSD", with_ssd),
-        ("Sem SSD", max(0, online - with_ssd)),
+        _cartao("Computadores", total, f"{len(sites)} site(s)", TEXTO, st),
+        _cartao("Online agora", on, f"{(on * 100 // total) if total else 0}% do parque", VERDE, st),
+        _cartao("Sem contato", total - on, f"{longe} ha mais de 7 dias" if longe else "desligados ou sem agente",
+                VERMELHO if total - on else TEXTO, st),
+        _cartao("Seguranca em risco", seg_n, "Defender, BitLocker ou TPM", VERMELHO if seg_n else TEXTO, st),
+        _cartao("Windows sem suporte", len(sem_sup), f"{aceitam} aceitam Windows 11", AMBAR if sem_sup else TEXTO, st),
+        _cartao("Hardware fraco", hw_n, "disco cheio, HD ou pouca RAM", AMBAR if hw_n else TEXTO, st),
     ]
-    card_w = (A4_W - (MARGIN * 2) - 45) // 4
-    for idx, (label, value) in enumerate(cards):
-        x = MARGIN + idx * (card_w + 15)
-        draw.rounded_rectangle((x, y, x + card_w, y + 210), radius=22, fill="#ffffff", outline="#d9e2ef", width=2)
-        draw.text((x + 28, y + 34), label, font=_font(24, True), fill="#64748b")
-        draw.text((x + 28, y + 90), str(value), font=_font(62, True), fill="#0f2748")
-    y += 290
+    g = Table([cards[:3], cards[3:]], colWidths=[w3] * 3)
+    g.setStyle(TableStyle([("LEFTPADDING", (0, 0), (-1, -1), 2), ("RIGHTPADDING", (0, 0), (-1, -1), 2),
+                           ("TOPPADDING", (0, 0), (-1, -1), 2), ("BOTTOMPADDING", (0, 0), (-1, -1), 2)]))
+    out += [g, Spacer(1, 10)]
 
-    draw.text((MARGIN, y), "Resumo dos computadores", font=_font(34, True), fill="#0f172a")
-    y += 62
-    head = ["IP", "Host", "Modelo", "Memoria", "Disco", "AnyDesk", "MAC"]
-    widths = [190, 260, 360, 360, 420, 260, 310]
-    x = MARGIN
-    draw.rounded_rectangle((MARGIN, y, A4_W - MARGIN, y + 54), radius=10, fill="#e2e8f0")
-    for label, width in zip(head, widths):
-        draw.text((x + 12, y + 14), label, font=_font(18, True), fill="#334155")
-        x += width
-    y += 62
-    row_font = _font(18)
-    for row in rows[:28]:
-        x = MARGIN
-        values = [
-            row.get("ip"),
-            row.get("hostname"),
-            " ".join(v for v in [_text(row.get("manufacturer")), _text(row.get("model"))] if v),
-            row.get("memory_summary") or (str(row.get("ram_gb") or "") + " GB"),
-            row.get("disk_summary") or row.get("disk_kind"),
-            row.get("anydesk_id"),
-            row.get("mac"),
-        ]
-        draw.line((MARGIN, y - 8, A4_W - MARGIN, y - 8), fill="#e2e8f0", width=1)
-        for value, width in zip(values, widths):
-            draw.text((x + 12, y), _fit(draw, value, row_font, width - 24), font=row_font, fill="#0f172a")
-            x += width
-        y += 48
-    return page
-
-
-def _detail_page(row: Dict[str, Any]) -> Image.Image:
-    page, draw = _new_page()
-    host = _text(row.get("hostname")) or _text(row.get("ip")) or "Computador"
-    y = _draw_header(draw, host, "Ficha tecnica consolidada do computador")
-    left = MARGIN
-    right = A4_W // 2 + 20
-    col_w = (A4_W - (MARGIN * 2) - 28) // 2
-    os_info = row.get("os") if isinstance(row.get("os"), dict) else {}
-    cpu = row.get("cpu") if isinstance(row.get("cpu"), dict) else {}
-    security = row.get("security") if isinstance(row.get("security"), dict) else {}
-    gpu_names = ", ".join(_text(g.get("name")) for g in (row.get("gpus") or []) if isinstance(g, dict) and _text(g.get("name")))
-
-    _box(draw, (left, y, left + col_w, y + 390), "Identificacao")
-    yy = y + 68
-    yy = _compact_kv(draw, left + 24, yy, "Fabricante / modelo", " ".join(v for v in [_text(row.get("manufacturer")), _text(row.get("model"))] if v), col_w - 48, 22)
-    yy = _compact_kv(draw, left + 24, yy, "Serial / SKU", " / ".join(v for v in [_text(row.get("serial")), _text(row.get("system_sku"))] if v), col_w - 48)
-    yy = _compact_kv(draw, left + 24, yy, "IP / MAC", " / ".join(v for v in [_text(row.get("ip")), _text(row.get("mac"))] if v), col_w - 48)
-    yy = _compact_kv(draw, left + 24, yy, "AnyDesk", row.get("anydesk_id"), col_w - 48)
-    _compact_kv(draw, left + 24, yy, "Usuario", row.get("logged_user"), col_w - 48)
-
-    _box(draw, (right, y, A4_W - MARGIN, y + 390), "Sistema, CPU e seguranca")
-    yy = y + 68
-    yy = _compact_kv(draw, right + 24, yy, "Windows", " / ".join(v for v in [_text(os_info.get("name")), _text(os_info.get("build"))] if v), col_w - 48, 22)
-    yy = _compact_kv(draw, right + 24, yy, "CPU", cpu.get("name"), col_w - 48)
-    yy = _compact_kv(draw, right + 24, yy, "GPU", gpu_names, col_w - 48)
-    _compact_kv(draw, right + 24, yy, "TPM / Secure Boot / Defender", f"{_yesno(security.get('tpm_ready'))} / {_yesno(security.get('secure_boot'))} / {_yesno(security.get('defender_realtime'))}", col_w - 48)
-    y += 424
-
-    _box(draw, (left, y, A4_W - MARGIN, y + 260), "Resumo de capacidade")
-    _compact_kv(draw, left + 24, y + 70, "Memoria", row.get("memory_summary") or row.get("ram_gb"), 650, 22)
-    _compact_kv(draw, left + 740, y + 70, "Armazenamento", row.get("disk_summary") or row.get("disk_kind"), 950, 22)
-    batteries = row.get("batteries") if isinstance(row.get("batteries"), list) else []
-    battery_txt = ""
-    if batteries and isinstance(batteries[0], dict):
-        battery_txt = f"{batteries[0].get('name') or 'Bateria'} - {batteries[0].get('estimated_charge') or '-'}%"
-    _compact_kv(draw, left + 1760, y + 70, "Bateria", battery_txt or "Nao informada", 420)
-    y += 294
-
-    _box(draw, (left, y, right - 14, y + 430), "Modulos de memoria")
-    mem_items = []
-    for module in (row.get("memory_modules") or [])[:6]:
-        if not isinstance(module, dict):
-            continue
-        mem_items.append(" - ".join(v for v in [
-            _text(module.get("slot")),
-            f"{module.get('capacity_gb')} GB" if module.get("capacity_gb") else "",
-            _text(module.get("ddr")),
-            (str(module.get("configured_speed_mhz") or module.get("speed_mhz")) + " MHz") if (module.get("configured_speed_mhz") or module.get("speed_mhz")) else "",
-            _text(module.get("manufacturer")),
-            _text(module.get("part_number")),
-        ] if v))
-    _draw_items(draw, left + 24, y + 64, col_w - 50, mem_items or ["Memoria nao detalhada"], font_size=18, line_h=38, limit=8)
-
-    _box(draw, (right, y, A4_W - MARGIN, y + 430), "Discos e volumes")
-    disk_items = []
-    for disk in (row.get("disks") or [])[:3]:
-        if not isinstance(disk, dict):
-            continue
-        size = disk.get("size_gb")
-        size_txt = ""
-        try:
-            value = float(size)
-            size_txt = f"{round(value / 1024, 2)} TB" if value >= 1024 else f"{round(value)} GB"
-        except Exception:
-            pass
-        disk_items.append(" - ".join(v for v in [size_txt, _text(disk.get("media_type")), _text(disk.get("manufacturer")), _text(disk.get("model")), _text(disk.get("serial"))] if v))
-    for volume in (row.get("volumes") or [])[:3]:
-        if isinstance(volume, dict):
-            disk_items.append(f"{volume.get('drive')} {volume.get('file_system') or ''}: {volume.get('size_gb') or '-'} GB / livre {volume.get('free_gb') or '-'} GB ({volume.get('free_percent') or '-'}%)")
-    _draw_items(draw, right + 24, y + 64, col_w - 50, disk_items or ["Disco nao detalhado"], font_size=18, line_h=38, limit=8)
-    y += 464
-
-    _box(draw, (left, y, right - 14, y + 360), "Rede")
-    network_items = []
-    for net in (row.get("network") or [])[:5]:
-        if not isinstance(net, dict):
-            continue
-        ips = ", ".join(_text(v) for v in (net.get("ip") or []) if _text(v))
-        network_items.append(" - ".join(v for v in [_text(net.get("description")), _text(net.get("mac")), ips] if v))
-    _draw_items(draw, left + 24, y + 64, col_w - 50, network_items or ["Nenhuma interface informada"], font_size=18, line_h=38, limit=6)
-
-    _box(draw, (right, y, A4_W - MARGIN, y + 360), "Pontos de atencao")
-    flags = [str(x) for x in (row.get("health_flags") or []) if str(x).strip()]
-    updates = []
-    for hf in (row.get("hotfixes") or [])[:3]:
-        if isinstance(hf, dict):
-            updates.append(f"Update {hf.get('id') or '-'} - {hf.get('installed_on') or ''}")
-    _draw_items(draw, right + 24, y + 64, col_w - 50, (flags or ["Nenhum ponto critico detectado"]) + updates, font_size=18, line_h=38, limit=7)
-    y += 400
-
-    photos = [a for a in (row.get("photo_assets") or []) if isinstance(a, dict)]
-    if photos:
-        draw.text((left, y), "Fotos de referencia", font=_font(26, True), fill="#0f172a")
-        y += 44
-        card_w = (A4_W - (MARGIN * 2) - 42) // 3
-        card_h = 360
-        for idx, asset in enumerate(photos[:3]):
-            x = left + idx * (card_w + 21)
-            _draw_photo_card(page, draw, (x, y, x + card_w, y + card_h), asset)
-    return page
-
-
-def _legacy_detail_page(row: Dict[str, Any]) -> Image.Image:
-    page, draw = _new_page()
-    host = _text(row.get("hostname")) or _text(row.get("ip")) or "Computador"
-    y = _draw_header(draw, host, "Ficha tecnica do computador")
-    left = MARGIN
-    right = A4_W // 2 + 20
-    _box(draw, (left, y, A4_W - MARGIN, y + 420), "Identificacao")
-    _line(draw, left + 30, y + 85, "IP", row.get("ip"))
-    _line(draw, left + 500, y + 85, "MAC", row.get("mac"), 520)
-    _line(draw, left + 30, y + 185, "Fabricante / modelo", " ".join(v for v in [_text(row.get("manufacturer")), _text(row.get("model"))] if v), 980)
-    _line(draw, left + 30, y + 285, "Serial", row.get("serial"))
-    _line(draw, left + 500, y + 285, "Usuario logado", row.get("logged_user"), 620)
-    _line(draw, left + 1180, y + 285, "SKU", row.get("system_sku"), 500)
-    y += 480
-
-    _box(draw, (left, y, A4_W - MARGIN, y + 500), "Sistema e processamento")
-    os_info = row.get("os") if isinstance(row.get("os"), dict) else {}
-    cpu = row.get("cpu") if isinstance(row.get("cpu"), dict) else {}
-    _line(draw, left + 30, y + 85, "Windows", " / ".join(v for v in [_text(os_info.get("name")), _text(os_info.get("build"))] if v), 1000)
-    _line(draw, left + 30, y + 185, "CPU", cpu.get("name"), 1000)
-    _line(draw, left + 30, y + 285, "Memoria", row.get("memory_summary") or row.get("ram_gb"), 1000)
-    _line(draw, left + 30, y + 385, "Armazenamento", row.get("disk_summary") or row.get("disk_kind"), 1000)
-    gpu_names = ", ".join(_text(g.get("name")) for g in (row.get("gpus") or []) if isinstance(g, dict) and _text(g.get("name")))
-    _line(draw, left + 1180, y + 185, "GPU", gpu_names, 760)
-    security = row.get("security") if isinstance(row.get("security"), dict) else {}
-    _line(draw, left + 1180, y + 285, "TPM / Secure Boot", f"TPM: {_yesno(security.get('tpm_ready'))} / Secure Boot: {_yesno(security.get('secure_boot'))}", 760)
-    _line(draw, left + 1180, y + 385, "Defender", f"Ativo: {_yesno(security.get('defender_enabled'))} / Tempo real: {_yesno(security.get('defender_realtime'))}", 760)
-    y += 560
-
-    _box(draw, (left, y, right - 20, y + 780), "Modulos de memoria")
-    mem_y = y + 85
-    for module in (row.get("memory_modules") or [])[:8]:
-        if not isinstance(module, dict):
-            continue
-        txt = " - ".join(
-            v for v in [
-                _text(module.get("slot")),
-                f"{module.get('capacity_gb')} GB" if module.get("capacity_gb") else "",
-                _text(module.get("ddr")),
-                (str(module.get("configured_speed_mhz") or module.get("speed_mhz")) + " MHz") if (module.get("configured_speed_mhz") or module.get("speed_mhz")) else "",
-                _text(module.get("manufacturer")),
-                _text(module.get("part_number")),
-            ] if v
-        )
-        draw.text((left + 28, mem_y), _fit(draw, txt, _font(20), 930), font=_font(20), fill="#0f172a")
-        mem_y += 62
-
-    _box(draw, (right, y, A4_W - MARGIN, y + 780), "Discos")
-    disk_y = y + 85
-    for disk in (row.get("disks") or [])[:8]:
-        if not isinstance(disk, dict):
-            continue
-        size = disk.get("size_gb")
-        size_txt = ""
-        try:
-            value = float(size)
-            size_txt = f"{round(value / 1024, 2)} TB" if value >= 1024 else f"{round(value)} GB"
-        except Exception:
-            pass
-        txt = " - ".join(
-            v for v in [
-                size_txt,
-                _text(disk.get("media_type")),
-                _text(disk.get("manufacturer")),
-                _text(disk.get("model")),
-                _text(disk.get("serial")),
-            ] if v
-        )
-        draw.text((right + 28, disk_y), _fit(draw, txt, _font(20), 930), font=_font(20), fill="#0f172a")
-        disk_y += 62
-    photos = [a for a in (row.get("photo_assets") or []) if isinstance(a, dict)]
-    if photos:
-        y += 840
-        draw.text((left, y), "Fotos de referencia encontradas na internet", font=_font(30, True), fill="#0f172a")
-        y += 58
-        card_w = (A4_W - (MARGIN * 2) - 28) // 2
-        card_h = 500
-        for idx, asset in enumerate(photos[:4]):
-            x = left + (idx % 2) * (card_w + 28)
-            yy = y + (idx // 2) * (card_h + 26)
-            _draw_photo_card(page, draw, (x, yy, x + card_w, yy + card_h), asset)
-    return page
-
-
-def _technical_page(row: Dict[str, Any]) -> Image.Image:
-    page, draw = _new_page()
-    host = _text(row.get("hostname")) or _text(row.get("ip")) or "Computador"
-    y = _draw_header(draw, host, "Detalhamento profissional do hardware e seguranca")
-    left = MARGIN
-    mid = A4_W // 2 + 20
-    box_h = 610
-
-    _box(draw, (left, y, mid - 20, y + box_h), "Rede")
-    network_items = []
-    for net in (row.get("network") or []):
-        if not isinstance(net, dict):
-            continue
-        ips = ", ".join(_text(v) for v in (net.get("ip") or []) if _text(v))
-        network_items.append(" - ".join(v for v in [_text(net.get("description")), _text(net.get("mac")), ips] if v))
-    _draw_items(draw, left + 28, y + 82, mid - left - 90, network_items or ["Nenhuma interface informada"], limit=9)
-
-    _box(draw, (mid, y, A4_W - MARGIN, y + box_h), "Seguranca")
-    security = row.get("security") if isinstance(row.get("security"), dict) else {}
-    sec_items = [
-        f"TPM presente: {_yesno(security.get('tpm_present'))}",
-        f"TPM pronto: {_yesno(security.get('tpm_ready'))}",
-        f"Secure Boot: {_yesno(security.get('secure_boot'))}",
-        f"Defender ativo: {_yesno(security.get('defender_enabled'))}",
-        f"Protecao em tempo real: {_yesno(security.get('defender_realtime'))}",
-        f"BitLocker: {security.get('bitlocker_protected_volumes', 0)} de {security.get('bitlocker_total_volumes', 0)} volumes protegidos",
+    sim = lambda fn: sum(1 for r in rows if fn(r))  # noqa: E731
+    saude = [
+        ("Agente respondendo", on),
+        ("Defender ativo", sim(lambda r: _seg(r).get("defender_realtime") is True)),
+        ("BitLocker no C:", sim(lambda r: _bitlocker_c(r) is True)),
+        ("Windows com suporte", sim(lambda r: _os_nome(r) and not _sem_suporte(r))),
+        ("Com SSD", sim(lambda r: r.get("has_ssd") is True)),
+        ("Memoria >= 8 GB", sim(lambda r: _ram(r) >= 7.5)),
+        ("AnyDesk instalado", sim(lambda r: bool(_t(r.get("anydesk_id"))))),
     ]
-    _draw_items(draw, mid + 28, y + 82, A4_W - MARGIN - mid - 80, sec_items, limit=10)
-    y += box_h + 34
+    larg_meia = (LARG - 14) / 2
+    col_saude: List[Any] = [Paragraph("Saude do parque", st["h2"])]
+    for rot, n in saude:
+        pct = n * 100 / total if total else 0
+        cor = VERDE if pct >= 90 else AMBAR if pct >= 70 else VERMELHO
+        linha = Table([[Paragraph(_e(rot), st["tab"]), Paragraph(f"{n} / {total}", st["dir"])]],
+                      colWidths=[larg_meia * 0.7, larg_meia * 0.3])
+        linha.setStyle(TableStyle([("LEFTPADDING", (0, 0), (-1, -1), 0), ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+                                   ("BOTTOMPADDING", (0, 0), (-1, -1), 1), ("TOPPADDING", (0, 0), (-1, -1), 3)]))
+        col_saude += [linha, _barra(pct, larg_meia, cor)]
+    por_site = [[Paragraph("<b>Site</b>", st["tab"]), Paragraph("<b>PCs</b>", st["dir"]),
+                 Paragraph("<b>Online</b>", st["dir"]), Paragraph("<b>Alertas</b>", st["dir"])]]
+    for s in sites:
+        rs = [r for r in rows if (_t(r.get("site")) or "Sem site") == s]
+        al = sum(len(probs[id(r)]) for r in rs)
+        por_site.append([Paragraph(_e(s), st["tab"]), Paragraph(str(len(rs)), st["dir"]),
+                         Paragraph(str(sum(1 for r in rs if _online(r, agora))), st["dir"]),
+                         Paragraph(f'<font color="{(VERMELHO if al else CINZA).hexval()}"><b>{al}</b></font>', st["dir"])])
+    col_site = [Paragraph("Por site", st["h2"]),
+                _tabela(por_site, [larg_meia * 0.52, larg_meia * 0.16, larg_meia * 0.16, larg_meia * 0.16])]
+    duas = Table([[col_saude, col_site]], colWidths=[larg_meia + 7, larg_meia + 7])
+    duas.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP"), ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                              ("RIGHTPADDING", (0, 0), (0, 0), 14)]))
+    out += [duas, Spacer(1, 12)]
 
-    _box(draw, (left, y, mid - 20, y + box_h), "Volumes")
-    volume_items = []
-    for volume in (row.get("volumes") or []):
-        if not isinstance(volume, dict):
-            continue
-        volume_items.append(
-            f"{volume.get('drive')} {volume.get('label') or ''} - {volume.get('file_system') or ''} - "
-            f"{volume.get('size_gb') or '-'} GB / livre {volume.get('free_gb') or '-'} GB ({volume.get('free_percent') or '-'}%)"
-        )
-    _draw_items(draw, left + 28, y + 82, mid - left - 90, volume_items or ["Nenhum volume informado"], limit=9)
-
-    _box(draw, (mid, y, A4_W - MARGIN, y + box_h), "BIOS, bateria e atualizacoes")
-    batteries = row.get("batteries") if isinstance(row.get("batteries"), list) else []
-    battery_txt = "Sem bateria informada"
-    if batteries and isinstance(batteries[0], dict):
-        battery_txt = f"{batteries[0].get('name') or 'Bateria'} - carga estimada {batteries[0].get('estimated_charge') or '-'}%"
-    os_info = row.get("os") if isinstance(row.get("os"), dict) else {}
-    items = [
-        f"BIOS: {row.get('motherboard', {}).get('manufacturer') if isinstance(row.get('motherboard'), dict) else ''} / {row.get('serial') or '-'}",
-        f"Ultimo boot: {os_info.get('last_boot') or '-'}",
-        f"Timezone: {row.get('timezone') or '-'}",
-        battery_txt,
-    ]
-    for hf in (row.get("hotfixes") or [])[:4]:
-        if isinstance(hf, dict):
-            items.append(f"Update: {hf.get('id') or '-'} - {hf.get('installed_on') or ''}")
-    _draw_items(draw, mid + 28, y + 82, A4_W - MARGIN - mid - 80, items, limit=10)
-    y += box_h + 34
-
-    flags = [str(x) for x in (row.get("health_flags") or []) if str(x).strip()]
-    _box(draw, (left, y, A4_W - MARGIN, y + 360), "Pontos de atencao")
-    _draw_items(draw, left + 28, y + 82, A4_W - (MARGIN * 2) - 70, flags or ["Nenhum ponto critico detectado pelos criterios atuais."], font_size=22, line_h=48, limit=5)
-    return page
-
-
-def build_windows_inventory_pdf(rows: List[Dict[str, Any]], company_name: str = "") -> Path:
-    reports_dir = OUTPUT_DIR / "reports"
-    reports_dir.mkdir(parents=True, exist_ok=True)
-    safe_company = "".join(ch for ch in _text(company_name) if ch.isalnum() or ch in ("-", "_")) or "windows"
-    out = reports_dir / f"windows-inventory-{safe_company}-{datetime.now().strftime('%Y%m%d-%H%M%S')}.pdf"
-    pages = [_summary_page(rows)]
-    for row in rows:
-        pages.append(_detail_page(row))
-    first, rest = pages[0], pages[1:]
-    first.save(out, "PDF", resolution=150.0, save_all=True, append_images=rest)
+    # "Em resumo": frase montada dos numeros, para quem nao vai ler o resto.
+    partes = []
+    if seg_n:
+        partes.append(f"{seg_n} computador{'es estao' if seg_n != 1 else ' esta'} com a seguranca em risco "
+                      "(Defender desligado, BitLocker inativo ou TPM com problema)")
+    if sem_sup:
+        partes.append(f"{len(sem_sup)} roda{'m' if len(sem_sup) != 1 else ''} Windows sem suporte da Microsoft"
+                      + (f", dos quais {aceitam} aceita{'m' if aceitam != 1 else ''} Windows 11 sem troca de hardware" if aceitam else ""))
+    if total - on:
+        partes.append(f"{total - on} nao reporta{'m' if total - on != 1 else ''} ha mais de {LIMITE_CONTATO_MIN} min")
+    if hw_n:
+        partes.append(f"{hw_n} tem disco quase cheio, HD mecanico ou pouca memoria")
+    resumo = ("; ".join(partes) + ". Detalhes na pagina 2; plano de troca e atualizacao na ultima pagina.") if partes \
+        else "Nenhum problema encontrado nos computadores com agente: seguranca, disco e Windows em dia."
+    caixa = Table([[[Paragraph("Em resumo", st["h2"]), Paragraph(_e(resumo[0].upper() + resumo[1:]), st["corpo"])]]],
+                  colWidths=[LARG])
+    caixa.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, -1), FUNDO), ("BOX", (0, 0), (-1, -1), 0.6, LINHA),
+                               ("LEFTPADDING", (0, 0), (-1, -1), 10), ("RIGHTPADDING", (0, 0), (-1, -1), 10),
+                               ("TOPPADDING", (0, 0), (-1, -1), 6), ("BOTTOMPADDING", (0, 0), (-1, -1), 8)]))
+    out.append(caixa)
     return out
+
+
+def _atencao(rows, agora, st) -> List[Any]:
+    out: List[Any] = [Paragraph("COMPUTADORES", st["sobre"]), Paragraph("Precisa de atencao", st["h1"]), Spacer(1, 6)]
+    algum = False
+    for chave, tag, titulo, cor, fundo, porque, acao in GRUPOS:
+        itens = [(r, x) for r in rows for x in problemas(r, agora) if x["grupo"] == chave]
+        if not itens:
+            continue
+        algum = True
+        n_pc = len({id(r) for r, _ in itens})
+        cab = Table([[Paragraph(f'<font color="{cor.hexval()}"><b>{tag}</b></font>', st["tab"]),
+                      Paragraph(f"<b>{_e(titulo)}</b>", st["corpo"]),
+                      Paragraph(f"{n_pc} computador{'es' if n_pc != 1 else ''}", st["dir"])]],
+                    colWidths=[26 * mm, LARG - 26 * mm - 34 * mm, 34 * mm])
+        cab.setStyle(TableStyle([("BACKGROUND", (0, 0), (0, 0), fundo), ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                                 ("LEFTPADDING", (0, 0), (-1, -1), 4)]))
+        linhas = [[Paragraph(f"<b>{_e(r.get('hostname') or r.get('ip'))}</b>", st["tab"]),
+                   Paragraph(_e(" · ".join(x for x in (_t(r.get("site")), _t(r.get("sector"))) if x) or "-"), st["tab"]),
+                   Paragraph(_e(x["det"]), st["tab"]),
+                   Paragraph(_e(r.get("anydesk_id") or "-"), st["dir"])] for r, x in itens]
+        t = _tabela(linhas, [30 * mm, 38 * mm, LARG - 30 * mm - 38 * mm - 26 * mm, 26 * mm], cabecalho=False)
+        bloco = [cab, Paragraph(_e(porque), st["peq"]), t,
+                 Paragraph(f"<b>O que fazer:</b> {_e(acao)}", st["tab"]), Spacer(1, 10)]
+        out.append(CondPageBreak(40 * mm))
+        out += bloco
+    if not algum:
+        out.append(Paragraph("Nenhum computador com problema de seguranca, disco, contato, Windows ou hardware.", st["corpo"]))
+    return out
+
+
+def _ficha(row, agora, st) -> List[Any]:
+    seg = _seg(row)
+    os_ = row.get("os") if isinstance(row.get("os"), dict) else {}
+    cpu = row.get("cpu") if isinstance(row.get("cpu"), dict) else {}
+    mb = row.get("motherboard") if isinstance(row.get("motherboard"), dict) else {}
+    on = _online(row, agora)
+    onde = " › ".join(x for x in (_t(row.get("site")), _t(row.get("sector"))) if x).upper()
+    out: List[Any] = [
+        Paragraph(f"FICHA DO COMPUTADOR{(' · ' + _e(onde)) if onde else ''}", st["sobre"]),
+        Paragraph(_e(row.get("hostname") or row.get("ip")), st["h1"]),
+        Paragraph(_e(" · ".join(x for x in (
+            " ".join(x for x in (_t(row.get("manufacturer")), _t(row.get("model"))) if x),
+            f"serial {_t(row.get('serial'))}" if _t(row.get("serial")) else "",
+            f"usuario {_usuario(row)}" if _usuario(row) else "",
+            ("Online" if on else "Sem contato") + f" · reportou {_quando(_data(row.get('last_seen')), agora)}",
+            f"AnyDesk {_t(row.get('anydesk_id'))}" if _t(row.get("anydesk_id")) else "",
+        ) if x)), st["peq"]),
+        Spacer(1, 6),
+    ]
+    flags = row.get("health_flags") if isinstance(row.get("health_flags"), list) else []
+    if flags:
+        a = Table([[Paragraph(f"<b>{len(flags)} alerta{'s' if len(flags) != 1 else ''}:</b> {_e(' · '.join(flags))}",
+                              ParagraphStyle("al", parent=st["tab"], textColor=colors.HexColor("#7a1f1f")))]],
+                  colWidths=[LARG])
+        a.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#fdecec")),
+                               ("BOX", (0, 0), (-1, -1), 0.6, colors.HexColor("#f2c4c4"))]))
+        out += [a, Spacer(1, 6)]
+
+    def _ok(v, sim="Sim", nao="Nao", nd="sem dado"):
+        if v is None:
+            return f'<font color="{CINZA.hexval()}">{nd}</font>'
+        return f'<font color="{(VERDE if v else VERMELHO).hexval()}"><b>{sim if v else nao}</b></font>'
+
+    aceita, motivo = aceita_windows_11(row) if _sem_suporte(row) else ("", "")
+    seg_l = [("Defender em tempo real", _ok(seg.get("defender_realtime"), "Ligado", "Desligado")),
+             ("BitLocker no C:", _ok(_bitlocker_c(row), "Protegido", "Desligado")),
+             ("TPM", _ok(seg.get("tpm_ready"), "Pronto", "Nao pronto")),
+             ("Secure Boot", _ok(seg.get("secure_boot"), "Ativo", "Desligado")),
+             ("Windows com suporte", _ok(None if not _os_nome(row) else not _sem_suporte(row)))]
+    if aceita:
+        seg_l.append(("Aceita Windows 11", _ok(None if aceita == "verificar" else aceita == "sim", nd="verificar")))
+    hot = next((h for h in (row.get("hotfixes") or []) if isinstance(h, dict) and _t(h.get("id"))), {})
+    boot = _data(os_.get("last_boot"))
+    mods = [m for m in (row.get("memory_modules") or []) if isinstance(m, dict) and m.get("capacity_gb")]
+    sis_l = [("Windows", " · ".join(x for x in (_os_nome(row), f"build {_t(os_.get('build'))}" if _t(os_.get("build")) else "") if x)),
+             ("Ultima atualizacao", " · ".join(x for x in (_t(hot.get("id")), _t(hot.get("installed_on"))) if x)),
+             ("Ligado desde", boot.astimezone().strftime("%d/%m/%Y %H:%M") if boot else ""),
+             ("Dominio", _t(row.get("domain"))),
+             ("Agente SightOps", " · ".join(x for x in (_t(row.get("agent_version")),
+                                                         "tarefa agendada" if row.get("agent_scheduled") else
+                                                         ("sem tarefa agendada" if row.get("agent_scheduled") is False else "")) if x))]
+    hw_l = [("Processador", " · ".join(x for x in (_cpu_curto(row), f"{cpu.get('cores')} nucleos" if cpu.get("cores") else "") if x)),
+            ("Memoria", " · ".join(x for x in (f"{_ram(row):.0f} GB" if _ram(row) else "",
+                                               next((_t(m.get("ddr")) for m in mods if _t(m.get("ddr"))), ""),
+                                               f"{len(mods)} pente(s)" if mods else "") if x)),
+            ("Placa-mae", " ".join(x for x in (_t(mb.get("manufacturer")), _t(mb.get("model"))) if x)),
+            ("Video", ", ".join(_t(g.get("name")) for g in (row.get("gpus") or []) if isinstance(g, dict) and _t(g.get("name")))),
+            ("Disco", _disco(row))]
+
+    def _bloco(titulo, pares, largura, html=False):
+        lin = [[Paragraph(_e(k), st["peq"]), Paragraph(v if html else (_e(v) or "-"), st["tab"])] for k, v in pares]
+        t = Table(lin, colWidths=[largura * 0.42, largura * 0.58])
+        t.setStyle(TableStyle([("LEFTPADDING", (0, 0), (-1, -1), 0), ("TOPPADDING", (0, 0), (-1, -1), 2),
+                               ("BOTTOMPADDING", (0, 0), (-1, -1), 2), ("VALIGN", (0, 0), (-1, -1), "TOP")]))
+        return [Paragraph(titulo, st["h2"]), t]
+
+    meia = (LARG - 16) / 2
+    vols = []
+    for v in row.get("volumes") or []:
+        if not isinstance(v, dict) or not _t(v.get("drive")):
+            continue
+        try:
+            livre = float(v.get("free_percent"))
+        except (TypeError, ValueError):
+            livre = None
+        cor = VERDE if livre is None or livre >= 20 else AMBAR if livre >= 10 else VERMELHO
+        txt = f"{v.get('free_gb'):.0f} GB livres de {v.get('size_gb'):.0f} GB" if v.get("free_gb") is not None and v.get("size_gb") else ""
+        vols += [Paragraph(f"<b>{_e(v.get('drive'))}</b> {_e(txt)}" + (f" · {livre:.0f}% livre" if livre is not None else ""), st["tab"]),
+                 _barra(100 - (livre or 0), meia, cor), Spacer(1, 3)]
+    grade = Table([[_bloco("Seguranca", seg_l, meia, html=True), _bloco("Sistema", sis_l, meia)],
+                   [_bloco("Hardware", hw_l, meia), [Paragraph("Discos", st["h2"])] + (vols or [Paragraph("-", st["tab"])])]],
+                  colWidths=[meia + 8, meia + 8])
+    grade.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP"), ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                               ("RIGHTPADDING", (0, 0), (0, -1), 16)]))
+    out += [grade, Spacer(1, 4)]
+
+    p = row.get("physical") if isinstance(row.get("physical"), dict) else {}
+    net = next((n for n in (row.get("network") or []) if isinstance(n, dict) and n.get("mac")), {})
+    rede = f"IP {_e(row.get('ip'))} · MAC {_e(row.get('mac') or net.get('mac'))}"
+    caminho = [x for x in (
+        f"Switch {_t(p.get('switch_name'))}" + (f" porta {_t(p.get('switch_port'))}" if _t(p.get("switch_port")) else "") if _t(p.get("switch_name")) else "",
+        f"Patch panel {_t(p.get('patch_panel'))}" + (f" porta {_t(p.get('patch_port'))}" if _t(p.get("patch_port")) else "") if _t(p.get("patch_panel")) else "",
+        f"Tomada {_t(p.get('outlet'))}" if _t(p.get("outlet")) else "",
+        f"Rack {_t(p.get('rack'))}" if _t(p.get("rack")) else "") if x]
+    out += [Paragraph("Rede e caminho fisico", st["h2"]), Paragraph(rede, st["tab"]),
+            Paragraph(_e(" → ".join([_t(row.get("hostname"))] + caminho)) if caminho else
+                      "Caminho fisico nao informado.", st["peq"])]
+
+    eventos = [e for e in (row.get("eventos") or []) if isinstance(e, dict)]
+    limite = agora.timestamp() - 30 * 86400
+    recentes = [e for e in eventos if (_data(e.get("em")) or agora).timestamp() >= limite][-10:][::-1]
+    out.append(Paragraph("O que mudou nos ultimos 30 dias", st["h2"]))
+    if recentes:
+        lin = [[Paragraph(_e((_data(e.get("em")) or agora).astimezone().strftime("%d/%m %H:%M")), st["peq"]),
+                Paragraph(_e(e.get("txt")), st["tab"])] for e in recentes]
+        out.append(_tabela(lin, [28 * mm, LARG - 28 * mm], cabecalho=False))
+    else:
+        out.append(Paragraph("Sem mudancas registradas.", st["peq"]))
+    obs = Table([[""]], colWidths=[LARG], rowHeights=[16 * mm])
+    obs.setStyle(TableStyle([("BOX", (0, 0), (-1, -1), 0.6, LINHA)]))
+    out += [Paragraph("Observacoes do tecnico", st["h2"]), obs]
+    return out
+
+
+def _plano(rows, agora, st) -> List[Any]:
+    out: List[Any] = [Paragraph("COMPUTADORES", st["sobre"]), Paragraph("Plano de troca e atualizacao", st["h1"]), Spacer(1, 6)]
+    trocar, atualizar, verificar, melhorar = [], [], [], []
+    for r in rows:
+        if _sem_suporte(r):
+            a, motivo = aceita_windows_11(r)
+            (trocar if a == "nao" else atualizar if a == "sim" else verificar).append((r, motivo))
+        acoes = []
+        if r.get("has_ssd") is False:
+            acoes.append("trocar HD por SSD")
+        if 0 < _ram(r) < 7.5:
+            acoes.append(f"memoria de {_ram(r):.0f} GB para 8 GB")
+        c = _vol_c(r)
+        try:
+            if c.get("free_percent") is not None and float(c["free_percent"]) < 10:
+                acoes.append(f"liberar espaco no C: ({float(c['free_percent']):.0f}% livre) ou SSD maior")
+        except (TypeError, ValueError):
+            pass
+        if acoes and not any(x is r for x, _ in trocar):
+            melhorar.append((r, "; ".join(acoes)))
+    w3 = (LARG - 12) / 3
+    g = Table([[_cartao("Trocar o computador", len(trocar), "nao aceita Windows 11", VERMELHO if trocar else TEXTO, st),
+                _cartao("Atualizar para Windows 11", len(atualizar), "hardware ja compativel", AZUL if atualizar else TEXTO, st),
+                _cartao("Trocar peca", len(melhorar), "SSD, memoria ou disco", AMBAR if melhorar else TEXTO, st)]],
+              colWidths=[w3] * 3)
+    g.setStyle(TableStyle([("LEFTPADDING", (0, 0), (-1, -1), 2), ("RIGHTPADDING", (0, 0), (-1, -1), 2)]))
+    out += [g, Spacer(1, 8)]
+
+    def _onde(r):
+        return " · ".join(x for x in (_t(r.get("site")), _t(r.get("sector"))) if x) or "-"
+
+    def _hoje(r):
+        return " · ".join(x for x in (_cpu_curto(r), f"{_ram(r):.0f} GB" if _ram(r) else "", _disco(r), _os_nome(r)) if x and x != "-")
+
+    cab = lambda *c: [Paragraph(f"<b>{_e(x)}</b>", st["tab"]) for x in c]  # noqa: E731
+    secoes = [
+        ("Trocar o computador", "Nao aceitam Windows 11 (processador fora da lista ou sem TPM 2.0).", trocar,
+         lambda r, m: [r.get("hostname"), _onde(r), _hoje(r), m], ("Computador", "Local", "Hoje", "Motivo"), [30, 36, 70, 38]),
+        ("Atualizar para Windows 11", "Hardware compativel: so a atualizacao do sistema.", atualizar,
+         lambda r, m: [r.get("hostname"), _onde(r), _hoje(r), ""], ("Computador", "Local", "Hoje", ""), [30, 36, 90, 18]),
+        ("Conferir se aceita Windows 11", "Processador com lista propria da Microsoft ou TPM sem dado (agente sem Administrador).",
+         verificar, lambda r, m: [r.get("hostname"), _onde(r), _hoje(r), m], ("Computador", "Local", "Hoje", "Por que"), [30, 36, 70, 38]),
+        ("Melhorar sem trocar", "Peca ou limpeza resolve.", melhorar,
+         lambda r, m: [r.get("hostname"), _onde(r), m], ("Computador", "Local", "O que fazer"), [30, 40, 104]),
+    ]
+    for titulo, sub, itens, fn, cols, larg in secoes:
+        if not itens:
+            continue
+        lin = [cab(*cols)] + [[Paragraph(_e(v), st["tab"]) for v in fn(r, m)] for r, m in itens]
+        out += [CondPageBreak(30 * mm), Paragraph(titulo, st["h2"]), Paragraph(_e(sub), st["peq"]),
+                _tabela(lin, [w * mm for w in larg]), Spacer(1, 8)]
+    if not (trocar or atualizar or verificar or melhorar):
+        out.append(Paragraph("Nenhum computador precisa de troca ou de peca no momento.", st["corpo"]))
+
+    lin = [cab("Computador", "Site · setor", "Windows", "CPU / RAM / disco", "Serial", "AnyDesk")]
+    for r in sorted(rows, key=lambda x: (_t(x.get("site")), _t(x.get("hostname")))):
+        lin.append([Paragraph(f"<b>{_e(r.get('hostname') or r.get('ip'))}</b>", st["tab"]), Paragraph(_e(_onde(r)), st["tab"]),
+                    Paragraph(_e(_os_nome(r).replace("Windows ", "") or "-"), st["tab"]),
+                    Paragraph(_e(" / ".join(x for x in (_cpu_curto(r), f"{_ram(r):.0f} GB" if _ram(r) else "", _disco(r)) if x)), st["tab"]),
+                    Paragraph(_e(r.get("serial") or "-"), st["tab"]), Paragraph(_e(r.get("anydesk_id") or "-"), st["tab"])])
+    out += [CondPageBreak(40 * mm), Paragraph("Inventario completo", st["h2"]),
+            _tabela(lin, [w * mm for w in (26, 34, 20, 50, 24, 20)])]
+    return out
+
+
+# ---------------------------------------------------------------- montagem
+
+def build_windows_inventory_pdf(rows: List[Dict[str, Any]], company_name: str = "",
+                                logo_path: Optional[Path] = None, agora: Optional[datetime] = None) -> bytes:
+    agora = agora or datetime.now(timezone.utc)
+    rows = [r for r in rows if isinstance(r, dict)]
+    st = _estilos()
+    cliente = _t(company_name)
+    rotulo = f"{cliente} · Relatorio de computadores · {agora.astimezone().strftime('%d/%m/%Y')}" if cliente \
+        else f"Relatorio de computadores · {agora.astimezone().strftime('%d/%m/%Y')}"
+
+    def _rodape(canvas, doc):
+        canvas.saveState()
+        canvas.setFont("Helvetica", 7.5)
+        canvas.setFillColor(CINZA)
+        canvas.drawString(18 * mm, 10 * mm, rotulo)
+        canvas.drawRightString(A4[0] - 18 * mm, 10 * mm, f"Pagina {doc.page}")
+        canvas.setStrokeColor(LINHA)
+        canvas.line(18 * mm, 13.5 * mm, A4[0] - 18 * mm, 13.5 * mm)
+        canvas.restoreState()
+
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=A4, leftMargin=18 * mm, rightMargin=18 * mm, topMargin=14 * mm,
+                            bottomMargin=18 * mm, title=f"Relatorio de computadores - {cliente}" if cliente else "Relatorio de computadores",
+                            author="SightOps")
+    historia: List[Any] = _capa(rows, cliente, logo_path, agora, st)
+    if rows:
+        historia += [PageBreak()] + _atencao(rows, agora, st)
+        peso = {g[0]: i for i, g in enumerate(GRUPOS)}
+        ordem = sorted(rows, key=lambda r: (min([peso[x["grupo"]] for x in problemas(r, agora)] or [99]),
+                                            _t(r.get("hostname"))))
+        for r in ordem:
+            historia += [PageBreak()] + [KeepTogether(_ficha(r, agora, st))]
+        historia += [PageBreak()] + _plano(rows, agora, st)
+    doc.build(historia, onFirstPage=_rodape, onLaterPages=_rodape)
+    return buf.getvalue()
