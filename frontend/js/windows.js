@@ -349,7 +349,7 @@ function renderWinRows(rows) {
         <td><div class="win-selos">${winSelo('BitLocker', winBitlockerC(row))}${winSelo('Defender', seg.defender_realtime == null ? null : seg.defender_realtime === true && seg.defender_enabled !== false)}${winSelo('TPM', seg.tpm_ready)}</div></td>
         <td class="text-muted">${esc(winQuando(row.last_seen || row.updated_at))}</td>
         <td class="win-acoes">
-          ${anydesk ? `<a class="win-anydesk" href="anydesk:${encodeURIComponent(anydesk)}" title="Conectar AnyDesk ${esc(anydesk)}">AnyDesk</a>` : ''}
+          ${anydesk ? `<a class="win-anydesk" href="anydesk:${encodeURIComponent(anydesk)}" data-anydesk="${esc(anydesk)}" title="Conectar AnyDesk ${esc(anydesk)} (o ID tambem e copiado)">AnyDesk</a>` : ''}
           <button class="secondary-action" type="button" data-win-detalhe="${esc(key)}">Abrir</button>
         </td>
       </tr>`;
@@ -364,7 +364,10 @@ function renderWinRows(rows) {
       updateWinSelectionUi();
     });
   });
-  tbody.querySelectorAll('.win-anydesk').forEach(a => a.addEventListener('click', e => e.stopPropagation()));
+  tbody.querySelectorAll('.win-anydesk').forEach(a => a.addEventListener('click', e => {
+    e.stopPropagation();
+    winCopiarAnydesk(a.dataset.anydesk);  // o link anydesk: segue normalmente
+  }));
   tbody.querySelectorAll('.win-row').forEach(tr => tr.addEventListener('click', () => {
     const row = _winRows.find(r => winKey(r) === tr.dataset.key);
     if (row) openWinPanel(row);
@@ -452,7 +455,7 @@ function openWinPanel(row) {
           <p>${esc([winUserLabel(row), [row.site, row.sector || row.setor].map(winText).filter(Boolean).join(' › '), winModelLabel(row), row.serial ? `serial ${row.serial}` : ''].filter(x => x && x !== '-').join(' · '))}</p>
         </div>
         <div class="win-det-acoes">
-          ${anydesk ? `<a class="primary-action" href="anydesk:${encodeURIComponent(anydesk)}">Conectar AnyDesk · ${esc(anydesk)}</a>` : ''}
+          ${anydesk ? `<a class="primary-action win-anydesk" href="anydesk:${encodeURIComponent(anydesk)}" data-anydesk="${esc(anydesk)}">Conectar AnyDesk · ${esc(anydesk)}</a>` : ''}
           <button class="secondary-action" type="button" data-win-acao="ping">Ping</button>
           <button class="secondary-action" type="button" data-win-acao="edit">Caminho fisico</button>
           <button class="secondary-action" type="button" data-win-fechar="1" aria-label="Fechar">Fechar</button>
@@ -514,6 +517,7 @@ function openWinPanel(row) {
   tampa.querySelector('.win-det-tampa').addEventListener('click', ev => { if (ev.target === ev.currentTarget) fechar(); });
   tampa.querySelectorAll('[data-win-fechar]').forEach(b => b.addEventListener('click', fechar));
   tampa.querySelectorAll('[data-win-acao]').forEach(b => b.addEventListener('click', () => winPanelAction(b.dataset.winAcao)));
+  tampa.querySelectorAll('.win-anydesk').forEach(a => a.addEventListener('click', () => winCopiarAnydesk(a.dataset.anydesk)));
   tampa.querySelector('[data-win-fechar]')?.focus();
 }
 function closeWinPanel() {
@@ -524,6 +528,29 @@ function closeWinPanel() {
 document.addEventListener('keydown', ev => {
   if (ev.key === 'Escape' && document.getElementById('winDetalhe')?.innerHTML) closeWinPanel();
 });
+// O link anydesk: so abre o programa se o AnyDesk estiver INSTALADO na maquina
+// de quem clica (e a instalacao que registra o anydesk: no Windows) e se o
+// navegador nao tiver bloqueado o pedido. Portatil ou bloqueado, o clique nao
+// fazia nada e parecia defeito do SightOps. Copiar o ID junto resolve sempre:
+// basta colar no AnyDesk.
+function winCopiarAnydesk(id) {
+  const texto = winText(id);
+  if (!texto) return;
+  // clipboard.writeText exige contexto seguro; o textarea e o plano B (mesmo
+  // padrao de cameraActivation.js).
+  const planoB = () => {
+    const ta = document.createElement('textarea');
+    ta.value = texto;
+    document.body.appendChild(ta);
+    ta.select();
+    try { document.execCommand('copy'); } catch (e) { /* sem clipboard */ }
+    document.body.removeChild(ta);
+  };
+  if (navigator.clipboard?.writeText) navigator.clipboard.writeText(texto).catch(planoB);
+  else planoB();
+  showToast(`ID AnyDesk ${texto} copiado. Se o AnyDesk nao abrir, cole o ID nele.`);
+}
+
 function winPanelAction(action) {
   if (!_winActive && !['agent', 'pdf', 'refresh'].includes(action)) return;
   // Com conector, o ping sai pelo IP virtual (vnat), igual as cameras: o IP
@@ -532,6 +559,7 @@ function winPanelAction(action) {
   if (action === 'anydesk') {
     const id = winText(_winActive.anydesk_id);
     if (!id) return showToast('Este computador nao tem AnyDesk informado.', true);
+    winCopiarAnydesk(id);
     window.open(`anydesk:${encodeURIComponent(id)}`, '_blank');
     return;
   }
