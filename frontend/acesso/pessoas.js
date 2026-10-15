@@ -469,6 +469,8 @@ async function psAbrirAba() {
     psCampo('psNova').addEventListener('click', () => psAbrir(null));
     piLigar();
     psCampo('psImportar').addEventListener('click', piAbrir);
+    pfLigar();
+    psCampo('psImportarFotos').addEventListener('click', pfAbrir);
     psCampo('psBusca').addEventListener('input', ev => { _psBusca = ev.target.value; _psMostrar = 120; psDesenhar(); });
   }
   if (_psDados) psDesenhar();
@@ -665,4 +667,195 @@ function piLigar() {
   ['dragleave', 'drop'].forEach(t => zona.addEventListener(t, () => zona.classList.remove('sobre')));
   zona.addEventListener('drop', ev => { ev.preventDefault(); escolher(ev.dataTransfer.files[0]); });
   psCampo('piAplicar').addEventListener('click', piAplicar);
+}
+
+// ---------------------------------------------------------------- importar fotos
+// Tudo no navegador: abre o .zip (JSZip), casa o nome de cada arquivo com o CPF
+// ou a matricula, reduz a foto (psPrepararFoto) e envia uma a uma pela rota de
+// sempre (POST /people/{id}/face-photo), que ja manda a foto para os leitores.
+// Assim nenhum envio passa do limite de 25 MB do servidor.
+const PF_EXT = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp' };
+let _pfItens = [];          // [{arquivo, nome, chave, pessoa, problema}]
+let _pfEnviando = false;
+let _pfFeito = false;       // terminou: o botao vira Fechar
+
+function pfAbrir() {
+  _pfItens = [];
+  _pfFeito = false;
+  psCampo('pfArquivos').value = '';
+  psCampo('pfZonaTxt').textContent = 'Escolher um .zip ou várias fotos';
+  psCampo('pfPassoConferir').hidden = true;
+  psCampo('pfErro').hidden = true;
+  psCampo('pfAplicar').disabled = true;
+  psCampo('pfAplicar').innerHTML = '<i data-lucide="upload"></i> Enviar fotos';
+  psCampo('pfGaveta').hidden = false;
+  requestAnimationFrame(() => psCampo('pfGaveta').classList.add('aberta'));
+  if (window.lucide) lucide.createIcons();
+}
+
+function pfFechar() {
+  if (_pfEnviando) return;
+  const g = psCampo('pfGaveta');
+  g.classList.remove('aberta');
+  setTimeout(() => { g.hidden = true; }, 200);
+}
+
+function pfErro(msg) { const e = psCampo('pfErro'); e.textContent = msg || ''; e.hidden = !msg; }
+
+function pfCarregarJsZip() {
+  if (window.JSZip) return Promise.resolve(window.JSZip);
+  return new Promise((ok, falha) => {
+    const s = document.createElement('script');
+    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js';
+    s.onload = () => (window.JSZip ? ok(window.JSZip) : falha(new Error('Não consegui abrir o .zip.')));
+    s.onerror = () => falha(new Error('Não consegui carregar o leitor de .zip. Selecione as fotos soltas.'));
+    document.head.appendChild(s);
+  });
+}
+
+// "fotos/529.982.247-25.JPG" -> {nome:"529.982.247-25.JPG", chave:"52998224725", ext:"jpg"}
+function pfChave(caminho) {
+  const nome = String(caminho).split(/[\\/]/).pop();
+  const ext = (nome.split('.').pop() || '').toLowerCase();
+  const base = nome.replace(/\.[^.]+$/, '').trim();
+  return { nome, ext, base, digitos: base.replace(/\D/g, '') };
+}
+
+function pfCasar(itens) {
+  const pessoas = (_psDados && _psDados.pessoas) || [];
+  const porCpf = new Map(), porMatricula = new Map();
+  pessoas.forEach(p => {
+    if (psDigitos(p.cpf).length === 11) porCpf.set(psDigitos(p.cpf), p);
+    if (p.matricula) porMatricula.set(String(p.matricula).trim().toLowerCase(), p);
+  });
+  const vistos = new Map();
+  itens.forEach(it => {
+    const k = pfChave(it.nome);
+    it.nome = k.nome;
+    if (!PF_EXT[k.ext]) { it.problema = 'não é foto (use .jpg, .png ou .webp)'; return; }
+    const p = (k.digitos.length === 11 && porCpf.get(k.digitos)) || porMatricula.get(k.base.toLowerCase()) || porMatricula.get(k.digitos);
+    if (!p) { it.problema = 'nenhuma pessoa com esse CPF ou matrícula'; return; }
+    if (vistos.has(p.id)) { it.problema = `mesma pessoa de ${vistos.get(p.id)}`; return; }
+    vistos.set(p.id, k.nome);
+    it.pessoa = p;
+  });
+  return itens;
+}
+
+async function pfLerArquivos(lista) {
+  pfErro('');
+  psCampo('pfPassoConferir').hidden = false;
+  psCampo('pfAnalise').innerHTML = '<p class="dv-ajuda"><i data-lucide="loader-circle" class="dv-gira"></i> Lendo as fotos…</p>';
+  if (window.lucide) lucide.createIcons();
+  const itens = [];
+  try {
+    for (const f of lista) {
+      if (/\.zip$/i.test(f.name)) {
+        const JSZip = await pfCarregarJsZip();
+        const zip = await JSZip.loadAsync(f);
+        const entradas = Object.values(zip.files).filter(e => !e.dir && !/(^|\/)(__MACOSX|\.)/.test(e.name));
+        if (entradas.length > 3000) throw new Error('O .zip tem mais de 3.000 arquivos. Divida em partes.');
+        for (const e of entradas) itens.push({ nome: e.name, ler: () => e.async('blob') });
+      } else {
+        itens.push({ nome: f.name, ler: async () => f });
+      }
+    }
+  } catch (err) {
+    psCampo('pfPassoConferir').hidden = true;
+    pfErro(err.message || 'Não consegui ler os arquivos.');
+    return;
+  }
+  _pfItens = pfCasar(itens);
+  pfMostrar();
+}
+
+function pfMostrar() {
+  const ok = _pfItens.filter(i => i.pessoa), ruins = _pfItens.filter(i => !i.pessoa);
+  const trocam = ok.filter(i => i.pessoa.tem_foto).length;
+  psCampo('pfAnalise').innerHTML = `
+    <div class="pi-numeros">
+      <div class="ok"><b>${apNum(ok.length)}</b><span>com pessoa</span></div>
+      <div class="azul"><b>${apNum(trocam)}</b><span>trocam a foto atual</span></div>
+      <div class="${ruins.length ? 'ruim' : ''}"><b>${apNum(ruins.length)}</b><span>não entram</span></div>
+      <div><b>${apNum(_pfItens.length)}</b><span>arquivos</span></div>
+    </div>
+    ${ruins.length ? `<details class="pi-lista ruim" ${ok.length ? '' : 'open'}><summary>${apNum(ruins.length)} arquivo${ruins.length === 1 ? '' : 's'} não entra${ruins.length === 1 ? '' : 'm'}</summary>
+      <ul>${ruins.slice(0, 300).map(i => `<li><b class="monospace">${esc(i.nome)}</b> · ${esc(i.problema)}</li>`).join('')}</ul></details>` : ''}
+    ${ok.length ? `<div class="ap-tabela pi-tabela"><table><thead><tr><th>Arquivo</th><th>Pessoa</th><th>Foto atual</th><th>Situação</th></tr></thead><tbody>
+      ${ok.slice(0, 500).map((i, n) => `<tr><td class="monospace">${esc(i.nome)}</td><td>${esc(i.pessoa.nome)}<small class="pi-antes">${esc(psTipoRot(i.pessoa))}${i.pessoa.turma ? ' · ' + esc(i.pessoa.turma) : ''}</small></td>
+        <td>${i.pessoa.tem_foto ? 'será trocada' : '<span class="ps-falta">sem foto</span>'}</td><td id="pfSit${n}" class="pf-sit">pronta</td></tr>`).join('')}
+    </tbody></table></div>` : ''}
+    <div class="pf-barra" id="pfBarra" hidden><i></i><span></span></div>`;
+  psCampo('pfAplicar').disabled = !ok.length;
+  psCampo('pfAplicar').innerHTML = `<i data-lucide="upload"></i> Enviar ${apNum(ok.length)} foto${ok.length === 1 ? '' : 's'}`;
+  if (window.lucide) lucide.createIcons();
+}
+
+async function pfEnviar() {
+  if (_pfFeito) return pfFechar();
+  const ok = _pfItens.filter(i => i.pessoa);
+  if (!ok.length || _pfEnviando) return;
+  _pfEnviando = true;
+  const b = psCampo('pfAplicar');
+  b.disabled = true;
+  psCampo('pfCancelar').disabled = true;
+  const barra = psCampo('pfBarra');
+  barra.hidden = false;
+  let feitas = 0, erros = 0, prox = 0;
+  const marcar = () => {
+    barra.querySelector('i').style.width = `${Math.round(feitas * 100 / ok.length)}%`;
+    barra.querySelector('span').textContent = `${apNum(feitas)} de ${apNum(ok.length)}: ${apNum(feitas - erros)} enviada${feitas - erros === 1 ? '' : 's'}${erros ? `, ${erros} com erro` : ''}`;
+    b.innerHTML = `<i data-lucide="loader-circle" class="dv-gira"></i> Enviando ${apNum(feitas)}/${apNum(ok.length)}`;
+    if (window.lucide) lucide.createIcons();
+  };
+  marcar();
+  // Tres por vez: rapido sem afogar o servidor (cada uma grava e enfileira o envio ao leitor).
+  const trabalhador = async () => {
+    while (prox < ok.length) {
+      const n = prox++;
+      const it = ok[n];
+      const cel = psCampo('pfSit' + n);
+      try {
+        const bruto = await it.ler();
+        const ext = pfChave(it.nome).ext;
+        const arquivo = new File([bruto], it.nome, { type: PF_EXT[ext] || bruto.type || 'image/jpeg' });
+        const foto = await psPrepararFoto(arquivo);
+        await psEnviarFoto(it.pessoa.id, foto);
+        if (cel) { cel.textContent = 'enviada'; cel.className = 'pf-sit ok'; }
+      } catch (err) {
+        erros++;
+        if (cel) { cel.textContent = (err && err.message) || 'erro'; cel.className = 'pf-sit ruim'; }
+      }
+      feitas++;
+      marcar();
+    }
+  };
+  await Promise.all([trabalhador(), trabalhador(), trabalhador()]);
+  _pfEnviando = false;
+  _pfFeito = true;
+  psCampo('pfCancelar').disabled = false;
+  b.disabled = false;
+  b.innerHTML = '<i data-lucide="check"></i> Fechar';
+  if (window.lucide) lucide.createIcons();
+  acToast(`${apNum(feitas - erros)} foto${feitas - erros === 1 ? '' : 's'} enviada${feitas - erros === 1 ? '' : 's'}${erros ? `, ${erros} com erro (veja na lista)` : ''}. Os leitores recebem em seguida.`, erros > 0);
+  psCarregar().catch(() => {});
+}
+
+function pfLigar() {
+  psCampo('pfFechar').addEventListener('click', pfFechar);
+  psCampo('pfCancelar').addEventListener('click', pfFechar);
+  psCampo('pfFundo').addEventListener('click', pfFechar);
+  document.addEventListener('keydown', ev => { if (ev.key === 'Escape' && !psCampo('pfGaveta').hidden) pfFechar(); });
+  const escolher = lista => {
+    const arr = [...(lista || [])];
+    if (!arr.length) return;
+    psCampo('pfZonaTxt').textContent = arr.length === 1 ? arr[0].name : `${arr.length} arquivos`;
+    pfLerArquivos(arr);
+  };
+  psCampo('pfArquivos').addEventListener('change', ev => escolher(ev.target.files));
+  const zona = psCampo('pfZona');
+  ['dragover', 'dragenter'].forEach(t => zona.addEventListener(t, ev => { ev.preventDefault(); zona.classList.add('sobre'); }));
+  ['dragleave', 'drop'].forEach(t => zona.addEventListener(t, () => zona.classList.remove('sobre')));
+  zona.addEventListener('drop', ev => { ev.preventDefault(); escolher(ev.dataTransfer.files); });
+  psCampo('pfAplicar').addEventListener('click', pfEnviar);
 }

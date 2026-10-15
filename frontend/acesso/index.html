@@ -11,7 +11,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="../styles.css?v=1792000033">
-  <link rel="stylesheet" href="acesso.css?v=1792000051">
+  <link rel="stylesheet" href="acesso.css?v=1792000052">
 </head>
 <body>
   <div id="appShell" class="app-shell" hidden>
@@ -312,11 +312,45 @@
         <div id="apPess" hidden>
           <div class="dv-barra">
             <label class="dv-busca"><i data-lucide="search"></i><input id="psBusca" type="search" placeholder="Nome, CPF, matrícula, turma" aria-label="Buscar pessoa"></label>
+            <button class="secondary-action" id="psImportarFotos" type="button"><i data-lucide="images"></i> Importar fotos</button>
             <button class="secondary-action" id="psImportar" type="button"><i data-lucide="file-spreadsheet"></i> Importar planilha</button>
             <button class="primary-action" id="psNova" type="button"><i data-lucide="user-plus"></i> Nova pessoa</button>
           </div>
           <div id="psConteudo"><p class="ap-vazio">Carregando pessoas…</p></div>
 
+          <div class="dv-gaveta" id="pfGaveta" hidden>
+            <div class="dv-fundo" id="pfFundo"></div>
+            <aside class="dv-painel pi-painel" role="dialog" aria-modal="true" aria-labelledby="pfTitulo">
+              <header class="dv-gaveta-cab">
+                <div><p class="eyebrow">Pessoas</p><h2 id="pfTitulo">Importar fotos</h2><p>Muitas fotos de uma vez, cada uma na pessoa certa pelo nome do arquivo.</p></div>
+                <button class="icon-button" id="pfFechar" type="button" aria-label="Fechar"><i data-lucide="x"></i></button>
+              </header>
+              <div class="dv-form">
+                <section class="dv-passo">
+                  <h3 class="dv-passo-tit"><span>1</span>Como nomear</h3>
+                  <p class="dv-ajuda">O nome de cada foto é o <b>CPF</b> ou a <b>matrícula</b> da pessoa. Exemplos: <span class="monospace">52998224725.jpg</span>, <span class="monospace">529.982.247-25.jpg</span>, <span class="monospace">1577.png</span>. A foto deve ser de frente, com o rosto inteiro, boa luz e fundo liso.</p>
+                </section>
+                <section class="dv-passo">
+                  <h3 class="dv-passo-tit"><span>2</span>Fotos</h3>
+                  <label class="ps-foto-zona pi-zona" id="pfZona">
+                    <input type="file" id="pfArquivos" multiple accept=".zip,application/zip,image/jpeg,image/png,image/webp">
+                    <i data-lucide="images"></i><b id="pfZonaTxt">Escolher um .zip ou várias fotos</b>
+                    <small>ou arraste aqui. As fotos são reduzidas no seu computador antes de enviar.</small>
+                  </label>
+                </section>
+                <section class="dv-passo" id="pfPassoConferir" hidden>
+                  <h3 class="dv-passo-tit"><span>3</span>Conferir</h3>
+                  <div id="pfAnalise"></div>
+                </section>
+                <p class="dv-erro" id="pfErro" role="alert" hidden></p>
+              </div>
+              <footer class="dv-gaveta-pe">
+                <span class="dv-espaco"></span>
+                <button type="button" class="secondary-action" id="pfCancelar">Cancelar</button>
+                <button type="button" class="primary-action" id="pfAplicar" disabled><i data-lucide="upload"></i> Enviar fotos</button>
+              </footer>
+            </aside>
+          </div>
           <div class="dv-gaveta" id="piGaveta" hidden>
             <div class="dv-fundo" id="piFundo"></div>
             <aside class="dv-painel pi-painel" role="dialog" aria-modal="true" aria-labelledby="piTitulo">
@@ -528,10 +562,10 @@
 
   <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js"></script>
   <script src="../config.js?v=1791000212"></script>
-  <script src="dispositivos/dispositivos.js?v=1792000051"></script>
-  <script src="pessoas.js?v=1792000051"></script>
-  <script src="acesso-grupos.js?v=1792000051"></script>
-  <script src="shell.js?v=1792000051"></script>
-  <script src="acesso.js?v=1792000051"></script>
+  <script src="dispositivos/dispositivos.js?v=1792000052"></script>
+  <script src="pessoas.js?v=1792000052"></script>
+  <script src="acesso-grupos.js?v=1792000052"></script>
+  <script src="shell.js?v=1792000052"></script>
+  <script src="acesso.js?v=1792000052"></script>
 </body>
 </html>
