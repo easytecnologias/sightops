@@ -11,7 +11,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="../styles.css?v=1792000033">
-  <link rel="stylesheet" href="acesso.css?v=1792000045">
+  <link rel="stylesheet" href="acesso.css?v=1792000046">
 </head>
 <body>
   <div id="appShell" class="app-shell" hidden>
@@ -173,6 +173,7 @@
           <button type="button" class="tab-btn active" data-ap-tela="vivo" role="tab" aria-selected="true">Ao vivo</button>
           <button type="button" class="tab-btn" data-ap-tela="dispositivos" role="tab" aria-selected="false">Dispositivos</button>
           <button type="button" class="tab-btn" data-ap-tela="pessoas" role="tab" aria-selected="false">Pessoas</button>
+          <button type="button" class="tab-btn" data-ap-tela="acesso" role="tab" aria-selected="false">Acesso</button>
           <button type="button" class="tab-btn" data-ap-tela="portas" role="tab" aria-selected="false">Portas</button>
           <button type="button" class="tab-btn" data-ap-tela="alertas" role="tab" aria-selected="false">Alertas</button>
           <button type="button" class="tab-btn" data-ap-tela="relatorios" role="tab" aria-selected="false">Relatórios</button>
@@ -343,6 +344,93 @@
             </aside>
           </div>
         </div>
+        <div id="apAcesso" hidden>
+          <div class="ag-topo">
+            <div class="dv-seg ag-vistas" role="group" aria-label="Parte da aba Acesso">
+              <button type="button" data-ag-vista="grupos"><i data-lucide="users"></i>Grupos</button>
+              <button type="button" data-ag-vista="horarios"><i data-lucide="calendar-clock"></i>Horários e feriados</button>
+              <button type="button" data-ag-vista="simulacao"><i data-lucide="flask-conical"></i>Simulação</button>
+            </div>
+            <span class="ag-selo"><i data-lucide="shield-check"></i>Modo simulação: nada vai para os leitores</span>
+          </div>
+          <div id="agConteudo"><p class="ap-vazio">Carregando…</p></div>
+
+          <div class="dv-gaveta" id="agGGaveta" hidden>
+            <div class="dv-fundo" id="agGFundo"></div>
+            <aside class="dv-painel ps-painel" role="dialog" aria-modal="true" aria-labelledby="agGTitulo">
+              <header class="dv-gaveta-cab">
+                <div><p class="eyebrow">Controle de Acesso</p><h2 id="agGTitulo">Novo grupo</h2><p id="agGSub"></p></div>
+                <button class="icon-button" id="agGFechar" type="button" aria-label="Fechar"><i data-lucide="x"></i></button>
+              </header>
+              <form id="agGForm" class="dv-form" novalidate>
+                <fieldset class="dv-passo">
+                  <h3 class="dv-passo-tit"><span>1</span>Quem</h3>
+                  <label class="dv-rot" for="agGNome">Nome do grupo</label>
+                  <input id="agGNome" maxlength="160" placeholder="Ex.: Alunos manhã">
+                  <label class="dv-rot" for="agGSite">Local</label>
+                  <input id="agGSite" list="agGSites" autocomplete="off"><datalist id="agGSites"></datalist>
+                  <small class="dv-ajuda" id="agGMembros"></small>
+                </fieldset>
+                <fieldset class="dv-passo">
+                  <h3 class="dv-passo-tit"><span>2</span>Abre quais portas</h3>
+                  <div class="ps-grupos" id="agGPortas"></div>
+                </fieldset>
+                <fieldset class="dv-passo">
+                  <h3 class="dv-passo-tit"><span>3</span>Quando</h3>
+                  <div class="ag-ops" id="agGHorarios"></div>
+                  <label class="dv-chave"><input type="checkbox" id="agGSaida" checked><span></span>Saída livre a qualquer hora<small>Recomendado: o horário vale para entrar; ninguém fica preso do lado de dentro.</small></label>
+                  <label class="dv-chave"><input type="checkbox" id="agGAtivo" checked><span></span>Grupo ativo</label>
+                </fieldset>
+                <p class="dv-erro" id="agGErro" role="alert" hidden></p>
+              </form>
+              <footer class="dv-gaveta-pe">
+                <button type="button" class="dv-remover" id="agGExcluir" hidden><i data-lucide="trash-2"></i> Excluir</button>
+                <div class="dv-confirma" id="agGConfirma" hidden>
+                  <span>Excluir este grupo? Só dá para excluir grupo sem pessoas.</span>
+                  <button type="button" class="secondary-action" id="agGConfirmaNao">Não</button>
+                  <button type="button" class="dv-remover forte" id="agGConfirmaSim">Excluir</button>
+                </div>
+                <span class="dv-espaco"></span>
+                <button type="button" class="secondary-action" id="agGCancelar">Cancelar</button>
+                <button type="submit" form="agGForm" class="primary-action"><i data-lucide="save"></i> Salvar grupo</button>
+              </footer>
+            </aside>
+          </div>
+
+          <div class="dv-gaveta" id="agHGaveta" hidden>
+            <div class="dv-fundo" id="agHFundo"></div>
+            <aside class="dv-painel ag-painel-h" role="dialog" aria-modal="true" aria-labelledby="agHTitulo">
+              <header class="dv-gaveta-cab">
+                <div><p class="eyebrow">Controle de Acesso</p><h2 id="agHTitulo">Novo horário</h2><p>Arraste sobre a grade para pintar quando pode entrar. Cada quadrinho é meia hora.</p></div>
+                <button class="icon-button" id="agHFechar" type="button" aria-label="Fechar"><i data-lucide="x"></i></button>
+              </header>
+              <form id="agHForm" class="dv-form" novalidate>
+                <div class="dv-duas">
+                  <div><label class="dv-rot" for="agHNome">Nome</label><input id="agHNome" maxlength="63" placeholder="Ex.: Turno manhã"></div>
+                  <div><label class="dv-rot" for="agHSite">Local (opcional)</label><input id="agHSite" list="agGSites" autocomplete="off"></div>
+                </div>
+                <div class="ag-grade" id="agHGrade"></div>
+                <div class="ag-grade-acoes">
+                  <button type="button" class="secondary-action" id="agHCopiar"><i data-lucide="copy"></i> Copiar segunda para terça a sexta</button>
+                  <button type="button" class="secondary-action" id="agHLimpar"><i data-lucide="eraser"></i> Limpar tudo</button>
+                </div>
+                <small class="dv-ajuda">A linha "Feriado" vale nas datas da lista de feriados do local. Deixe vazia para fechar no feriado.</small>
+                <p class="dv-erro" id="agHErro" role="alert" hidden></p>
+              </form>
+              <footer class="dv-gaveta-pe">
+                <button type="button" class="dv-remover" id="agHExcluir" hidden><i data-lucide="trash-2"></i> Excluir</button>
+                <div class="dv-confirma" id="agHConfirma" hidden>
+                  <span>Excluir este horário?</span>
+                  <button type="button" class="secondary-action" id="agHConfirmaNao">Não</button>
+                  <button type="button" class="dv-remover forte" id="agHConfirmaSim">Excluir</button>
+                </div>
+                <span class="dv-espaco"></span>
+                <button type="button" class="secondary-action" id="agHCancelar">Cancelar</button>
+                <button type="submit" form="agHForm" class="primary-action"><i data-lucide="save"></i> Salvar horário</button>
+              </footer>
+            </aside>
+          </div>
+        </div>
         <div id="apPortas" hidden></div>
         <div id="apAlertas" hidden></div>
         <div id="apRel" hidden><div id="apRelTopo"></div><div id="apGeral"></div></div>
@@ -352,9 +440,10 @@
 
   <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js"></script>
   <script src="../config.js?v=1791000212"></script>
-  <script src="dispositivos/dispositivos.js?v=1792000045"></script>
-  <script src="pessoas.js?v=1792000045"></script>
-  <script src="shell.js?v=1792000045"></script>
-  <script src="acesso.js?v=1792000045"></script>
+  <script src="dispositivos/dispositivos.js?v=1792000046"></script>
+  <script src="pessoas.js?v=1792000046"></script>
+  <script src="acesso-grupos.js?v=1792000046"></script>
+  <script src="shell.js?v=1792000046"></script>
+  <script src="acesso.js?v=1792000046"></script>
 </body>
 </html>

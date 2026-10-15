@@ -5,7 +5,7 @@ import json
 from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, List, Optional
 
-from fastapi import APIRouter, Depends, File, Header, HTTPException, Query, Request, Response, UploadFile
+from fastapi import Body, APIRouter, Depends, File, Header, HTTPException, Query, Request, Response, UploadFile
 from pydantic import BaseModel, Field
 from starlette.responses import PlainTextResponse, StreamingResponse
 
@@ -1059,6 +1059,56 @@ def api_access_control_painel_tipo_local(req: TipoLocalRequest, user: Dict[str, 
         return {"ok": True, **definir_tipo_local(req.site, req.tipo, user.get("username") or "")}
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+
+
+# ---- Aba Acesso: grupos, horarios, feriados e simulacao (nada vai ao leitor)
+def _acesso_erro(fn, *args):
+    try:
+        return fn(*args)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.get("/painel/acesso")
+def api_access_control_painel_acesso(site: str = Query("")) -> Dict[str, Any]:
+    from app.services.access_control_horarios import acesso
+    return acesso(site=site)
+
+
+@router.put("/painel/acesso/grupos")
+def api_access_control_painel_acesso_grupo(payload: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
+    from app.services.access_control_horarios import salvar_grupo
+    return _acesso_erro(salvar_grupo, payload)
+
+
+@router.delete("/painel/acesso/grupos/{group_id}")
+def api_access_control_painel_acesso_grupo_excluir(group_id: str) -> Dict[str, Any]:
+    from app.services.access_control_horarios import excluir_grupo
+    return _acesso_erro(excluir_grupo, group_id)
+
+
+@router.put("/painel/acesso/horarios")
+def api_access_control_painel_acesso_horario(payload: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
+    from app.services.access_control_horarios import salvar_horario
+    return {"ok": True, "horario": _acesso_erro(salvar_horario, payload)}
+
+
+@router.delete("/painel/acesso/horarios/{horario_id}")
+def api_access_control_painel_acesso_horario_excluir(horario_id: str) -> Dict[str, Any]:
+    from app.services.access_control_horarios import excluir_horario
+    return _acesso_erro(excluir_horario, horario_id)
+
+
+@router.put("/painel/acesso/feriados")
+def api_access_control_painel_acesso_feriados(payload: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
+    from app.services.access_control_horarios import salvar_feriados
+    return {"ok": True, **_acesso_erro(salvar_feriados, payload.get("site"), payload.get("feriados") or [])}
+
+
+@router.get("/painel/acesso/simulacao")
+def api_access_control_painel_acesso_simulacao(site: str = Query(""), dias: int = Query(14)) -> Dict[str, Any]:
+    from app.services.access_control_horarios import simular
+    return simular(site=site, dias=dias)
 
 
 @router.get("/painel/ip-virtual")

@@ -19,11 +19,12 @@ let _apPessoa = '';          // "ver so esta pessoa"
 let _apSel = '';             // passagem escolhida ('' = segue a mais recente)
 let _apPausado = false;
 let _apTopoVisto = '';       // id da passagem mais recente desenhada (para contar novas na pausa)
-const AP_TELAS = ['vivo', 'dispositivos', 'pessoas', 'portas', 'alertas', 'relatorios'];
+const AP_TELAS = ['vivo', 'dispositivos', 'pessoas', 'acesso', 'portas', 'alertas', 'relatorios'];
 // Abas com arquivo proprio: o Painel so mostra/esconde e pede para carregar.
 const AP_ABAS_PROPRIAS = {
   dispositivos: { el: 'apDisp', abrir: () => dvAbrirAba(), carregar: () => dvCarregar() },
   pessoas: { el: 'apPess', abrir: () => psAbrirAba(), carregar: () => psCarregar() },
+  acesso: { el: 'apAcesso', abrir: () => agAbrirAba(), carregar: () => agCarregar() },
 };
 
 // ---- datas: o leitor grava hora local sem fuso; o WhatsApp grava UTC ----
@@ -168,6 +169,7 @@ function apRecarregarTudo() {
   _apDados.vivo = _apDados.rel = _apDados.geral = null;
   if (typeof _dvDados !== 'undefined') _dvDados = null;
   if (typeof _psDados !== 'undefined') _psDados = null;
+  if (typeof _agDados !== 'undefined') { _agDados = null; _agSim = null; }
   apGeral(true).then(g => { apMostrarPerfil(g && g.perfil); }).catch(() => {});
   apAtualizar(true);
 }
