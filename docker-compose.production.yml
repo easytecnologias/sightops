@@ -35,6 +35,7 @@ services:
     volumes:
       - sightops_v3_data:/app/data
       - sightops_v3_output:/app/output
+      - /home/central/olt-locks:/var/lock/sightops-olt
       # A imagem atual ja carrega as .so; este bind mantem elas de pe tambem
       # quando a imagem for reconstruida do git (o binario nao vai no repo).
       - ${NETSDK_HOST_DIR:-/home/central/netsdk-lib}:/opt/netsdk/lib:ro
@@ -123,6 +124,9 @@ services:
       ZBX_HISTORYCACHESIZE: ${ZBX_HISTORYCACHESIZE:-32M}
       ZBX_TRENDCACHESIZE: ${ZBX_TRENDCACHESIZE:-32M}
       ZBX_VALUECACHESIZE: ${ZBX_VALUECACHESIZE:-32M}
+      # Limpeza do Zabbix aos poucos (sem limite, apos a queda de 15/10/2026 ela
+      # apagou o historico inteiro de uma vez e travou o disco do servidor).
+      ZBX_MAXHOUSEKEEPERDELETE: ${ZBX_MAXHOUSEKEEPERDELETE:-5000}
     ports:
       - "${ZABBIX_SERVER_PORT:-10053}:10051"
     depends_on:

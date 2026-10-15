@@ -3520,8 +3520,25 @@ def _zabbix_api_call(url: str, method: str, params: Any, auth: str | None = None
     return data.get("result")
 
 
+# Sessao do Zabbix reaproveitada (chave URL + usuario tecnico, nao dado de
+# cliente). O sync de status chama isto em laco para cada cliente; com
+# user.login a cada chamada o Zabbix acumulou 136.950 sessoes do Admin em um mes
+# (15/10/2026), guardadas 365 dias, pesando no banco dele.
+_ZABBIX_SESSOES: Dict[tuple, str] = {}
+
+
 def _zabbix_login(url: str, user: str, password: str) -> str:
-    return _as_str(_zabbix_api_call(url, "user.login", {"username": user, "password": password}, req_id=1))
+    chave = (_as_str(url), _as_str(user))
+    token = _ZABBIX_SESSOES.get(chave, "")
+    if token:
+        try:
+            if _zabbix_api_call(url, "user.checkAuthentication", {"sessionid": token}, None, 1):
+                return token
+        except Exception:
+            pass
+    token = _as_str(_zabbix_api_call(url, "user.login", {"username": user, "password": password}, req_id=1))
+    _ZABBIX_SESSOES[chave] = token
+    return token
 
 
 @router.post("/scripts/zabbix/status-sync")

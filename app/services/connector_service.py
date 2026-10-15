@@ -308,6 +308,8 @@ def _load_jobs() -> List[Dict[str, Any]]:
 # mecanico. Era a lentidao que o usuario estava sentindo.
 JOBS_HISTORICO_HORAS = 48
 JOBS_MAXIMO = 1500
+JOBS_RESULTADO_MINUTOS = 10
+JOBS_RESULTADO_DESCARTAVEL = ("access_http_get", "access_http_post", "ping_many")
 
 
 def _podar_jobs(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -343,7 +345,19 @@ def _podar_jobs(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             terminados.append(job)
 
     recentes = [j for j in terminados if momento(j) >= limite]
-    if corte_necessario or len(recentes) != len(terminados):
+    # Resultado de leitura de controladora e ping so serve a quem pediu, que o
+    # le na hora. Depois de alguns minutos fica so o registro do job, sem o
+    # conteudo: em 15/10/2026 eram 1.500 jobs e 20 MB, 20,1 MB deles de
+    # access_http_get, regravados inteiros a cada job (3,3 GB em 16 min).
+    corte_resultado = time.time() - JOBS_RESULTADO_MINUTOS * 60
+    enxugou = False
+    for job in recentes:
+        if (_text(job.get("type")) in JOBS_RESULTADO_DESCARTAVEL and job.get("result") is not None
+                and momento(job) < corte_resultado):
+            job["result"] = None
+            job["result_descartado"] = True
+            enxugou = True
+    if corte_necessario or len(recentes) != len(terminados) or enxugou:
         recentes.sort(key=momento)
         sobra = max(0, JOBS_MAXIMO - len(vivos))
         recentes = recentes[-sobra:] if sobra else []

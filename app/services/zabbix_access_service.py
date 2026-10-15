@@ -72,8 +72,22 @@ def _call(url: str, method: str, params: Any, auth: str | None = None, req_id: i
     return data.get("result")
 
 
+_SESSOES: Dict[tuple, str] = {}
+
+
 def _login(url: str, user: str, password: str) -> str:
-    return _text(_call(url, "user.login", {"username": user, "password": password}, req_id=1))
+    """Reaproveita a sessao enquanto valida (ver maintenance._zabbix_login)."""
+    chave = (_text(url), _text(user))
+    token = _SESSOES.get(chave, "")
+    if token:
+        try:
+            if _call(url, "user.checkAuthentication", {"sessionid": token}, None, 1):
+                return token
+        except Exception:
+            pass
+    token = _text(_call(url, "user.login", {"username": user, "password": password}, req_id=1))
+    _SESSOES[chave] = token
+    return token
 
 
 def _tenant_hostgroup_name(tenant_slug: str) -> str:

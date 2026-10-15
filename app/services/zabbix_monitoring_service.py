@@ -69,6 +69,28 @@ def _call(url: str, method: str, params: Any, auth: str | None = None, req_id: i
     return data.get("result")
 
 
+# Sessao do Zabbix reaproveitada entre as rodadas do sincronismo. Antes cada
+# rodada (uma por cliente, a cada ~2 min) fazia user.login e nunca saia: em
+# 15/10/2026 havia 136.950 sessoes do Admin, ~6.100 novas por dia, guardadas
+# 365 dias. A sessao e do usuario tecnico do Zabbix (o mesmo para todos os
+# clientes), nao dado de cliente: a chave e a URL + usuario.
+_SESSOES: Dict[tuple, str] = {}
+
+
+def _sessao(url: str, user: str, password: str) -> str:
+    chave = (url, user)
+    token = _SESSOES.get(chave, "")
+    if token:
+        try:
+            if _call(url, "user.checkAuthentication", {"sessionid": token}, None, 1):
+                return token
+        except Exception:
+            pass
+    token = _text(_call(url, "user.login", {"username": user, "password": password}, req_id=1))
+    _SESSOES[chave] = token
+    return token
+
+
 def _chunks(rows: List[Dict[str, Any]], size: int = 50) -> Iterable[List[Dict[str, Any]]]:
     for index in range(0, len(rows), size):
         yield rows[index:index + size]
@@ -409,7 +431,7 @@ def sync_monitoring_to_zabbix(entity_types: tuple[str, ...] = ("olt", "onu", "ca
     for entity_type in entity_types:
         entities.extend(list_entities(entity_type=entity_type, limit=2000))
 
-    auth = _text(_call(url, "user.login", {"username": user, "password": password}, req_id=1))
+    auth = _sessao(url, user, password)
     technical_names = {_host_key(tenant, row): row for row in entities}
     current_hosts = _call(
         url, "host.get",

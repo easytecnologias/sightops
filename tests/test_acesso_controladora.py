@@ -109,3 +109,46 @@ def test_reiniciar_exige_admin():
     assert regras._match_role_rule("/api/access-control/painel/reiniciar-controladora/d1", "POST") == "admin"
     assert regras._match_role_rule("/api/access-control/painel/controladora/d1/hora", "POST") == "operator"
     assert regras._match_role_rule("/api/access-control/painel/controladora/d1/fechar", "POST") == "operator"
+
+
+def test_sincronismo_zabbix_reaproveita_a_sessao(monkeypatch):
+    """Antes: user.login a cada rodada, ~6.100 sessoes novas por dia no Zabbix."""
+    from app.services import zabbix_monitoring_service as Z
+    chamadas = []
+
+    def falso(url, method, params, auth=None, req_id=1):
+        chamadas.append(method)
+        if method == "user.login":
+            return f"tok{chamadas.count('user.login')}"
+        if method == "user.checkAuthentication":
+            if params["sessionid"] == "tok1" and "expira" in chamadas:
+                raise RuntimeError("Session terminated")
+            return {"userid": "1"}
+        return None
+
+    monkeypatch.setattr(Z, "_call", falso)
+    Z._SESSOES.clear()
+    assert Z._sessao("u", "Admin", "x") == "tok1"
+    assert Z._sessao("u", "Admin", "x") == "tok1"          # reaproveitou
+    assert chamadas.count("user.login") == 1
+    chamadas.append("expira")
+    assert Z._sessao("u", "Admin", "x") == "tok2"          # expirou: loga de novo
+
+
+def test_job_antigo_de_leitura_perde_o_conteudo_mas_nao_o_registro():
+    from datetime import datetime, timedelta, timezone
+    from app.services import connector_service as CS
+    agora = datetime.now(timezone.utc)
+    velho = (agora - timedelta(minutes=30)).isoformat()
+    novo = (agora - timedelta(minutes=2)).isoformat()
+    jobs = [
+        {"id": "1", "type": "access_http_get", "status": "done", "finished_at": velho, "result": {"access_http": "x" * 13000}},
+        {"id": "2", "type": "access_http_get", "status": "done", "finished_at": novo, "result": {"access_http": "y"}},
+        {"id": "3", "type": "wireguard_diagnose", "status": "done", "finished_at": velho, "result": {"diag": "ok"}},
+        {"id": "4", "type": "access_http_get", "status": "running", "picked_at": velho, "result": None},
+    ]
+    r = {j["id"]: j for j in CS._podar_jobs(jobs)}
+    assert set(r) == {"1", "2", "3", "4"}
+    assert r["1"]["result"] is None and r["1"]["result_descartado"] is True   # leitura velha: so o registro
+    assert r["2"]["result"] == {"access_http": "y"}                           # recente: quem pediu ainda le
+    assert r["3"]["result"] == {"diag": "ok"}                                 # diagnostico fica inteiro
