@@ -1302,9 +1302,14 @@ def list_access_report_events(filters: Dict[str, Any]) -> List[Dict[str, Any]]:
     if event_type in {"entrada", "saida", "saida_manual"}:
         where.append("e.event_type = ?")
         params.append(event_type)
+    # Varias portas escolhidas no Painel (ex.: entrada + saida da portaria).
+    device_ids = [_clean_text(x, 80) for x in (filters.get("device_ids") or []) if _clean_text(x, 80)][:50]
     if device_id:
         where.append("e.device_id = ?")
         params.append(device_id)
+    elif device_ids:
+        where.append(f"e.device_id IN ({','.join('?' for _ in device_ids)})")
+        params.extend(device_ids)
     elif door_group_id:
         device_ids = list_door_group_members(door_group_id)
         if not device_ids:

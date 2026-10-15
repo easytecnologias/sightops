@@ -1003,15 +1003,15 @@ def api_access_control_painel_visao_geral(site: str = Query("")) -> Dict[str, An
 
 
 @router.get("/painel/ao-vivo")
-def api_access_control_painel_ao_vivo(site: str = Query(""), limit: int = Query(40)) -> Dict[str, Any]:
+def api_access_control_painel_ao_vivo(site: str = Query(""), limit: int = Query(40), portas: str = Query("")) -> Dict[str, Any]:
     from app.services.access_control_painel import ao_vivo
-    return ao_vivo(site=site, limite=limit)
+    return ao_vivo(site=site, limite=limit, portas=[p.strip() for p in portas.split(",") if p.strip()])
 
 
 @router.get("/painel/relatorios")
-def api_access_control_painel_relatorios(site: str = Query(""), dias: int = Query(28)) -> Dict[str, Any]:
+def api_access_control_painel_relatorios(site: str = Query(""), dias: int = Query(28), portas: str = Query("")) -> Dict[str, Any]:
     from app.services.access_control_painel import relatorios
-    return relatorios(site=site, dias=dias)
+    return relatorios(site=site, dias=dias, portas=[p.strip() for p in portas.split(",") if p.strip()])
 
 
 @router.get("/painel/dispositivos")

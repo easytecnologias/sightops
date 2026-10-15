@@ -7,6 +7,7 @@
 // Relatorios (o que e para analisar, fora do ao vivo).
 let _apTela = 'vivo';
 let _apSite = '';
+let _apPortas = [];   // ids de leitor; vazio = todas as portas do local
 let _apFonte = null;
 let _apTimer = null;
 let _apRelogio = null;
@@ -659,6 +660,7 @@ function apDesenharGeral(d) {
 function apQ(extra) {
   const p = new URLSearchParams(extra || {});
   if (_apSite) p.set('site', _apSite);
+  if (_apPortas.length) p.set('portas', _apPortas.join(','));
   const s = p.toString();
   return s ? '?' + s : '';
 }
@@ -782,12 +784,15 @@ async function loadAccessPainel() {
     sel.dataset.ligado = '1';
     sel.addEventListener('change', () => {
       _apSite = sel.value;
+      _apPortas = [];
+      apPortasRotulo();
       _apDados.vivo = _apDados.rel = _apDados.geral = null;
       _apSel = ''; _apPessoa = '';
       apLigarStream(); apAtualizar(true);
     });
     document.querySelectorAll('[data-ap-tela]').forEach(b => b.addEventListener('click', () => apTrocarTela(b.dataset.apTela)));
     document.getElementById('btnApAtualizar')?.addEventListener('click', () => apAtualizar(true));
+    document.getElementById('apPortas')?.addEventListener('click', ev => apMenuPortas(ev.currentTarget));
     document.getElementById('apPerfil')?.addEventListener('click', ev => apMenuTipo(ev.currentTarget, ev.currentTarget.dataset.site));
   }
   try {
@@ -824,3 +829,56 @@ async function loadAccessPainel() {
 }
 
 window.acPagina = { id: 'painel', iniciar: loadAccessPainel };
+
+// ---------------------------------------------------------------- filtro de portas
+// Ver so algumas portas do local (ex.: entrada + saida da portaria). Vale para
+// Ao vivo, Alertas e Relatorios; "quem esta aqui" continua sendo o local todo.
+function apPortasDoLocal() {
+  const lista = ((_apDados.geral || {}).leitores || {}).lista || [];
+  return lista.filter(l => !_apSite || String(l.site).toUpperCase() === _apSite.toUpperCase())
+    .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+}
+
+function apPortasRotulo() {
+  const b = document.getElementById('apPortas');
+  if (!b) return;
+  const nomes = apPortasDoLocal().filter(l => _apPortas.includes(l.id)).map(l => apPorta(l.nome));
+  const txt = !_apPortas.length ? 'Todas as portas' : nomes.length === 1 ? nomes[0] : `${_apPortas.length} portas`;
+  b.querySelector('span').textContent = txt;
+  b.classList.toggle('on', _apPortas.length > 0);
+  b.title = nomes.join(' + ') || 'Todas as portas';
+}
+
+function apMenuPortas(ancora) {
+  document.getElementById('apMenuPortas')?.remove();
+  const portas = apPortasDoLocal();
+  if (!portas.length) { acToast('Nenhuma porta neste local.'); return; }
+  const menu = document.createElement('div');
+  menu.id = 'apMenuPortas';
+  menu.className = 'ap-menu-tipo ap-menu-portas';
+  menu.innerHTML = `<div class="ap-menu-cab"><b>Portas</b><small>Marque as que quer ver</small></div>
+    <label class="ap-mp-item"><input type="checkbox" data-mp-todas ${_apPortas.length ? '' : 'checked'}><span>Todas as portas</span></label>
+    ${portas.map(l => `<label class="ap-mp-item"><input type="checkbox" value="${esc(l.id)}" ${_apPortas.includes(l.id) ? 'checked' : ''}><span>${esc(_apSite ? apPorta(l.nome) : l.nome)}</span></label>`).join('')}
+    <div class="ap-mp-pe"><button type="button" class="primary-action" data-mp-ok>Ver</button></div>`;
+  document.body.appendChild(menu);
+  const r = ancora.getBoundingClientRect();
+  menu.style.top = (window.scrollY + r.bottom + 6) + 'px';
+  menu.style.left = Math.max(12, Math.min(window.scrollX + r.left, window.scrollX + document.documentElement.clientWidth - menu.offsetWidth - 12)) + 'px';
+  const todas = menu.querySelector('[data-mp-todas]');
+  const caixas = [...menu.querySelectorAll('input[value]')];
+  todas.addEventListener('change', () => { if (todas.checked) caixas.forEach(c => { c.checked = false; }); });
+  caixas.forEach(c => c.addEventListener('change', () => { todas.checked = !caixas.some(x => x.checked); }));
+  const fechar = ev => { if (!menu.contains(ev.target) && ev.target !== ancora && !ancora.contains(ev.target)) { menu.remove(); document.removeEventListener('mousedown', fechar); } };
+  setTimeout(() => document.addEventListener('mousedown', fechar), 0);
+  menu.addEventListener('keydown', ev => { if (ev.key === 'Escape') { menu.remove(); ancora.focus(); } });
+  menu.querySelector('[data-mp-ok]').addEventListener('click', () => {
+    const marcadas = caixas.filter(c => c.checked).map(c => c.value);
+    _apPortas = marcadas.length === portas.length ? [] : marcadas;
+    menu.remove();
+    apPortasRotulo();
+    _apDados.vivo = _apDados.rel = null;
+    _apSel = '';
+    apAtualizar(true);
+  });
+  caixas[0]?.focus();
+}

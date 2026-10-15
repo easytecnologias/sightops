@@ -563,8 +563,11 @@ def open_door(device: Dict[str, Any], channel: int = 1) -> Dict[str, Any]:
 
 
 def _provision_intelbras_person(
-    device: Dict[str, Any], person: Dict[str, Any], photo_bytes: bytes | None = None
+    device: Dict[str, Any], person: Dict[str, Any], photo_bytes: bytes | None = None,
+    *, senha: str | None = "123456", valido_de: str = "2024-08-01 00:00:00", valido_ate: str = "2034-08-01 23:59:59",
 ) -> Dict[str, Any]:
+    """senha=None nao manda Password (e opcional na HTTP API V3.59 12.4.1):
+    com "123456" fixo, quem souber o ID abre a porta pelo teclado."""
     full_name = str(person.get("full_name") or "").strip()
     controller_user_id = "".join(ch for ch in str(person.get("controller_user_id") or "") if ch.isdigit())
     if not full_name:
@@ -583,14 +586,15 @@ def _provision_intelbras_person(
                 "UserStatus": 1 if person.get("active") is False else 0,
                 "Authority": 2,
                 "CitizenIDNo": "",
-                "Password": "123456",
                 "Doors": [0],
                 "TimeSections": [0],
-                "ValidFrom": "2024-08-01 00:00:00",
-                "ValidTo": "2034-08-01 23:59:59",
+                "ValidFrom": valido_de,
+                "ValidTo": valido_ate,
             }
         ]
     }
+    if senha is not None:
+        user_payload["UserList"][0]["Password"] = senha
     card_text = _post_json(
         device,
         "/cgi-bin/AccessUser.cgi?action=insertMulti",

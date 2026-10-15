@@ -522,7 +522,8 @@ def _relogio_errado(agora: Optional[datetime] = None) -> Dict[str, Dict[str, Any
 
 # ---------------------------------------------------------------- relatorios
 
-def relatorios(site: str = "", dias: int = 28, agora: Optional[datetime] = None) -> Dict[str, Any]:
+def relatorios(site: str = "", dias: int = 28, agora: Optional[datetime] = None,
+               portas: Optional[List[str]] = None) -> Dict[str, Any]:
     """Uso do predio (dia da semana x hora), dia a dia e chegada/saida de hoje
     por pessoa. Separado do ao vivo: e para analisar, nao para operar."""
     agora = agora or _agora()
@@ -531,10 +532,12 @@ def relatorios(site: str = "", dias: int = 28, agora: Optional[datetime] = None)
     local_agora = agora.astimezone(FUSO_LOCAL)
     hoje = local_agora.strftime("%Y-%m-%d")
     inicio = (local_agora - timedelta(days=dias - 1)).strftime("%Y-%m-%d") + " 00:00:00"
+    portas = [p for p in (portas or []) if p][:50]
     sql = ("SELECT person_id, person_name_raw, event_type, device_name, occurred_at FROM access_events "
-           "WHERE tenant_slug=? AND occurred_at >= ? AND occurred_at <= ?" + (" AND site=?" if site else ""))
+           "WHERE tenant_slug=? AND occurred_at >= ? AND occurred_at <= ?" + (" AND site=?" if site else "")
+           + (f" AND device_id IN ({','.join('?' for _ in portas)})" if portas else ""))
     fim = _local_txt(agora)
-    eventos = _rows(sql, (tenant, inicio, fim, site) if site else (tenant, inicio, fim))
+    eventos = _rows(sql, (tenant, inicio, fim) + ((site,) if site else ()) + tuple(portas))
 
     mapa = [[0] * 24 for _ in range(7)]  # 0 = segunda
     por_dia: Dict[str, Dict[str, Any]] = {}
@@ -614,11 +617,15 @@ def relatorios(site: str = "", dias: int = 28, agora: Optional[datetime] = None)
 
 # ---------------------------------------------------------------- ao vivo
 
-def ao_vivo(site: str = "", limite: int = 40, agora: Optional[datetime] = None) -> Dict[str, Any]:
+def ao_vivo(site: str = "", limite: int = 40, agora: Optional[datetime] = None,
+            portas: Optional[List[str]] = None) -> Dict[str, Any]:
+    """`portas`: so estas portas (ids de leitor), ex. entrada + saida da
+    portaria. Quem esta dentro continua sendo do local inteiro."""
     from app.services.access_control_store import (access_present_people, access_report_summary,
                                                     list_access_report_events)
     agora = agora or _agora()
-    filtros = {"period": "today", "site": site}
+    portas = [p for p in (portas or []) if p]
+    filtros = {"period": "today", "site": site, "device_ids": portas}
     resumo = access_report_summary(filtros)
     eventos = list_access_report_events({**filtros, "limit": max(1, min(int(limite or 40), 500))})
     todas = _pessoas()
@@ -680,7 +687,7 @@ def ao_vivo(site: str = "", limite: int = 40, agora: Optional[datetime] = None) 
                "relogio_errado": relogio.get(_t(d.get("id")), {}).get("qtd", 0),
                "relogio_errado_em": relogio.get(_t(d.get("id")), {}).get("quando", ""),
                **por_leitor.get(_t(d.get("id")), {"hoje": 0, "ultima": "", "horas": [0] * 24})}
-              for d in _leitores(site)]
+              for d in _leitores(site) if not portas or _t(d.get("id")) in portas]
 
     # Presenca por turma: alunos ativos de cada turma x presentes agora.
     lista_presentes = access_present_people(site=site)
