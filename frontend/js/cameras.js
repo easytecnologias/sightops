@@ -3136,22 +3136,58 @@ function renderMapCamPanel() {
   if (_mcp.aba === 'aovivo' && !_mcp.live) mcpLigarAoVivo(cam);
 }
 
-function mcpLigarAoVivo(cam) {
+// `user`/`pass` so vem preenchidos quando o operador digita a senha no
+// formulario abaixo: o stream_register usa e GUARDA essa senha para a camera
+// (por MAC), e dai em diante foto, reiniciar e troca de IP tambem a usam.
+function mcpLigarAoVivo(cam, user = '', pass = '') {
   const video = document.getElementById('mcpVideo');
   const status = document.getElementById('mcpVideoStatus');
   if (!video || typeof mountLiveStream !== 'function') return;
   _mcp.live = mountLiveStream(video, {
     ip: cam.ip,
+    user, pass,
     subtype: _mcp.subtype,
     vendor: cam.fabricante || '',
     model: cam.model || cam.modelo || '',
     connectorId: cam.remote_connector_id || cam.connector_id || '',
     onStatus: txt => {
       if (!status) return;
-      status.textContent = txt === 'credential_required' ? 'Sem senha guardada para esta câmera' : (txt || '');
+      if (txt === 'credential_required') {
+        // A camera recusou a senha guardada (a da camera E a do site): alguem
+        // trocou a senha direto nela. Pede a atual aqui mesmo, em vez de um
+        // aviso sem saida.
+        mcpPedirSenha(cam, status, !!pass);
+        return;
+      }
+      status.textContent = txt || '';
       status.hidden = !txt;
     },
   });
+}
+
+function mcpPedirSenha(cam, status, jaTentou) {
+  mcpPararAoVivo();
+  status.hidden = false;
+  status.classList.add('mcp-senha');
+  status.innerHTML = `
+    <b>${jaTentou ? 'A câmera recusou essa senha.' : 'A câmera recusou a senha guardada.'}</b>
+    <span>Digite a senha atual desta câmera. Ela fica guardada para as próximas vezes.</span>
+    <div class="mcp-linha">
+      <input class="mcp-input" id="mcpSenhaUser" value="admin" aria-label="Usuário" autocomplete="off" style="width:90px">
+      <input class="mcp-input" id="mcpSenhaPass" type="password" aria-label="Senha" placeholder="Senha" autocomplete="new-password" style="flex:1;min-width:120px">
+      <button type="button" class="primary-action" id="mcpSenhaUsar">Usar e guardar</button>
+    </div>`;
+  const usar = () => {
+    const user = document.getElementById('mcpSenhaUser')?.value.trim() || 'admin';
+    const pass = document.getElementById('mcpSenhaPass')?.value || '';
+    if (!pass) return;
+    status.classList.remove('mcp-senha');
+    status.textContent = 'Conectando…';
+    mcpLigarAoVivo(cam, user, pass);
+  };
+  document.getElementById('mcpSenhaUsar')?.addEventListener('click', usar);
+  document.getElementById('mcpSenhaPass')?.addEventListener('keydown', ev => { if (ev.key === 'Enter') usar(); });
+  setTimeout(() => document.getElementById('mcpSenhaPass')?.focus(), 50);
 }
 
 async function mcpAcao(acao, e) {

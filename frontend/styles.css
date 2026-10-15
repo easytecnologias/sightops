@@ -4621,6 +4621,8 @@ body.cam-live-lock {
 .mcp-live { position: absolute; top: 8px; left: 8px; background: var(--danger); color: #fff; font-size: 11px; font-weight: 700; border-radius: 4px; padding: 2px 7px; }
 .mcp-video-ip { position: absolute; top: 9px; left: 76px; color: #fff; font-family: monospace; font-size: 12px; }
 .mcp-video-status { position: absolute; inset: auto 8px 8px 8px; color: #fff; font-size: 12px; background: rgba(19,37,45,.75); border-radius: 6px; padding: 4px 8px; }
+.mcp-video-status.mcp-senha { inset: 8px; display: flex; flex-direction: column; justify-content: center; gap: 8px; background: rgba(19,37,45,.92); padding: 12px; font-size: 13px; }
+.mcp-video-status.mcp-senha span { color: #c7d3d9; }
 .mcp-linha { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .mcp-linha .mcp-salvar { flex: 1; }
 .mcp-seg { display: flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
