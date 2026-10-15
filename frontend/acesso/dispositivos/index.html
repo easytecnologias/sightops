@@ -11,7 +11,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="../../styles.css?v=1792000033">
-  <link rel="stylesheet" href="../acesso.css?v=1792000041">
+  <link rel="stylesheet" href="../acesso.css?v=1792000042">
 </head>
 <body>
   <div id="appShell" class="app-shell" hidden>
@@ -170,6 +170,13 @@
             <button class="primary-action" id="dvNovo" type="button"><i data-lucide="plus"></i> Novo dispositivo</button>
           </div>
         </div>
+        <nav class="tabs access-control-tabs" aria-label="Controle de Acesso">
+          <a class="tab-btn" href="../#vivo">Ao vivo</a>
+          <a class="tab-btn active" href="./" aria-current="page">Dispositivos</a>
+          <a class="tab-btn" href="../#portas">Portas</a>
+          <a class="tab-btn" href="../#alertas">Alertas</a>
+          <a class="tab-btn" href="../#relatorios">Relatórios</a>
+        </nav>
         <div id="dvConteudo"><p class="ap-vazio">Carregando dispositivos…</p></div>
 
         <div class="dv-gaveta" id="dvGaveta" hidden>
@@ -243,7 +250,7 @@
 
   <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js"></script>
   <script src="../../config.js?v=1791000212"></script>
-  <script src="dispositivos.js?v=1792000041"></script>
-  <script src="../shell.js?v=1792000041"></script>
+  <script src="dispositivos.js?v=1792000042"></script>
+  <script src="../shell.js?v=1792000042"></script>
 </body>
 </html>

@@ -712,6 +712,7 @@ function apTrocarTela(tela) {
   document.getElementById('apAlertas').hidden = _apTela !== 'alertas';
   document.getElementById('apRel').hidden = _apTela !== 'relatorios';
   try { sessionStorage.setItem('sightops.acesso.painel.tela', _apTela); } catch (_) {}
+  try { history.replaceState(null, '', '#' + _apTela); } catch (_) {}
   apLigarStream();
   // Troca de aba desenha na hora com o que ja tem; o fetch atualiza depois.
   if ((_apTela === 'relatorios' && _apDados.rel) || (_apTela !== 'relatorios' && _apDados.vivo)) apDesenharAtual();
@@ -752,6 +753,9 @@ async function loadAccessPainel() {
   } catch (_) { /* a propria tela mostra o erro ao carregar */ }
   let salva = 'vivo';
   try { salva = sessionStorage.getItem('sightops.acesso.painel.tela') || 'vivo'; } catch (_) {}
+  // Vindo da pagina de Dispositivos (../#portas): a aba do endereco manda.
+  const pedida = window.location.hash.slice(1);
+  if (AP_TELAS.includes(pedida)) salva = pedida;
   stopAccessPainel();
   apTrocarTela(salva);
   _apTimer = setInterval(() => { if (!document.hidden) apAtualizar(); }, 20000);

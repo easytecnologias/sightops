@@ -391,3 +391,5 @@
 #viewAccessPainel .dv-sugestoes{display:flex;flex-wrap:wrap;align-items:center;gap:6px;font-size:11.5px;color:var(--muted)}
 #viewAccessPainel .dv-sugestoes button{font:inherit;font-size:11.5px;padding:3px 9px;border-radius:20px;border:1px solid var(--border);background:var(--surface-soft);color:var(--text);cursor:pointer}
 #viewAccessPainel .dv-sugestoes button:hover{border-color:var(--primary);color:var(--primary);background:var(--primary-soft)}
+/* Barra de abas compartilhada entre Painel e Dispositivos (abas que sao links) */
+#viewAccessPainel .access-control-tabs a.tab-btn{text-decoration:none;display:inline-flex;align-items:center}
