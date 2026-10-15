@@ -1018,6 +1018,34 @@ def api_access_control_painel_dispositivos() -> Dict[str, Any]:
     return dispositivos()
 
 
+@router.get("/painel/pessoas")
+def api_access_control_painel_pessoas(site: str = Query("")) -> Dict[str, Any]:
+    from app.services.access_control_pessoas import pessoas
+    return pessoas(site=site)
+
+
+class PessoaGruposRequest(BaseModel):
+    grupos: List[str] = []
+
+
+@router.put("/painel/pessoas/{person_id}/grupos")
+def api_access_control_painel_pessoa_grupos(person_id: str, req: PessoaGruposRequest) -> Dict[str, Any]:
+    """Grupos de UMA pessoa (operador, pela regra /api/access-control/)."""
+    from app.services.access_control_pessoas import definir_grupos
+    return definir_grupos(person_id, req.grupos)
+
+
+@router.post("/painel/pessoas/{person_id}/excluir")
+def api_access_control_painel_pessoa_excluir(person_id: str, user: Dict[str, Any] = Depends(current_user)) -> Dict[str, Any]:
+    """Tira dos leitores e so entao apaga; leitor fora do ar = pessoa desativada."""
+    from app.services.access_control_pessoas import excluir
+    resultado = excluir(person_id)
+    logging.getLogger("cam-snapshot").info(
+        "exclusao de pessoa %s por %s: excluida=%s removidos=%s falhas=%s", person_id, user.get("username"),
+        resultado.get("excluida"), resultado.get("removidos"), resultado.get("falhas"))
+    return resultado
+
+
 @router.get("/painel/ip-virtual")
 def api_access_control_painel_ip_virtual(connector_id: str = Query(""), host: str = Query("")) -> Dict[str, Any]:
     """Previa do cadastro: por qual IP o SightOps vai falar com o leitor."""

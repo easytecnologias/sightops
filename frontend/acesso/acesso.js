@@ -19,7 +19,12 @@ let _apPessoa = '';          // "ver so esta pessoa"
 let _apSel = '';             // passagem escolhida ('' = segue a mais recente)
 let _apPausado = false;
 let _apTopoVisto = '';       // id da passagem mais recente desenhada (para contar novas na pausa)
-const AP_TELAS = ['vivo', 'dispositivos', 'portas', 'alertas', 'relatorios'];
+const AP_TELAS = ['vivo', 'dispositivos', 'pessoas', 'portas', 'alertas', 'relatorios'];
+// Abas com arquivo proprio: o Painel so mostra/esconde e pede para carregar.
+const AP_ABAS_PROPRIAS = {
+  dispositivos: { el: 'apDisp', abrir: () => dvAbrirAba(), carregar: () => dvCarregar() },
+  pessoas: { el: 'apPess', abrir: () => psAbrirAba(), carregar: () => psCarregar() },
+};
 
 // ---- datas: o leitor grava hora local sem fuso; o WhatsApp grava UTC ----
 function apLocal(s) { const d = new Date(String(s || '').slice(0, 19).replace(' ', 'T')); return isNaN(d) ? null : d; }
@@ -649,7 +654,7 @@ async function apGeral(forcar) {
 }
 
 function apDesenharAtual() {
-  if (_apTela === 'dispositivos') { apMarcarAba(); return; }   // a aba Dispositivos se desenha sozinha (dispositivos.js)
+  if (AP_ABAS_PROPRIAS[_apTela]) { apMarcarAba(); return; }   // Dispositivos/Pessoas se desenham sozinhas
   apMostrarPerfil((_apTela === 'relatorios' ? (_apDados.rel || {}).perfil : (_apDados.vivo || {}).perfil) || (_apDados.geral || {}).perfil);
   if (_apTela === 'vivo') apDesenharVivo(_apDados.vivo || {});
   else if (_apTela === 'portas') apDesenharPortas(_apDados.vivo || {});
@@ -662,8 +667,10 @@ function apDesenharAtual() {
 }
 
 async function apAtualizar(manual) {
-  if (_apTela === 'dispositivos') {
-    dvCarregar().catch(() => {});
+  if (AP_ABAS_PROPRIAS[_apTela]) {
+    // Gaveta aberta: nao redesenha por baixo de quem esta editando.
+    if (document.querySelector('.dv-gaveta:not([hidden])')) return;
+    AP_ABAS_PROPRIAS[_apTela].carregar().catch(() => {});
     return;
   }
   if (_apCarregando) return;
@@ -716,14 +723,14 @@ function apTrocarTela(tela) {
   document.getElementById('apPortas').hidden = _apTela !== 'portas';
   document.getElementById('apAlertas').hidden = _apTela !== 'alertas';
   document.getElementById('apRel').hidden = _apTela !== 'relatorios';
-  document.getElementById('apDisp').hidden = _apTela !== 'dispositivos';
+  Object.entries(AP_ABAS_PROPRIAS).forEach(([k, a]) => { document.getElementById(a.el).hidden = _apTela !== k; });
   // Menu lateral: "Dispositivos" acende na aba dele; nas outras, "Painel de Acesso".
   document.querySelectorAll('#sidebar .nav-item[data-pagina]').forEach(b =>
     b.classList.toggle('active', b.dataset.pagina === (_apTela === 'dispositivos' ? 'dispositivos' : 'painel')));
   try { sessionStorage.setItem('sightops.acesso.painel.tela', _apTela); } catch (_) {}
   try { history.replaceState(null, '', '#' + _apTela); } catch (_) {}
   apLigarStream();
-  if (_apTela === 'dispositivos') { dvAbrirAba(); return; }
+  if (AP_ABAS_PROPRIAS[_apTela]) { AP_ABAS_PROPRIAS[_apTela].abrir(); return; }
   // Troca de aba desenha na hora com o que ja tem; o fetch atualiza depois.
   if ((_apTela === 'relatorios' && _apDados.rel) || (_apTela !== 'relatorios' && _apDados.vivo)) apDesenharAtual();
   apAtualizar();

@@ -1,0 +1,452 @@
+// Aba Pessoas do Painel de Acesso (/v3/acesso/#pessoas).
+// Lista: GET /api/access-control/painel/pessoas (so leitura).
+// Salvar: POST /people (rota de sempre: CPF obrigatorio, matricula do aluno,
+// casamento por CPF/matricula). Foto: POST /people/{id}/face-photo.
+// Grupos: PUT /painel/pessoas/{id}/grupos (so as linhas desta pessoa).
+// Excluir: POST /painel/pessoas/{id}/excluir (tira dos leitores antes de apagar).
+// save_person faz UPDATE completo e, sem id, casa por CPF/matricula: a tela
+// reenvia todos os campos ao editar e barra "nova pessoa" com CPF/matricula
+// que ja existem, em vez de sobrescrever alguem sem avisar.
+
+let _psDados = null;
+let _psBusca = '';
+let _psFiltro = 'todos';
+let _psMostrar = 120;
+let _psEditando = null;
+let _psFoto = null;          // Blob ja redimensionado, pronto para enviar
+let _psLigado = false;
+
+const PS_TIPOS = {
+  escola: [['student', 'Aluno', 'graduation-cap'], ['employee', 'Funcionário', 'briefcase'], ['visitor', 'Visitante', 'user-round']],
+  condominio: [['resident', 'Morador', 'home'], ['employee', 'Funcionário', 'briefcase'], ['visitor', 'Visitante', 'user-round']],
+};
+
+function psCampo(id) { return document.getElementById(id); }
+function psTipoLocal(site) { return typeof apTipoLocal === 'function' ? apTipoLocal(site) : 'escola'; }
+function psCondo(site) { return psTipoLocal(site) === 'condominio'; }
+function psTipoRot(p) {
+  const t = p.tipo === 'student' && psCondo(p.site) ? 'resident' : p.tipo;
+  return { student: 'Aluno', resident: 'Morador', employee: 'Funcionário', visitor: 'Visitante' }[t] || t;
+}
+function psDigitos(v) { return String(v || '').replace(/\D/g, ''); }
+function psCpfFmt(v) {
+  const d = psDigitos(v).slice(0, 11);
+  return d.replace(/^(\d{3})(\d)/, '$1.$2').replace(/^(\d{3})\.(\d{3})(\d)/, '$1.$2.$3').replace(/\.(\d{3})(\d{1,2})$/, '.$1-$2');
+}
+function psCpfValido(v) {
+  const d = psDigitos(v);
+  if (d.length !== 11 || /^(\d)\1{10}$/.test(d)) return false;
+  const dv = n => { let s = 0; for (let i = 0; i < n; i++) s += +d[i] * (n + 1 - i); const r = (s * 10) % 11; return r === 10 ? 0 : r; };
+  return dv(9) === +d[9] && dv(10) === +d[10];
+}
+function psFoneFmt(v) {
+  let d = psDigitos(v);
+  if (d.startsWith('55') && d.length > 11) d = d.slice(2);
+  if (d.length === 11) return `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}`;
+  if (d.length === 10) return `(${d.slice(0, 2)}) ${d.slice(2, 6)}-${d.slice(6)}`;
+  return v || '';
+}
+function psIniciais(n) { return String(n || '?').trim().split(/\s+/).slice(0, 2).map(x => x[0]).join('').toUpperCase() || '?'; }
+function psFotoUrl(p) { return `${API_BASE}/api/access-control/people/${encodeURIComponent(p.id)}/face-photo?t=${encodeURIComponent(p.foto_em || '')}`; }
+function psLocalData(s) { const d = new Date(String(s || '').slice(0, 19).replace(' ', 'T')); return isNaN(d) ? null : d; }
+
+// Situacao da pessoa nos leitores, resumida em um estado.
+function psSituacao(p) {
+  const l = p.leitores || [];
+  if (!p.ativo) return { cls: 'inativo', txt: 'Inativa · bloqueada nos leitores' };
+  if (!p.grupos.length) return { cls: 'atencao', txt: 'Sem grupo · não abre nenhuma porta' };
+  const rec = l.filter(x => x.status === 'failed');
+  const pend = l.filter(x => x.status !== 'ok' && x.status !== 'failed');
+  const ok = l.filter(x => x.status === 'ok');
+  const nomes = arr => arr.map(x => apPorta(x.leitor)).join(', ');
+  const qtos = (arr, um, varios) => (arr.length === 1 ? `${um} ${apPorta(arr[0].leitor)}` : `${varios.replace('#', arr.length)}`);
+  if (rec.length) return { cls: 'ruim', txt: 'Foto recusada ' + qtos(rec, 'no', 'em # leitores'), erro: `${nomes(rec)}: ${rec[0].erro}` };
+  if (pend.length) return { cls: 'espera', txt: 'Enviando ' + qtos(pend, 'para', 'para # leitores'), erro: nomes(pend) };
+  if (!p.tem_foto) return { cls: 'atencao', txt: 'Sem foto', erro: ok.length ? 'No leitor só com cartão ou senha: ' + nomes(ok) : '' };
+  if (ok.length) return { cls: 'ok', txt: qtos(ok, 'No leitor', 'Nos # leitores'), erro: nomes(ok) };
+  return { cls: 'espera', txt: 'Aguardando envio' };
+}
+
+const PS_FILTROS = [
+  ['todos', 'Todas', () => true],
+  ['tipo1', null, p => p.tipo === 'student' || p.tipo === 'resident'],
+  ['employee', 'Funcionários', p => p.tipo === 'employee'],
+  ['visitor', 'Visitantes', p => p.tipo === 'visitor'],
+  ['semfoto', 'Sem foto', p => p.ativo && !p.tem_foto],
+  ['recusada', 'Foto recusada', p => (p.leitores || []).some(x => x.status === 'failed')],
+  ['semgrupo', 'Sem grupo', p => p.ativo && !p.grupos.length],
+  ['inativos', 'Inativas', p => !p.ativo],
+];
+
+// ---------------------------------------------------------------- lista
+function psCards(lista) {
+  const ativas = lista.filter(p => p.ativo);
+  const comFoto = ativas.filter(p => p.tem_foto && (p.leitores || []).some(x => x.status === 'ok')).length;
+  const recusadas = lista.filter(p => (p.leitores || []).some(x => x.status === 'failed')).length;
+  const semGrupo = ativas.filter(p => !p.grupos.length).length;
+  const escola = !psCondo();
+  const semResp = ativas.filter(p => p.tipo === 'student' && !psDigitos(p.telefone)).length;
+  const card = ({ icone, cor, estado = '', rot, val, sub, subCor = '', filtro = '' }) => `
+    <button type="button" class="ap-card ${estado}" ${filtro ? `data-ps-filtro="${filtro}"` : 'disabled'}>
+      <span class="metric-icon ${cor}"><i data-lucide="${icone}"></i></span>
+      <span class="ap-card-txt"><span class="ap-card-rot">${rot}</span>
+        <strong class="ap-card-val">${val}</strong><small class="${subCor}">${sub}</small></span>
+    </button>`;
+  return `<div class="ap-cards">
+    ${card({ icone: 'users', cor: 'blue', rot: 'Pessoas ativas', val: apNum(ativas.length), sub: `${apNum(lista.length - ativas.length)} inativa${lista.length - ativas.length === 1 ? '' : 's'}` })}
+    ${card({ icone: 'scan-face', cor: 'green', rot: 'Rosto nos leitores', val: `${apNum(comFoto)}<span class="ap-card-de">/${apNum(ativas.length)}</span>`, sub: 'abrem a porta pelo rosto', filtro: 'semfoto' })}
+    ${card({ icone: 'image-off', cor: recusadas ? 'amber' : 'green', estado: recusadas ? 'atencao' : '', rot: 'Fotos recusadas', val: apNum(recusadas), sub: recusadas ? 'trocar a foto' : 'nenhuma recusada', subCor: recusadas ? 'atencao' : '', filtro: recusadas ? 'recusada' : '' })}
+    ${card({ icone: 'door-closed', cor: semGrupo ? 'amber' : 'green', estado: semGrupo ? 'atencao' : '', rot: 'Sem grupo', val: apNum(semGrupo), sub: semGrupo ? 'não abrem nenhuma porta' : 'todas com acesso', subCor: semGrupo ? 'atencao' : '', filtro: semGrupo ? 'semgrupo' : '' })}
+    ${escola ? card({ icone: 'phone-off', cor: semResp ? 'amber' : 'green', rot: 'Sem responsável', val: apNum(semResp), sub: semResp ? 'alunos sem aviso no WhatsApp' : 'todos com telefone' }) : ''}
+  </div>`;
+}
+
+function psLinha(p) {
+  const s = psSituacao(p);
+  const condo = psCondo(p.site);
+  const unidade = condo ? (p.turma || (typeof apUnidade === 'function' ? apUnidade(p.nome, p.site) : '')) : '';
+  const ult = psLocalData(p.ultima);
+  const det = [psTipoRot(p), condo ? (unidade ? 'unidade ' + unidade : '') : p.turma, p.matricula && !condo ? 'matr. ' + p.matricula : '']
+    .filter(Boolean).join(' · ');
+  return `<div class="ps-linha ${p.ativo ? '' : 'inativo'}" data-ps="${esc(p.id)}">
+    <span class="ps-av">${psIniciais(p.nome)}${p.tem_foto ? `<img src="${psFotoUrl(p)}" alt="" loading="lazy" onerror="this.remove()">` : ''}</span>
+    <div class="ps-quem"><b>${esc(p.nome)}</b><small>${esc(det)}</small></div>
+    <div class="ps-sit ${s.cls}" ${s.erro ? `title="${esc(s.erro)}"` : ''}><i></i><span>${esc(s.txt)}</span></div>
+    <div class="ps-resp">${condo
+      ? `<span class="dv-l-rot">Local</span><div>${esc(p.site || '—')}</div>`
+      : `<span class="dv-l-rot">Responsável</span><div>${esc(p.responsavel || '—')}</div><small class="monospace">${esc(psFoneFmt(p.telefone)) || (p.tipo === 'student' ? '<span class="ps-falta">sem telefone</span>' : '')}</small>`}</div>
+    <div class="ps-ult"><span class="dv-l-rot">Última passagem</span><div>${ult ? (Date.now() - ult < 86400000 ? 'hoje ' + apHm(ult) : ult.toLocaleDateString('pt-BR')) : '—'}</div></div>
+    <button type="button" class="dv-btn" data-ps-editar="${esc(p.id)}"><i data-lucide="pencil"></i><span>Editar</span></button>
+  </div>`;
+}
+
+function psDesenhar() {
+  const el = psCampo('psConteudo');
+  if (!el || !_psDados) return;
+  const todas = _psDados.pessoas || [];
+  const b = _psBusca.trim().toLowerCase();
+  const bDig = psDigitos(b);
+  const f = (PS_FILTROS.find(x => x[0] === _psFiltro) || PS_FILTROS[0])[2];
+  const lista = todas.filter(p => f(p) && (!b || [p.nome, p.turma, p.matricula, p.responsavel, p.site].some(x => String(x || '').toLowerCase().includes(b))
+    || (bDig.length >= 3 && (psDigitos(p.cpf).includes(bDig) || psDigitos(p.telefone).includes(bDig)))));
+  const condo = psCondo();
+  const rotTipo1 = condo ? 'Moradores' : (_apPerfil && _apPerfil.tipo === 'misto' ? 'Alunos e moradores' : 'Alunos');
+  const conta = fn => todas.filter(fn).length;
+  el.innerHTML = `
+    ${psCards(todas)}
+    <div class="ps-filtros">${PS_FILTROS.map(([id, rot, fn]) => {
+      const n = conta(fn);
+      return (id === 'todos' || n || id === _psFiltro) ? `<button type="button" class="ap-fl ${_psFiltro === id ? 'on' : ''}" data-ps-filtro="${id}">${rot || rotTipo1} <span class="monospace">${apNum(n)}</span></button>` : '';
+    }).join('')}</div>
+    ${lista.length ? `<div class="dv-lista ps-lista">${lista.slice(0, _psMostrar).map(psLinha).join('')}</div>
+      ${lista.length > _psMostrar ? `<button type="button" class="ps-mais" data-ps-mais>Mostrar mais ${apNum(Math.min(120, lista.length - _psMostrar))} de ${apNum(lista.length - _psMostrar)}</button>` : ''}`
+    : `<div class="dv-vazio"><i data-lucide="${b ? 'search-x' : 'users'}"></i><b>${b ? 'Ninguém com “' + esc(_psBusca) + '”' : 'Ninguém neste filtro'}</b>
+      <p>${b ? 'Busque por nome, CPF, matrícula, turma ou responsável.' : 'Troque o filtro ou cadastre uma pessoa.'}</p></div>`}`;
+  el.querySelectorAll('[data-ps-filtro]').forEach(x => x.addEventListener('click', () => { _psFiltro = x.dataset.psFiltro; _psMostrar = 120; psDesenhar(); }));
+  el.querySelectorAll('[data-ps-editar]').forEach(x => x.addEventListener('click', () => psAbrir(todas.find(p => p.id === x.dataset.psEditar))));
+  el.querySelectorAll('.ps-linha').forEach(x => x.addEventListener('dblclick', () => psAbrir(todas.find(p => p.id === x.dataset.ps))));
+  el.querySelector('[data-ps-mais]')?.addEventListener('click', () => { _psMostrar += 120; psDesenhar(); });
+  if (window.lucide) lucide.createIcons();
+}
+
+async function psCarregar() {
+  const q = typeof _apSite === 'string' && _apSite ? `?site=${encodeURIComponent(_apSite)}` : '';
+  const dados = await apiJson(`/api/access-control/painel/pessoas${q}`);
+  if (!dados) return;
+  _psDados = dados;
+  if (dados.perfil && typeof apMostrarPerfil === 'function') apMostrarPerfil(dados.perfil);
+  psDesenhar();
+}
+
+// ---------------------------------------------------------------- gaveta
+function psMarcar(id, valor) {
+  psCampo(id).value = valor;
+  document.querySelectorAll(`[data-ps-seg="${id}"] button`).forEach(b => {
+    const on = b.dataset.valor === valor;
+    b.classList.toggle('on', on);
+    b.setAttribute('aria-pressed', String(on));
+  });
+}
+
+function psAjustarPorLocal() {
+  const site = psCampo('psSite').value;
+  const condo = psCondo(site);
+  const tipoAtual = psCampo('psTipo').value;
+  psCampo('psTipos').innerHTML = (condo ? PS_TIPOS.condominio : PS_TIPOS.escola).map(([v, rot, ic]) =>
+    `<button type="button" data-valor="${v}"><i data-lucide="${ic}"></i>${rot}</button>`).join('');
+  psCampo('psTipos').querySelectorAll('button').forEach(b => b.addEventListener('click', () => { psMarcar('psTipo', b.dataset.valor); psAjustarPorTipo(); }));
+  let tipo = tipoAtual;
+  if (condo && tipo === 'student') tipo = 'resident';
+  if (!condo && tipo === 'resident') tipo = 'student';
+  psMarcar('psTipo', tipo || (condo ? 'resident' : 'student'));
+  psCampo('psRotTurma').textContent = condo ? 'Unidade' : 'Turma';
+  psCampo('psTurma').placeholder = condo ? 'Ex.: A01, Bloco C 06' : 'Ex.: 4º Ano';
+  const turmas = [...new Set((_psDados.pessoas || []).filter(p => p.site === site && p.turma).map(p => p.turma))].sort((a, b) => a.localeCompare(b, 'pt-BR', { numeric: true }));
+  psCampo('psTurmas').innerHTML = turmas.map(t => `<option value="${esc(t)}">`).join('');
+  psCampo('psPassoAviso').hidden = condo && !_apUsaAvisos;
+  psGrupos();
+  psAjustarPorTipo();
+  if (window.lucide) lucide.createIcons();
+}
+
+function psAjustarPorTipo() {
+  const tipo = psCampo('psTipo').value;
+  const aluno = tipo === 'student';
+  psCampo('psMatriculaBox').hidden = !aluno;
+  psCampo('psNotaTipo').hidden = !(_psEditando && _psEditando.tipo === 'student' && tipo === 'resident');
+}
+
+function psGrupos() {
+  const site = psCampo('psSite').value.toUpperCase();
+  const marcados = new Set([...document.querySelectorAll('#psGrupos input:checked')].map(x => x.value).concat(psCampo('psGrupos').dataset.iniciais ? psCampo('psGrupos').dataset.iniciais.split(',') : []));
+  psCampo('psGrupos').dataset.iniciais = '';
+  const grupos = (_psDados.grupos || []).slice().sort((a, b) => ((b.site.toUpperCase() === site) - (a.site.toUpperCase() === site)) || a.nome.localeCompare(b.nome, 'pt-BR'));
+  psCampo('psGrupos').innerHTML = grupos.length ? grupos.map(g => {
+    const outro = site && g.site && g.site.toUpperCase() !== site;
+    return `<label class="ps-grupo ${outro ? 'outro' : ''}"><input type="checkbox" value="${esc(g.id)}" ${marcados.has(g.id) ? 'checked' : ''}>
+      <span class="ps-grupo-box"><b>${esc(g.nome)}</b>
+        <small>${g.leitores.length ? 'abre ' + g.leitores.map(l => esc(apPorta(l.nome))).join(', ') : '<span class="ps-falta">sem porta ligada</span>'}${outro ? ' · ' + esc(g.site) : ''} · ${apNum(g.membros)} pessoa${g.membros === 1 ? '' : 's'}</small></span></label>`;
+  }).join('') : '<p class="dv-ajuda">Nenhum grupo cadastrado. Sem grupo a pessoa não vai para nenhum leitor.</p>';
+}
+
+function psFotoVer(url, txt) {
+  const box = psCampo('psFotoVer');
+  box.innerHTML = url ? `<img src="${url}" alt="" onerror="this.replaceWith(document.createTextNode('${esc(txt || '?').replace(/'/g, '')}'))">` : `<span>${esc(txt || '?')}</span>`;
+}
+
+function psSituacaoLeitores(p) {
+  const el = psCampo('psLeitores');
+  const l = (p && p.leitores) || [];
+  el.innerHTML = l.length ? l.map(x => `<div class="ps-lt ${x.status === 'ok' ? 'ok' : x.status === 'failed' ? 'ruim' : 'espera'}">
+      <i data-lucide="${x.status === 'ok' ? 'check' : x.status === 'failed' ? 'x' : 'loader-circle'}"></i>
+      <b>${esc(apPorta(x.leitor))}</b><span>${x.status === 'ok' ? 'cadastrada' : x.status === 'failed' ? esc(x.erro || 'recusada') : 'aguardando envio'}</span></div>`).join('')
+    : `<p class="dv-ajuda">${p ? 'Ainda não foi enviada a nenhum leitor.' : 'Depois de salvar, a pessoa vai para os leitores dos grupos marcados.'}</p>`;
+}
+
+function psAbrir(p) {
+  _psEditando = p || null;
+  _psFoto = null;
+  const novo = !p;
+  psCampo('psTitulo').textContent = novo ? 'Nova pessoa' : 'Editar pessoa';
+  psCampo('psSubtitulo').textContent = novo ? 'Cadastro e acesso aos leitores.' : p.nome;
+  psCampo('psSites').innerHTML = (_psDados.sites || []).map(s => `<option value="${esc(s)}">`).join('');
+  psCampo('psSite').value = novo ? (typeof _apSite === 'string' ? _apSite : '') : p.site;
+  psCampo('psTipo').value = novo ? '' : p.tipo;
+  psCampo('psNome').value = novo ? '' : p.nome;
+  psCampo('psCpf').value = novo ? '' : psCpfFmt(p.cpf);
+  psCampo('psMatricula').value = novo ? '' : p.matricula;
+  psCampo('psTurma').value = novo ? '' : p.turma;
+  psCampo('psResp').value = novo ? '' : p.responsavel;
+  psCampo('psFone').value = novo ? '' : psFoneFmt(p.telefone);
+  psCampo('psZap').checked = novo ? true : p.whatsapp;
+  psCampo('psAtivo').checked = novo ? true : p.ativo;
+  psCampo('psNotas').value = novo ? '' : p.notas;
+  psCampo('psIdLeitor').textContent = novo ? 'gerado ao salvar' : (p.id_controladora || 'sem ID: não vai para leitor Intelbras');
+  psCampo('psGrupos').dataset.iniciais = novo ? '' : p.grupos.join(',');
+  psCampo('psGrupos').innerHTML = '';
+  psFotoVer(!novo && p.tem_foto ? psFotoUrl(p) : '', novo ? '?' : psIniciais(p.nome));
+  psCampo('psFotoArq').value = '';
+  psSituacaoLeitores(p);
+  psCampo('psExcluir').hidden = novo;
+  psCampo('psConfirma').hidden = true;
+  psCampo('psErro').hidden = true;
+  psCampo('psResultado').hidden = true;
+  psAjustarPorLocal();
+  psCampo('psGaveta').hidden = false;
+  requestAnimationFrame(() => psCampo('psGaveta').classList.add('aberta'));
+  setTimeout(() => psCampo(novo && !psCampo('psSite').value ? 'psSite' : 'psNome').focus(), 150);
+  if (window.lucide) lucide.createIcons();
+}
+
+function psFechar() {
+  const g = psCampo('psGaveta');
+  g.classList.remove('aberta');
+  setTimeout(() => { g.hidden = true; }, 200);
+}
+
+function psErro(msg, html) {
+  const e = psCampo('psErro');
+  if (html) e.innerHTML = html; else e.textContent = msg || '';
+  e.hidden = !(msg || html);
+  if (!e.hidden) e.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+// Foto: reduz para no maximo 800 px e JPEG antes de enviar. Leitor recusa foto
+// grande demais; e upload de celular chega com 4-8 MB.
+function psPrepararFoto(arquivo) {
+  return new Promise((ok, falha) => {
+    if (!/^image\//.test(arquivo.type)) return falha(new Error('Escolha uma imagem (JPG ou PNG).'));
+    const img = new Image();
+    img.onload = () => {
+      const k = Math.min(1, 800 / Math.max(img.width, img.height));
+      const c = document.createElement('canvas');
+      c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+      URL.revokeObjectURL(img.src);
+      c.toBlob(b => (b ? ok(b) : falha(new Error('Não consegui ler a foto.'))), 'image/jpeg', 0.9);
+    };
+    img.onerror = () => falha(new Error('Não consegui abrir a imagem.'));
+    img.src = URL.createObjectURL(arquivo);
+  });
+}
+
+async function psEscolherFoto(arquivo) {
+  if (!arquivo) return;
+  try {
+    _psFoto = await psPrepararFoto(arquivo);
+    psFotoVer(URL.createObjectURL(_psFoto));
+    psCampo('psFotoNota').textContent = 'Foto nova: vai para os leitores ao salvar.';
+  } catch (err) {
+    psErro(err.message);
+  }
+}
+
+function psPayload() {
+  const p = _psEditando || {};
+  const tipo = psCampo('psTipo').value;
+  return {
+    id: p.id || '',
+    full_name: psCampo('psNome').value.trim().replace(/\s+/g, ' '),
+    person_type: tipo,
+    document_id: psDigitos(psCampo('psCpf').value),
+    enrollment_code: tipo === 'student' ? psCampo('psMatricula').value.trim() : (p.matricula || ''),
+    class_name: psCampo('psTurma').value.trim(),
+    site: psCampo('psSite').value.trim(),
+    controller_user_id: p.id_controladora || '',
+    guardian_name: psCampo('psResp').value.trim(),
+    guardian_phone: psDigitos(psCampo('psFone').value),
+    whatsapp_enabled: psCampo('psZap').checked,
+    active: psCampo('psAtivo').checked,
+    notes: psCampo('psNotas').value.trim(),
+  };
+}
+
+async function psEnviarFoto(id, blob) {
+  const fd = new FormData();
+  fd.append('file', blob, 'rosto.jpg');
+  const res = await fetch(`${API_BASE}/api/access-control/people/${encodeURIComponent(id)}/face-photo`, { method: 'POST', credentials: 'same-origin', body: fd });
+  if (!res.ok) {
+    let d = ''; try { d = (await res.json()).detail; } catch (_) {}
+    throw new Error(typeof d === 'string' && d ? d : 'HTTP ' + res.status);
+  }
+}
+
+async function psSalvar() {
+  const p = psPayload();
+  if (!p.site) return psErro('Escolha o local da pessoa.');
+  if (!p.person_type) return psErro('Escolha o tipo da pessoa.');
+  if (p.full_name.length < 3) return psErro('Informe o nome completo.');
+  if (!psCpfValido(p.document_id)) return psErro('CPF inválido. Confira os 11 dígitos.');
+  if (p.person_type === 'student' && !p.enrollment_code) return psErro('Informe a matrícula do aluno.');
+  // Sem id, o backend casa por CPF/matricula e ATUALIZA quem ja existe: barra aqui.
+  if (!p.id) {
+    const dup = (_psDados.pessoas || []).find(x => psDigitos(x.cpf) === p.document_id || (p.enrollment_code && x.matricula === p.enrollment_code));
+    if (dup) {
+      psErro('', `${psDigitos(dup.cpf) === p.document_id ? 'Este CPF' : 'Esta matrícula'} já é de <b>${esc(dup.nome)}</b>. <button type="button" class="ps-link" id="psAbrirDup">Abrir o cadastro dela</button>`);
+      psCampo('psAbrirDup').addEventListener('click', () => psAbrir(dup));
+      return;
+    }
+  }
+  psErro('');
+  const grupos = [...document.querySelectorAll('#psGrupos input:checked')].map(x => x.value);
+  const botoes = document.querySelectorAll('#psGaveta .dv-gaveta-pe button');
+  botoes.forEach(b => { b.disabled = true; });
+  try {
+    const r = await acEnviar('POST', '/api/access-control/people', p);
+    const id = (r.person || {}).id;
+    const avisos = [];
+    if (id && _psFoto) {
+      try { await psEnviarFoto(id, _psFoto); } catch (err) { avisos.push('A foto não foi aceita: ' + err.message); }
+    }
+    const antes = (_psEditando && _psEditando.grupos) || [];
+    if (id && (grupos.join() !== antes.slice().sort().join() || !p.id)) {
+      const g = await acEnviar('PUT', `/api/access-control/painel/pessoas/${encodeURIComponent(id)}/grupos`, { grupos });
+      (g.falhas_remocao || []).forEach(f => avisos.push(`Não consegui tirar do leitor ${f.leitor}: ${f.erro}`));
+    }
+    psFechar();
+    await psCarregar();
+    acToast(avisos.length ? avisos.join(' · ') : (p.id ? 'Cadastro atualizado. Enviando para os leitores.' : 'Pessoa cadastrada. Enviando para os leitores.'), avisos.length > 0);
+    const linha = id && document.querySelector(`[data-ps="${CSS.escape(id)}"]`);
+    if (linha) { linha.scrollIntoView({ behavior: 'smooth', block: 'center' }); linha.classList.add('destaque'); }
+  } catch (err) {
+    psErro((err && err.message) || 'Não foi possível salvar.');
+  } finally {
+    botoes.forEach(b => { b.disabled = false; });
+  }
+}
+
+async function psExcluir() {
+  const p = _psEditando;
+  if (!p) return;
+  const btn = psCampo('psConfirmaSim');
+  btn.disabled = true;
+  btn.innerHTML = '<i data-lucide="loader-circle" class="dv-gira"></i> Removendo dos leitores…';
+  if (window.lucide) lucide.createIcons();
+  try {
+    const r = await acEnviar('POST', `/api/access-control/painel/pessoas/${encodeURIComponent(p.id)}/excluir`);
+    if (r.excluida) {
+      psFechar();
+      await psCarregar();
+      acToast(`${p.nome} excluída${r.removidos.length ? ' e removida de ' + r.removidos.join(', ') : ''}.`);
+      return;
+    }
+    psCampo('psConfirma').hidden = true;
+    const res = psCampo('psResultado');
+    res.hidden = false;
+    res.innerHTML = `<b>Não excluí: algum leitor não respondeu.</b>
+      ${r.removidos.length ? `<span>Removida de ${esc(r.removidos.join(', '))}.</span>` : ''}
+      ${r.falhas.map(f => `<span>${esc(f.leitor)}: ${esc(f.erro)}</span>`).join('')}
+      <span>A pessoa ficou <b>desativada</b>: o leitor a bloqueia quando voltar. Tente excluir de novo depois.</span>`;
+    await psCarregar();
+  } catch (err) {
+    psErro((err && err.message) || 'Não foi possível excluir.');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Excluir';
+  }
+}
+
+function psLigarGaveta() {
+  psCampo('psFechar').addEventListener('click', psFechar);
+  psCampo('psCancelar').addEventListener('click', psFechar);
+  psCampo('psFundo').addEventListener('click', psFechar);
+  document.addEventListener('keydown', ev => { if (ev.key === 'Escape' && !psCampo('psGaveta').hidden) psFechar(); });
+  psCampo('psForm').addEventListener('submit', ev => { ev.preventDefault(); psSalvar(); });
+  psCampo('psSite').addEventListener('change', psAjustarPorLocal);
+  psCampo('psSite').addEventListener('input', () => { if ((_psDados.sites || []).includes(psCampo('psSite').value)) psAjustarPorLocal(); });
+  psCampo('psCpf').addEventListener('input', ev => {
+    ev.target.value = psCpfFmt(ev.target.value);
+    const d = psDigitos(ev.target.value);
+    psCampo('psCpfNota').textContent = d.length === 11 ? (psCpfValido(d) ? '' : 'CPF inválido') : '';
+  });
+  psCampo('psFone').addEventListener('blur', ev => { ev.target.value = psFoneFmt(ev.target.value); });
+  psCampo('psFotoArq').addEventListener('change', ev => psEscolherFoto(ev.target.files[0]));
+  const zona = psCampo('psFotoZona');
+  ['dragover', 'dragenter'].forEach(t => zona.addEventListener(t, ev => { ev.preventDefault(); zona.classList.add('sobre'); }));
+  ['dragleave', 'drop'].forEach(t => zona.addEventListener(t, () => zona.classList.remove('sobre')));
+  zona.addEventListener('drop', ev => { ev.preventDefault(); psEscolherFoto(ev.dataTransfer.files[0]); });
+  psCampo('psExcluir').addEventListener('click', () => {
+    const p = _psEditando;
+    const ok = (p.leitores || []).map(x => apPorta(x.leitor));
+    psCampo('psConfirmaTxt').textContent = `Excluir ${p.nome}? Ela sai ${ok.length ? 'dos leitores ' + ok.join(', ') + ' e ' : ''}do SightOps. As passagens já registradas continuam.`;
+    psCampo('psConfirma').hidden = false;
+  });
+  psCampo('psConfirmaNao').addEventListener('click', () => { psCampo('psConfirma').hidden = true; });
+  psCampo('psConfirmaSim').addEventListener('click', psExcluir);
+}
+
+// Chamado pelo Painel ao abrir a aba.
+async function psAbrirAba() {
+  if (!_psLigado) {
+    _psLigado = true;
+    psLigarGaveta();
+    psCampo('psNova').addEventListener('click', () => psAbrir(null));
+    psCampo('psBusca').addEventListener('input', ev => { _psBusca = ev.target.value; _psMostrar = 120; psDesenhar(); });
+  }
+  if (_psDados) psDesenhar();
+  try {
+    await psCarregar();
+  } catch (err) {
+    if (!_psDados) psCampo('psConteudo').innerHTML = `<p class="ap-vazio">Não consegui carregar as pessoas: ${esc((err && err.message) || err)}</p>`;
+  }
+}

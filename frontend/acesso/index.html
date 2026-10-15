@@ -11,7 +11,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="../styles.css?v=1792000033">
-  <link rel="stylesheet" href="acesso.css?v=1792000043">
+  <link rel="stylesheet" href="acesso.css?v=1792000044">
 </head>
 <body>
   <div id="appShell" class="app-shell" hidden>
@@ -172,6 +172,7 @@
         <div class="tabs access-control-tabs" role="tablist">
           <button type="button" class="tab-btn active" data-ap-tela="vivo" role="tab" aria-selected="true">Ao vivo</button>
           <button type="button" class="tab-btn" data-ap-tela="dispositivos" role="tab" aria-selected="false">Dispositivos</button>
+          <button type="button" class="tab-btn" data-ap-tela="pessoas" role="tab" aria-selected="false">Pessoas</button>
           <button type="button" class="tab-btn" data-ap-tela="portas" role="tab" aria-selected="false">Portas</button>
           <button type="button" class="tab-btn" data-ap-tela="alertas" role="tab" aria-selected="false">Alertas</button>
           <button type="button" class="tab-btn" data-ap-tela="relatorios" role="tab" aria-selected="false">Relatórios</button>
@@ -249,6 +250,90 @@
           </aside>
         </div>
         </div>
+        <div id="apPess" hidden>
+          <div class="dv-barra">
+            <label class="dv-busca"><i data-lucide="search"></i><input id="psBusca" type="search" placeholder="Nome, CPF, matrícula, turma" aria-label="Buscar pessoa"></label>
+            <button class="primary-action" id="psNova" type="button"><i data-lucide="user-plus"></i> Nova pessoa</button>
+          </div>
+          <div id="psConteudo"><p class="ap-vazio">Carregando pessoas…</p></div>
+
+          <div class="dv-gaveta" id="psGaveta" hidden>
+            <div class="dv-fundo" id="psFundo"></div>
+            <aside class="dv-painel ps-painel" role="dialog" aria-modal="true" aria-labelledby="psTitulo">
+              <header class="dv-gaveta-cab">
+                <div><p class="eyebrow">Controle de Acesso</p><h2 id="psTitulo">Nova pessoa</h2><p id="psSubtitulo"></p></div>
+                <button class="icon-button" id="psFechar" type="button" aria-label="Fechar"><i data-lucide="x"></i></button>
+              </header>
+              <form id="psForm" class="dv-form" novalidate>
+                <fieldset class="dv-passo">
+                  <h3 class="dv-passo-tit"><span>1</span>Quem é</h3>
+                  <label class="dv-rot" for="psSite">Local</label>
+                  <input id="psSite" list="psSites" autocomplete="off" placeholder="Escola ou condomínio">
+                  <datalist id="psSites"></datalist>
+                  <span class="dv-rot">Tipo</span>
+                  <input type="hidden" id="psTipo">
+                  <div class="dv-seg" id="psTipos" data-ps-seg="psTipo" role="group" aria-label="Tipo de pessoa"></div>
+                  <small class="dv-ajuda" id="psNotaTipo" hidden>Estava cadastrada como Aluno. Vai ser salva como Morador.</small>
+                  <label class="dv-rot" for="psNome">Nome completo</label>
+                  <input id="psNome" maxlength="160" autocomplete="off">
+                  <div class="dv-duas">
+                    <div><label class="dv-rot" for="psCpf">CPF</label><input id="psCpf" inputmode="numeric" autocomplete="off" placeholder="000.000.000-00" class="monospace"><small class="ps-falta" id="psCpfNota"></small></div>
+                    <div id="psMatriculaBox"><label class="dv-rot" for="psMatricula">Matrícula</label><input id="psMatricula" autocomplete="off" class="monospace"></div>
+                  </div>
+                  <label class="dv-rot" for="psTurma" id="psRotTurma">Turma</label>
+                  <input id="psTurma" list="psTurmas" autocomplete="off">
+                  <datalist id="psTurmas"></datalist>
+                </fieldset>
+                <fieldset class="dv-passo">
+                  <h3 class="dv-passo-tit"><span>2</span>Rosto</h3>
+                  <div class="ps-foto">
+                    <div class="ps-foto-ver" id="psFotoVer"></div>
+                    <label class="ps-foto-zona" id="psFotoZona">
+                      <input type="file" id="psFotoArq" accept="image/jpeg,image/png,image/webp">
+                      <i data-lucide="camera"></i><b>Escolher foto</b>
+                      <small>ou arraste aqui. De frente, rosto inteiro, boa luz e fundo liso.</small>
+                      <small class="ps-foto-nota" id="psFotoNota"></small>
+                    </label>
+                  </div>
+                  <span class="dv-rot">Nos leitores</span>
+                  <div class="ps-leitores" id="psLeitores"></div>
+                  <small class="dv-ajuda">ID no leitor: <b class="monospace" id="psIdLeitor"></b></small>
+                </fieldset>
+                <fieldset class="dv-passo">
+                  <h3 class="dv-passo-tit"><span>3</span>Acesso</h3>
+                  <span class="dv-rot">Grupos (definem as portas que a pessoa abre)</span>
+                  <div class="ps-grupos" id="psGrupos"></div>
+                  <label class="dv-chave"><input type="checkbox" id="psAtivo" checked><span></span>Pessoa ativa<small>Inativa fica bloqueada nos leitores e some do Painel.</small></label>
+                </fieldset>
+                <fieldset class="dv-passo" id="psPassoAviso">
+                  <h3 class="dv-passo-tit"><span>4</span>Aviso ao responsável</h3>
+                  <div class="dv-duas">
+                    <div><label class="dv-rot" for="psResp">Responsável</label><input id="psResp" autocomplete="off"></div>
+                    <div><label class="dv-rot" for="psFone">WhatsApp do responsável</label><input id="psFone" inputmode="tel" autocomplete="off" placeholder="(82) 99999-0000" class="monospace"></div>
+                  </div>
+                  <label class="dv-chave"><input type="checkbox" id="psZap" checked><span></span>Avisar entrada e saída pelo WhatsApp</label>
+                </fieldset>
+                <fieldset class="dv-passo">
+                  <label class="dv-rot" for="psNotas">Observações</label>
+                  <textarea id="psNotas" rows="2" maxlength="500" class="ps-notas"></textarea>
+                </fieldset>
+                <p class="dv-erro" id="psErro" role="alert" hidden></p>
+                <div class="ps-resultado" id="psResultado" role="alert" hidden></div>
+              </form>
+              <footer class="dv-gaveta-pe">
+                <button type="button" class="dv-remover" id="psExcluir" hidden><i data-lucide="trash-2"></i> Excluir</button>
+                <div class="dv-confirma" id="psConfirma" hidden>
+                  <span id="psConfirmaTxt"></span>
+                  <button type="button" class="secondary-action" id="psConfirmaNao">Não</button>
+                  <button type="button" class="dv-remover forte" id="psConfirmaSim">Excluir</button>
+                </div>
+                <span class="dv-espaco"></span>
+                <button type="button" class="secondary-action" id="psCancelar">Cancelar</button>
+                <button type="submit" form="psForm" class="primary-action"><i data-lucide="save"></i> Salvar</button>
+              </footer>
+            </aside>
+          </div>
+        </div>
         <div id="apPortas" hidden></div>
         <div id="apAlertas" hidden></div>
         <div id="apRel" hidden><div id="apRelTopo"></div><div id="apGeral"></div></div>
@@ -258,8 +343,9 @@
 
   <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js"></script>
   <script src="../config.js?v=1791000212"></script>
-  <script src="dispositivos/dispositivos.js?v=1792000043"></script>
-  <script src="shell.js?v=1792000043"></script>
-  <script src="acesso.js?v=1792000043"></script>
+  <script src="dispositivos/dispositivos.js?v=1792000044"></script>
+  <script src="pessoas.js?v=1792000044"></script>
+  <script src="shell.js?v=1792000044"></script>
+  <script src="acesso.js?v=1792000044"></script>
 </body>
 </html>
