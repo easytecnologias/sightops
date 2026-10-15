@@ -1046,6 +1046,21 @@ def api_access_control_painel_pessoa_excluir(person_id: str, user: Dict[str, Any
     return resultado
 
 
+class TipoLocalRequest(BaseModel):
+    site: str = Field(min_length=1, max_length=120)
+    tipo: str = ""   # escola | condominio | empresa | evento | "" (volta ao palpite)
+
+
+@router.put("/painel/locais/tipo")
+def api_access_control_painel_tipo_local(req: TipoLocalRequest, user: Dict[str, Any] = Depends(current_user)) -> Dict[str, Any]:
+    """Diz o que cada local e (operador, pela regra /api/access-control/)."""
+    from app.services.access_control_painel import definir_tipo_local
+    try:
+        return {"ok": True, **definir_tipo_local(req.site, req.tipo, user.get("username") or "")}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
 @router.get("/painel/ip-virtual")
 def api_access_control_painel_ip_virtual(connector_id: str = Query(""), host: str = Query("")) -> Dict[str, Any]:
     """Previa do cadastro: por qual IP o SightOps vai falar com o leitor."""

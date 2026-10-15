@@ -452,3 +452,26 @@
 #viewAccessPainel .ps-resultado{display:flex;flex-direction:column;gap:4px;margin:14px 0 0;padding:12px 14px;border-radius:9px;background:var(--amber-soft);color:#6b4300;font-size:13px}
 @media(max-width:1100px){#viewAccessPainel .ps-linha{grid-template-columns:44px minmax(0,1fr) auto}#viewAccessPainel .ps-sit,#viewAccessPainel .ps-resp,#viewAccessPainel .ps-ult{grid-column:2 / -1}}
 @media(max-width:620px){#viewAccessPainel .ps-foto{flex-direction:column}}
+/* Tipo do local: selo clicavel, menu e as cores de empresa e evento */
+#viewAccessPainel button.ap-perfil{font-family:inherit;cursor:pointer;line-height:1.4}
+#viewAccessPainel button.ap-perfil:hover{filter:brightness(.96);box-shadow:0 0 0 2px var(--surface),0 0 0 3px currentColor}
+#viewAccessPainel button.ap-perfil:focus-visible{outline:2px solid var(--primary);outline-offset:2px}
+#viewAccessPainel .ap-perfil.palpite{border:1px dashed currentColor}
+#viewAccessPainel .ap-perfil.empresa{background:var(--amber-soft);color:var(--amber);border-color:transparent}
+#viewAccessPainel .ap-perfil.evento{background:#f3eeff;color:#7048e8;border-color:transparent}
+#viewAccessPainel .ap-perfil.palpite.empresa,#viewAccessPainel .ap-perfil.palpite.evento,#viewAccessPainel .ap-perfil.palpite.escola,#viewAccessPainel .ap-perfil.palpite.condominio{border-color:currentColor}
+.ap-menu-tipo{position:absolute;z-index:2500;width:290px;background:var(--surface);border:1px solid var(--border);border-radius:12px;box-shadow:0 12px 32px rgba(19,37,45,.18);padding:6px;display:flex;flex-direction:column;gap:2px;font-family:inherit}
+.ap-menu-tipo .ap-menu-cab{padding:8px 10px 6px;border-bottom:1px solid var(--border);margin-bottom:4px}
+.ap-menu-tipo .ap-menu-cab b{display:block;font-size:13px}
+.ap-menu-tipo .ap-menu-cab small{font-size:11.5px;color:var(--muted)}
+.ap-menu-tipo button{display:flex;align-items:center;gap:10px;text-align:left;font:inherit;background:none;border:0;border-radius:8px;padding:8px 10px;cursor:pointer;color:var(--text)}
+.ap-menu-tipo button:hover,.ap-menu-tipo button:focus-visible{background:var(--surface-soft);outline:0}
+.ap-menu-tipo button.on{background:var(--primary-soft)}
+.ap-menu-tipo button > svg{width:18px;height:18px;color:var(--muted);flex:0 0 auto}
+.ap-menu-tipo button.on > svg{color:var(--primary)}
+.ap-menu-tipo button span{flex:1;min-width:0}
+.ap-menu-tipo button b{display:block;font-size:13px}
+.ap-menu-tipo button small{display:block;font-size:11.5px;color:var(--muted)}
+.ap-menu-tipo .ap-menu-ok{color:var(--primary)!important}
+.ap-menu-tipo .ap-menu-auto{border-top:1px solid var(--border);border-radius:0 0 8px 8px;margin-top:4px}
+#viewAccessPainel .dv-seg-tipo button{font-size:12.5px}

@@ -17,7 +17,7 @@ const DV_FUNCAO = {
   entrada_saida: { rot: 'Entrada e saída', cls: 'ambos', icone: 'arrow-left-right' },
 };
 const DV_FABRICANTE = { intelbras: 'Intelbras', dahua: 'Dahua' };
-const DV_TIPO = { escola: 'Escola', condominio: 'Condomínio', misto: 'Escola e condomínio' };
+const DV_TIPO = { escola: 'Escola', condominio: 'Condomínio', empresa: 'Empresa', evento: 'Evento', misto: 'Vários tipos' };
 
 function dvLocal(s) { const d = new Date(String(s || '').slice(0, 19).replace(' ', 'T')); return isNaN(d) ? null : d; }
 function dvUtc(s) {
@@ -153,7 +153,8 @@ function dvDesenhar() {
       return `<section class="dv-local">
         <header class="dv-local-cab">
           <div><h2>${esc(g.site)}</h2>
-            <span class="ap-perfil ${info.tipo || ''}" title="${info.origem === 'cadastro' ? 'Pelo cadastro de pessoas' : info.origem === 'nome' ? 'Pelo nome do local' : 'Pelo restante do cliente'}">${DV_TIPO[info.tipo] || ''}</span></div>
+            <button type="button" class="ap-perfil ${info.tipo || ''} ${info.origem === 'escolhido' ? '' : 'palpite'}" data-dv-tipo="${esc(g.site)}" aria-haspopup="menu"
+              title="${info.origem === 'escolhido' ? 'Escolhido por você' : 'Palpite do SightOps'}. Clique para mudar.">${DV_TIPO[info.tipo] || 'Definir tipo'}</button></div>
           <div class="dv-local-meta">
             ${con ? `<span class="dv-con ${con.status === 'online' ? 'ok' : 'ruim'}"><i></i>Conector ${esc(con.nome)} · ${esc(con.status || 'sem status')}</span>` : ''}
             <span>${g.itens.length} leitor${g.itens.length === 1 ? '' : 'es'}</span>
@@ -181,6 +182,10 @@ function dvLigar(el) {
     dvAbrir((_dvDados.dispositivos || []).find(d => d.id === b.dataset.dvEditar));
   }));
   el.querySelectorAll('[data-dv-testar]').forEach(b => b.addEventListener('click', () => dvTestar(b.dataset.dvTestar)));
+  el.querySelectorAll('[data-dv-tipo]').forEach(b => b.addEventListener('click', () => {
+    if (_dvDados && _dvDados.perfil && typeof apMostrarPerfil === 'function') _apPerfil = _dvDados.perfil;
+    apMenuTipo(b, b.dataset.dvTipo);
+  }));
 }
 
 async function dvCarregar() {
@@ -259,11 +264,23 @@ function dvAbrir(d, siteSugerido) {
   dvCampo('dvRemover').hidden = novo;
   dvCampo('dvConfirma').hidden = true;
   dvCampo('dvErro').hidden = true;
+  dvTipoDoLocal();
   dvPrevia();
   dvCampo('dvGaveta').hidden = false;
   requestAnimationFrame(() => dvCampo('dvGaveta').classList.add('aberta'));
   setTimeout(() => (novo && !siteSugerido ? dvCampo('dvSite') : dvCampo('dvHost')).focus(), 150);
   if (window.lucide) lucide.createIcons();
+}
+
+// O tipo do local vem marcado (escolhido antes ou o palpite do SightOps).
+function dvTipoDoLocal() {
+  const site = dvCampo('dvSite').value.trim().toUpperCase();
+  const l = (_dvDados.locais || []).find(x => x.site.toUpperCase() === site);
+  const tipo = l ? l.tipo : (/\b(ESCOLA|COL[EÉ]GIO|CRECHE)\b/.test(site) ? 'escola' : '');
+  dvMarcar('dvTipoLocal', tipo || '');
+  dvCampo('dvTipoNota').textContent = !site ? 'Escolha o local acima.'
+    : l && l.origem === 'escolhido' ? 'Já definido para este local. Mudar aqui vale para o local inteiro.'
+      : tipo ? 'Sugestão do SightOps. Confirme ou troque: vale para o local inteiro.' : 'Diga o que este local é.';
 }
 
 function dvFechar() {
@@ -353,12 +370,20 @@ async function dvSalvar(testar) {
   if (!/^[\w.-]+$/.test(p.host)) return dvErro('O IP tem caracteres inválidos.');
   if (!p.name) return dvErro('Dê um nome ao leitor.');
   if (!p.id && !p.password) return dvErro('Informe a senha do leitor.');
+  const tipoLocal = dvCampo('dvTipoLocal').value;
+  if (!tipoLocal) return dvErro('Diga se o local é escola, condomínio, empresa ou evento.');
   dvErro('');
   const botoes = document.querySelectorAll('#dvGaveta .dv-gaveta-pe button');
   botoes.forEach(b => { b.disabled = true; });
   try {
     const r = await acEnviar('POST', '/api/access-control/devices', p);
     const id = (r.device || {}).id;
+    // Tipo do local: grava quando mudou ou quando ainda era so palpite.
+    const l = (_dvDados.locais || []).find(x => x.site.toUpperCase() === p.site.toUpperCase());
+    if (!l || l.origem !== 'escolhido' || l.tipo !== tipoLocal) {
+      try { await acEnviar('PUT', '/api/access-control/painel/locais/tipo', { site: p.site, tipo: tipoLocal }); } catch (_) { /* o leitor ja foi salvo */ }
+      if (typeof apRecarregarTudo === 'function' && (!l || l.tipo !== tipoLocal)) apRecarregarTudo();
+    }
     acToast(p.id ? 'Dispositivo atualizado.' : 'Dispositivo cadastrado.');
     dvFechar();
     await dvCarregar();
@@ -395,7 +420,9 @@ function dvLigarGaveta() {
   dvCampo('dvForm').addEventListener('submit', ev => { ev.preventDefault(); dvSalvar(true); });
   dvCampo('dvSoSalvar').addEventListener('click', () => dvSalvar(false));
   document.querySelectorAll('[data-dv-seg] button').forEach(b => b.addEventListener('click', () => {
-    dvMarcar(b.closest('[data-dv-seg]').dataset.dvSeg, b.dataset.valor);
+    const campo = b.closest('[data-dv-seg]').dataset.dvSeg;
+    dvMarcar(campo, b.dataset.valor);
+    if (campo === 'dvTipoLocal') return;
     if (!_dvNomeManual) dvCampo('dvNome').value = dvNomeSugerido();
   }));
   dvCampo('dvSite').addEventListener('input', () => {
@@ -403,6 +430,7 @@ function dvLigarGaveta() {
     const l = (_dvDados.locais || []).find(x => x.site.toUpperCase() === site);
     if (l && l.connector_id) dvOpcoesConector(l.connector_id);
     if (!_dvNomeManual) dvCampo('dvNome').value = dvNomeSugerido();
+    dvTipoDoLocal();
     dvPrevia();
   });
   dvCampo('dvNome').addEventListener('input', () => { _dvNomeManual = true; });

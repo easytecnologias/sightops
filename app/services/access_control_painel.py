@@ -256,6 +256,55 @@ def _avisos(agora: datetime, pessoas: List[Dict[str, Any]], escolas: Optional[se
 ESCOLA_MINIMO = 0.3
 
 
+# Tipo ESCOLHIDO pelo usuario para cada local (escola, condominio, empresa,
+# evento). Quando existe, manda; o palpite abaixo vira so a sugestao para os
+# locais que ainda nao foram escolhidos. Fica no armazenamento do cliente
+# (tenant_scoped_path), um arquivo por cliente.
+TIPOS_LOCAL = ("escola", "condominio", "empresa", "evento")
+ARQUIVO_TIPOS = "acesso-tipos-de-local.json"
+
+
+def _arquivo_tipos():
+    from app.core.tenant_context import tenant_scoped_path
+    return tenant_scoped_path(ARQUIVO_TIPOS, _tenant())
+
+
+def tipos_escolhidos() -> Dict[str, Dict[str, Any]]:
+    """{SITE EM MAIUSCULAS: {"site", "tipo", "por", "em"}} do cliente atual."""
+    import json
+    arq = _arquivo_tipos()
+    try:
+        dados = json.loads(arq.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(dados, dict):
+        return {}
+    return {k.upper(): v for k, v in dados.items()
+            if isinstance(v, dict) and v.get("tipo") in TIPOS_LOCAL}
+
+
+def definir_tipo_local(site: str, tipo: str, usuario: str = "") -> Dict[str, Any]:
+    """Grava (ou apaga, com tipo vazio) o tipo de um local deste cliente."""
+    import json, os
+    nome = _t(site)
+    tipo = _t(tipo).lower()
+    if not nome:
+        raise ValueError("Informe o local.")
+    if tipo and tipo not in TIPOS_LOCAL:
+        raise ValueError("Tipo de local invalido: use escola, condominio, empresa ou evento.")
+    atuais = tipos_escolhidos()
+    if tipo:
+        atuais[nome.upper()] = {"site": nome, "tipo": tipo, "por": _t(usuario), "em": _utc_txt(_agora())}
+    else:
+        atuais.pop(nome.upper(), None)
+    arq = _arquivo_tipos()
+    arq.parent.mkdir(parents=True, exist_ok=True)
+    tmp = arq.with_suffix(".tmp")
+    tmp.write_text(json.dumps(atuais, ensure_ascii=False, indent=1), encoding="utf-8")
+    os.replace(tmp, arq)
+    return {"site": nome, "tipo": tipo or None}
+
+
 # Nome que denuncia escola, para local sem ninguem no cadastro ainda.
 NOME_ESCOLA = re.compile(r"\b(ESCOLA|COL[EÉ]GIO|CRECHE|CMEI|EMEF|EMEI|ESC\.?|INSTITUTO|UNIVERSIDADE|FACULDADE)\b", re.I)
 
@@ -275,18 +324,23 @@ def _tipo_do_grupo(pessoas: List[Dict[str, Any]]) -> Dict[str, Any]:
             "com_turma": com_turma, "com_responsavel": com_resp, "alunos": base}
 
 
-def perfil_locais(pessoas: List[Dict[str, Any]], sites: Iterable[str], site: str = "") -> Dict[str, Any]:
+def perfil_locais(pessoas: List[Dict[str, Any]], sites: Iterable[str], site: str = "",
+                  escolhidos: Optional[Dict[str, Dict[str, Any]]] = None) -> Dict[str, Any]:
     """Tipo de cada local (escola/condominio) e o do filtro atual. Com
     "todos os sites" e locais de tipos diferentes, o tipo e "misto".
 
     Local sem aluno no cadastro (leitor recem-instalado, moradores so no
     leitor): o nome decide ("ESCOLA MEDEA" e escola); sem pista no nome, vale
     o tipo que predomina no cliente; cliente sem cadastro nenhum = condominio.
+    Tudo isso e palpite: o tipo escolhido pelo usuario (`escolhidos`) manda, e o
+    palpite fica em "sugestao".
     """
+    escolhidos = escolhidos or {}
     por_site: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
     for p in pessoas:
         por_site[_t(p.get("site")).upper()].append(p)
-    nomes = sorted({_t(s) for s in sites if _t(s)} | {_t(p.get("site")) for p in pessoas if _t(p.get("site"))},
+    nomes = sorted({_t(s) for s in sites if _t(s)} | {_t(p.get("site")) for p in pessoas if _t(p.get("site"))}
+                   | {_t(v.get("site")) for v in escolhidos.values() if _t(v.get("site"))},
                    key=lambda s: s.upper())
     vistos: Dict[str, Dict[str, Any]] = {}
     locais = []
@@ -305,11 +359,19 @@ def perfil_locais(pessoas: List[Dict[str, Any]], sites: Iterable[str], site: str
             x["tipo"], x["origem"] = "escola", "nome"
         else:
             x["tipo"], x["origem"] = predominante, "cliente"
+    for x in locais:
+        x["sugestao"] = x["tipo"]
+        e = escolhidos.get(x["site"].upper())
+        if e:
+            x["tipo"], x["origem"] = e["tipo"], "escolhido"
     if site:
         atual = vistos.get(site.upper())
         if atual is None:
             atual = {"site": site, **_tipo_do_grupo([])}
             atual["tipo"] = "escola" if NOME_ESCOLA.search(site) else predominante
+            e = escolhidos.get(site.upper())
+            if e:
+                atual["tipo"] = e["tipo"]
         tipo = atual["tipo"]
     else:
         tipos = {x["tipo"] for x in locais}
@@ -319,7 +381,7 @@ def perfil_locais(pessoas: List[Dict[str, Any]], sites: Iterable[str], site: str
 
 def _perfil(site: str, pessoas: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
     todas = pessoas if pessoas is not None else _pessoas()
-    return perfil_locais(todas, [_t(d.get("site")) for d in _leitores()], site)
+    return perfil_locais(todas, [_t(d.get("site")) for d in _leitores()], site, tipos_escolhidos())
 
 
 # ---------------------------------------------------------------- visao geral
@@ -697,7 +759,7 @@ def dispositivos(agora: Optional[datetime] = None) -> Dict[str, Any]:
 
     todas = _pessoas()
     nomes = [x["site"] for x in _locais_do_cliente()] + [x["site"] for x in saida]
-    perfil = perfil_locais(todas, nomes, "")
+    perfil = perfil_locais(todas, nomes, "", tipos_escolhidos())
     sugestao = {_t(x.get("site")).upper(): _t(x.get("connector_id")) for x in _locais_do_cliente()}
     locais = [{**l, "connector_id": sugestao.get(l["site"].upper(), ""),
                "leitores": sum(1 for x in saida if x["site"].upper() == l["site"].upper())}

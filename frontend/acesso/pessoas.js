@@ -18,15 +18,32 @@ let _psLigado = false;
 
 const PS_TIPOS = {
   escola: [['student', 'Aluno', 'graduation-cap'], ['employee', 'Funcionário', 'briefcase'], ['visitor', 'Visitante', 'user-round']],
-  condominio: [['resident', 'Morador', 'home'], ['employee', 'Funcionário', 'briefcase'], ['visitor', 'Visitante', 'user-round']],
+  condominio: [['resident', 'Morador', 'home'], ['employee', 'Funcionário', 'briefcase'], ['contractor', 'Prestador', 'wrench'], ['visitor', 'Visitante', 'user-round']],
+  empresa: [['employee', 'Colaborador', 'briefcase'], ['contractor', 'Prestador', 'wrench'], ['visitor', 'Visitante', 'user-round']],
+  evento: [['participant', 'Participante', 'ticket'], ['staff', 'Equipe', 'badge-check'], ['visitor', 'Convidado', 'user-round']],
 };
+// Tipo antigo que nao existe no tipo do local (ex.: "Aluno" num condominio)
+// vira o principal daquele local ao salvar; a gaveta avisa antes.
+function psTiposDoLocal(site) { return PS_TIPOS[psTipoLocal(site)] || PS_TIPOS.escola; }
+// Equivalencia do tipo antigo em cada tipo de local (o mesmo que AP_VOCAB mostra).
+const PS_EQUIVALE = {
+  escola: { resident: 'student', participant: 'student', staff: 'employee', contractor: 'employee' },
+  condominio: { student: 'resident', participant: 'resident', staff: 'employee' },
+  empresa: { student: 'employee', resident: 'employee', participant: 'employee', staff: 'employee' },
+  evento: { student: 'participant', resident: 'participant', employee: 'staff', contractor: 'staff' },
+};
+function psTipoNoLocal(tipo, site) {
+  const lista = psTiposDoLocal(site);
+  if (lista.some(x => x[0] === tipo)) return tipo;
+  const eq = (PS_EQUIVALE[psTipoLocal(site)] || {})[tipo];
+  return eq && lista.some(x => x[0] === eq) ? eq : lista[0][0];
+}
 
 function psCampo(id) { return document.getElementById(id); }
 function psTipoLocal(site) { return typeof apTipoLocal === 'function' ? apTipoLocal(site) : 'escola'; }
 function psCondo(site) { return psTipoLocal(site) === 'condominio'; }
 function psTipoRot(p) {
-  const t = p.tipo === 'student' && psCondo(p.site) ? 'resident' : p.tipo;
-  return { student: 'Aluno', resident: 'Morador', employee: 'Funcionário', visitor: 'Visitante' }[t] || t;
+  return (typeof apTipo === 'function' && apTipo(p.tipo, p.site)) || p.tipo;
 }
 function psDigitos(v) { return String(v || '').replace(/\D/g, ''); }
 function psCpfFmt(v) {
@@ -67,11 +84,15 @@ function psSituacao(p) {
   return { cls: 'espera', txt: 'Aguardando envio' };
 }
 
+const PS_PLURAL = { Aluno: 'Alunos', Morador: 'Moradores', 'Funcionário': 'Funcionários', Prestador: 'Prestadores', Visitante: 'Visitantes',
+  Colaborador: 'Colaboradores', Participante: 'Participantes', Equipe: 'Equipe', Convidado: 'Convidados' };
+function psFiltros() {
+  const tipos = PS_TIPOS[(_apPerfil && _apPerfil.tipo) || 'escola'] || PS_TIPOS.escola;
+  return [['todos', 'Todas', () => true]]
+    .concat(tipos.map(([v, rot]) => [v, PS_PLURAL[rot] || rot, p => psTipoNoLocal(p.tipo, p.site) === v]))
+    .concat(PS_FILTROS);
+}
 const PS_FILTROS = [
-  ['todos', 'Todas', () => true],
-  ['tipo1', null, p => p.tipo === 'student' || p.tipo === 'resident'],
-  ['employee', 'Funcionários', p => p.tipo === 'employee'],
-  ['visitor', 'Visitantes', p => p.tipo === 'visitor'],
   ['semfoto', 'Sem foto', p => p.ativo && !p.tem_foto],
   ['recusada', 'Foto recusada', p => (p.leitores || []).some(x => x.status === 'failed')],
   ['semgrupo', 'Sem grupo', p => p.ativo && !p.grupos.length],
@@ -84,7 +105,7 @@ function psCards(lista) {
   const comFoto = ativas.filter(p => p.tem_foto && (p.leitores || []).some(x => x.status === 'ok')).length;
   const recusadas = lista.filter(p => (p.leitores || []).some(x => x.status === 'failed')).length;
   const semGrupo = ativas.filter(p => !p.grupos.length).length;
-  const escola = !psCondo();
+  const escola = (_apPerfil && _apPerfil.tipo) === 'escola';
   const semResp = ativas.filter(p => p.tipo === 'student' && !psDigitos(p.telefone)).length;
   const card = ({ icone, cor, estado = '', rot, val, sub, subCor = '', filtro = '' }) => `
     <button type="button" class="ap-card ${estado}" ${filtro ? `data-ps-filtro="${filtro}"` : 'disabled'}>
@@ -104,15 +125,16 @@ function psCards(lista) {
 function psLinha(p) {
   const s = psSituacao(p);
   const condo = psCondo(p.site);
+  const escolaLocal = psTipoLocal(p.site) === 'escola';
   const unidade = condo ? (p.turma || (typeof apUnidade === 'function' ? apUnidade(p.nome, p.site) : '')) : '';
   const ult = psLocalData(p.ultima);
-  const det = [psTipoRot(p), condo ? (unidade ? 'unidade ' + unidade : '') : p.turma, p.matricula && !condo ? 'matr. ' + p.matricula : '']
+  const det = [psTipoRot(p), condo ? (unidade ? 'unidade ' + unidade : '') : p.turma, p.matricula && escolaLocal ? 'matr. ' + p.matricula : '']
     .filter(Boolean).join(' · ');
   return `<div class="ps-linha ${p.ativo ? '' : 'inativo'}" data-ps="${esc(p.id)}">
     <span class="ps-av">${psIniciais(p.nome)}${p.tem_foto ? `<img src="${psFotoUrl(p)}" alt="" loading="lazy" onerror="this.remove()">` : ''}</span>
     <div class="ps-quem"><b>${esc(p.nome)}</b><small>${esc(det)}</small></div>
     <div class="ps-sit ${s.cls}" ${s.erro ? `title="${esc(s.erro)}"` : ''}><i></i><span>${esc(s.txt)}</span></div>
-    <div class="ps-resp">${condo
+    <div class="ps-resp">${!escolaLocal
       ? `<span class="dv-l-rot">Local</span><div>${esc(p.site || '—')}</div>`
       : `<span class="dv-l-rot">Responsável</span><div>${esc(p.responsavel || '—')}</div><small class="monospace">${esc(psFoneFmt(p.telefone)) || (p.tipo === 'student' ? '<span class="ps-falta">sem telefone</span>' : '')}</small>`}</div>
     <div class="ps-ult"><span class="dv-l-rot">Última passagem</span><div>${ult ? (Date.now() - ult < 86400000 ? 'hoje ' + apHm(ult) : ult.toLocaleDateString('pt-BR')) : '—'}</div></div>
@@ -126,17 +148,16 @@ function psDesenhar() {
   const todas = _psDados.pessoas || [];
   const b = _psBusca.trim().toLowerCase();
   const bDig = psDigitos(b);
-  const f = (PS_FILTROS.find(x => x[0] === _psFiltro) || PS_FILTROS[0])[2];
+  const filtros = psFiltros();
+  const f = (filtros.find(x => x[0] === _psFiltro) || filtros[0])[2];
   const lista = todas.filter(p => f(p) && (!b || [p.nome, p.turma, p.matricula, p.responsavel, p.site].some(x => String(x || '').toLowerCase().includes(b))
     || (bDig.length >= 3 && (psDigitos(p.cpf).includes(bDig) || psDigitos(p.telefone).includes(bDig)))));
-  const condo = psCondo();
-  const rotTipo1 = condo ? 'Moradores' : (_apPerfil && _apPerfil.tipo === 'misto' ? 'Alunos e moradores' : 'Alunos');
   const conta = fn => todas.filter(fn).length;
   el.innerHTML = `
     ${psCards(todas)}
-    <div class="ps-filtros">${PS_FILTROS.map(([id, rot, fn]) => {
+    <div class="ps-filtros">${filtros.map(([id, rot, fn]) => {
       const n = conta(fn);
-      return (id === 'todos' || n || id === _psFiltro) ? `<button type="button" class="ap-fl ${_psFiltro === id ? 'on' : ''}" data-ps-filtro="${id}">${rot || rotTipo1} <span class="monospace">${apNum(n)}</span></button>` : '';
+      return (id === 'todos' || n || id === _psFiltro) ? `<button type="button" class="ap-fl ${_psFiltro === id ? 'on' : ''}" data-ps-filtro="${id}">${rot} <span class="monospace">${apNum(n)}</span></button>` : '';
     }).join('')}</div>
     ${lista.length ? `<div class="dv-lista ps-lista">${lista.slice(0, _psMostrar).map(psLinha).join('')}</div>
       ${lista.length > _psMostrar ? `<button type="button" class="ps-mais" data-ps-mais>Mostrar mais ${apNum(Math.min(120, lista.length - _psMostrar))} de ${apNum(lista.length - _psMostrar)}</button>` : ''}`
@@ -171,19 +192,18 @@ function psMarcar(id, valor) {
 function psAjustarPorLocal() {
   const site = psCampo('psSite').value;
   const condo = psCondo(site);
+  const tipoLocal = psTipoLocal(site);
   const tipoAtual = psCampo('psTipo').value;
-  psCampo('psTipos').innerHTML = (condo ? PS_TIPOS.condominio : PS_TIPOS.escola).map(([v, rot, ic]) =>
+  psCampo('psTipos').innerHTML = psTiposDoLocal(site).map(([v, rot, ic]) =>
     `<button type="button" data-valor="${v}"><i data-lucide="${ic}"></i>${rot}</button>`).join('');
   psCampo('psTipos').querySelectorAll('button').forEach(b => b.addEventListener('click', () => { psMarcar('psTipo', b.dataset.valor); psAjustarPorTipo(); }));
-  let tipo = tipoAtual;
-  if (condo && tipo === 'student') tipo = 'resident';
-  if (!condo && tipo === 'resident') tipo = 'student';
-  psMarcar('psTipo', tipo || (condo ? 'resident' : 'student'));
-  psCampo('psRotTurma').textContent = condo ? 'Unidade' : 'Turma';
-  psCampo('psTurma').placeholder = condo ? 'Ex.: A01, Bloco C 06' : 'Ex.: 4º Ano';
+  psMarcar('psTipo', tipoAtual ? psTipoNoLocal(tipoAtual, site) : psTiposDoLocal(site)[0][0]);
+  const v = (typeof AP_VOCAB !== 'undefined' && AP_VOCAB[tipoLocal]) || {};
+  psCampo('psRotTurma').textContent = v.grupo || 'Turma';
+  psCampo('psTurma').placeholder = { escola: 'Ex.: 4º Ano', condominio: 'Ex.: A01, Bloco C 06', empresa: 'Ex.: Financeiro', evento: 'Ex.: VIP, Imprensa' }[tipoLocal] || '';
   const turmas = [...new Set((_psDados.pessoas || []).filter(p => p.site === site && p.turma).map(p => p.turma))].sort((a, b) => a.localeCompare(b, 'pt-BR', { numeric: true }));
   psCampo('psTurmas').innerHTML = turmas.map(t => `<option value="${esc(t)}">`).join('');
-  psCampo('psPassoAviso').hidden = condo && !_apUsaAvisos;
+  psCampo('psPassoAviso').hidden = tipoLocal !== 'escola' && !_apUsaAvisos;
   psGrupos();
   psAjustarPorTipo();
   if (window.lucide) lucide.createIcons();
@@ -193,7 +213,13 @@ function psAjustarPorTipo() {
   const tipo = psCampo('psTipo').value;
   const aluno = tipo === 'student';
   psCampo('psMatriculaBox').hidden = !aluno;
-  psCampo('psNotaTipo').hidden = !(_psEditando && _psEditando.tipo === 'student' && tipo === 'resident');
+  const ant = _psEditando && _psEditando.tipo;
+  const mudou = ant && ant !== tipo;
+  psCampo('psNotaTipo').hidden = !mudou;
+  if (mudou) {
+    const rot = t => (psTiposDoLocal(psCampo('psSite').value).find(x => x[0] === t) || [, ({ student: 'Aluno', resident: 'Morador', employee: 'Funcionário', visitor: 'Visitante' })[t] || t])[1];
+    psCampo('psNotaTipo').textContent = `Estava cadastrada como ${rot(ant)}. Vai ser salva como ${rot(tipo)}.`;
+  }
 }
 
 function psGrupos() {

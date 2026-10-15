@@ -65,15 +65,32 @@ const AP_VOCAB = {
   },
   condominio: {
     nome: 'Condomínio', grupo: 'Unidade', dentro: 'dentro agora', hoje: 'Quem passou hoje',
-    tipos: { student: 'Morador', employee: 'Funcionário', visitor: 'Visitante', resident: 'Morador' },
+    tipos: { student: 'Morador', employee: 'Funcionário', visitor: 'Visitante', resident: 'Morador', contractor: 'Prestador' },
     sub: 'Quem está entrando e saindo, como portarias e áreas comuns estão sendo usadas e o que precisa de alguém.',
   },
+  empresa: {
+    nome: 'Empresa', grupo: 'Setor', dentro: 'no prédio agora', hoje: 'Entrada e saída de hoje',
+    tipos: { student: 'Colaborador', employee: 'Colaborador', contractor: 'Prestador', visitor: 'Visitante', resident: 'Colaborador' },
+    sub: 'Quem está entrando e saindo, a jornada de cada colaborador e o que precisa de alguém.',
+  },
+  evento: {
+    nome: 'Evento', grupo: 'Credencial', dentro: 'no evento agora', hoje: 'Check-in de hoje',
+    tipos: { student: 'Participante', participant: 'Participante', staff: 'Equipe', visitor: 'Convidado', employee: 'Equipe', resident: 'Participante' },
+    sub: 'Quem fez check-in, quantas pessoas estão no evento agora e o que precisa de alguém.',
+  },
   misto: {
-    nome: 'Escola e condomínio', grupo: 'Turma ou unidade', dentro: 'dentro agora', hoje: 'Quem passou hoje',
-    tipos: { student: 'Aluno', employee: 'Funcionário', visitor: 'Visitante', resident: 'Morador' },
-    sub: 'Escolas e condomínios juntos. Escolha um local para ver o vocabulário e os blocos de cada um.',
+    nome: 'Vários tipos', grupo: 'Grupo', dentro: 'dentro agora', hoje: 'Quem passou hoje',
+    tipos: { student: 'Aluno', employee: 'Funcionário', visitor: 'Visitante', resident: 'Morador', contractor: 'Prestador', participant: 'Participante', staff: 'Equipe' },
+    sub: 'Locais de tipos diferentes juntos. Escolha um local no topo para ver o vocabulário de cada um.',
   },
 };
+const AP_TIPOS_LOCAL = [
+  ['escola', 'Escola', 'graduation-cap', 'Alunos, turmas e aviso ao responsável'],
+  ['condominio', 'Condomínio', 'building-2', 'Moradores, unidades e visitantes'],
+  ['empresa', 'Empresa', 'briefcase', 'Colaboradores, setores e jornada'],
+  ['evento', 'Evento', 'ticket', 'Participantes, credenciais e check-in'],
+];
+const AP_ORIGEM = { escolhido: 'escolhido por você', cadastro: 'palpite pelo cadastro de pessoas', nome: 'palpite pelo nome do local', cliente: 'palpite pelo restante do cliente' };
 function apTipoLocal(site) {
   const s = String(site || '').toUpperCase();
   const l = (_apPerfil.locais || []).find(x => String(x.site).toUpperCase() === s);
@@ -102,13 +119,59 @@ function apMostrarPerfil(perfil) {
   if (chip) {
     chip.textContent = v.nome;
     chip.className = 'ap-perfil ' + perfil.tipo;
-    chip.title = (perfil.locais || []).map(l => `${l.site}: ${AP_VOCAB[l.tipo].nome.toLowerCase()}` +
-      (l.tipo === 'escola' ? ` (${l.com_turma} de ${l.alunos} alunos com turma)` : '')).join('\n') +
-      '\nDetectado pelo cadastro de pessoas.';
+    const local = _apSite ? (perfil.locais || []).find(l => l.site.toUpperCase() === _apSite.toUpperCase()) : null;
+    chip.title = local ? `${local.site}: ${v.nome} (${AP_ORIGEM[local.origem] || 'palpite'}). Clique para mudar.`
+      : (perfil.locais || []).map(l => `${l.site}: ${(AP_VOCAB[l.tipo] || {}).nome || l.tipo} (${AP_ORIGEM[l.origem] || 'palpite'})`).join('\n');
+    chip.classList.toggle('palpite', !!local && local.origem !== 'escolhido');
+    chip.dataset.site = local ? local.site : '';
   }
   const sub = document.getElementById('apSubtitulo');
   if (sub) sub.textContent = v.sub;
 }
+// Menu "o que e este local": aparece ao clicar no selo de tipo (topo do Painel
+// e cabecalho de cada local em Dispositivos). Grava em PUT /painel/locais/tipo.
+function apMenuTipo(ancora, site) {
+  document.getElementById('apMenuTipo')?.remove();
+  if (!site) { acToast('Escolha um local no topo para dizer o que ele é.'); return; }
+  const local = (_apPerfil.locais || []).find(l => l.site.toUpperCase() === site.toUpperCase()) || {};
+  const menu = document.createElement('div');
+  menu.id = 'apMenuTipo';
+  menu.className = 'ap-menu-tipo';
+  menu.setAttribute('role', 'menu');
+  menu.innerHTML = `<div class="ap-menu-cab"><b>${esc(site)}</b><small>Este local é…</small></div>
+    ${AP_TIPOS_LOCAL.map(([v, rot, ic, desc]) => `<button type="button" role="menuitemradio" aria-checked="${local.tipo === v && local.origem === 'escolhido'}" data-tipo="${v}" class="${local.tipo === v ? 'on' : ''}">
+      <i data-lucide="${ic}"></i><span><b>${rot}</b><small>${desc}</small></span>${local.tipo === v ? '<i data-lucide="check" class="ap-menu-ok"></i>' : ''}</button>`).join('')}
+    ${local.origem === 'escolhido' ? `<button type="button" data-tipo="" class="ap-menu-auto"><i data-lucide="wand-sparkles"></i><span><b>Voltar ao automático</b><small>o SightOps sugere: ${esc((AP_VOCAB[local.sugestao] || {}).nome || '—')}</small></span></button>` : ''}`;
+  document.body.appendChild(menu);
+  const r = ancora.getBoundingClientRect();
+  menu.style.top = (window.scrollY + r.bottom + 6) + 'px';
+  menu.style.left = Math.max(12, Math.min(window.scrollX + r.left, window.scrollX + document.documentElement.clientWidth - menu.offsetWidth - 12)) + 'px';
+  if (window.lucide) lucide.createIcons();
+  const fechar = ev => { if (!menu.contains(ev.target) && ev.target !== ancora) { menu.remove(); document.removeEventListener('mousedown', fechar); } };
+  setTimeout(() => document.addEventListener('mousedown', fechar), 0);
+  menu.querySelector('button')?.focus();
+  menu.addEventListener('keydown', ev => { if (ev.key === 'Escape') { menu.remove(); ancora.focus(); } });
+  menu.querySelectorAll('[data-tipo]').forEach(b => b.addEventListener('click', async () => {
+    menu.remove();
+    try {
+      await acEnviar('PUT', '/api/access-control/painel/locais/tipo', { site, tipo: b.dataset.tipo });
+      acToast(b.dataset.tipo ? `${site} agora é ${(AP_VOCAB[b.dataset.tipo] || {}).nome}.` : `${site} voltou ao tipo automático.`);
+      apRecarregarTudo();
+    } catch (err) {
+      acToast((err && err.message) || 'Não foi possível mudar o tipo.', true);
+    }
+  }));
+}
+
+// Depois de mudar o tipo de um local: tudo que depende do vocabulario recarrega.
+function apRecarregarTudo() {
+  _apDados.vivo = _apDados.rel = _apDados.geral = null;
+  if (typeof _dvDados !== 'undefined') _dvDados = null;
+  if (typeof _psDados !== 'undefined') _psDados = null;
+  apGeral(true).then(g => { apMostrarPerfil(g && g.perfil); }).catch(() => {});
+  apAtualizar(true);
+}
+
 // "ENTRADA - ESCOLA PRESIDENTE DUTRA" -> "ENTRADA": o site ja esta no filtro e
 // o nome inteiro nao cabia na linha.
 function apPorta(nome) {
@@ -755,6 +818,7 @@ async function loadAccessPainel() {
     });
     document.querySelectorAll('[data-ap-tela]').forEach(b => b.addEventListener('click', () => apTrocarTela(b.dataset.apTela)));
     document.getElementById('btnApAtualizar')?.addEventListener('click', () => apAtualizar(true));
+    document.getElementById('apPerfil')?.addEventListener('click', ev => apMenuTipo(ev.currentTarget, ev.currentTarget.dataset.site));
   }
   try {
     const g = await apiJson('/api/access-control/painel/visao-geral');

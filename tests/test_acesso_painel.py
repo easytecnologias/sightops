@@ -195,3 +195,31 @@ def test_ip_virtual_de_conector_alheio_e_sempre_bloqueado(monkeypatch):
     monkeypatch.setattr(V, "virtual_ip_for", lambda cid, ip: ip)   # sem faixa: antes devolvia o host
     r = P.ip_virtual("de-outro-cliente", "192.168.1.201")
     assert r["bloqueado"] is True and r["virtual"] == ""
+
+
+def test_tipo_escolhido_manda_e_o_palpite_vira_sugestao():
+    escola = [_p(i, "ESCOLA PRESIDENTE DUTRA", turma="4º Ano") for i in range(20)]
+    escolhidos = {"ARENA": {"site": "ARENA", "tipo": "evento"},
+                  "ESCOLA PRESIDENTE DUTRA": {"site": "ESCOLA PRESIDENTE DUTRA", "tipo": "empresa"}}
+    r = P.perfil_locais(escola, ["CANAPI"], "", escolhidos)
+    por = {x["site"]: x for x in r["locais"]}
+    assert (por["ARENA"]["tipo"], por["ARENA"]["origem"]) == ("evento", "escolhido")   # local so com o tipo escolhido
+    assert (por["ESCOLA PRESIDENTE DUTRA"]["tipo"], por["ESCOLA PRESIDENTE DUTRA"]["sugestao"]) == ("empresa", "escola")
+    assert por["CANAPI"]["origem"] == "cliente"
+    assert r["tipo"] == "misto"
+    assert P.perfil_locais(escola, [], "ARENA", escolhidos)["tipo"] == "evento"
+
+
+def test_definir_tipo_local_grava_por_cliente(tmp_path, monkeypatch):
+    from app.core import tenant_context
+    monkeypatch.setattr(tenant_context, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(P, "_tenant", lambda: "cliente-a")
+    P.definir_tipo_local("Arena Norte", "evento", "rads")
+    assert P.tipos_escolhidos()["ARENA NORTE"]["tipo"] == "evento"
+    monkeypatch.setattr(P, "_tenant", lambda: "cliente-b")
+    assert P.tipos_escolhidos() == {}                    # outro cliente nao ve
+    monkeypatch.setattr(P, "_tenant", lambda: "cliente-a")
+    with pytest.raises(ValueError):
+        P.definir_tipo_local("Arena Norte", "shopping")
+    P.definir_tipo_local("Arena Norte", "")               # volta ao palpite
+    assert P.tipos_escolhidos() == {}

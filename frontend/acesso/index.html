@@ -11,7 +11,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="../styles.css?v=1792000033">
-  <link rel="stylesheet" href="acesso.css?v=1792000044">
+  <link rel="stylesheet" href="acesso.css?v=1792000045">
 </head>
 <body>
   <div id="appShell" class="app-shell" hidden>
@@ -160,7 +160,7 @@
         <div class="page-heading">
           <div>
             <p class="eyebrow">Controle de Acesso</p>
-            <h1>Painel de Acesso <span class="ap-perfil" id="apPerfil"></span></h1>
+            <h1>Painel de Acesso <button type="button" class="ap-perfil" id="apPerfil" aria-haspopup="menu"></button></h1>
             <p id="apSubtitulo">Quem está passando agora e o que precisa de alguém.</p>
           </div>
           <div class="page-heading-actions">
@@ -198,6 +198,15 @@
                 <input id="dvSite" list="dvSites" autocomplete="off" placeholder="Escolha o local do cliente">
                 <datalist id="dvSites"></datalist>
                 <div class="dv-sugestoes" id="dvSugestoes" hidden></div>
+                <span class="dv-rot">Este local é</span>
+                <input type="hidden" id="dvTipoLocal" value="">
+                <div class="dv-seg dv-seg-tipo" data-dv-seg="dvTipoLocal" role="group" aria-label="Tipo do local">
+                  <button type="button" data-valor="escola"><i data-lucide="graduation-cap"></i>Escola</button>
+                  <button type="button" data-valor="condominio"><i data-lucide="building-2"></i>Condomínio</button>
+                  <button type="button" data-valor="empresa"><i data-lucide="briefcase"></i>Empresa</button>
+                  <button type="button" data-valor="evento"><i data-lucide="ticket"></i>Evento</button>
+                </div>
+                <small class="dv-ajuda" id="dvTipoNota"></small>
                 <span class="dv-rot">Função na porta</span>
                 <input type="hidden" id="dvFuncao" value="entrada">
                 <div class="dv-seg" data-dv-seg="dvFuncao" role="group" aria-label="Função na porta">
@@ -343,9 +352,9 @@
 
   <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js"></script>
   <script src="../config.js?v=1791000212"></script>
-  <script src="dispositivos/dispositivos.js?v=1792000044"></script>
-  <script src="pessoas.js?v=1792000044"></script>
-  <script src="shell.js?v=1792000044"></script>
-  <script src="acesso.js?v=1792000044"></script>
+  <script src="dispositivos/dispositivos.js?v=1792000045"></script>
+  <script src="pessoas.js?v=1792000045"></script>
+  <script src="shell.js?v=1792000045"></script>
+  <script src="acesso.js?v=1792000045"></script>
 </body>
 </html>
