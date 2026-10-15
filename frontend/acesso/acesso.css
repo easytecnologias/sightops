@@ -610,3 +610,33 @@
 #viewAccessPainel .dv-curva small{font-size:10.5px;color:var(--muted);margin:0}
 #viewAccessPainel .dv-linha{grid-template-columns:minmax(220px,1.4fr) minmax(220px,1.3fr) minmax(200px,1fr) minmax(130px,.8fr) auto}
 @media(max-width:1300px){#viewAccessPainel .dv-curva{display:none}}
+/* Controladora: botoes da porta no card e a gaveta de ajustes */
+#viewAccessPainel .dv-btn.armado{color:#fff;background:var(--amber);border-color:var(--amber)}
+#viewAccessPainel .dv-porta-abrir.armado{background:var(--primary);border-color:var(--primary)}
+#viewAccessPainel .dv-obs-link{font:inherit;font-size:12px;font-weight:600;color:var(--primary);background:none;border:0;padding:0 0 0 6px;cursor:pointer;text-decoration:underline}
+#viewAccessPainel .dv-linha{grid-template-columns:minmax(200px,1.3fr) minmax(200px,1.2fr) minmax(190px,1fr) minmax(120px,.7fr) auto}
+#viewAccessPainel .dv-l-acoes{flex-wrap:wrap;max-width:380px}
+#viewAccessPainel .dvc-cab{display:flex;justify-content:space-between;align-items:center;gap:8px}
+#viewAccessPainel .dvc-cab .dv-passo-tit,#viewAccessPainel .dv-passo-tit{gap:8px}
+#viewAccessPainel .dv-passo-tit > svg{width:17px;height:17px;color:var(--primary)}
+#viewAccessPainel .dvc-grade{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin:4px 0 0}
+#viewAccessPainel .dvc-grade > div{background:var(--surface-soft);border-radius:8px;padding:8px 10px;min-width:0}
+#viewAccessPainel .dvc-grade dt{font-size:11px;color:var(--muted);font-weight:600}
+#viewAccessPainel .dvc-grade dd{margin:2px 0 0;font-size:13px;overflow-wrap:anywhere}
+#viewAccessPainel .dvc-ok{color:var(--primary);font-weight:600}
+#viewAccessPainel .dvc-at{color:var(--amber);font-weight:600}
+#viewAccessPainel .dvc-ruim{color:var(--danger);font-weight:600}
+#viewAccessPainel .dvc-linha{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+#viewAccessPainel .dvc-linha input{flex:1 1 180px;min-width:0}
+#viewAccessPainel .dvc-linha a.secondary-action{text-decoration:none;display:inline-flex;align-items:center;gap:6px}
+#viewAccessPainel .dvc-res{margin:6px 0 0;font-size:12.5px;padding:7px 10px;border-radius:8px}
+#viewAccessPainel .dvc-res.ok{background:var(--primary-soft);color:var(--primary)}
+#viewAccessPainel .dvc-res.ruim{background:var(--danger-soft);color:var(--danger)}
+@media(max-width:620px){#viewAccessPainel .dvc-grade{grid-template-columns:1fr}}
+#viewAccessPainel .dvc-cab-acoes{display:flex;gap:8px;align-items:flex-start}
+#viewAccessPainel .dvc-cab-acoes .secondary-action{font-size:12.5px;padding:6px 11px;white-space:nowrap}
+#viewAccessPainel .dv-linha{grid-template-columns:minmax(210px,1.4fr) minmax(220px,1.3fr) minmax(190px,1fr) minmax(120px,.7fr) auto}
+#viewAccessPainel .dv-l-acoes{flex-wrap:nowrap;max-width:none}
+#viewAccessPainel .dv-linha{grid-template-columns:minmax(210px,1.4fr) minmax(220px,1.3fr) minmax(190px,1fr) minmax(120px,.7fr) 320px}
+#viewAccessPainel .dv-l-acoes{justify-content:flex-end}
+@media(max-width:1100px){#viewAccessPainel .dv-linha{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}#viewAccessPainel .dv-l-acoes{justify-content:flex-start}}

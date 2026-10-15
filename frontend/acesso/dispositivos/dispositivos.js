@@ -95,7 +95,7 @@ function dvObs(d) {
   if (t && t.rodando) itens.push('<span class="dv-obs-teste"><i data-lucide="loader-circle" class="dv-gira"></i>Testando conexão…</span>');
   else if (t && t.ok) itens.push(`<span class="dv-obs-ok"><i data-lucide="check"></i>Respondeu em ${(t.ms / 1000).toFixed(1).replace('.', ',')} s${t.modelo ? ' · ' + esc(t.modelo) : ''}</span>`);
   else if (t) itens.push(`<span class="dv-obs-ruim"><i data-lucide="x"></i>${esc(t.erro)}</span>`);
-  if (d.relogio_errado) itens.push(`<span class="dv-obs-at"><i data-lucide="clock-alert"></i>Relógio do leitor zerou: ${d.relogio_errado} passage${d.relogio_errado === 1 ? 'm' : 'ns'} com data antes de 2020</span>`);
+  if (d.relogio_errado) itens.push(`<span class="dv-obs-at"><i data-lucide="clock-alert"></i>Relógio do leitor zerou: ${d.relogio_errado} passage${d.relogio_errado === 1 ? 'm' : 'ns'} com data antes de 2020 <button type="button" class="dv-obs-link" data-dvc-abrir="${esc(d.id)}">Ver e acertar a hora</button></span>`);
   if (d.fotos_falha) itens.push(`<span class="dv-obs-at"><i data-lucide="image-off"></i>${d.fotos_falha} foto${d.fotos_falha === 1 ? '' : 's'} recusada${d.fotos_falha === 1 ? '' : 's'} pelo leitor</span>`);
   return itens.length ? `<div class="dv-obs">${itens.join('')}</div>` : '';
 }
@@ -131,8 +131,9 @@ function dvLinha(d) {
     <div class="dv-l-mov"><span class="dv-l-rot">Hoje</span><div class="dv-l-mov-l"><span><b class="monospace">${dvNum(d.hoje)}</b> <span>passage${d.hoje === 1 ? 'm' : 'ns'}</span><small>${ultimaTxt}</small></span>${dvCurva(d.horas)}</div></div>
     <div class="dv-l-est"><span class="dv-ponto ${e.cls}"></span><div><b>${e.rot}</b><small>${d.visto ? 'falou ' + dvHa(dvUtc(d.visto)) : 'nunca testado'}</small></div></div>
     <div class="dv-l-acoes">
-      <button type="button" class="dv-btn" data-dv-testar="${esc(d.id)}" ${rodando ? 'disabled' : ''} title="Testar conexão"><i data-lucide="activity"></i><span>Testar</span></button>
-      <button type="button" class="dv-btn" data-dv-editar="${esc(d.id)}" title="Editar"><i data-lucide="pencil"></i><span>Editar</span></button>
+      <button type="button" class="dv-btn dv-porta-abrir" data-dv-porta="abrir" data-id="${esc(d.id)}" title="Abrir a porta agora"><i data-lucide="lock-open"></i><span>Abrir</span></button>
+      <button type="button" class="dv-btn" data-dv-porta="fechar" data-id="${esc(d.id)}" title="Fechar (travar) a porta agora"><i data-lucide="lock"></i><span>Fechar</span></button>
+      <button type="button" class="dv-btn" data-dvc-abrir="${esc(d.id)}" title="Hora, NTP, página do leitor, reiniciar"><i data-lucide="settings-2"></i><span>Controladora</span></button>
     </div>
     ${dvObs(d)}
   </div>`;
@@ -190,12 +191,56 @@ function dvDesenhar() {
   if (window.lucide) lucide.createIcons();
 }
 
+// ---------------------------------------------------------------- porta: abrir/fechar
+// Dois cliques: o primeiro so arma ("Confirmar abrir"), o segundo executa.
+// Porta de cliente e coisa seria: ninguem abre sem querer.
+function dvConfirmar(btn, rotulo, acao) {
+  if (btn.dataset.armado) {
+    clearTimeout(+btn.dataset.armado);
+    delete btn.dataset.armado;
+    btn.classList.remove('armado');
+    acao();
+    return;
+  }
+  const original = btn.innerHTML;
+  btn.classList.add('armado');
+  btn.innerHTML = `<i data-lucide="alert-triangle"></i><span>${rotulo}</span>`;
+  if (window.lucide) lucide.createIcons();
+  btn.dataset.armado = String(setTimeout(() => {
+    delete btn.dataset.armado;
+    btn.classList.remove('armado');
+    btn.innerHTML = original;
+    if (window.lucide) lucide.createIcons();
+  }, 4000));
+}
+
+async function dvPorta(id, acao, btn) {
+  const d = (_dvDados.dispositivos || []).find(x => x.id === id) || {};
+  if (btn) { btn.disabled = true; btn.innerHTML = '<i data-lucide="loader-circle" class="dv-gira"></i><span>Enviando…</span>'; if (window.lucide) lucide.createIcons(); }
+  try {
+    if (acao === 'abrir') await acEnviar('POST', `/api/access-control/devices/${encodeURIComponent(id)}/open-door?channel=1`);
+    else await acEnviar('POST', `/api/access-control/painel/controladora/${encodeURIComponent(id)}/fechar?canal=1`);
+    acToast(`${apPorta(d.nome || 'Porta')}: ${acao === 'abrir' ? 'porta aberta' : 'porta fechada'}.`);
+    return true;
+  } catch (err) {
+    acToast(`${apPorta(d.nome || 'Porta')}: não consegui ${acao} (${err.message}).`, true);
+    return false;
+  } finally {
+    if (btn) dvDesenhar();
+  }
+}
+
 function dvLigar(el) {
   el.querySelectorAll('[data-dv-novo]').forEach(b => b.addEventListener('click', () => dvAbrir(null, b.dataset.dvNovo)));
   el.querySelectorAll('[data-dv-editar]').forEach(b => b.addEventListener('click', () => {
     dvAbrir((_dvDados.dispositivos || []).find(d => d.id === b.dataset.dvEditar));
   }));
   el.querySelectorAll('[data-dv-testar]').forEach(b => b.addEventListener('click', () => dvTestar(b.dataset.dvTestar)));
+  el.querySelectorAll('[data-dv-porta]').forEach(b => b.addEventListener('click', () => {
+    const acao = b.dataset.dvPorta;
+    dvConfirmar(b, acao === 'abrir' ? 'Confirmar abrir' : 'Confirmar fechar', () => dvPorta(b.dataset.id, acao, b));
+  }));
+  el.querySelectorAll('[data-dvc-abrir]').forEach(b => b.addEventListener('click', () => dvcAbrir(b.dataset.dvcAbrir)));
   el.querySelectorAll('[data-dv-tipo]').forEach(b => b.addEventListener('click', () => {
     if (_dvDados && _dvDados.perfil && typeof apMostrarPerfil === 'function') _apPerfil = _dvDados.perfil;
     apMenuTipo(b, b.dataset.dvTipo);
@@ -460,12 +505,154 @@ function dvLigarGaveta() {
   dvCampo('dvConfirmaSim').addEventListener('click', dvRemover);
 }
 
+// ---------------------------------------------------------------- gaveta Controladora
+// Estado lido do leitor (so leitura) e os ajustes. Escrita so no clique, com
+// confirmacao nas que mexem na porta ou derrubam o leitor.
+let _dvcId = '';
+let _dvcDiag = null;
+
+function dvcDif(seg) {
+  const a = Math.abs(seg);
+  const txt = a < 60 ? `${a} s` : a < 3600 ? `${Math.round(a / 60)} min` : a < 86400 * 2 ? `${Math.floor(a / 3600)} h ${Math.round((a % 3600) / 60)} min` : `${Math.round(a / 86400)} dias`;
+  return `${seg > 0 ? 'adiantado' : 'atrasado'} ${txt}`;
+}
+
+function dvcEstado() {
+  const box = dvCampo('dvcEstado');
+  const g = _dvcDiag;
+  if (!g) { box.innerHTML = '<p class="dv-ajuda">Lendo o leitor…</p>'; return; }
+  if (g.erro) { box.innerHTML = `<p class="dv-erro">${esc(g.erro)}</p>`; return; }
+  const hora = 'diferenca_segundos' in g
+    ? (g.hora_ok ? `<span class="dvc-ok">certa</span>` : `<span class="dvc-ruim">${dvcDif(g.diferenca_segundos)}</span>`)
+    : '<span class="dvc-ruim">não leu</span>';
+  const ntp = g.ntp ? (g.ntp.ativo ? `<span class="dvc-ok">ligada</span> · ${esc(g.ntp.servidor)}` : '<span class="dvc-at">desligada</span>') : '<span class="dv-ajuda">não leu</span>';
+  const fuso = g.ntp ? (g.ntp.fuso_ok ? '<span class="dvc-ok">Brasília (GMT-03)</span>' : `<span class="dvc-at">${esc(g.ntp.fuso_desc || 'fuso ' + g.ntp.fuso)}</span>`) : '—';
+  const porta = { aberta: '<span class="dvc-at">aberta</span>', fechada: '<span class="dvc-ok">fechada</span>', forcada: '<span class="dvc-ruim">forçada</span>' }[g.porta] || esc(g.porta || '—');
+  box.innerHTML = `<dl class="dvc-grade">
+      <div><dt>Hora do leitor</dt><dd class="monospace">${esc((g.hora_leitor || '—').replace(/^(\d{4})-(\d\d)-(\d\d)/, '$3/$2/$1'))}</dd><dd>${hora}</dd></div>
+      <div><dt>Hora certa (Brasília)</dt><dd class="monospace">${esc((g.hora_certa || '').replace(/^(\d{4})-(\d\d)-(\d\d)/, '$3/$2/$1'))}</dd></div>
+      <div><dt>Sincronização (NTP)</dt><dd>${ntp}</dd></div>
+      <div><dt>Fuso</dt><dd>${fuso}</dd></div>
+      <div><dt>Porta</dt><dd>${porta}</dd></div>
+      <div><dt>Modelo</dt><dd>${esc(g.modelo || '—')}</dd></div>
+      <div><dt>Firmware</dt><dd class="monospace">${esc(g.firmware || '—')}</dd></div>
+      <div><dt>Nº de série</dt><dd class="monospace">${esc(g.serie || '—')}</dd></div>
+    </dl>
+    ${Object.keys(g.erros || {}).length ? `<small class="dv-ajuda">O leitor não respondeu a: ${Object.keys(g.erros).join(', ')}.</small>` : ''}`;
+  if (g.ntp && g.ntp.servidor && !dvCampo('dvcNtp').dataset.mexido) dvCampo('dvcNtp').value = g.ntp.ativo ? g.ntp.servidor : 'a.ntp.br';
+  if (window.lucide) lucide.createIcons();
+}
+
+async function dvcLer() {
+  _dvcDiag = null;
+  dvcEstado();
+  try {
+    _dvcDiag = await apiJson(`/api/access-control/painel/controladora/${encodeURIComponent(_dvcId)}`);
+  } catch (err) {
+    _dvcDiag = { erro: `Não consegui ler o leitor: ${err.message}` };
+  }
+  dvcEstado();
+}
+
+function dvcResultado(id, ok, texto) {
+  const el = dvCampo(id);
+  el.className = 'dvc-res ' + (ok ? 'ok' : 'ruim');
+  el.textContent = texto;
+  el.hidden = false;
+}
+
+async function dvcAcao(btn, resId, fn, okTxt) {
+  btn.disabled = true;
+  const original = btn.innerHTML;
+  btn.innerHTML = '<i data-lucide="loader-circle" class="dv-gira"></i> Enviando…';
+  if (window.lucide) lucide.createIcons();
+  try {
+    const r = await fn();
+    dvcResultado(resId, true, typeof okTxt === 'function' ? okTxt(r) : okTxt);
+    return r;
+  } catch (err) {
+    dvcResultado(resId, false, err.message || 'O leitor recusou.');
+    return null;
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = original;
+    if (window.lucide) lucide.createIcons();
+  }
+}
+
+function dvcAbrir(id) {
+  const d = (_dvDados.dispositivos || []).find(x => x.id === id);
+  if (!d) return;
+  _dvcId = id;
+  dvCampo('dvcTitulo').textContent = d.nome;
+  const ip = d.ip || {};
+  dvCampo('dvcSub').textContent = [[DV_FABRICANTE[d.fabricante] || d.fabricante, d.modelo].filter(Boolean).join(' '), ip.traduzido ? `${d.host} → ${ip.virtual}` : d.host].filter(Boolean).join(' · ');
+  dvCampo('dvcWeb').href = `${API_BASE}/api/maintenance/web/${encodeURIComponent(d.host)}/`;
+  dvCampo('dvcNtp').value = 'a.ntp.br';
+  delete dvCampo('dvcNtp').dataset.mexido;
+  ['dvcResHora', 'dvcResNtp', 'dvcResPorta', 'dvcResTeste', 'dvcResReinicio'].forEach(x => { dvCampo(x).hidden = true; });
+  dvCampo('dvcGaveta').hidden = false;
+  requestAnimationFrame(() => dvCampo('dvcGaveta').classList.add('aberta'));
+  dvcLer();
+  if (window.lucide) lucide.createIcons();
+}
+
+function dvcFechar() {
+  const g = dvCampo('dvcGaveta');
+  g.classList.remove('aberta');
+  setTimeout(() => { g.hidden = true; }, 200);
+}
+
+function dvcLigar() {
+  dvCampo('dvcFechar').addEventListener('click', dvcFechar);
+  dvCampo('dvcFundo').addEventListener('click', dvcFechar);
+  document.addEventListener('keydown', ev => { if (ev.key === 'Escape' && !dvCampo('dvcGaveta').hidden) dvcFechar(); });
+  dvCampo('dvcLer').addEventListener('click', dvcLer);
+  dvCampo('dvcEditar').addEventListener('click', () => {
+    const d = (_dvDados.dispositivos || []).find(x => x.id === _dvcId);
+    dvcFechar();
+    if (d) setTimeout(() => dvAbrir(d), 220);
+  });
+  dvCampo('dvcNtp').addEventListener('input', () => { dvCampo('dvcNtp').dataset.mexido = '1'; });
+  dvCampo('dvcHora').addEventListener('click', ev => dvcAcao(ev.currentTarget, 'dvcResHora',
+    () => acEnviar('POST', `/api/access-control/painel/controladora/${encodeURIComponent(_dvcId)}/hora`),
+    r => `Hora acertada para ${r.hora.slice(11)} de ${r.hora.slice(0, 10).split('-').reverse().join('/')}.`).then(r => { if (r) dvcLer(); }));
+  dvCampo('dvcNtpLigar').addEventListener('click', ev => dvcAcao(ev.currentTarget, 'dvcResNtp',
+    () => acEnviar('POST', `/api/access-control/painel/controladora/${encodeURIComponent(_dvcId)}/ntp`, { servidor: dvCampo('dvcNtp').value.trim(), ativar: true }),
+    r => `Sincronização ligada com ${r.servidor}, fuso de Brasília. O leitor precisa alcançar a internet.`).then(r => { if (r) dvcLer(); }));
+  dvCampo('dvcNtpDesligar').addEventListener('click', ev => dvcAcao(ev.currentTarget, 'dvcResNtp',
+    () => acEnviar('POST', `/api/access-control/painel/controladora/${encodeURIComponent(_dvcId)}/ntp`, { ativar: false }),
+    'Sincronização desligada.').then(r => { if (r) dvcLer(); }));
+  dvCampo('dvcAbrirPorta').addEventListener('click', ev => {
+    const b = ev.currentTarget;
+    dvConfirmar(b, 'Confirmar abrir', () => dvcAcao(b, 'dvcResPorta',
+      () => acEnviar('POST', `/api/access-control/devices/${encodeURIComponent(_dvcId)}/open-door?channel=1`), 'Porta aberta.').then(r => { if (r) dvcLer(); }));
+  });
+  dvCampo('dvcFecharPorta').addEventListener('click', ev => {
+    const b = ev.currentTarget;
+    dvConfirmar(b, 'Confirmar fechar', () => dvcAcao(b, 'dvcResPorta',
+      () => acEnviar('POST', `/api/access-control/painel/controladora/${encodeURIComponent(_dvcId)}/fechar?canal=1`), 'Porta fechada.').then(r => { if (r) dvcLer(); }));
+  });
+  dvCampo('dvcTestar').addEventListener('click', ev => dvcAcao(ev.currentTarget, 'dvcResTeste', async () => {
+    const t0 = performance.now();
+    await acEnviar('POST', `/api/access-control/devices/${encodeURIComponent(_dvcId)}/test`);
+    return { ms: performance.now() - t0 };
+  }, r => `Respondeu em ${(r.ms / 1000).toFixed(1).replace('.', ',')} s.`).then(r => { if (r) dvCarregar().catch(() => {}); }));
+  dvCampo('dvcReiniciar').addEventListener('click', ev => {
+    const b = ev.currentTarget;
+    dvConfirmar(b, 'Confirmar reiniciar', () => dvcAcao(b, 'dvcResReinicio',
+      () => acEnviar('POST', `/api/access-control/painel/reiniciar-controladora/${encodeURIComponent(_dvcId)}`),
+      'Reiniciando. O leitor volta em cerca de 1 minuto; até lá a porta não reconhece ninguém.'));
+  });
+}
+
 // Chamado pelo Painel ao abrir a aba: liga os botoes na primeira vez e carrega.
 let _dvLigado = false;
 async function dvAbrirAba() {
   if (!_dvLigado) {
     _dvLigado = true;
     dvLigarGaveta();
+    dvcLigar();
     dvCampo('dvNovo').addEventListener('click', () => dvAbrir(null, typeof _apSite === 'string' ? _apSite : ''));
     dvCampo('dvBusca').addEventListener('input', ev => { _dvBusca = ev.target.value; dvDesenhar(); });
   }

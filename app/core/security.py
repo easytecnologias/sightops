@@ -122,6 +122,8 @@ class ApiAuthMiddleware(BaseHTTPMiddleware):
 
             # -- consequencia alta: exige admin --
             (("DELETE",), "/api/access-control/devices", "admin"),
+            # Reiniciar controladora deixa a porta sem leitor por ~1 minuto.
+            (("POST",), "/api/access-control/painel/reiniciar-controladora", "admin"),
             (("POST", "PUT", "DELETE"), "/api/access-control/whatsapp", "admin"),
             (("POST",), "/api/system/bootstrap", "admin"),
             (("DELETE", "PATCH"), "/api/auth/tenants/", "admin"),

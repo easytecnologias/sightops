@@ -470,13 +470,28 @@ def visao_geral(site: str = "", agora: Optional[datetime] = None) -> Dict[str, A
 RELOGIO_MINIMO = "2020-01-01"
 
 
-def _relogio_errado() -> Dict[str, Dict[str, Any]]:
+RELOGIO_JANELA_DIAS = 7
+
+
+def _relogio_errado(agora: Optional[datetime] = None) -> Dict[str, Dict[str, Any]]:
+    """So o problema ATUAL: passagens com data antes de 2020 RECEBIDAS nos
+    ultimos 7 dias. Antes contava o historico inteiro e o aviso ficava aceso
+    para sempre -- na Presidente Dutra eram 4 passagens de uma queda antiga,
+    com o leitor ja certo (NTP ligado, diferenca de 1 s em 15/10/2026)."""
+    corte = (agora or _agora()) - timedelta(days=RELOGIO_JANELA_DIAS)
     linhas = _rows(
-        "SELECT device_id, count(*) AS qtd, max(synced_at) AS quando FROM access_events "
-        "WHERE tenant_slug=? AND occurred_at < ? GROUP BY device_id",
+        "SELECT device_id, synced_at FROM access_events WHERE tenant_slug=? AND occurred_at < ?",
         (_tenant(), RELOGIO_MINIMO),
     )
-    return {_t(r.get("device_id")): {"qtd": int(r.get("qtd") or 0), "quando": _t(r.get("quando"))[:19]} for r in linhas}
+    saida: Dict[str, Dict[str, Any]] = {}
+    for r in linhas:
+        recebida = _ler_utc(r.get("synced_at"))
+        if recebida is None or recebida < corte:
+            continue
+        x = saida.setdefault(_t(r.get("device_id")), {"qtd": 0, "quando": ""})
+        x["qtd"] += 1
+        x["quando"] = max(x["quando"], _utc_txt(recebida))
+    return saida
 
 
 # ---------------------------------------------------------------- relatorios

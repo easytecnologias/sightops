@@ -11,7 +11,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="../styles.css?v=1792000033">
-  <link rel="stylesheet" href="acesso.css?v=1792000048">
+  <link rel="stylesheet" href="acesso.css?v=1792000049">
 </head>
 <body>
   <div id="appShell" class="app-shell" hidden>
@@ -184,6 +184,56 @@
             <button class="primary-action" id="dvNovo" type="button"><i data-lucide="plus"></i> Novo dispositivo</button>
           </div>
           <div id="dvConteudo"><p class="ap-vazio">Carregando dispositivos…</p></div>
+        <div class="dv-gaveta" id="dvcGaveta" hidden>
+          <div class="dv-fundo" id="dvcFundo"></div>
+          <aside class="dv-painel ps-painel" role="dialog" aria-modal="true" aria-labelledby="dvcTitulo">
+            <header class="dv-gaveta-cab">
+              <div><p class="eyebrow">Controladora</p><h2 id="dvcTitulo"></h2><p id="dvcSub"></p></div>
+              <div class="dvc-cab-acoes"><button type="button" class="secondary-action" id="dvcEditar"><i data-lucide="pencil"></i> Editar cadastro</button>
+                <button class="icon-button" id="dvcFechar" type="button" aria-label="Fechar"><i data-lucide="x"></i></button></div>
+            </header>
+            <div class="dv-form">
+              <section class="dv-passo">
+                <div class="dvc-cab"><h3 class="dv-passo-tit"><i data-lucide="activity"></i>Estado do leitor</h3>
+                  <button type="button" class="dv-btn" id="dvcLer"><i data-lucide="refresh-cw"></i><span>Ler de novo</span></button></div>
+                <div id="dvcEstado"></div>
+              </section>
+              <section class="dv-passo">
+                <h3 class="dv-passo-tit"><i data-lucide="clock"></i>Hora</h3>
+                <p class="dv-ajuda">Leitor com a hora errada grava a passagem no dia errado e foge dos relatórios e do horário de acesso.</p>
+                <div class="dvc-linha"><button type="button" class="primary-action" id="dvcHora"><i data-lucide="clock-check"></i> Acertar a hora agora</button>
+                  <small class="dv-ajuda">Usa a hora do servidor, de Brasília.</small></div>
+                <p class="dvc-res" id="dvcResHora" hidden></p>
+                <label class="dv-rot" for="dvcNtp">Sincronização automática (NTP)</label>
+                <div class="dvc-linha"><input id="dvcNtp" class="monospace" value="a.ntp.br" aria-label="Servidor de hora">
+                  <button type="button" class="secondary-action" id="dvcNtpLigar"><i data-lucide="refresh-ccw"></i> Ligar</button>
+                  <button type="button" class="secondary-action" id="dvcNtpDesligar">Desligar</button></div>
+                <small class="dv-ajuda">Com o NTP ligado, o leitor acerta sozinho, inclusive depois de queda de energia. Ele precisa alcançar a internet. O fuso vai como Brasília (GMT-03).</small>
+                <p class="dvc-res" id="dvcResNtp" hidden></p>
+              </section>
+              <section class="dv-passo">
+                <h3 class="dv-passo-tit"><i data-lucide="door-open"></i>Porta</h3>
+                <div class="dvc-linha"><button type="button" class="secondary-action dv-porta-abrir" id="dvcAbrirPorta"><i data-lucide="lock-open"></i> Abrir agora</button>
+                  <button type="button" class="secondary-action" id="dvcFecharPorta"><i data-lucide="lock"></i> Fechar agora</button></div>
+                <small class="dv-ajuda">Pede confirmação. Fica registrado no log com o seu usuário.</small>
+                <p class="dvc-res" id="dvcResPorta" hidden></p>
+              </section>
+              <section class="dv-passo">
+                <h3 class="dv-passo-tit"><i data-lucide="globe"></i>Acesso ao leitor</h3>
+                <div class="dvc-linha"><a class="secondary-action" id="dvcWeb" target="_blank" rel="noopener"><i data-lucide="external-link"></i> Abrir a página do leitor</a>
+                  <button type="button" class="secondary-action" id="dvcTestar"><i data-lucide="activity"></i> Testar conexão</button></div>
+                <small class="dv-ajuda">A página abre pelo SightOps, através do conector do local, com o usuário e a senha do cadastro.</small>
+                <p class="dvc-res" id="dvcResTeste" hidden></p>
+              </section>
+              <section class="dv-passo">
+                <h3 class="dv-passo-tit"><i data-lucide="triangle-alert"></i>Avançado</h3>
+                <div class="dvc-linha"><button type="button" class="dv-remover" id="dvcReiniciar"><i data-lucide="power"></i> Reiniciar o leitor</button></div>
+                <small class="dv-ajuda">Só administrador. O leitor fica cerca de 1 minuto sem reconhecer ninguém.</small>
+                <p class="dvc-res" id="dvcResReinicio" hidden></p>
+              </section>
+            </div>
+          </aside>
+        </div>
         <div class="dv-gaveta" id="dvGaveta" hidden>
           <div class="dv-fundo" id="dvFundo"></div>
           <aside class="dv-painel" role="dialog" aria-modal="true" aria-labelledby="dvTitulo">
@@ -438,10 +488,10 @@
 
   <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js"></script>
   <script src="../config.js?v=1791000212"></script>
-  <script src="dispositivos/dispositivos.js?v=1792000048"></script>
-  <script src="pessoas.js?v=1792000048"></script>
-  <script src="acesso-grupos.js?v=1792000048"></script>
-  <script src="shell.js?v=1792000048"></script>
-  <script src="acesso.js?v=1792000048"></script>
+  <script src="dispositivos/dispositivos.js?v=1792000049"></script>
+  <script src="pessoas.js?v=1792000049"></script>
+  <script src="acesso-grupos.js?v=1792000049"></script>
+  <script src="shell.js?v=1792000049"></script>
+  <script src="acesso.js?v=1792000049"></script>
 </body>
 </html>

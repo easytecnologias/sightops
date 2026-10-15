@@ -119,6 +119,19 @@ def _tr069_onu_connector_for_ip(ip: str) -> str | None:
         return None
 
 
+def _access_device_for_host(ip: str) -> Optional[Dict[str, Any]]:
+    """Controladora de acesso do tenant atual com este IP (o IP real gravado
+    no cadastro). Abre a pagina web do leitor pela tela Dispositivos."""
+    alvo = _as_str(ip)
+    if not alvo:
+        return None
+    try:
+        from app.services.access_control_store import list_devices
+        return next((d for d in list_devices() if _as_str(d.get("host")) == alvo), None)
+    except Exception:
+        return None
+
+
 def _ip_belongs_to_current_tenant(ip: str) -> bool:
     """Confere se este IP pertence a uma camera OU um DVR/NVR cadastrado no
     tenant atual (nao IP arbitrario). Sem isso, um usuario logado em
@@ -135,6 +148,8 @@ def _ip_belongs_to_current_tenant(ip: str) -> bool:
         or _switch_connector_for_ip(ip) is not None
         # e a ONU gerenciada por TR-069 (IP da rede de gerencia dela)
         or _tr069_onu_connector_for_ip(ip) is not None
+        # e a controladora de acesso (leitor facial) cadastrada em Dispositivos
+        or _access_device_for_host(ip) is not None
     )
 
 
@@ -568,6 +583,10 @@ def _connector_for(ip: str, hint: str = "") -> str:
     conector_onu = _tr069_onu_connector_for_ip(ip)
     if conector_onu:
         return conector_onu
+    # Controladora de acesso: o cadastro dela guarda o conector.
+    leitor = _access_device_for_host(ip)
+    if leitor and str(leitor.get("connector_id") or "").strip():
+        return str(leitor.get("connector_id")).strip()
     # Nao e camera: pode ser o proprio MikroTik do conector (IP do tunel).
     dono = _connector_tunnel_ip_owner(ip)
     if dono:
@@ -2178,6 +2197,16 @@ async def maintenance_camera_web_proxy(ip: str, request: Request, path: str = ""
         username, password = "", ""
     else:
         username, password = resolve_camera_password(ip, "", "")
+        if not password and not _camera_row_for_ip(ip) and not _recorder_row_for_host(ip):
+            # Controladora: usa o usuario e a senha do cadastro dela. So quando
+            # o IP nao e de camera/gravador: com IP repetido, o destino e a
+            # camera (_connector_for olha ela primeiro) e a senha nao vai junto.
+            leitor = _access_device_for_host(ip)
+            if leitor:
+                from app.services.access_control_store import get_device_with_password
+                completo = get_device_with_password(str(leitor.get("id") or "")) or {}
+                username = str(completo.get("username") or "admin")
+                password = str(completo.get("password") or "")
 
     body = await request.body()
 

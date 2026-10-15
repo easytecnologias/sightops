@@ -223,3 +223,12 @@ def test_definir_tipo_local_grava_por_cliente(tmp_path, monkeypatch):
         P.definir_tipo_local("Arena Norte", "shopping")
     P.definir_tipo_local("Arena Norte", "")               # volta ao palpite
     assert P.tipos_escolhidos() == {}
+
+
+def test_relogio_errado_so_acusa_o_que_chegou_na_ultima_semana(monkeypatch):
+    linhas = [{"device_id": "d1", "synced_at": "2026-09-18 10:00:00+00"},      # queda antiga
+              {"device_id": "d2", "synced_at": "2026-10-13 08:00:00.123+00"}]   # recente
+    monkeypatch.setattr(P, "_rows", lambda sql, params: linhas)
+    monkeypatch.setattr(P, "_tenant", lambda: "t")
+    r = P._relogio_errado(agora=AGORA)
+    assert list(r) == ["d2"] and r["d2"]["qtd"] == 1

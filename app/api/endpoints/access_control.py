@@ -1111,6 +1111,45 @@ def api_access_control_painel_acesso_simulacao(site: str = Query(""), dias: int 
     return simular(site=site, dias=dias)
 
 
+# ---- Controladora: estado lido do leitor e ajustes (escrita so no clique)
+class NtpRequest(BaseModel):
+    servidor: str = ""
+    ativar: bool = True
+
+
+@router.get("/painel/controladora/{device_id}")
+def api_access_control_painel_controladora(device_id: str) -> Dict[str, Any]:
+    from app.services.access_control_controladora import diagnostico
+    return diagnostico(device_id)
+
+
+@router.post("/painel/controladora/{device_id}/hora")
+def api_access_control_painel_controladora_hora(device_id: str, user: Dict[str, Any] = Depends(current_user)) -> Dict[str, Any]:
+    from app.services.access_control_controladora import acertar_hora
+    return acertar_hora(device_id, user.get("username") or "")
+
+
+@router.post("/painel/controladora/{device_id}/ntp")
+def api_access_control_painel_controladora_ntp(device_id: str, req: NtpRequest,
+                                               user: Dict[str, Any] = Depends(current_user)) -> Dict[str, Any]:
+    from app.services.access_control_controladora import configurar_ntp
+    return configurar_ntp(device_id, user.get("username") or "", req.servidor, req.ativar)
+
+
+@router.post("/painel/controladora/{device_id}/fechar")
+def api_access_control_painel_controladora_fechar(device_id: str, canal: int = Query(1),
+                                                  user: Dict[str, Any] = Depends(current_user)) -> Dict[str, Any]:
+    from app.services.access_control_controladora import fechar_porta
+    return fechar_porta(device_id, user.get("username") or "", canal)
+
+
+@router.post("/painel/reiniciar-controladora/{device_id}")
+def api_access_control_painel_controladora_reiniciar(device_id: str, user: Dict[str, Any] = Depends(current_user)) -> Dict[str, Any]:
+    """Reiniciar deixa a porta sem leitor por ~1 min: so admin (regra em security.py)."""
+    from app.services.access_control_controladora import reiniciar
+    return reiniciar(device_id, user.get("username") or "")
+
+
 @router.get("/painel/ip-virtual")
 def api_access_control_painel_ip_virtual(connector_id: str = Query(""), host: str = Query("")) -> Dict[str, Any]:
     """Previa do cadastro: por qual IP o SightOps vai falar com o leitor."""
