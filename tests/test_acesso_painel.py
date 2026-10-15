@@ -83,7 +83,9 @@ def test_classe_dos_status():
 
 def test_hora_local_do_leitor_casa_com_utc_do_whatsapp():
     """Leitor grava 18:43 local; o aviso sai 21:43 UTC -- e o mesmo instante."""
-    assert P._ler_local("2026-10-14 18:43:15") == P._ler_utc("2026-10-14 21:43:15.123+00")
+    # No segundo: o Python 3.11 da imagem le os .123 ms do Postgres e o 3.10 nao;
+    # o recibo do aviso compara por faixa de minutos, milissegundo nao importa.
+    assert P._ler_local("2026-10-14 18:43:15") == P._ler_utc("2026-10-14 21:43:15.123+00").replace(microsecond=0)
 
 
 def test_relatorios_mapa_chegada_e_nao_veio(monkeypatch):
