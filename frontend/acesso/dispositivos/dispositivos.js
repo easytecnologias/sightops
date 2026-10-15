@@ -73,64 +73,55 @@ function dvCards(lista) {
   </div>`;
 }
 
-// Rota que o SightOps faz ate o leitor: servidor -> conector -> leitor.
-function dvRota(d) {
+// Uma linha por leitor, dentro do painel do local: nome inteiro, rota em uma
+// linha (IP real -> IP virtual), movimento do dia, estado com um ponto discreto
+// e as acoes. Avisos (relogio, fotos) e o resultado do teste vao numa linha
+// fina embaixo, so quando existem: a lista fica calma quando esta tudo bem.
+function dvRotaTexto(d) {
   const ip = d.ip || {};
-  const conectorOk = d.conector_status === 'online';
-  const semConector = !d.connector_id;
-  return `<div class="dv-rota" aria-label="Como o SightOps alcança este leitor">
-    <span class="dv-no"><i data-lucide="server"></i><small>SightOps</small></span>
-    <span class="dv-fio ${semConector || conectorOk ? 'ok' : 'ruim'}"></span>
-    <span class="dv-no ${semConector ? 'neutro' : conectorOk ? 'ok' : 'ruim'}" title="${semConector ? 'Sem conector: o servidor alcança direto' : 'Conector ' + esc(d.conector) + ' · ' + esc(d.conector_status || 'sem status')}">
-      <i data-lucide="${semConector ? 'network' : 'plug'}"></i><small>${semConector ? 'Rede local' : esc(d.conector)}</small></span>
-    <span class="dv-fio ${dvComSinal(d) ? 'ok' : 'ruim'}"></span>
-    <span class="dv-no ${dvComSinal(d) ? 'ok' : 'ruim'}"><i data-lucide="scan-face"></i><small class="monospace">${esc(ip.host || d.host)}</small></span>
-  </div>
-  <div class="dv-ip">${ip.bloqueado
-    ? '<span class="ap-ruim">O conector não é deste cliente: o SightOps não fala com este IP.</span>'
-    : ip.traduzido
-      ? `IP virtual <b class="monospace">${esc(ip.virtual)}</b> <span>pelo conector ${esc(d.conector)}</span>`
-      : `Acessado direto por <b class="monospace">${esc(ip.virtual || d.host)}</b>`}</div>`;
+  if (ip.bloqueado) return { val: `<span class="monospace">${esc(d.host)}</span>`, sub: '<span class="ap-ruim">conector não é deste cliente</span>' };
+  if (ip.traduzido) {
+    return {
+      val: `<span class="monospace">${esc(ip.host || d.host)}</span><i data-lucide="arrow-right" class="dv-seta"></i><span class="monospace dv-virtual">${esc(ip.virtual)}</span>`,
+      sub: `pelo conector ${esc(d.conector)}${d.conector_status && d.conector_status !== 'online' ? ` <span class="ap-ruim">(${esc(d.conector_status)})</span>` : ''}`,
+    };
+  }
+  return { val: `<span class="monospace">${esc(ip.virtual || d.host)}</span>`, sub: d.connector_id ? `pelo conector ${esc(d.conector)}` : 'direto do servidor' };
 }
 
-function dvTeste(d) {
+function dvObs(d) {
+  const itens = [];
   const t = _dvTestes[d.id];
-  if (!t) return '';
-  if (t.rodando) return '<div class="dv-teste rodando"><i data-lucide="loader-circle"></i> Testando conexão…</div>';
-  return t.ok
-    ? `<div class="dv-teste ok"><i data-lucide="check-circle-2"></i> Respondeu em ${(t.ms / 1000).toFixed(1).replace('.', ',')} s${t.modelo ? ' · ' + esc(t.modelo) : ''}</div>`
-    : `<div class="dv-teste erro"><i data-lucide="x-circle"></i> ${esc(t.erro)}</div>`;
+  if (t && t.rodando) itens.push('<span class="dv-obs-teste"><i data-lucide="loader-circle" class="dv-gira"></i>Testando conexão…</span>');
+  else if (t && t.ok) itens.push(`<span class="dv-obs-ok"><i data-lucide="check"></i>Respondeu em ${(t.ms / 1000).toFixed(1).replace('.', ',')} s${t.modelo ? ' · ' + esc(t.modelo) : ''}</span>`);
+  else if (t) itens.push(`<span class="dv-obs-ruim"><i data-lucide="x"></i>${esc(t.erro)}</span>`);
+  if (d.relogio_errado) itens.push(`<span class="dv-obs-at"><i data-lucide="clock-alert"></i>Relógio do leitor zerou: ${d.relogio_errado} passage${d.relogio_errado === 1 ? 'm' : 'ns'} com data antes de 2020</span>`);
+  if (d.fotos_falha) itens.push(`<span class="dv-obs-at"><i data-lucide="image-off"></i>${d.fotos_falha} foto${d.fotos_falha === 1 ? '' : 's'} recusada${d.fotos_falha === 1 ? '' : 's'} pelo leitor</span>`);
+  return itens.length ? `<div class="dv-obs">${itens.join('')}</div>` : '';
 }
 
-function dvCartao(d) {
+function dvLinha(d) {
   const e = dvEstado(d);
   const f = DV_FUNCAO[d.funcao] || DV_FUNCAO.entrada;
+  const r = dvRotaTexto(d);
   const ultima = dvLocal(d.ultima);
-  return `<article class="dv-card ${e.cls}" data-dv="${esc(d.id)}">
-    <header class="dv-cab">
-      <span class="metric-icon ${e.cor}"><i data-lucide="scan-face"></i></span>
-      <div class="dv-tit"><b title="${esc(d.nome)}">${esc(d.nome)}</b>
-        <small>${esc([DV_FABRICANTE[d.fabricante] || d.fabricante, d.modelo].filter(Boolean).join(' · ') || 'modelo ainda não lido')}</small></div>
-      <span class="dv-estado ${e.cls}"><i></i>${e.rot}</span>
-    </header>
-    <div class="dv-chips"><span class="dv-funcao ${f.cls}"><i data-lucide="${f.icone}"></i>${f.rot}</span>
-      ${d.relogio_errado ? `<span class="dv-aviso" title="${d.relogio_errado} passagens com data antes de 2020">relógio errado</span>` : ''}
-      ${d.fotos_falha ? `<span class="dv-aviso">${d.fotos_falha} foto${d.fotos_falha === 1 ? '' : 's'} recusada${d.fotos_falha === 1 ? '' : 's'}</span>` : ''}</div>
-    ${dvRota(d)}
-    <dl class="dv-nums">
-      <div><dt>Hoje</dt><dd class="monospace">${dvNum(d.hoje)}</dd></div>
-      <div><dt>Última passagem</dt><dd>${ultima ? (Date.now() - ultima < 86400000 ? dvHm(ultima) : ultima.toLocaleDateString('pt-BR')) : '—'}</dd></div>
-      <div><dt>Fotos aceitas</dt><dd class="monospace">${dvNum(d.fotos_ok)}${d.fotos_pendentes ? `<small> +${d.fotos_pendentes}</small>` : ''}</dd></div>
-    </dl>
-    ${dvTeste(d)}
-    <footer class="dv-pe">
-      <small>${d.visto ? 'Falou com o SightOps ' + dvHa(dvUtc(d.visto)) : 'Ainda não testado'}</small>
-      <span class="dv-acoes">
-        <button type="button" class="secondary-action" data-dv-testar="${esc(d.id)}" ${(_dvTestes[d.id] || {}).rodando ? 'disabled' : ''}><i data-lucide="activity"></i> Testar</button>
-        <button type="button" class="secondary-action" data-dv-editar="${esc(d.id)}"><i data-lucide="pencil"></i> Editar</button>
-      </span>
-    </footer>
-  </article>`;
+  const ultimaTxt = ultima ? (Date.now() - ultima < 86400000 ? 'última ' + dvHm(ultima) : 'última em ' + ultima.toLocaleDateString('pt-BR')) : 'sem passagem';
+  const rodando = (_dvTestes[d.id] || {}).rodando;
+  return `<div class="dv-linha ${e.cls}" data-dv="${esc(d.id)}">
+    <div class="dv-l-quem">
+      <span class="dv-ic ${f.cls}" title="${f.rot}"><i data-lucide="${f.icone}"></i></span>
+      <div><b>${esc(d.nome)}</b>
+        <small>${f.rot} · ${esc([DV_FABRICANTE[d.fabricante] || d.fabricante, d.modelo].filter(Boolean).join(' ') || 'modelo ainda não lido')}</small></div>
+    </div>
+    <div class="dv-l-rota"><span class="dv-l-rot">Rota</span><div>${r.val}</div><small>${r.sub}</small></div>
+    <div class="dv-l-mov"><span class="dv-l-rot">Hoje</span><div><b class="monospace">${dvNum(d.hoje)}</b> <span>passage${d.hoje === 1 ? 'm' : 'ns'}</span></div><small>${ultimaTxt}</small></div>
+    <div class="dv-l-est"><span class="dv-ponto ${e.cls}"></span><div><b>${e.rot}</b><small>${d.visto ? 'falou ' + dvHa(dvUtc(d.visto)) : 'nunca testado'}</small></div></div>
+    <div class="dv-l-acoes">
+      <button type="button" class="dv-btn" data-dv-testar="${esc(d.id)}" ${rodando ? 'disabled' : ''} title="Testar conexão"><i data-lucide="activity"></i><span>Testar</span></button>
+      <button type="button" class="dv-btn" data-dv-editar="${esc(d.id)}" title="Editar"><i data-lucide="pencil"></i><span>Editar</span></button>
+    </div>
+    ${dvObs(d)}
+  </div>`;
 }
 
 function dvDesenhar() {
@@ -167,7 +158,7 @@ function dvDesenhar() {
             <button type="button" class="ghost-action dv-add-local" data-dv-novo="${esc(g.site)}"><i data-lucide="plus"></i> Leitor neste local</button>
           </div>
         </header>
-        <div class="dv-grade">${ordem.map(dvCartao).join('')}</div>
+        <div class="dv-lista">${ordem.map(dvLinha).join('')}</div>
       </section>`;
     }).join('') || `<div class="dv-vazio"><i data-lucide="${b ? 'search-x' : 'scan-face'}"></i>
       <b>${b ? 'Nenhum leitor com “' + esc(_dvBusca) + '”' : 'Nenhum leitor cadastrado'}</b>
