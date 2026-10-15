@@ -166,3 +166,31 @@ def test_foto_com_id_que_sobe_pasta_e_recusada(banco):
     from app.services.access_control_photos import save_person_face_photo
     with pytest.raises(ValueError):
         save_person_face_photo("../../outro/access-control/faces/abc", b"x")
+
+
+def test_exclusao_em_segundo_plano_mostra_andamento_e_so_para_o_cliente(banco, monkeypatch):
+    import time
+    from app.services import access_control_pessoas as P
+    _cenario()
+    monkeypatch.setattr(P, "_remover_do_leitor", lambda d, u: None)
+    t = D.iniciar_exclusao("RESERVA", "RESERVA", usuario="admin")
+    assert t["estado"] == "rodando" and t["total"] == 1 and "cliente" not in t
+    for _ in range(200):
+        r = D.ver_exclusao(t["id"])
+        if r["estado"] != "rodando":
+            break
+        time.sleep(0.05)
+    assert r["estado"] == "pronto" and r["resultado"]["pessoas_excluidas"] == 1
+    token = tenant_context.set_current_tenant_slug("outro-cliente")
+    try:
+        with pytest.raises(HTTPException):
+            D.ver_exclusao(t["id"])
+    finally:
+        tenant_context.reset_current_tenant_slug(token)
+
+
+def test_exclusao_em_segundo_plano_recusa_nome_errado_na_hora(banco):
+    _cenario()
+    with pytest.raises(HTTPException) as e:
+        D.iniciar_exclusao("RESERVA", "JARDINS")
+    assert e.value.status_code == 400

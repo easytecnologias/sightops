@@ -1175,11 +1175,18 @@ def api_access_control_painel_dados_baixar(nome: str) -> Response:
 
 @router.post("/painel/dados/excluir-local")
 def api_access_control_painel_dados_excluir_local(payload: Dict[str, Any] = Body(...), user: Dict[str, Any] = Depends(current_user)) -> Dict[str, Any]:
-    """Faz backup do local e so entao apaga (pessoas saem dos leitores primeiro)."""
-    from app.services.access_control_dados import excluir_local
+    """Faz backup do local e so entao apaga (pessoas saem dos leitores primeiro).
+    Roda em segundo plano: devolve a tarefa e a tela pergunta o andamento."""
+    from app.services.access_control_dados import iniciar_exclusao
     p = payload or {}
-    return excluir_local(str(p.get("site") or ""), str(p.get("confirmacao") or ""),
-                         bool(p.get("apagar_historico") is True), user.get("username") or "")
+    return iniciar_exclusao(str(p.get("site") or ""), str(p.get("confirmacao") or ""),
+                            bool(p.get("apagar_historico") is True), user.get("username") or "")
+
+
+@router.get("/painel/dados/excluir-local/{tarefa}")
+def api_access_control_painel_dados_excluir_andamento(tarefa: str) -> Dict[str, Any]:
+    from app.services.access_control_dados import ver_exclusao
+    return ver_exclusao(tarefa)
 
 
 @router.get("/painel/ip-virtual")

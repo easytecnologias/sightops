@@ -120,7 +120,19 @@ async function daExcluir(site, confirmacao) {
   if (window.lucide) lucide.createIcons();
   let r = null, erro = '';
   try {
-    r = await acEnviar('POST', '/api/access-control/painel/dados/excluir-local', { site, confirmacao, apagar_historico: daCampo('daExHist').checked });
+    // Roda em segundo plano no servidor (192 pessoas levaram 3 min e o
+    // Cloudflare corta em 100 s): aqui so acompanha o andamento.
+    let t = await acEnviar('POST', '/api/access-control/painel/dados/excluir-local', { site, confirmacao, apagar_historico: daCampo('daExHist').checked });
+    let falhasSeguidas = 0;
+    while (t.estado === 'rodando') {
+      b.innerHTML = `<i data-lucide="loader-circle" class="dv-gira"></i> ${t.etapa === 'pessoas' ? `Excluindo pessoas: ${apNum(t.feitas)} de ${apNum(t.total)}` : t.etapa === 'backup' ? 'Fazendo backup…' : 'Excluindo leitores e grupos…'}`;
+      if (window.lucide) lucide.createIcons();
+      await new Promise(ok => setTimeout(ok, 1500));
+      try { t = await apiJson(`/api/access-control/painel/dados/excluir-local/${encodeURIComponent(t.id)}`); falhasSeguidas = 0; }
+      catch (err) { if (++falhasSeguidas >= 5) throw err; }
+    }
+    if (t.estado === 'erro') throw new Error(t.erro || 'Não foi possível excluir.');
+    r = t.resultado;
   } catch (err) {
     erro = (err && err.message) || 'Não foi possível excluir.';
   }

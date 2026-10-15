@@ -230,12 +230,7 @@ def arquivo_backup(nome: str) -> Path:
 
 # ---------------------------------------------------------------- excluir local
 
-def excluir_local(site: str, confirmacao: str, apagar_historico: bool = False, usuario: str = "",
-                  remover=None) -> Dict[str, Any]:
-    from app.services import access_control_pessoas as pessoas_svc
-    from app.services.access_control_store import delete_device
-
-    site = _t(site)
+def _conferir(site: str, confirmacao: str) -> Dict[str, List[Dict[str, Any]]]:
     if not site:
         raise HTTPException(status_code=400, detail="Escolha o local.")
     if " ".join(_t(confirmacao).upper().split()) != " ".join(site.upper().split()):
@@ -243,13 +238,26 @@ def excluir_local(site: str, confirmacao: str, apagar_historico: bool = False, u
     dados = coletar(site)
     if not any(dados[t] for t in ("access_people", "access_devices", "access_groups", "access_door_groups", "access_events")):
         raise HTTPException(status_code=404, detail="Nada encontrado neste local.")
+    return dados
 
+
+def excluir_local(site: str, confirmacao: str, apagar_historico: bool = False, usuario: str = "",
+                  remover=None, progresso=None) -> Dict[str, Any]:
+    from app.services import access_control_pessoas as pessoas_svc
+    from app.services.access_control_store import delete_device
+
+    site = _t(site)
+    dados = _conferir(site, confirmacao)
+    progresso = progresso or (lambda etapa, feitas, total: None)
+    progresso("backup", 0, len(dados["access_people"]))
     backup = fazer_backup(site, usuario, motivo="antes de excluir o local")   # falhou: nada e apagado
     tenant = _tenant()
     pasta = _pasta_cliente()
 
     excluidas, mantidas = 0, []
-    for p in dados["access_people"]:
+    total = len(dados["access_people"])
+    for n, p in enumerate(dados["access_people"]):
+        progresso("pessoas", n, total)
         r = pessoas_svc.excluir(p["id"], remover)
         if r.get("excluida"):
             excluidas += 1
@@ -269,6 +277,7 @@ def excluir_local(site: str, confirmacao: str, apagar_historico: bool = False, u
                        tenant, site, len(mantidas))
         return resultado
 
+    progresso("leitores e grupos", total, total)
     for d in dados["access_devices"]:
         resultado["leitores"] += int(delete_device(d["id"]))
     grupos = [g["id"] for g in dados["access_groups"]]
@@ -315,3 +324,61 @@ def _limpar_arquivos(site: str, grupos: set) -> None:
         tmp = arq.with_suffix(".tmp")
         tmp.write_text(json.dumps(tipos, ensure_ascii=False, indent=1), encoding="utf-8")
         os.replace(tmp, arq)
+
+
+# ---------------------------------------------------------------- em segundo plano
+# 192 pessoas levaram 3 min (cada uma confere e limpa os leitores) e o
+# Cloudflare corta a resposta em 100 s (HTTP 524): a exclusao terminou, mas a
+# tela mostrou erro. Agora roda numa thread e a tela pergunta o andamento.
+# Em memoria: a API e um processo so (uvicorn sem --workers). Se reiniciar no
+# meio, o backup e o log "local excluido" dizem o que foi feito.
+import threading
+import uuid
+
+_TAREFAS: Dict[str, Dict[str, Any]] = {}
+_TRAVA = threading.Lock()
+
+
+def _publica(t: Dict[str, Any]) -> Dict[str, Any]:
+    return {k: v for k, v in t.items() if k != "cliente"}
+
+
+def iniciar_exclusao(site: str, confirmacao: str, apagar_historico: bool = False, usuario: str = "") -> Dict[str, Any]:
+    from app.core.tenant_context import reset_current_tenant_slug, set_current_tenant_slug
+    site = _t(site)
+    dados = _conferir(site, confirmacao)          # nome errado volta na hora, como antes
+    tenant = _tenant()
+    with _TRAVA:
+        for t in _TAREFAS.values():
+            if t["cliente"] == tenant and t["site"].upper() == site.upper() and t["estado"] == "rodando":
+                return _publica(t)
+        tid = uuid.uuid4().hex
+        tarefa = {"id": tid, "cliente": tenant, "site": site, "estado": "rodando", "etapa": "começando",
+                  "feitas": 0, "total": len(dados["access_people"]), "resultado": None, "erro": ""}
+        _TAREFAS[tid] = tarefa
+
+    def andar(etapa: str, feitas: int, total: int) -> None:
+        tarefa.update(etapa=etapa, feitas=feitas, total=total)
+
+    def rodar() -> None:
+        token = set_current_tenant_slug(tenant)
+        try:
+            tarefa["resultado"] = excluir_local(site, confirmacao, apagar_historico, usuario, progresso=andar)
+            tarefa["estado"] = "pronto"
+        except HTTPException as exc:
+            tarefa.update(estado="erro", erro=_t(exc.detail))
+        except Exception as exc:
+            logger.exception("excluir local %s/%s falhou", tenant, site)
+            tarefa.update(estado="erro", erro=_t(exc) or exc.__class__.__name__)
+        finally:
+            reset_current_tenant_slug(token)
+
+    threading.Thread(target=rodar, name=f"excluir-local-{tid[:8]}", daemon=True).start()
+    return _publica(tarefa)
+
+
+def ver_exclusao(tid: str) -> Dict[str, Any]:
+    t = _TAREFAS.get(_t(tid))
+    if not t or t["cliente"] != _tenant():          # tarefa de outro cliente nao existe para este
+        raise HTTPException(status_code=404, detail="Tarefa nao encontrada (o servidor pode ter reiniciado).")
+    return _publica(t)
