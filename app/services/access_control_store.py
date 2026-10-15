@@ -366,6 +366,18 @@ def list_people_sites() -> List[str]:
     return sorted(sites, key=lambda s: s.casefold())
 
 
+def cpf_opcional(site: Any) -> bool:
+    """CPF e opcional so em local do tipo condominio (escolhido ou deduzido)."""
+    nome = _clean_text(site, 120)
+    if not nome:
+        return False
+    try:
+        from app.services.access_control_painel import _perfil
+        return _perfil(nome).get("tipo") == "condominio"
+    except Exception:
+        return False
+
+
 def _proximo_id_controladora(tenant: str, enrollment_code: str) -> str:
     """Numero do usuario no equipamento, derivado da matricula.
 
@@ -410,15 +422,16 @@ def save_person(payload: Dict[str, Any]) -> Dict[str, Any]:
     # desta checagem existir -- mesma pessoa, duas matriculas, sem CPF pra
     # flagrar que era a mesma gente).
     document_id = _clean_cpf(payload.get("document_id"))
-    # Excecao (decisao do usuario em 15/10/2026): pessoa que ja existe num
-    # leitor e foi trazida dele. Leitor Intelbras nao guarda CPF; o ID no
-    # leitor e a identidade dela ate alguem preencher o CPF.
+    # CPF por tipo de local (decisao do usuario em 15/10/2026): escola, empresa
+    # e evento exigem; CONDOMINIO nao -- morador nao entrega CPF e o SightOps
+    # gera o ID no leitor (proximo numero livre, abaixo). Excecao tambem para
+    # quem ja existe num leitor e foi trazido dele (leitor nao guarda CPF).
     id_no_leitor = re.sub(r"\D", "", str(payload.get("controller_user_id") or ""))[:32]
-    if not document_id and not id_no_leitor:
+    if not document_id and not id_no_leitor and not cpf_opcional(payload.get("site")):
         raise ValueError("Informe o CPF da pessoa.")
     if document_id and len(document_id) != 11:
         raise ValueError(f"CPF invalido: precisa ter 11 digitos ({document_id!r}).")
-    if not document_id:
+    if not document_id and id_no_leitor:
         with db_store._conn() as conn:
             dono = conn.execute(
                 "SELECT id FROM access_people WHERE tenant_slug=? AND controller_user_id=?",

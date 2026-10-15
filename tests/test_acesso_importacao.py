@@ -75,3 +75,25 @@ def test_pessoa_nova_sem_local_e_recusada(banco, monkeypatch):
 def test_coluna_nome_do_responsavel_nao_vira_nome(banco):
     col = I._mapear_colunas(["Nome do responsável", "Nome", "CPF", "Celular do responsável", "Matrícula"])
     assert col["full_name"] == 1 and col["guardian_name"] == 0 and col["guardian_phone"] == 3
+
+
+def test_condominio_sem_cpf_entra_e_reimportar_nao_duplica(banco, monkeypatch):
+    monkeypatch.setattr(I, "_tipo_do_local", lambda site: "condominio")
+    from app.services import access_control_painel as Painel
+    monkeypatch.setattr(Painel, "_perfil", lambda site: {"tipo": "condominio"})
+    planilha = _csv(["Nome", "Unidade"], ["ANA SEM CPF", "A01"], ["BETO SEM CPF", "B02"], ["ANA SEM CPF", "C03"])
+    a = I.analisar_planilha(planilha, site="RESERVA")
+    assert [r["full_name"] for r in a["criar"]] == ["ANA SEM CPF", "BETO SEM CPF"]
+    assert "mesmo nome" in a["recusados"][0]["motivo"]               # duas ANA sem CPF: nao adivinha
+    I.aplicar_planilha(planilha, site="RESERVA")
+    assert len(S.list_people()) == 2 and all(p["controller_user_id"] for p in S.list_people())
+    b = I.analisar_planilha(_csv(["Nome", "Unidade"], ["BETO SEM CPF", "B03"]), site="RESERVA")
+    assert not b["criar"] and len(b["atualizar"]) == 1               # achou pelo nome no local
+
+
+def test_escola_continua_exigindo_cpf(banco, monkeypatch):
+    monkeypatch.setattr(I, "_tipo_do_local", lambda site: "escola")
+    with pytest.raises(ValueError, match="cpf"):
+        I.analisar_planilha(_csv(["Nome", "Matricula"], ["ALUNO", "1"]), site="ESCOLA")
+    a = I.analisar_planilha(_csv(["Nome", "CPF", "Matricula"], ["ALUNO", "", "1"]), site="ESCOLA")
+    assert a["recusados"][0]["motivo"].startswith("CPF obrigatorio")

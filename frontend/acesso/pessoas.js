@@ -202,6 +202,7 @@ function psAjustarPorLocal() {
   psMarcar('psTipo', tipoAtual ? psTipoNoLocal(tipoAtual, site) : psTiposDoLocal(site)[0][0]);
   const v = (typeof AP_VOCAB !== 'undefined' && AP_VOCAB[tipoLocal]) || {};
   psCampo('psRotTurma').textContent = v.grupo || 'Turma';
+  psCampo('psRotCpf').textContent = condo ? 'CPF (opcional)' : 'CPF';
   psCampo('psTurma').placeholder = { escola: 'Ex.: 4º Ano', condominio: 'Ex.: A01, Bloco C 06', empresa: 'Ex.: Financeiro', evento: 'Ex.: VIP, Imprensa' }[tipoLocal] || '';
   const turmas = [...new Set((_psDados.pessoas || []).filter(p => p.site === site && p.turma).map(p => p.turma))].sort((a, b) => a.localeCompare(b, 'pt-BR', { numeric: true }));
   psCampo('psTurmas').innerHTML = turmas.map(t => `<option value="${esc(t)}">`).join('');
@@ -364,14 +365,17 @@ async function psSalvar() {
   if (!p.site) return psErro('Escolha o local da pessoa.');
   if (!p.person_type) return psErro('Escolha o tipo da pessoa.');
   if (p.full_name.length < 3) return psErro('Informe o nome completo.');
-  // Sem CPF so quem ja tem ID no leitor (veio dele); cadastro novo continua exigindo.
-  if (!(p.document_id === '' && p.controller_user_id) && !psCpfValido(p.document_id)) return psErro('CPF inválido. Confira os 11 dígitos.');
+  // CPF: escola, empresa e evento exigem; condominio nao (o SightOps gera o ID
+  // no leitor). Quem veio do leitor tambem pode ficar sem ate alguem preencher.
+  const semCpfOk = psCondo(p.site) || !!p.controller_user_id;
+  if (p.document_id === '' ? !semCpfOk : !psCpfValido(p.document_id)) return psErro(p.document_id ? 'CPF inválido. Confira os 11 dígitos.' : 'Informe o CPF da pessoa.');
   if (p.person_type === 'student' && !p.enrollment_code) return psErro('Informe a matrícula do aluno.');
   // Sem id, o backend casa por CPF/matricula e ATUALIZA quem ja existe: barra aqui.
   if (!p.id) {
-    const dup = (_psDados.pessoas || []).find(x => psDigitos(x.cpf) === p.document_id || (p.enrollment_code && x.matricula === p.enrollment_code));
+    // CPF vazio nao e duplicata de quem tambem nao tem CPF.
+    const dup = (_psDados.pessoas || []).find(x => (p.document_id && psDigitos(x.cpf) === p.document_id) || (p.enrollment_code && x.matricula === p.enrollment_code));
     if (dup) {
-      psErro('', `${psDigitos(dup.cpf) === p.document_id ? 'Este CPF' : 'Esta matrícula'} já é de <b>${esc(dup.nome)}</b>. <button type="button" class="ps-link" id="psAbrirDup">Abrir o cadastro dela</button>`);
+      psErro('', `${p.document_id && psDigitos(dup.cpf) === p.document_id ? 'Este CPF' : 'Esta matrícula'} já é de <b>${esc(dup.nome)}</b>. <button type="button" class="ps-link" id="psAbrirDup">Abrir o cadastro dela</button>`);
       psCampo('psAbrirDup').addEventListener('click', () => psAbrir(dup));
       return;
     }

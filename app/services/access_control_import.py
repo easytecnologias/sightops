@@ -173,7 +173,11 @@ def analisar_planilha(conteudo: bytes, *, site: str = "", nome_arquivo: str = ""
         raise ValueError("A planilha esta vazia.")
 
     colunas = _mapear_colunas(linhas[0])
-    faltando = [rotulo for campo, rotulo in OBRIGATORIAS.items() if campo not in colunas]
+    tipo_local = _tipo_do_local(site)
+    # Condominio: CPF opcional (decisao do usuario em 15/10/2026).
+    cpf_opcional = tipo_local == "condominio"
+    exigidas = {c: r for c, r in OBRIGATORIAS.items() if not (cpf_opcional and c == "document_id")}
+    faltando = [rotulo for campo, rotulo in exigidas.items() if campo not in colunas]
     if faltando:
         vistas = ", ".join(str(c) for c in linhas[0] if _texto(c)) or "nenhuma"
         raise ValueError(
@@ -181,7 +185,6 @@ def analisar_planilha(conteudo: bytes, *, site: str = "", nome_arquivo: str = ""
             % (", ".join(faltando), vistas)
         )
 
-    tipo_local = _tipo_do_local(site)
     padrao = TIPOS.get(_norm(tipo_padrao), tipo_padrao if tipo_padrao in TIPOS.values() else "") \
         or TIPO_PADRAO.get(tipo_local, "student")
     grupos = _grupos_do_cliente()
@@ -194,7 +197,15 @@ def analisar_planilha(conteudo: bytes, *, site: str = "", nome_arquivo: str = ""
     # um ano pro outro, CPF continuou igual).
     existentes_por_matricula: Dict[str, Any] = {}
     existentes_por_cpf: Dict[str, Any] = {}
+    # Sem CPF (condominio), quem ja existe e achado pelo ID no leitor ou pelo
+    # nome no mesmo local -- senao reimportar a lista duplicaria todo mundo.
+    existentes_por_id_leitor: Dict[str, Any] = {}
+    existentes_por_nome: Dict[str, List[Any]] = {}
     for pessoa in (list_people() or []):
+        if _texto(pessoa.get("controller_user_id")):
+            existentes_por_id_leitor[_texto(pessoa.get("controller_user_id"))] = pessoa
+        if _norm(pessoa.get("site")) == _norm(site):
+            existentes_por_nome.setdefault(_norm(pessoa.get("full_name")), []).append(pessoa)
         matricula = _texto(pessoa.get("enrollment_code"))
         if matricula:
             existentes_por_matricula[matricula] = pessoa
@@ -208,6 +219,7 @@ def analisar_planilha(conteudo: bytes, *, site: str = "", nome_arquivo: str = ""
     avisos: List[Dict[str, Any]] = []
     matriculas_no_arquivo: Dict[str, int] = {}
     cpfs_no_arquivo: Dict[str, int] = {}
+    nomes_sem_cpf: Dict[str, int] = {}
 
     for numero, linha in enumerate(linhas[1:], start=2):
 
@@ -227,19 +239,35 @@ def analisar_planilha(conteudo: bytes, *, site: str = "", nome_arquivo: str = ""
             continue
 
         cpf = _cpf(campo("document_id"))
-        if len(cpf) != 11:
+        if cpf and len(cpf) != 11:
+            recusa("CPF precisa ter 11 digitos")
+            continue
+        if not cpf and not cpf_opcional:
             recusa("CPF obrigatorio e precisa ter 11 digitos")
             continue
-        if cpf in cpfs_no_arquivo:
+        if cpf and cpf in cpfs_no_arquivo:
             recusa("CPF repetido na planilha (linha %d)" % cpfs_no_arquivo[cpf])
             continue
 
         pessoa_por_matricula = existentes_por_matricula.get(matricula) if matricula else None
-        pessoa_por_cpf = existentes_por_cpf.get(cpf)
+        pessoa_por_cpf = existentes_por_cpf.get(cpf) if cpf else None
         if pessoa_por_matricula and pessoa_por_cpf and pessoa_por_matricula["id"] != pessoa_por_cpf["id"]:
             recusa("matricula %s e CPF %s pertencem a pessoas diferentes ja cadastradas" % (matricula, cpf))
             continue
         existente = pessoa_por_matricula or pessoa_por_cpf
+        if not existente and not cpf:
+            id_leitor = re.sub(r"\D", "", campo("controller_user_id"))
+            mesmo_nome = existentes_por_nome.get(_norm(nome), [])
+            if id_leitor and id_leitor in existentes_por_id_leitor:
+                existente = existentes_por_id_leitor[id_leitor]
+            elif len(mesmo_nome) == 1:
+                existente = mesmo_nome[0]
+            elif len(mesmo_nome) > 1:
+                recusa("sem CPF e com %d pessoas de mesmo nome neste local: informe o CPF ou o ID no leitor" % len(mesmo_nome))
+                continue
+            if not existente and _norm(nome) in nomes_sem_cpf:
+                recusa("sem CPF e com o mesmo nome da linha %d: informe o CPF para separar" % nomes_sem_cpf[_norm(nome)])
+                continue
 
         # Tipo: o da coluna; sem ela, quem ja existe continua o que e, e quem e
         # novo pega o tipo principal do local.
@@ -277,7 +305,10 @@ def analisar_planilha(conteudo: bytes, *, site: str = "", nome_arquivo: str = ""
 
         if matricula:
             matriculas_no_arquivo[matricula] = numero
-        cpfs_no_arquivo[cpf] = numero
+        if cpf:
+            cpfs_no_arquivo[cpf] = numero
+        else:
+            nomes_sem_cpf[_norm(nome)] = numero
 
         registro = {
             "linha": numero,

@@ -142,9 +142,25 @@ def test_trazer_do_leitor_sem_cpf_com_foto_sem_grupo_e_sem_duplicar(banco, monke
     assert r2["criadas"] == 0 and r2["ja_existiam"] == 2 and len(S.list_people()) == 2
 
 
-def test_sem_cpf_so_com_id_no_leitor_e_id_nao_se_repete(banco):
+def test_sem_cpf_so_com_id_no_leitor_e_id_nao_se_repete(banco, monkeypatch):
+    monkeypatch.setattr(S, "cpf_opcional", lambda site: False)          # local que nao e condominio
     with pytest.raises(ValueError):
         S.save_person({"full_name": "SEM NADA", "person_type": "resident", "site": "X"})
     S.save_person({"full_name": "A", "person_type": "resident", "site": "X", "controller_user_id": "77"})
     with pytest.raises(ValueError):
         S.save_person({"full_name": "B", "person_type": "resident", "site": "X", "controller_user_id": "77"})
+
+
+def test_cpf_por_tipo_de_local(banco, monkeypatch):
+    """Condominio: CPF opcional e o SightOps gera o ID no leitor (proximo livre).
+    Escola, empresa e evento: CPF obrigatorio."""
+    from app.services import access_control_painel as Painel
+    tipos = {"RESERVA": "condominio", "ESCOLA": "escola", "FIRMA": "empresa", "SHOW": "evento"}
+    monkeypatch.setattr(Painel, "_perfil", lambda site: {"tipo": tipos.get(site, "")})
+    S.save_person({"full_name": "MORADOR DO LEITOR", "person_type": "resident", "site": "RESERVA", "controller_user_id": "5007"})
+    a = S.save_person({"full_name": "MORADOR NOVO A01", "person_type": "resident", "site": "RESERVA"})
+    b = S.save_person({"full_name": "OUTRO MORADOR A02", "person_type": "resident", "site": "RESERVA"})
+    assert a["document_id"] == "" and a["controller_user_id"] == "5008" and b["controller_user_id"] == "5009"
+    for site in ("ESCOLA", "FIRMA", "SHOW"):
+        with pytest.raises(ValueError, match="CPF"):
+            S.save_person({"full_name": "SEM CPF", "person_type": "employee", "site": site})
