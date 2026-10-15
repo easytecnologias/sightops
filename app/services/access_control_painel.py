@@ -477,18 +477,44 @@ def _relogio_errado(agora: Optional[datetime] = None) -> Dict[str, Dict[str, Any
     """So o problema ATUAL: passagens com data antes de 2020 RECEBIDAS nos
     ultimos 7 dias. Antes contava o historico inteiro e o aviso ficava aceso
     para sempre -- na Presidente Dutra eram 4 passagens de uma queda antiga,
-    com o leitor ja certo (NTP ligado, diferenca de 1 s em 15/10/2026)."""
+    com o leitor ja certo (NTP ligado, diferenca de 1 s em 15/10/2026).
+
+    E mais: so conta a passagem errada gravada DEPOIS da ultima com data certa
+    (raw_event_id e o numero do registro no leitor, RecNo, e so cresce).
+    Recadastrar um leitor baixa o historico inteiro dele: na ACADEMIA RESERVA
+    vieram os registros 1-18 de 2000 junto com o 24373 de hoje, "recebidos
+    hoje", e o aviso acendia com o relogio ja certo (NTP, diferenca 0 s)."""
     corte = (agora or _agora()) - timedelta(days=RELOGIO_JANELA_DIAS)
+    tenant = _tenant()
     linhas = _rows(
-        "SELECT device_id, synced_at FROM access_events WHERE tenant_slug=? AND occurred_at < ?",
-        (_tenant(), RELOGIO_MINIMO),
+        "SELECT device_id, synced_at, raw_event_id FROM access_events WHERE tenant_slug=? AND occurred_at < ?",
+        (tenant, RELOGIO_MINIMO),
     )
+    ultimo_certo: Dict[str, Optional[int]] = {}
+
+    def _num(v: Any) -> Optional[int]:
+        s = _t(v)
+        return int(s) if s.isdigit() else None
+
+    def _ultimo_certo(did: str) -> Optional[int]:
+        if did not in ultimo_certo:
+            certos = _rows(
+                "SELECT raw_event_id FROM access_events WHERE tenant_slug=? AND device_id=? AND occurred_at >= ? "
+                "ORDER BY occurred_at DESC LIMIT 50", (tenant, did, RELOGIO_MINIMO))
+            nums = [n for n in (_num(r.get("raw_event_id")) for r in certos) if n is not None]
+            ultimo_certo[did] = max(nums) if nums else None
+        return ultimo_certo[did]
+
     saida: Dict[str, Dict[str, Any]] = {}
     for r in linhas:
         recebida = _ler_utc(r.get("synced_at"))
         if recebida is None or recebida < corte:
             continue
-        x = saida.setdefault(_t(r.get("device_id")), {"qtd": 0, "quando": ""})
+        did = _t(r.get("device_id"))
+        rec, certo = _num(r.get("raw_event_id")), _ultimo_certo(did)
+        if rec is not None and certo is not None and rec < certo:
+            continue   # o leitor gravou data certa depois: o relogio ja foi acertado
+        x = saida.setdefault(did, {"qtd": 0, "quando": ""})
         x["qtd"] += 1
         x["quando"] = max(x["quando"], _utc_txt(recebida))
     return saida

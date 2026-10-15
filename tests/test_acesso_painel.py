@@ -228,7 +228,19 @@ def test_definir_tipo_local_grava_por_cliente(tmp_path, monkeypatch):
 def test_relogio_errado_so_acusa_o_que_chegou_na_ultima_semana(monkeypatch):
     linhas = [{"device_id": "d1", "synced_at": "2026-09-18 10:00:00+00"},      # queda antiga
               {"device_id": "d2", "synced_at": "2026-10-13 08:00:00.123+00"}]   # recente
-    monkeypatch.setattr(P, "_rows", lambda sql, params: linhas)
+    monkeypatch.setattr(P, "_rows", lambda sql, params: linhas if "occurred_at <" in sql else [])
     monkeypatch.setattr(P, "_tenant", lambda: "t")
     r = P._relogio_errado(agora=AGORA)
     assert list(r) == ["d2"] and r["d2"]["qtd"] == 1
+
+
+def test_relogio_errado_ignora_historico_antigo_baixado_ao_recadastrar(monkeypatch):
+    """ACADEMIA RESERVA: registros 1-18 de 2000 baixados hoje junto com o 24373
+    de hoje. O relogio ja foi acertado; so acende se o erro e o mais novo."""
+    ruins = [{"device_id": "acad", "synced_at": "2026-10-15 16:27:52+00", "raw_event_id": "17"},
+             {"device_id": "agora", "synced_at": "2026-10-15 16:27:52+00", "raw_event_id": "900"}]
+    certos = {"acad": [{"raw_event_id": "24373"}, {"raw_event_id": "24372"}], "agora": [{"raw_event_id": "899"}]}
+    monkeypatch.setattr(P, "_rows", lambda sql, params: ruins if "occurred_at <" in sql else certos[params[1]])
+    monkeypatch.setattr(P, "_tenant", lambda: "t")
+    r = P._relogio_errado(agora=AGORA)
+    assert list(r) == ["agora"]
