@@ -977,10 +977,22 @@ function renderMapLayerGroup(id, def, skipFit = false) {
       const podeEditarPonto = editing && !!mapFeatureName(f) && !!def?.updateUrl;
       const semNomeNaEdicao = editing && !mapFeatureName(f) && !!def?.updateUrl;
       const canDrag = podeEditarPonto;
-      const icon = L.divIcon({
-        html: `<div style="background:${tc.bg};color:white;border:2px solid white;border-radius:6px;padding:2px 5px;font-size:10px;font-weight:700;white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,.4);cursor:${canDrag ? 'move' : 'pointer'}${canDrag ? ';outline:2px dashed rgba(255,255,255,.8);outline-offset:2px' : ''}">${tc.label}</div>`,
-        className: '', iconSize: [40, 22], iconAnchor: [20, 11], popupAnchor: [0, -14],
-      });
+      // Camera vira bolinha com o icone de camera (mockup aprovado em
+      // 15/10/2026). Antes era uma pilula SEM rotulo -- um tracinho verde de
+      // 40x22 que ninguem percebia que era clicavel. Os outros tipos (CTO,
+      // poste, caixa, fibra) seguem como pilula com sigla.
+      const ehCamera = pointType === 'camera';
+      const cursor = canDrag ? 'move' : 'pointer';
+      const contorno = canDrag ? ';outline:2px dashed rgba(255,255,255,.8);outline-offset:2px' : '';
+      const icon = ehCamera
+        ? L.divIcon({
+          html: `<div style="width:26px;height:26px;border-radius:50%;background:${tc.bg};border:2px solid #ffffff;box-shadow:0 2px 8px rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;box-sizing:border-box;cursor:${cursor}${contorno}"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M23 7l-7 5 7 5V7z"></path><rect x="1" y="5" width="15" height="14" rx="2"></rect></svg></div>`,
+          className: '', iconSize: [26, 26], iconAnchor: [13, 13], popupAnchor: [0, -15],
+        })
+        : L.divIcon({
+          html: `<div style="background:${tc.bg};color:white;border:2px solid white;border-radius:6px;padding:2px 5px;font-size:10px;font-weight:700;white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,.4);cursor:${cursor}${contorno}">${tc.label}</div>`,
+          className: '', iconSize: [40, 22], iconAnchor: [20, 11], popupAnchor: [0, -14],
+        });
       const marker = L.marker([+lat, +lng], { icon, draggable: canDrag });
       if (canDrag) {
         marker.on('dragend', () => handleMapPointDragEnd(def, mapFeatureName(f), marker));
