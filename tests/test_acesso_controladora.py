@@ -152,3 +152,18 @@ def test_job_antigo_de_leitura_perde_o_conteudo_mas_nao_o_registro():
     assert r["1"]["result"] is None and r["1"]["result_descartado"] is True   # leitura velha: so o registro
     assert r["2"]["result"] == {"access_http": "y"}                           # recente: quem pediu ainda le
     assert r["3"]["result"] == {"diag": "ok"}                                 # diagnostico fica inteiro
+
+
+def test_erro_do_leitor_nao_sai_como_502_no_controle_de_acesso():
+    """Cloudflare troca 502 da origem pela pagina dele e o motivo sumia."""
+    import asyncio
+    from starlette.requests import Request
+    import app.main as m
+
+    def req(path):
+        return Request({"type": "http", "method": "GET", "path": path, "headers": [], "query_string": b""})
+
+    r = asyncio.run(m._erro_do_leitor_sem_502(req("/api/access-control/devices/d1/test"),
+                                              HTTPException(502, "Usuario ou senha invalidos no dispositivo.")))
+    assert r.status_code == 424 and b"Usuario ou senha invalidos" in r.body
+    assert asyncio.run(m._erro_do_leitor_sem_502(req("/api/cameras/c1"), HTTPException(502, "x"))).status_code == 502
