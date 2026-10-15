@@ -129,8 +129,63 @@ function apFoto(p) {
     ? `<img src="${API_BASE}/api/access-control/people/${encodeURIComponent(p.pessoa_id)}/face-photo" alt="" loading="lazy" onerror="this.remove()">` : '';
 }
 function apSaida(tipo) { return String(tipo || '').startsWith('saida'); }
-const AP_TIPO = { student: 'Aluno', employee: 'Funcionário', visitor: 'Visitante', resident: 'Morador' };
-function apTipo(t) { return AP_TIPO[String(t || '').toLowerCase()] || ''; }
+// ---- escola x condominio -------------------------------------------------
+// O tipo de cada local vem do backend (perfil, detectado pelo cadastro: escola
+// tem aluno com turma/responsavel). O cadastro antigo so tem Aluno/Funcionario/
+// Visitante, entao no condominio "student" e morador.
+let _apPerfil = { tipo: 'escola', locais: [] };
+const AP_VOCAB = {
+  escola: {
+    nome: 'Escola', grupo: 'Turma', dentro: 'presentes agora', hoje: 'Chegada e saída de hoje',
+    tipos: { student: 'Aluno', employee: 'Funcionário', visitor: 'Visitante', resident: 'Morador' },
+    sub: 'Quem está passando agora, se os responsáveis foram avisados e o que precisa de alguém.',
+  },
+  condominio: {
+    nome: 'Condomínio', grupo: 'Unidade', dentro: 'dentro agora', hoje: 'Quem passou hoje',
+    tipos: { student: 'Morador', employee: 'Funcionário', visitor: 'Visitante', resident: 'Morador' },
+    sub: 'Quem está entrando e saindo, como portarias e áreas comuns estão sendo usadas e o que precisa de alguém.',
+  },
+  misto: {
+    nome: 'Escola e condomínio', grupo: 'Turma ou unidade', dentro: 'dentro agora', hoje: 'Quem passou hoje',
+    tipos: { student: 'Aluno', employee: 'Funcionário', visitor: 'Visitante', resident: 'Morador' },
+    sub: 'Escolas e condomínios juntos. Escolha um local para ver o vocabulário e os blocos de cada um.',
+  },
+};
+function apTipoLocal(site) {
+  const s = String(site || '').toUpperCase();
+  const l = (_apPerfil.locais || []).find(x => String(x.site).toUpperCase() === s);
+  return l ? l.tipo : (_apPerfil.tipo === 'misto' ? 'escola' : _apPerfil.tipo);
+}
+function apVocab(site) { return AP_VOCAB[site === undefined ? _apPerfil.tipo : apTipoLocal(site)] || AP_VOCAB.escola; }
+function apTipo(t, site) { return apVocab(site).tipos[String(t || '').toLowerCase()] || ''; }
+function apEhCondominio() { return _apPerfil.tipo === 'condominio'; }
+// No condominio a unidade vem no fim do nome gravado no leitor ("QUITERIA
+// CASSIA C06", "THAMIS A01"): o cadastro nao tem campo de unidade.
+function apUnidade(nome, site) {
+  if (apTipoLocal(site) !== 'condominio') return '';
+  const m = String(nome || '').trim().match(/\s([A-Z]{1,2}\d{1,3})$/i);
+  return m ? m[1].toUpperCase() : '';
+}
+// Segunda linha da pessoa: turma (escola) ou unidade (condominio), senao o tipo.
+function apGrupoDe(p) {
+  return p.turma || apUnidade(p.nome, p.site) || apTipo(p.tipo_pessoa, p.site);
+}
+
+function apMostrarPerfil(perfil) {
+  if (!perfil || !perfil.tipo) return;
+  _apPerfil = perfil;
+  const v = apVocab();
+  const chip = document.getElementById('apPerfil');
+  if (chip) {
+    chip.textContent = v.nome;
+    chip.className = 'ap-perfil ' + perfil.tipo;
+    chip.title = (perfil.locais || []).map(l => `${l.site}: ${AP_VOCAB[l.tipo].nome.toLowerCase()}` +
+      (l.tipo === 'escola' ? ` (${l.com_turma} de ${l.alunos} alunos com turma)` : '')).join('\n') +
+      '\nDetectado pelo cadastro de pessoas.';
+  }
+  const sub = document.getElementById('apSubtitulo');
+  if (sub) sub.textContent = v.sub;
+}
 // "ENTRADA - ESCOLA PRESIDENTE DUTRA" -> "ENTRADA": o site ja esta no filtro e
 // o nome inteiro nao cabia na linha.
 function apPorta(nome) {
@@ -212,7 +267,7 @@ function apFiltradas(lista) {
   const b = _apBusca.trim().toLowerCase();
   return lista.filter(p => f(p)
     && (!_apPessoa || (p.pessoa_id || p.nome) === _apPessoa)
-    && (!b || [p.nome, p.turma, p.porta].some(x => String(x || '').toLowerCase().includes(b))));
+    && (!b || [p.nome, p.turma, p.porta, apUnidade(p.nome, p.site)].some(x => String(x || '').toLowerCase().includes(b))));
 }
 
 function apSaude(d) {
@@ -225,10 +280,10 @@ function apSaude(d) {
   const semCad = r.without_person || 0;
   return `<div class="ap-saude">
     ${item(vivas === portas.length ? 'ok' : 'ruim', `${vivas} de ${portas.length}`, 'leitores com sinal', 'portas')}
-    ${item('ok', apNum(r.inside_now ?? 0), 'presentes agora', 'relatorios')}
+    ${item('ok', apNum(r.inside_now ?? 0), apVocab().dentro, 'relatorios')}
     ${item('ok', `${apNum(r.entries ?? 0)} · ${apNum(r.exits ?? 0)}`, 'entradas · saídas hoje', '')}
     ${_apUsaAvisos ? item(ah.falha ? 'am' : 'ok', totAv ? apPct((ah.lido || 0) + (ah.entregue || 0), totAv) + '%' : '—', `avisos entregues hoje${ah.falha ? ' · ' + ah.falha + ' não' : ''}`, 'alertas') : ''}
-    ${item(semCad ? 'am' : 'ok', apNum(semCad), 'passagens sem cadastro', '')}
+    ${item(semCad ? 'am' : 'ok', apNum(semCad), apEhCondominio() ? 'passagens de quem só está no leitor' : 'passagens sem cadastro', '')}
   </div>`;
 }
 
@@ -238,7 +293,7 @@ function apLinhaPassagem(p, sel) {
     <span class="ap-tarja"></span>
     <span class="ap-av">${apIniciais(p.nome)}${apFoto(p)}</span>
     <span class="ap-quem"><b>${esc(p.nome || 'sem nome no leitor')}</b>
-      <small>${esc([p.pessoa_id ? (p.turma || apTipo(p.tipo_pessoa)) : 'só no leitor', apPorta(p.porta)].filter(Boolean).join(' · '))}</small></span>
+      <small>${esc([p.pessoa_id ? apGrupoDe(p) : ['só no leitor', apUnidade(p.nome, p.site)].filter(Boolean).join(' · '), apPorta(p.porta)].filter(Boolean).join(' · '))}</small></span>
     <span class="ap-zap">${apZap(p)}</span>
     <span class="ap-chip ${apSaida(p.tipo) ? 'saida' : 'entrada'}">${apSaida(p.tipo) ? 'Saiu' : 'Entrou'}</span>
     <span class="ap-hora monospace">${apHm(apLocal(p.hora))}</span>
@@ -255,17 +310,29 @@ function apDetalhe(p, todas) {
     <div class="ap-det-topo">
       <div class="ap-foto">${apIniciais(p.nome)}${apFoto(p)}<span class="ap-dir ${apSaida(p.tipo) ? 'saida' : ''}">${apSaida(p.tipo) ? 'SAIU' : 'ENTROU'}</span></div>
       <div class="ap-info"><b>${esc(p.nome || 'Pessoa não identificada')}</b>
-        <small>${esc(p.pessoa_id ? [apTipo(p.tipo_pessoa), p.turma].filter(Boolean).join(' · ') : 'só no leitor, fora do cadastro do SightOps') || '&nbsp;'}</small>
+        <small>${esc(p.pessoa_id ? [apTipo(p.tipo_pessoa, p.site), p.turma || (apUnidade(p.nome, p.site) ? 'unidade ' + apUnidade(p.nome, p.site) : '')].filter(Boolean).join(' · ') : ['só no leitor, fora do cadastro do SightOps', apUnidade(p.nome, p.site) ? 'unidade ' + apUnidade(p.nome, p.site) : ''].filter(Boolean).join(' · ')) || '&nbsp;'}</small>
         <small>${esc(apPorta(p.porta))} · <span class="monospace">${apHms(apLocal(p.hora))}</span></small>
-        ${dele.length > 1 ? `<div class="ap-hoje">Hoje: ${dele.map(x => `<span class="ap-chip ${apSaida(x.tipo) ? 'saida' : 'entrada'}">${apSaida(x.tipo) ? 'saiu' : 'entrou'} ${apHm(apLocal(x.hora))}</span>`).join(' ')}</div>` : ''}
+        ${dele.length > 1 ? `<small>${dele.length} passagens hoje</small>` : ''}
       </div>
     </div>
-    <div class="ap-det-sec"><div class="ap-rot">Recibo do aviso</div>${apTrilha(p)}</div>
+    ${apComAviso(p) ? `<div class="ap-det-sec"><div class="ap-rot">Recibo do aviso</div>${apTrilha(p)}</div>` : ''}
+    ${dele.length > 1 || !apComAviso(p) ? `<div class="ap-det-sec"><div class="ap-rot">Percurso de hoje</div>${apPercurso(dele, p)}</div>` : ''}
     <div class="ap-det-acoes">
       <button type="button" class="secondary-action" data-ap-pessoa="${esc(chave)}"><i data-lucide="user-search"></i> ${_apPessoa ? 'Ver todas as passagens' : 'Só esta pessoa'}</button>
       <button type="button" class="secondary-action" data-ap-ir="portas"><i data-lucide="door-open"></i> Ver a porta</button>
     </div>
   </section>`;
+}
+
+// Recibo do aviso so onde existe aviso: escola, ou condominio que usa WhatsApp.
+function apComAviso(p) { return _apUsaAvisos || apTipoLocal(p.site) === 'escola'; }
+
+// Por onde a pessoa passou hoje (portaria, academia, sauna...), na ordem.
+// No condominio e o que importa; na escola completa o recibo do aviso.
+function apPercurso(dele, sel) {
+  const lista = dele.length ? dele : [sel];
+  return `<div class="ap-trilha">${lista.map(x => `<div class="ap-tr feito ${x.id === sel.id ? 'atual' : ''}"><i></i>
+    <div><b>${apSaida(x.tipo) ? 'Saiu' : 'Entrou'} · ${esc(apPorta(x.porta))}</b></div><span class="monospace">${apHm(apLocal(x.hora))}</span></div>`).join('')}</div>`;
 }
 
 function apDesenharVivo(d) {
@@ -307,7 +374,7 @@ function apDesenharVivo(d) {
         <div class="ap-filtros">
           ${AP_FILTROS.filter(([id]) => id === 'todas' || conta(id) || id === _apFiltro).map(([id, rot]) => `<button type="button" class="ap-fl ${_apFiltro === id ? 'on' : ''}" data-ap-filtro="${id}">${rot} <span class="monospace">${conta(id)}</span></button>`).join('')}
           ${_apPessoa ? `<button type="button" class="ap-fl on" data-ap-pessoa="">${esc(pessoaNome)} ✕</button>` : ''}
-          <input type="search" id="apBusca" class="ap-busca" placeholder="Buscar nome, turma ou porta" value="${esc(_apBusca)}" aria-label="Buscar passagem">
+          <input type="search" id="apBusca" class="ap-busca" placeholder="Buscar nome, ${apEhCondominio() ? 'unidade' : 'turma'} ou porta" value="${esc(_apBusca)}" aria-label="Buscar passagem">
         </div>
         <div class="ap-lista" id="apLista">${lista.length ? lista.map(p => apLinhaPassagem(p, sel && p.id === sel.id)).join('') : `<p class="ap-vazio ap-pad">${todas.length ? 'Nenhuma passagem neste filtro.' : 'Nenhuma passagem hoje.'}</p>`}</div>
       </section>
@@ -408,7 +475,9 @@ function apListaAlertas() {
   const r = v.resumo || {};
   const semCad = r.without_person || 0, total = r.total || 0;
   if (semCad) itens.push({ nivel: total >= 20 && semCad / total >= 0.2 ? 'info' : 'medio', icone: 'user-x', titulo: `${semCad} passage${semCad === 1 ? 'm' : 'ns'} hoje de quem só está no leitor`,
-    texto: 'Ficam fora da presença, dos relatórios e dos avisos.', ir: 'relatorios' });
+    texto: apEhCondominio()
+      ? 'Moradores que estão no leitor mas não no cadastro do SightOps ficam fora de "dentro agora" e dos relatórios. Para trazer: Controle de Acesso › Dispositivos › importar pessoas do leitor.'
+      : 'Ficam fora da presença, dos relatórios e dos avisos.', ir: 'relatorios' });
   if (av.sem_numero_total) itens.push({ nivel: 'info', icone: 'contact', titulo: `${av.sem_numero_total} aluno${av.sem_numero_total === 1 ? '' : 's'} sem número de responsável`,
     texto: 'Não recebem aviso nenhum.', ir: 'relatorios' });
   itens.push({ nivel: 'cinza', icone: 'shield-x', titulo: 'Acessos negados ainda não são coletados',
@@ -485,7 +554,7 @@ function apDesenharRel(r) {
   const agora = new Date();
   el.innerHTML = `
     <div class="ap-rel">
-      <section class="panel ap-bloco"><div class="ap-bloco-cab"><div><h3>Quando o prédio é usado</h3><p>Passagens por dia da semana e hora · últimos ${r.dias || 28} dias</p></div></div>
+      <section class="panel ap-bloco"><div class="ap-bloco-cab"><div><h3>${{ escola: 'Quando a escola é usada', condominio: 'Quando o condomínio é usado' }[_apPerfil.tipo] || 'Quando os locais são usados'}</h3><p>Passagens por dia da semana e hora · últimos ${r.dias || 28} dias</p></div></div>
         ${apMapaCalor(r.mapa)}</section>
       <section class="panel ap-bloco"><div class="ap-bloco-cab"><div><h3>Dia a dia</h3><p>Passagens por dia · passe o mouse para ver pessoas únicas</p></div></div>
         ${apSerieDias(r.serie)}
@@ -494,18 +563,25 @@ function apDesenharRel(r) {
       </section>
     </div>
     <section class="panel ap-tab-hoje">
-      <div class="panel-header ap-cab"><div><h3>Chegada e saída de hoje</h3><p>${apNum(r.hoje_total || 0)} pessoas passaram hoje${r.nao_vieram_total ? ` · ${apNum(r.nao_vieram_total)} alunos ativos ainda sem passagem` : ''}</p></div></div>
-      ${hoje.length ? `<div class="ap-tabela"><table><thead><tr><th>Pessoa</th><th>Turma</th><th>Chegou</th><th>Saiu</th><th>Tempo</th><th>Agora</th></tr></thead><tbody>
+      <div class="panel-header ap-cab"><div><h3>${apVocab().hoje}</h3><p>${apNum(r.hoje_total || 0)} pessoas do cadastro passaram hoje${r.nao_vieram_total ? ` · ${apNum(r.nao_vieram_total)} alunos ativos ainda sem passagem` : ''}${r.so_leitor_total ? ` · ${apNum(r.so_leitor_total)} só no leitor` : ''}</p></div></div>
+      ${hoje.length ? `<div class="ap-tabela"><table><thead><tr><th>Pessoa</th><th>${apVocab().grupo}</th><th>${apEhCondominio() ? 'Primeira entrada' : 'Chegou'}</th><th>${apEhCondominio() ? 'Última saída' : 'Saiu'}</th><th>Tempo</th><th>Agora</th></tr></thead><tbody>
         ${hoje.map(x => {
           const ch = apLocal(x.chegou), sa = apLocal(x.saiu);
           const dentro = x.ultimo_tipo === 'entrada';
-          return `<tr><td>${esc(x.nome)}</td><td>${esc(x.turma || apTipo(x.tipo_pessoa))}</td><td class="monospace">${ch ? apHm(ch) : '—'}</td>
+          return `<tr><td>${esc(x.nome)}</td><td>${esc(x.turma || apUnidade(x.nome, x.site) || '—')}</td><td class="monospace">${ch ? apHm(ch) : '—'}</td>
             <td class="monospace">${sa ? apHm(sa) : '—'}</td><td class="monospace">${ch ? apDur(ch, dentro ? agora : (sa || agora)) : '—'}</td>
             <td>${dentro ? '<span class="ap-chip entrada">dentro</span>' : '<span class="ap-chip saida">saiu</span>'}</td></tr>`;
         }).join('')}</tbody></table></div>` : '<p class="ap-vazio ap-pad">Ninguém do cadastro passou hoje.</p>'}
       ${(r.nao_vieram || []).length ? `<details class="ap-naovieram"><summary>${apNum(r.nao_vieram_total)} alunos ativos sem passagem hoje</summary>
         <div class="ap-naovieram-lista">${r.nao_vieram.map(x => `<span>${esc(x.nome)}${x.turma ? ` <small>${esc(x.turma)}</small>` : ''}</span>`).join('')}</div></details>` : ''}
-    </section>`;
+    </section>
+    ${(r.so_leitor_hoje || []).length ? `<section class="panel ap-tab-hoje">
+      <div class="panel-header ap-cab"><div><h3>Só no leitor hoje</h3><p>${apNum(r.so_leitor_total)} nome${r.so_leitor_total === 1 ? '' : 's'} que o leitor reconhece e o SightOps não tem no cadastro${apEhCondominio() ? ': em condomínio, quase sempre moradores' : ''}</p></div></div>
+      <div class="ap-tabela"><table><thead><tr><th>Nome no leitor</th><th>Passagens</th><th>Última porta</th><th>Última</th></tr></thead><tbody>
+        ${r.so_leitor_hoje.map(x => `<tr><td>${esc(x.nome)}</td><td class="monospace">${apNum(x.passagens)}</td><td>${esc(apPorta(x.porta))}</td><td class="monospace">${apHm(apLocal(x.ultima))}</td></tr>`).join('')}
+      </tbody></table></div>
+      <p class="ap-dica ap-dica-pe">Para trazer essas pessoas ao SightOps: Controle de Acesso › Dispositivos › importar pessoas do leitor.</p>
+    </section>` : ''}`;
 }
 
 // ---------------------------------------------------------------- visao geral
@@ -595,6 +671,7 @@ async function apGeral(forcar) {
 }
 
 function apDesenharAtual() {
+  apMostrarPerfil((_apTela === 'relatorios' ? (_apDados.rel || {}).perfil : (_apDados.vivo || {}).perfil) || (_apDados.geral || {}).perfil);
   if (_apTela === 'vivo') apDesenharVivo(_apDados.vivo || {});
   else if (_apTela === 'portas') apDesenharPortas(_apDados.vivo || {});
   else if (_apTela === 'alertas') apDesenharAlertas();
@@ -693,6 +770,7 @@ async function loadAccessPainel() {
       else _apSite = '';
     }
     if (!_apSite) { _apDados.geral = g || {}; _apDados.geralEm = Date.now(); }
+    apMostrarPerfil(g && g.perfil);
   } catch (_) { /* a propria tela mostra o erro ao carregar */ }
   let salva = 'vivo';
   try { salva = sessionStorage.getItem('sightops.acesso.painel.tela') || 'vivo'; } catch (_) {}

@@ -144,3 +144,11 @@
 .topbar-actions a.ghost-action{text-decoration:none}
 @media(max-width:1100px){#viewAccessPainel .ap-grade{grid-template-columns:minmax(0,1fr)}}
 @media(max-width:720px){.topbar-actions a.ghost-action span,.topbar-actions a.ghost-action{font-size:0;gap:0}.topbar-actions a.ghost-action svg{width:18px;height:18px}#viewAccessPainel .ap-pausa > span:not(.ap-pulso){display:none}}
+/* escola x condominio */
+#viewAccessPainel .ap-perfil{display:inline-block;vertical-align:middle;margin-left:8px;font-size:12px;font-weight:600;letter-spacing:.02em;padding:3px 10px;border-radius:20px;background:var(--surface-soft);color:var(--muted);border:1px solid var(--border);cursor:help}
+#viewAccessPainel .ap-perfil:empty{display:none}
+#viewAccessPainel .ap-perfil.escola{background:var(--blue-soft);color:var(--blue);border-color:transparent}
+#viewAccessPainel .ap-perfil.condominio{background:var(--cyan-soft);color:var(--cyan);border-color:transparent}
+#viewAccessPainel .ap-perfil.misto{background:var(--primary-soft);color:var(--primary);border-color:transparent}
+#viewAccessPainel .ap-tr.atual b{color:var(--primary)}
+#viewAccessPainel .ap-dica-pe{margin:0;border-radius:0;border-width:1px 0 0}

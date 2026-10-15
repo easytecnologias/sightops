@@ -189,7 +189,10 @@ def _responsaveis(pessoas: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
     return mapa
 
 
-def _avisos(agora: datetime, pessoas: List[Dict[str, Any]]) -> Dict[str, Any]:
+def _avisos(agora: datetime, pessoas: List[Dict[str, Any]], escolas: Optional[set] = None) -> Dict[str, Any]:
+    """`escolas`: locais (site em maiusculas) do tipo escola. "Aluno sem numero
+    de responsavel" so existe neles: no condominio o morador foi cadastrado
+    como aluno e nao tem responsavel nenhum."""
     msgs60 = _mensagens(agora - timedelta(days=60))
     corte7 = _utc_txt(agora - timedelta(days=7))
     corte30 = _utc_txt(agora - timedelta(days=30))
@@ -228,7 +231,8 @@ def _avisos(agora: datetime, pessoas: List[Dict[str, Any]]) -> Dict[str, Any]:
     falhando.sort(key=lambda x: x["quando"], reverse=True)
     sem_numero = [{"pessoa": _t(p.get("full_name")), "turma": _t(p.get("class_name")), "pessoa_id": _t(p.get("id"))}
                   for p in pessoas if _t(p.get("person_type")) == "student" and p.get("active")
-                  and not _numero(p.get("guardian_phone"))]
+                  and not _numero(p.get("guardian_phone"))
+                  and (escolas is None or _t(p.get("site")).upper() in escolas)]
     return {
         "sete_dias": {"enviados": total7, "lidos": c7["lido"], "entregues": c7["entregue"],
                       "sem_confirmacao": c7["enviado"], "falhas": c7["falha"]},
@@ -240,6 +244,56 @@ def _avisos(agora: datetime, pessoas: List[Dict[str, Any]]) -> Dict[str, Any]:
         "sem_numero_total": len(sem_numero),
         "agora": saude_avisos(agora=agora),
     }
+
+
+# ---------------------------------------------------------------- tipo de local
+# O mesmo painel serve escola e condominio (e cliente com os dois). O tipo de
+# cada local sai do proprio cadastro: escola tem aluno com turma e numero de
+# responsavel. O cadastro so oferece Aluno/Funcionario/Visitante, entao no
+# condominio os moradores ficaram como "aluno" sem turma nem telefone; o tipo
+# de pessoa sozinho enganaria.
+ESCOLA_MINIMO = 0.3
+
+
+def _tipo_do_grupo(pessoas: List[Dict[str, Any]]) -> Dict[str, Any]:
+    ativas = [p for p in pessoas if p.get("active")]
+    alunos = [p for p in ativas if _t(p.get("person_type")) == "student"]
+    com_turma = sum(1 for p in alunos if _t(p.get("class_name")))
+    com_resp = sum(1 for p in alunos if _numero(p.get("guardian_phone")))
+    base = len(alunos)
+    escola = bool(base) and max(com_turma, com_resp) / base >= ESCOLA_MINIMO
+    return {"tipo": "escola" if escola else "condominio", "pessoas": len(ativas),
+            "com_turma": com_turma, "com_responsavel": com_resp, "alunos": base}
+
+
+def perfil_locais(pessoas: List[Dict[str, Any]], sites: Iterable[str], site: str = "") -> Dict[str, Any]:
+    """Tipo de cada local (escola/condominio) e o do filtro atual. Com
+    "todos os sites" e locais de tipos diferentes, o tipo e "misto"."""
+    por_site: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
+    for p in pessoas:
+        por_site[_t(p.get("site")).upper()].append(p)
+    nomes = sorted({_t(s) for s in sites if _t(s)} | {_t(p.get("site")) for p in pessoas if _t(p.get("site"))},
+                   key=lambda s: s.upper())
+    vistos: Dict[str, Dict[str, Any]] = {}
+    locais = []
+    for nome in nomes:
+        if nome.upper() in vistos:
+            continue
+        info = {"site": nome, **_tipo_do_grupo(por_site.get(nome.upper(), []))}
+        vistos[nome.upper()] = info
+        locais.append(info)
+    if site:
+        atual = vistos.get(site.upper()) or {"site": site, **_tipo_do_grupo([])}
+        tipo = atual["tipo"]
+    else:
+        tipos = {x["tipo"] for x in locais}
+        tipo = tipos.pop() if len(tipos) == 1 else ("misto" if tipos else "condominio")
+    return {"tipo": tipo, "locais": locais}
+
+
+def _perfil(site: str, pessoas: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
+    todas = pessoas if pessoas is not None else _pessoas()
+    return perfil_locais(todas, [_t(d.get("site")) for d in _leitores()], site)
 
 
 # ---------------------------------------------------------------- visao geral
@@ -257,9 +311,10 @@ def _leitores(site: str = "") -> List[Dict[str, Any]]:
 def visao_geral(site: str = "", agora: Optional[datetime] = None) -> Dict[str, Any]:
     agora = agora or _agora()
     tenant = _tenant()
-    pessoas = _pessoas()
-    if site:
-        pessoas = [p for p in pessoas if _t(p.get("site")).upper() == site.upper()]
+    todas = _pessoas()
+    perfil = _perfil(site, todas)
+    escolas = {x["site"].upper() for x in perfil["locais"] if x["tipo"] == "escola"}
+    pessoas = [p for p in todas if _t(p.get("site")).upper() == site.upper()] if site else todas
 
     # Marcacoes sem pessoa por porta, 7 dias. occurred_at e hora local.
     corte = _local_txt(agora - timedelta(days=7))
@@ -308,7 +363,8 @@ def visao_geral(site: str = "", agora: Optional[datetime] = None) -> Dict[str, A
         "ok": True,
         "gerado_em": _utc_txt(agora),
         "site": site,
-        "avisos": _avisos(agora, pessoas),
+        "perfil": perfil,
+        "avisos": _avisos(agora, pessoas, escolas),
         "marcacoes_7d": {"total": total_ev, "sem_pessoa": sem_ev, "por_porta": portas},
         "fotos": {"ok": cont.get("ok", 0), "falhou": cont.get("failed", 0),
                   "pendente": sum(v for k, v in cont.items() if k not in ("ok", "failed")),
@@ -372,17 +428,30 @@ def relatorios(site: str = "", dias: int = 28, agora: Optional[datetime] = None)
         serie.append({"dia": dia, "passagens": info["passagens"], "pessoas": len(info["pessoas"])})
 
     # Hoje por pessoa: primeira entrada, ultima saida, se ainda esta dentro.
-    pessoas = {_t(p.get("id")): p for p in _pessoas()}
+    todas = _pessoas()
+    perfil = _perfil(site, todas)
+    escolas = {x["site"].upper() for x in perfil["locais"] if x["tipo"] == "escola"}
+    pessoas = {_t(p.get("id")): p for p in todas}
+    # Quem o leitor reconhece mas o SightOps nao tem (no condominio, a maioria
+    # dos moradores): fica fora da presenca e dos relatorios.
+    so_leitor: Dict[str, Dict[str, Any]] = {}
     hoje_p: Dict[str, Dict[str, Any]] = {}
     for e in eventos:
         pid = _t(e.get("person_id"))
         quando = _t(e.get("occurred_at"))
-        if not pid or not quando.startswith(hoje):
+        if not quando.startswith(hoje):
+            continue
+        if not pid:
+            nome = _t(e.get("person_name_raw")) or "sem nome no leitor"
+            x = so_leitor.setdefault(nome, {"nome": nome, "passagens": 0, "ultima": "", "porta": ""})
+            x["passagens"] += 1
+            if quando > x["ultima"]:
+                x["ultima"], x["porta"] = quando, _t(e.get("device_name"))
             continue
         p = pessoas.get(pid) or {}
         r = hoje_p.setdefault(pid, {"pessoa_id": pid, "nome": _t(p.get("full_name") or e.get("person_name_raw")),
                                     "turma": _t(p.get("class_name")), "tipo_pessoa": _t(p.get("person_type")),
-                                    "chegou": "", "saiu": "", "ultima": "", "ultimo_tipo": "", "passagens": 0})
+                                    "site": _t(p.get("site")), "chegou": "", "saiu": "", "ultima": "", "ultimo_tipo": "", "passagens": 0})
         r["passagens"] += 1
         saida = _t(e.get("event_type")).lower().startswith("saida")
         if not saida and (not r["chegou"] or quando < r["chegou"]):
@@ -392,17 +461,21 @@ def relatorios(site: str = "", dias: int = 28, agora: Optional[datetime] = None)
         if quando > r["ultima"]:
             r["ultima"], r["ultimo_tipo"] = quando, "saida" if saida else "entrada"
     lista_hoje = sorted(hoje_p.values(), key=lambda x: x["chegou"] or x["ultima"])
-    # "Nao veio" so faz sentido em dia com movimento (fim de semana e feriado
-    # deixariam a escola inteira como falta).
+    # "Nao veio" so faz sentido em escola e em dia com movimento (fim de semana
+    # e feriado deixariam a escola inteira como falta). Morador de condominio
+    # nao "falta".
     nao_vieram: List[Dict[str, Any]] = []
     if lista_hoje:
         for pid, p in pessoas.items():
             if (p.get("active") and _t(p.get("person_type")) == "student" and pid not in hoje_p
+                    and _t(p.get("site")).upper() in escolas
                     and (not site or _t(p.get("site")).upper() == site.upper())):
                 nao_vieram.append({"pessoa_id": pid, "nome": _t(p.get("full_name")), "turma": _t(p.get("class_name"))})
         nao_vieram.sort(key=lambda x: (x["turma"], x["nome"]))
     return {
-        "ok": True, "gerado_em": _utc_txt(agora), "site": site, "dias": dias,
+        "ok": True, "gerado_em": _utc_txt(agora), "site": site, "dias": dias, "perfil": perfil,
+        "so_leitor_hoje": sorted(so_leitor.values(), key=lambda x: -x["passagens"])[:100],
+        "so_leitor_total": len(so_leitor),
         "mapa": mapa, "serie": serie,
         "portas": [{"porta": k, "passagens": v} for k, v in por_porta.most_common(8)],
         "hoje": lista_hoje[:400], "hoje_total": len(lista_hoje),
@@ -419,7 +492,9 @@ def ao_vivo(site: str = "", limite: int = 40, agora: Optional[datetime] = None) 
     filtros = {"period": "today", "site": site}
     resumo = access_report_summary(filtros)
     eventos = list_access_report_events({**filtros, "limit": max(1, min(int(limite or 40), 500))})
-    pessoas = {_t(p.get("id")): p for p in _pessoas()}
+    todas = _pessoas()
+    perfil = _perfil(site, todas)
+    pessoas = {_t(p.get("id")): p for p in todas}
 
     # Recibo do aviso: mensagem para o responsavel nos minutos seguintes a
     # passagem. Uma leitura so das mensagens de hoje, indexada por numero.
@@ -449,6 +524,7 @@ def ao_vivo(site: str = "", limite: int = 40, agora: Optional[datetime] = None) 
         tipo = _t(ev.get("event_type")).lower()
         passagens.append({
             "id": _t(ev.get("id")), "hora": _t(ev.get("occurred_at")), "tipo": tipo,
+            "site": _t(ev.get("resolved_site") or ev.get("site")),
             "porta": _t(ev.get("resolved_device_name") or ev.get("device_name")),
             "pessoa_id": _t(ev.get("person_id")),
             "nome": _t(ev.get("person_name") or ev.get("person_name_raw")),
@@ -498,7 +574,7 @@ def ao_vivo(site: str = "", limite: int = 40, agora: Optional[datetime] = None) 
         if pid in presentes:
             turmas[t]["presentes"] += 1
     return {
-        "ok": True, "gerado_em": _utc_txt(agora), "site": site,
+        "ok": True, "gerado_em": _utc_txt(agora), "site": site, "perfil": perfil,
         "resumo": resumo,
         "avisos_hoje": dict(Counter(_classe(m.get("status")) for m in msgs)),
         "avisos_agora": saude_avisos(agora=agora),

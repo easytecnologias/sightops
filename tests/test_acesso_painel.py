@@ -101,11 +101,12 @@ def test_relatorios_mapa_chegada_e_nao_veio(monkeypatch):
         return [e for e in eventos if params[1] <= e["occurred_at"] <= params[2]]
 
     pessoas = [
-        {"id": "a", "full_name": "Ana", "class_name": "7B", "person_type": "student", "active": True},
-        {"id": "b", "full_name": "Bruno", "class_name": "7B", "person_type": "student", "active": True},
-        {"id": "c", "full_name": "Carla", "class_name": "9A", "person_type": "student", "active": True},
-        {"id": "d", "full_name": "Dona", "class_name": "", "person_type": "employee", "active": True},
+        {"id": "a", "full_name": "Ana", "class_name": "7B", "person_type": "student", "active": True, "site": "ESCOLA"},
+        {"id": "b", "full_name": "Bruno", "class_name": "7B", "person_type": "student", "active": True, "site": "ESCOLA"},
+        {"id": "c", "full_name": "Carla", "class_name": "9A", "person_type": "student", "active": True, "site": "ESCOLA"},
+        {"id": "d", "full_name": "Dona", "class_name": "", "person_type": "employee", "active": True, "site": "ESCOLA"},
     ]
+    monkeypatch.setattr(P, "_leitores", lambda site="": [])
     monkeypatch.setattr(P, "_rows", rows)
     monkeypatch.setattr(P, "_tenant", lambda: "t")
     monkeypatch.setattr(P, "_pessoas", lambda: pessoas)
@@ -117,11 +118,45 @@ def test_relatorios_mapa_chegada_e_nao_veio(monkeypatch):
     assert ana["chegou"].endswith("07:10:00") and ana["saiu"].endswith("12:30:00") and ana["ultimo_tipo"] == "saida"
     assert [x["nome"] for x in r["nao_vieram"]] == ["Carla"]       # funcionario nao conta como falta
     assert r["serie"][-1] == {"dia": "2026-10-14", "passagens": 3, "pessoas": 2}
+    assert r["perfil"]["tipo"] == "escola"
 
 
 def test_relatorios_sem_movimento_hoje_nao_lista_falta(monkeypatch):
     monkeypatch.setattr(P, "_rows", lambda sql, params: [])
     monkeypatch.setattr(P, "_tenant", lambda: "t")
     monkeypatch.setattr(P, "_pessoas", lambda: [{"id": "c", "full_name": "Carla", "person_type": "student", "active": True}])
+    monkeypatch.setattr(P, "_leitores", lambda site="": [])
     r = P.relatorios(agora=AGORA)
     assert r["nao_vieram"] == [] and r["hoje_total"] == 0
+
+
+# ---------------------------------------------------------------- escola x condominio
+
+def _p(i, site, tipo="student", turma="", fone=""):
+    return {"id": str(i), "full_name": f"P{i}", "person_type": tipo, "class_name": turma,
+            "guardian_phone": fone, "site": site, "active": True}
+
+
+def test_condominio_com_moradores_cadastrados_como_aluno():
+    """O caso do RESERVA: 192 'alunos' sem turma nem telefone sao moradores."""
+    pessoas = [_p(i, "RESERVA") for i in range(192)]
+    r = P.perfil_locais(pessoas, ["RESERVA", "JARDINS II"], "RESERVA")
+    assert r["tipo"] == "condominio"
+    # Local sem ninguem no cadastro (moradores so no leitor) tambem e condominio.
+    assert {x["site"]: x["tipo"] for x in r["locais"]} == {"JARDINS II": "condominio", "RESERVA": "condominio"}
+
+
+def test_escola_e_misto():
+    escola = [_p(i, "ESCOLA PRESIDENTE DUTRA", turma="4º Ano", fone="82999990000") for i in range(88)]
+    escola += [_p(100 + i, "ESCOLA PRESIDENTE DUTRA") for i in range(3)]
+    condo = [_p(200 + i, "RESERVA") for i in range(50)]
+    assert P.perfil_locais(escola, [], "ESCOLA PRESIDENTE DUTRA")["tipo"] == "escola"
+    assert P.perfil_locais(escola + condo, [], "")["tipo"] == "misto"
+    assert P.perfil_locais(escola, [], "")["tipo"] == "escola"
+
+
+def test_morador_nao_aparece_como_aluno_sem_responsavel(monkeypatch):
+    monkeypatch.setattr(P, "_mensagens", lambda desde: [])
+    pessoas = [_p(1, "RESERVA"), _p(2, "ESCOLA", turma="7B"), _p(3, "ESCOLA", turma="7B", fone="82999990000")]
+    av = P._avisos(AGORA, pessoas, {"ESCOLA"})
+    assert [x["pessoa"] for x in av["sem_numero"]] == ["P2"]
