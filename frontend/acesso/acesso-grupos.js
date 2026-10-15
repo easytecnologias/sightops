@@ -315,14 +315,107 @@ function agAbrirGrupo(g) {
   setTimeout(() => agCampo('agGNome').focus(), 150);
 }
 
+// Seletor de portas que aguenta 100 leitores: a selecao fica num Set (busca e
+// filtro so mudam o que aparece), o local do grupo vem aberto e os outros
+// recolhidos, atalhos por funcao e "marcar todas" por local.
+let _agPortasSel = new Set();
+let _agPortasBusca = '';
+let _agPortasAbertos = new Set();
+
+// "ENTRADA 1 - ESCOLA X" dentro da secao ESCOLA X vira "ENTRADA 1".
+function agSemLocal(nome, site) {
+  const suf = ' - ' + String(site || '').toUpperCase();
+  return String(nome || '').toUpperCase().endsWith(suf) && nome.length > suf.length ? nome.slice(0, -suf.length) : nome;
+}
+
+function agFuncaoRot(f) { return f === 'saida' ? 'saída' : f === 'entrada_saida' ? 'entrada e saída' : 'entrada'; }
+
 function agPortas(marcadas) {
-  const site = agCampo('agGSite').value.toUpperCase();
-  const lista = (_agDados.leitores || []).slice().sort((a, b) => ((b.site.toUpperCase() === site) - (a.site.toUpperCase() === site)) || a.nome.localeCompare(b.nome, 'pt-BR'));
-  const set = new Set(marcadas);
-  agCampo('agGPortas').innerHTML = lista.length ? lista.map(l => `<label class="ps-grupo ${site && l.site.toUpperCase() !== site ? 'outro' : ''}">
-      <input type="checkbox" value="${esc(l.id)}" ${set.has(l.id) ? 'checked' : ''}>
-      <span class="ps-grupo-box"><b>${esc(l.nome)}</b><small>${l.funcao === 'saida' ? 'saída' : l.funcao === 'entrada_saida' ? 'entrada e saída' : 'entrada'} · ${esc(l.site)}${l.ativo ? '' : ' · inativo'}</small></span></label>`).join('')
-    : '<p class="dv-ajuda">Nenhum leitor cadastrado. Cadastre em Dispositivos.</p>';
+  if (marcadas) {
+    _agPortasSel = new Set(marcadas);
+    _agPortasBusca = '';
+    _agPortasAbertos = new Set();
+  }
+  const site = agCampo('agGSite').value.trim().toUpperCase();
+  const todos = _agDados.leitores || [];
+  const el = agCampo('agGPortas');
+  if (!todos.length) { el.innerHTML = '<p class="dv-ajuda">Nenhum leitor cadastrado. Cadastre em Dispositivos.</p>'; return; }
+  const b = _agPortasBusca.trim().toLowerCase();
+  const porLocal = new Map();
+  todos.forEach(l => {
+    const k = l.site || 'Sem local';
+    if (!porLocal.has(k)) porLocal.set(k, []);
+    porLocal.get(k).push(l);
+  });
+  const locais = [...porLocal.keys()].sort((a, c) => ((c.toUpperCase() === site) - (a.toUpperCase() === site)) || a.localeCompare(c, 'pt-BR'));
+  const doLocal = site ? (porLocal.get(locais.find(x => x.toUpperCase() === site)) || []) : [];
+  const escolhidas = todos.filter(l => _agPortasSel.has(l.id));
+  const aberto = k => b || k.toUpperCase() === site || _agPortasAbertos.has(k) || locais.length === 1;
+  el.innerHTML = `
+    <div class="agp-topo">
+      <span class="agp-conta"><b>${escolhidas.length}</b> de ${todos.length} porta${todos.length === 1 ? '' : 's'}</span>
+      <label class="dv-busca agp-busca"><i data-lucide="search"></i><input type="search" id="agpBusca" placeholder="Buscar porta ou local" value="${esc(_agPortasBusca)}" aria-label="Buscar porta"></label>
+    </div>
+    ${doLocal.length ? `<div class="agp-atalhos">
+      <button type="button" class="ap-fl" data-agp-atalho="todas">Todas do local <span class="monospace">${doLocal.length}</span></button>
+      <button type="button" class="ap-fl" data-agp-atalho="entrada">Só entradas</button>
+      <button type="button" class="ap-fl" data-agp-atalho="saida">Só saídas</button>
+      <button type="button" class="ap-fl" data-agp-atalho="limpar">Limpar</button>
+    </div>` : ''}
+    ${escolhidas.length ? `<div class="agp-escolhidas">${escolhidas.slice(0, 6).map(l => `<span class="ag-chip porta">${esc(l.nome)}<button type="button" aria-label="Tirar ${esc(l.nome)}" data-agp-tira="${esc(l.id)}">×</button></span>`).join('')}${escolhidas.length > 6 ? `<span class="ag-chip saida">+${escolhidas.length - 6}</span>` : ''}</div>` : ''}
+    <div class="agp-locais">${locais.map(k => {
+      const itens = porLocal.get(k).filter(l => !b || [l.nome, l.site].some(x => String(x || '').toLowerCase().includes(b)))
+        .sort((a, c) => a.nome.localeCompare(c.nome, 'pt-BR'));
+      if (!itens.length) return '';
+      const marc = porLocal.get(k).filter(l => _agPortasSel.has(l.id)).length;
+      const todasMarc = marc === porLocal.get(k).length;
+      return `<section class="agp-local ${aberto(k) ? 'aberto' : ''}">
+        <header>
+          <button type="button" class="agp-abre" data-agp-abre="${esc(k)}" aria-expanded="${aberto(k)}"><i data-lucide="chevron-right"></i><b>${esc(k)}</b>
+            <small>${marc ? `${marc} de ${porLocal.get(k).length} marcada${marc === 1 ? '' : 's'}` : `${porLocal.get(k).length} porta${porLocal.get(k).length === 1 ? '' : 's'}`}${k.toUpperCase() === site ? ' · local do grupo' : ''}</small></button>
+          <label class="agp-todas"><input type="checkbox" data-agp-local="${esc(k)}" ${todasMarc ? 'checked' : ''}> todas</label>
+        </header>
+        ${aberto(k) ? `<div class="agp-grade">${itens.map(l => `<label class="agp-porta ${_agPortasSel.has(l.id) ? 'on' : ''}">
+            <input type="checkbox" value="${esc(l.id)}" ${_agPortasSel.has(l.id) ? 'checked' : ''}>
+            <i data-lucide="${l.funcao === 'saida' ? 'log-out' : l.funcao === 'entrada_saida' ? 'arrow-left-right' : 'log-in'}"></i>
+            <span><b title="${esc(l.nome)}">${esc(agSemLocal(l.nome, l.site))}</b><small>${agFuncaoRot(l.funcao)}${l.ativo ? '' : ' · inativo'}</small></span></label>`).join('')}</div>` : ''}
+      </section>`;
+    }).join('') || '<p class="dv-ajuda">Nenhuma porta com essa busca.</p>'}</div>`;
+  const redesenha = () => { agPortas(); const bi = agCampo('agpBusca'); if (bi && document.activeElement !== bi && _agPortasBusca) { /* mantem */ } };
+  el.querySelectorAll('.agp-porta input').forEach(x => x.addEventListener('change', () => {
+    if (x.checked) _agPortasSel.add(x.value); else _agPortasSel.delete(x.value);
+    redesenha();
+  }));
+  el.querySelectorAll('[data-agp-local]').forEach(x => x.addEventListener('change', () => {
+    porLocal.get(x.dataset.agpLocal).forEach(l => (x.checked ? _agPortasSel.add(l.id) : _agPortasSel.delete(l.id)));
+    _agPortasAbertos.add(x.dataset.agpLocal);
+    redesenha();
+  }));
+  el.querySelectorAll('[data-agp-abre]').forEach(x => x.addEventListener('click', () => {
+    const k = x.dataset.agpAbre;
+    if (_agPortasAbertos.has(k)) _agPortasAbertos.delete(k); else _agPortasAbertos.add(k);
+    redesenha();
+  }));
+  el.querySelectorAll('[data-agp-tira]').forEach(x => x.addEventListener('click', () => { _agPortasSel.delete(x.dataset.agpTira); redesenha(); }));
+  el.querySelectorAll('[data-agp-atalho]').forEach(x => x.addEventListener('click', () => {
+    const a = x.dataset.agpAtalho;
+    if (a === 'limpar') _agPortasSel.clear();
+    else doLocal.forEach(l => {
+      const ok = a === 'todas' || l.funcao === a || l.funcao === 'entrada_saida';
+      if (ok) _agPortasSel.add(l.id); else if (a !== 'todas') _agPortasSel.delete(l.id);
+    });
+    redesenha();
+  }));
+  const busca = agCampo('agpBusca');
+  busca.addEventListener('input', () => {
+    _agPortasBusca = busca.value;
+    const pos = busca.selectionStart;
+    agPortas();
+    const nb = agCampo('agpBusca');
+    nb.focus();
+    try { nb.setSelectionRange(pos, pos); } catch (_) {}
+  });
+  if (window.lucide) lucide.createIcons();
 }
 
 function agHorariosOpcoes(sel) {
@@ -343,7 +436,7 @@ function agFormGrupo() {
     id: (_agEditGrupo && _agEditGrupo.id) || '',
     nome: agCampo('agGNome').value.trim(),
     site: agCampo('agGSite').value.trim(),
-    portas: [...document.querySelectorAll('#agGPortas input:checked')].map(x => x.value),
+    portas: [..._agPortasSel],
     horario_id: (document.querySelector('input[name="agGHorario"]:checked') || {}).value || '',
     saida_livre: agCampo('agGSaida').checked,
     ativo: agCampo('agGAtivo').checked,
@@ -473,7 +566,7 @@ function agLigarGavetas() {
   });
   agCampo('agGForm').addEventListener('submit', ev => { ev.preventDefault(); agSalvarGrupo(); });
   agCampo('agHForm').addEventListener('submit', ev => { ev.preventDefault(); agSalvarHorario(); });
-  agCampo('agGSite').addEventListener('change', () => agPortas([...document.querySelectorAll('#agGPortas input:checked')].map(x => x.value)));
+  agCampo('agGSite').addEventListener('change', () => agPortas());
   agCampo('agGConfirmaSim').addEventListener('click', async () => {
     try {
       await acEnviar('DELETE', `/api/access-control/painel/acesso/grupos/${encodeURIComponent(_agEditGrupo.id)}`);
