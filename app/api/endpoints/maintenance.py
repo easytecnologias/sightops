@@ -3245,8 +3245,10 @@ def maintenance_batch_change_ips(payload: Dict[str, Any]) -> Dict[str, Any]:
     gateway_fixo = _as_str(payload.get("gateway", ""))
     if not isinstance(itens, list) or not itens:
         return {"ok": False, "error": "nenhuma camera selecionada"}
-    if not password:
-        return {"ok": False, "error": "informe a senha das cameras"}
+    # Sem senha na tela (editor do Mapa): usa a senha GUARDADA de cada camera,
+    # conferida contra ela, igual ao ao vivo (_credencial_que_responde). A tela
+    # de manutencao continua mandando a senha digitada, que vale para todas.
+    senha_salva = not password
 
     pares, invalidos = [], []
     vistos_novo = set()
@@ -3273,13 +3275,20 @@ def maintenance_batch_change_ips(payload: Dict[str, Any]) -> Dict[str, Any]:
     resultados = list(invalidos)
 
     for p in ordenados:
+        cam_user, cam_pass = user, password
+        if senha_salva:
+            cam_user, cam_pass = _credencial_que_responde(p["ip"], user, "", p.get("connector_id") or "")
+            if not cam_pass:
+                resultados.append({"ip": p["ip"], "new_ip": p["new_ip"], "ok": False,
+                                   "error": "sem senha guardada que funcione nesta camera -- informe a senha"})
+                continue
         rede = {}
         if mascara_fixa and gateway_fixo:
             rede = {"mascara": mascara_fixa, "gateway": gateway_fixo}
         try:
             if not rede:
                 from app.services import camera_xray
-                raio = camera_xray.raio_x_camera(p["ip"], user, password,
+                raio = camera_xray.raio_x_camera(p["ip"], cam_user, cam_pass,
                                                  connector_id=p.get("connector_id") or "")
                 rede = (raio or {}).get("rede") or {}
         except Exception as exc:
@@ -3294,7 +3303,7 @@ def maintenance_batch_change_ips(payload: Dict[str, Any]) -> Dict[str, Any]:
             })
             continue
         r = _change_ip_one(ip=p["ip"], new_ip=p["new_ip"], mask=mascara, gateway=gateway,
-                           dns1="", dns2="", user=user, password=password,
+                           dns1="", dns2="", user=cam_user, password=cam_pass,
                            forcar_rede=forcar_rede)
         r.setdefault("ip", p["ip"])
         r.setdefault("new_ip", p["new_ip"])

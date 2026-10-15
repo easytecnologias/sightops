@@ -399,6 +399,8 @@ async function mapLoadCameraIndex() {
     const camData = await apiJson(`/api/cameras?mode=${encodeURIComponent(m)}&_=${Date.now()}`)
       .catch(() => null);
     (camData?.cameras || []).forEach(c => {
+      // O editor do mapa salva no inventario DESTE modo (/api/cameras/save?mode=).
+      if (!c._mode) c._mode = m;
       const name = String(c.titulo || '').toLowerCase();
       if (name && !byName[name]) byName[name] = c;       // primeiro modo ganha
       const ip = String(c.ip || '');
@@ -1021,7 +1023,8 @@ function renderMapLayerGroup(id, def, skipFit = false) {
              ${(+lat2).toFixed(7)}, ${(+lng2).toFixed(7)}
           </div>
           ${cam?.ip ? `<div style="margin-top:10px;display:flex;gap:6px">
-            <a href="http://${esc(cam.ip)}" target="_blank" style="flex:1;text-align:center;padding:6px;background:#e7f5ff;color:#1971c2;border-radius:6px;font-size:11px;font-weight:600;text-decoration:none;border:1px solid #a5d8ff">Abrir camera</a>
+            <button type="button" data-mcp-abrir="aovivo" class="mcp-pop-btn">Ver ao vivo</button>
+            <button type="button" data-mcp-abrir="dados" class="mcp-pop-btn mcp-pop-btn-pri">Editar ao lado</button>
           </div>` : ''}
           ${podeEditarPonto ? `${!cam ? `<div style="margin-top:8px;padding:6px 8px;background:#fff9db;border:1px solid #ffec99;border-radius:6px;font-size:11px;color:#997404">Este ponto nao casa com nenhuma camera do inventario. Renomeie com o nome exato da camera para ele passar a casar.</div>` : ''}
           <div style="margin-top:8px;display:flex;gap:6px">
@@ -1036,6 +1039,25 @@ function renderMapLayerGroup(id, def, skipFit = false) {
           const repetidos = _porNome[nomePonto.toLowerCase()] || 1;
           el?.querySelector('[data-map-point-rename]')?.addEventListener('click', () => openMapPointRename(def, nomePonto));
           el?.querySelector('[data-map-point-delete]')?.addEventListener('click', () => handleMapPointDelete(def, nomePonto, repetidos));
+        });
+      }
+      // Editor ao lado (mapCamPanel): o marcador guarda o que o painel precisa
+      // para editar e salvar esta camera sem reconsultar o inventario.
+      if (cam?.ip) {
+        marker._mcp = { def, feature: f, cam, nomePonto: mapFeatureName(f), layerId: id, key: featureKey };
+        marker.on('popupopen', () => {
+          const el = marker.getPopup()?.getElement();
+          el?.querySelectorAll('[data-mcp-abrir]').forEach(b => b.addEventListener('click', () => {
+            marker.closePopup();
+            openMapCamPanel(featureKey, b.dataset.mcpAbrir);
+          }));
+        });
+        marker.on('click', () => {
+          // Com o painel aberto, clicar em outro pino troca a camera do painel.
+          if (_mcp.key && _mcp.key !== featureKey) {
+            marker.closePopup();
+            openMapCamPanel(featureKey, _mcp.aba);
+          }
         });
       }
       state.markers[featureKey] = marker;
@@ -2879,4 +2901,386 @@ async function salvarOcorrencia(limpar) {
   } finally {
     if (botao) botao.disabled = false;
   }
+}
+
+// ============================================================================
+// Editor de camera no mapa (painel ao lado)
+//
+// Clique no pino -> "Editar ao lado": ao vivo, nome/local, IP, acoes e
+// posicao, sem sair do mapa. As alteracoes ficam em rascunho POR CAMERA
+// (da para passar de uma para outra) e so vao para o inventario no "Salvar":
+//  - nome/local -> /api/cameras/save (inventario do modo daquela camera);
+//  - IP         -> /api/maintenance/batch/change_ips, a rotina que le a rede
+//                  da propria camera, troca, espera ela responder no IP novo e
+//                  so entao grava o inventario e renomeia o host do Zabbix;
+//  - posicao e nome do ponto -> PATCH da camada KMZ. O pino casa com a camera
+//    pelo NOME (e pelo IP da descricao): trocar o nome so no inventario
+//    soltaria o pino, por isso o ponto e renomeado junto.
+// Nenhum desses caminhos pede senha aqui: todos usam a senha guardada da
+// camera, conferida contra ela.
+// ============================================================================
+let _mcp = { key: null, aba: 'aovivo', drafts: {}, live: null, subtype: 1, movendo: null, salvando: false };
+
+function mcpEntradas() {
+  const out = [];
+  Object.values(_mapLayerGroups || {}).forEach(st => {
+    if (!st?.active || !st.markers) return;
+    Object.entries(st.markers).forEach(([key, m]) => {
+      if (m?._mcp?.cam) out.push({ key, marker: m, ...m._mcp });
+    });
+  });
+  return out;
+}
+
+function mcpEntrada(key) {
+  return mcpEntradas().find(e => e.key === key) || null;
+}
+
+// O "antes" vem do que esta GRAVADO (inventario e coordenada do KMZ), nunca do
+// pino na tela -- o pino arrastado ja esta no lugar novo.
+function mcpOriginal(e) {
+  const c = e.feature?.geometry?.coordinates || [];
+  return {
+    nome: String(e.cam.titulo || e.nomePonto || '').trim(),
+    local: String(e.cam.local || '').trim(),
+    ip: String(e.cam.ip || '').trim(),
+    lat: Number(c[1]), lng: Number(c[0]),
+  };
+}
+
+function mcpValor(e) {
+  return { ...mcpOriginal(e), ...(_mcp.drafts[e.key] || {}) };
+}
+
+function mcpSetDraft(key, patch) {
+  _mcp.drafts[key] = { ...(_mcp.drafts[key] || {}), ...patch };
+}
+
+function mcpMudancas() {
+  const out = [];
+  Object.keys(_mcp.drafts).forEach(key => {
+    const e = mcpEntrada(key);
+    if (!e) return;
+    const o = mcpOriginal(e); const d = _mcp.drafts[key];
+    [['nome', 'Nome'], ['local', 'Local'], ['ip', 'IP']].forEach(([k, rot]) => {
+      if (d[k] !== undefined && String(d[k]).trim() !== String(o[k])) {
+        out.push({ key, camera: o.nome || o.ip, campo: rot, k, de: o[k] || '(vazio)', para: String(d[k]).trim() || '(vazio)' });
+      }
+    });
+    if (d.lat !== undefined && (Math.abs(d.lat - o.lat) > 1e-7 || Math.abs(d.lng - o.lng) > 1e-7)) {
+      out.push({ key, camera: o.nome || o.ip, campo: 'Posição', k: 'pos', de: 'ponto atual', para: 'novo ponto' });
+    }
+  });
+  return out;
+}
+
+function mcpPararAoVivo() {
+  try { _mcp.live?.stop(); } catch (_) {}
+  _mcp.live = null;
+}
+
+function mcpCancelarMover() {
+  const m = _mcp.movendo;
+  if (!m) return;
+  try { m.marker.dragging?.disable(); } catch (_) {}
+  _mcp.movendo = null;
+}
+
+function openMapCamPanel(key, aba) {
+  const e = mcpEntrada(key);
+  if (!e) return;
+  if (_mcp.key !== key) { mcpPararAoVivo(); mcpCancelarMover(); }
+  _mcp.key = key;
+  if (aba) _mcp.aba = aba;
+  document.getElementById('mapCamPanel')?.classList.remove('hidden');
+  renderMapCamPanel();
+  setTimeout(() => { try { _map?.invalidateSize(); _map?.panTo(e.marker.getLatLng()); } catch (_) {} }, 60);
+}
+
+function closeMapCamPanel() {
+  mcpPararAoVivo();
+  mcpCancelarMover();
+  _mcp.key = null;
+  const el = document.getElementById('mapCamPanel');
+  if (el) { el.classList.add('hidden'); el.innerHTML = ''; }
+  setTimeout(() => { try { _map?.invalidateSize(); } catch (_) {} }, 60);
+}
+
+function mcpPassar(passo) {
+  const lista = mcpEntradas();
+  if (!lista.length) return;
+  const i = Math.max(0, lista.findIndex(x => x.key === _mcp.key));
+  openMapCamPanel(lista[(i + passo + lista.length) % lista.length].key);
+}
+
+function mcpCampo(rotulo, html) {
+  return `<label class="mcp-campo"><span>${rotulo}</span>${html}</label>`;
+}
+
+function mcpCorpo(e, v) {
+  const cam = e.cam;
+  if (_mcp.aba === 'aovivo') {
+    return `
+      <div class="mcp-video"><video id="mcpVideo" muted playsinline autoplay></video>
+        <span class="mcp-live">AO VIVO</span><span class="mcp-video-ip">${esc(cam.ip)}</span>
+        <div class="mcp-video-status" id="mcpVideoStatus">conectando…</div></div>
+      <div class="mcp-linha">
+        <div class="mcp-seg" role="group" aria-label="Qualidade">
+          <button type="button" data-mcp-sub="1" aria-pressed="${_mcp.subtype === 1}">Leve</button>
+          <button type="button" data-mcp-sub="0" aria-pressed="${_mcp.subtype === 0}">HD</button>
+        </div>
+        <button type="button" class="secondary-action" data-mcp-acao="foto">Tirar foto agora</button>
+      </div>
+      <p class="mcp-dica">Com o painel aberto, clique em outro pino ou use ‹ › para passar de câmera em câmera. O que já editou fica guardado até salvar.</p>`;
+  }
+  if (_mcp.aba === 'dados') {
+    return `
+      ${mcpCampo('Nome no mapa e no inventário', `<input class="mcp-input" data-mcp-campo="nome" value="${esc(v.nome)}">`)}
+      ${mcpCampo('Local / setor', `<input class="mcp-input" data-mcp-campo="local" value="${esc(v.local)}">`)}
+      <div class="mcp-ficha">
+        <span>Modelo</span><b>${esc(cam.model || cam.modelo || cam.fabricante || '-')}</b>
+        <span>MAC</span><b class="mono">${esc(cam.mac || '-')}</b>
+        <span>Inventário</span><b>${esc(cam._mode || '-')}</b>
+        <span>Ponto no KMZ</span><b>${esc(e.nomePonto || '(sem nome)')}</b>
+      </div>`;
+  }
+  if (_mcp.aba === 'rede') {
+    return `
+      <div class="mcp-grade">
+        ${mcpCampo('IP atual', `<input class="mcp-input mono" value="${esc(cam.ip)}" readonly>`)}
+        ${mcpCampo('Novo IP', `<input class="mcp-input mono" data-mcp-campo="ip" value="${esc(v.ip)}" inputmode="decimal">`)}
+      </div>
+      <div class="mcp-aviso-azul">Ao salvar, o SightOps lê a máscara e o gateway <b>da própria câmera</b>, troca o IP nela e espera ela responder no endereço novo. Só então o inventário e o Zabbix mudam. Se ela não responder, nada é alterado.</div>
+      <button type="button" class="secondary-action" data-mcp-acao="iplivre">Ver se o IP novo está livre</button>
+      <div id="mcpIpLivre" class="mcp-dica"></div>`;
+  }
+  if (_mcp.aba === 'acoes') {
+    const acoes = [['foto', 'Tirar foto agora', 'Atualiza a miniatura do mapa'], ['web', 'Abrir página da câmera', 'Pelo SightOps Agent'],
+      ['ping', 'Ping', 'Pelo conector do site'], ['reiniciar', 'Reiniciar câmera', 'Volta em ~1 min']];
+    return `<div class="mcp-acoes">${acoes.map(([k, t, s]) => `<button type="button" data-mcp-acao="${k}"><b>${t}</b><small>${s}</small></button>`).join('')}</div>`;
+  }
+  const movendo = _mcp.movendo?.key === e.key;
+  return `
+    <button type="button" class="${movendo ? 'mcp-btn-perigo' : 'mcp-btn-azul'}" data-mcp-acao="mover">${movendo ? 'Cancelar: não mover' : 'Mover no mapa (arraste o pino)'}</button>
+    <div class="mcp-grade">
+      ${mcpCampo('Latitude', `<input class="mcp-input mono" value="${Number(v.lat).toFixed(7)}" readonly>`)}
+      ${mcpCampo('Longitude', `<input class="mcp-input mono" value="${Number(v.lng).toFixed(7)}" readonly>`)}
+    </div>
+    <p class="mcp-dica">A posição nova vai para a camada <b>${esc(e.def?.label || e.layerId || '')}</b> ao salvar.</p>`;
+}
+
+function renderMapCamPanel() {
+  const el = document.getElementById('mapCamPanel');
+  const e = mcpEntrada(_mcp.key);
+  if (!el || !e) return;
+  const v = mcpValor(e);
+  const cam = e.cam;
+  const online = String(cam.status || '').toLowerCase() === 'online';
+  const mud = mcpMudancas();
+  const editadas = new Set(mud.map(m => m.key));
+  const abas = [['aovivo', 'Ao vivo'], ['dados', 'Dados'], ['rede', 'Rede'], ['acoes', 'Ações'], ['posicao', 'Posição']];
+
+  el.innerHTML = `
+    <div class="mcp-topo">
+      <button type="button" class="mcp-ico" data-mcp-ir="-1" aria-label="Câmera anterior"><i data-lucide="chevron-left"></i></button>
+      <div class="mcp-titulo"><b>${esc(v.nome || cam.ip)}</b><small>${esc([v.local, cam.ip].filter(Boolean).join(' · '))}</small></div>
+      <span class="mcp-pill ${online ? 'ok' : 'erro'}">${online ? 'ONLINE' : 'OFFLINE'}</span>
+      <button type="button" class="mcp-ico" data-mcp-ir="1" aria-label="Próxima câmera"><i data-lucide="chevron-right"></i></button>
+      <button type="button" class="mcp-ico" data-mcp-fechar aria-label="Fechar painel"><i data-lucide="x"></i></button>
+    </div>
+    <div class="mcp-abas" role="tablist">${abas.map(([k, n]) => `<button type="button" role="tab" data-mcp-aba="${k}" aria-selected="${_mcp.aba === k}">${n}</button>`).join('')}</div>
+    <div class="mcp-corpo">${mcpCorpo(e, v)}</div>
+    <div class="mcp-rodape">
+      ${mud.length ? `<b>${mud.length} alteração(ões) em ${editadas.size} câmera(s) — ainda não salvas</b>
+        <div class="mcp-mudancas">${mud.map(m => `<div><b>${esc(m.camera)}</b> <span>${esc(m.campo)}:</span> <s>${esc(m.de)}</s> → <em>${esc(m.para)}</em>${m.k === 'ip' ? ' <span class="mcp-tag">também na câmera</span>' : ''}</div>`).join('')}</div>`
+        : '<span class="mcp-dica">Nenhuma alteração ainda.</span>'}
+      <div class="mcp-linha">
+        <button type="button" class="secondary-action" data-mcp-descartar ${mud.length ? '' : 'disabled'}>Descartar</button>
+        <button type="button" class="primary-action mcp-salvar" data-mcp-salvar ${mud.length && !_mcp.salvando ? '' : 'disabled'}>${_mcp.salvando ? 'Salvando…' : 'Salvar no inventário'}</button>
+      </div>
+    </div>`;
+  if (window.lucide) lucide.createIcons();
+
+  el.querySelector('[data-mcp-fechar]')?.addEventListener('click', closeMapCamPanel);
+  el.querySelectorAll('[data-mcp-ir]').forEach(b => b.addEventListener('click', () => mcpPassar(Number(b.dataset.mcpIr))));
+  el.querySelectorAll('[data-mcp-aba]').forEach(b => b.addEventListener('click', () => {
+    if (b.dataset.mcpAba !== 'aovivo') mcpPararAoVivo();
+    _mcp.aba = b.dataset.mcpAba;
+    renderMapCamPanel();
+  }));
+  el.querySelectorAll('[data-mcp-campo]').forEach(inp => inp.addEventListener('change', () => {
+    mcpSetDraft(e.key, { [inp.dataset.mcpCampo]: inp.value.trim() });
+    renderMapCamPanel();
+  }));
+  el.querySelectorAll('[data-mcp-sub]').forEach(b => b.addEventListener('click', () => {
+    _mcp.subtype = Number(b.dataset.mcpSub);
+    try { _mcp.live?.setSubtype(_mcp.subtype); } catch (_) {}
+    el.querySelectorAll('[data-mcp-sub]').forEach(x => x.setAttribute('aria-pressed', String(Number(x.dataset.mcpSub) === _mcp.subtype)));
+  }));
+  el.querySelectorAll('[data-mcp-acao]').forEach(b => b.addEventListener('click', () => mcpAcao(b.dataset.mcpAcao, e)));
+  el.querySelector('[data-mcp-descartar]')?.addEventListener('click', mcpDescartar);
+  el.querySelector('[data-mcp-salvar]')?.addEventListener('click', mcpSalvar);
+
+  if (_mcp.aba === 'aovivo' && !_mcp.live) mcpLigarAoVivo(cam);
+}
+
+function mcpLigarAoVivo(cam) {
+  const video = document.getElementById('mcpVideo');
+  const status = document.getElementById('mcpVideoStatus');
+  if (!video || typeof mountLiveStream !== 'function') return;
+  _mcp.live = mountLiveStream(video, {
+    ip: cam.ip,
+    subtype: _mcp.subtype,
+    vendor: cam.fabricante || '',
+    model: cam.model || cam.modelo || '',
+    connectorId: cam.remote_connector_id || cam.connector_id || '',
+    onStatus: txt => {
+      if (!status) return;
+      status.textContent = txt === 'credential_required' ? 'Sem senha guardada para esta câmera' : (txt || '');
+      status.hidden = !txt;
+    },
+  });
+}
+
+async function mcpAcao(acao, e) {
+  const cam = e.cam;
+  const conector = cam.remote_connector_id || cam.connector_id || '';
+  if (acao === 'web') { openDeviceWeb(cam.ip, cam.http_port || cam.port || 80); return; }
+  if (acao === 'ping') { openPingTerminal(cam.ip, conector); return; }
+  if (acao === 'mover') { mcpAlternarMover(e); return; }
+  if (acao === 'iplivre') { await mcpTestarIpLivre(e); return; }
+  if (acao === 'foto') {
+    showToast('Tirando foto…');
+    const r = await api('/api/cameras/snapshot/capture', { method: 'POST', body: JSON.stringify({ ip: cam.ip, mode: cam._mode || 'olt', remote_connector_id: conector }) }).catch(() => null);
+    const d = await r?.json().catch(() => ({}));
+    const ok = !!r?.ok && d?.ok !== false;
+    showToast(ok ? 'Foto atualizada.' : (d?.detail === 'credential_required' ? 'Sem senha guardada para esta câmera.' : (d?.detail || d?.error || 'Não consegui tirar a foto.')), !ok);
+    return;
+  }
+  if (acao === 'reiniciar') {
+    const ok = await showConfirm({ title: 'Reiniciar câmera', msg: `Reiniciar ${cam.titulo || cam.ip}? Ela fica fora do ar por cerca de 1 minuto.`, label: 'Reiniciar' });
+    if (!ok) return;
+    const r = await api('/api/cameras/reboot', { method: 'POST', body: JSON.stringify({ ip: cam.ip, remote_connector_id: conector }) }).catch(() => null);
+    const d = await r?.json().catch(() => ({}));
+    showToast(d?.ok ? 'Reiniciando.' : (d?.error === 'credential_required' ? 'Sem senha guardada para esta câmera.' : (d?.error || 'Não consegui reiniciar.')), !d?.ok);
+  }
+}
+
+function mcpAlternarMover(e) {
+  if (_mcp.movendo?.key === e.key) {
+    // Cancelar: o pino volta para o ponto gravado (ou para o ultimo rascunho).
+    const v = mcpValor(e);
+    try { e.marker.setLatLng([v.lat, v.lng]); } catch (_) {}
+    mcpCancelarMover();
+    renderMapCamPanel();
+    return;
+  }
+  mcpCancelarMover();
+  try { e.marker.dragging?.enable(); } catch (_) {}
+  _mcp.movendo = { key: e.key, marker: e.marker };
+  e.marker.once('dragend', () => {
+    const ll = e.marker.getLatLng();
+    mcpSetDraft(e.key, { lat: ll.lat, lng: ll.lng });
+    mcpCancelarMover();
+    renderMapCamPanel();
+  });
+  showToast('Arraste o pino até o lugar certo. A posição só é gravada ao salvar.');
+  renderMapCamPanel();
+}
+
+async function mcpTestarIpLivre(e) {
+  const cam = e.cam;
+  const alvo = String(mcpValor(e).ip || '').trim();
+  const box = document.getElementById('mcpIpLivre');
+  const dizer = txt => { if (box) box.textContent = txt; };
+  if (!alvo || alvo === cam.ip) { dizer('Digite um IP novo diferente do atual.'); return; }
+  const doInventario = _mapCameraIndex.byIp[alvo];
+  if (doInventario) { dizer(`Esse IP já é de "${doInventario.titulo || alvo}" no inventário.`); return; }
+  dizer('Testando…');
+  // GET com force=1: o ping tem cache de 10 min, e aqui a pergunta e "agora".
+  const qs = new URLSearchParams({ ip: alvo, force: '1', remote_connector_id: cam.remote_connector_id || cam.connector_id || '' });
+  const d = await apiJson(`/api/cameras/ping?${qs}`, { cacheTtl: 0, forceRefresh: true }).catch(() => null);
+  if (!d) { dizer('Não consegui testar agora.'); return; }
+  const responde = d.reachable === true || d.online === true;
+  dizer(responde ? 'Ocupado: algum equipamento respondeu nesse IP.' : 'Livre: ninguém respondeu nesse IP.');
+}
+
+function mcpDescartar() {
+  // Pino arrastado volta para o ponto gravado.
+  Object.keys(_mcp.drafts).forEach(key => {
+    const e = mcpEntrada(key);
+    const o = e && mcpOriginal(e);
+    if (e && _mcp.drafts[key].lat !== undefined && Number.isFinite(o.lat)) {
+      try { e.marker.setLatLng([o.lat, o.lng]); } catch (_) {}
+    }
+  });
+  mcpCancelarMover();
+  _mcp.drafts = {};
+  renderMapCamPanel();
+}
+
+async function mcpSalvarUma(e) {
+  const o = mcpOriginal(e); const v = mcpValor(e); const cam = e.cam;
+  const conector = cam.remote_connector_id || cam.connector_id || '';
+  let ipAtual = o.ip;
+  if (v.ip && v.ip !== o.ip) {
+    const r = await api('/api/maintenance/batch/change_ips', {
+      method: 'POST',
+      body: JSON.stringify({ itens: [{ ip: o.ip, new_ip: v.ip, connector_id: conector }], user: 'admin' }),
+    });
+    const d = await r?.json().catch(() => ({}));
+    const res = (d?.results || [])[0] || {};
+    if (!r?.ok || !res.ok) throw new Error(`IP não trocado: ${res.error || d?.error || 'sem resposta'}`);
+    ipAtual = v.ip;
+  }
+  if (v.nome !== o.nome || v.local !== o.local) {
+    const r = await api(`/api/cameras/save?mode=${encodeURIComponent(cam._mode || mapInventoryMode())}`, {
+      method: 'POST',
+      body: JSON.stringify({ cameras: [{ ip: ipAtual, remote_connector_id: conector || null, titulo: v.nome, local: v.local }] }),
+    });
+    if (!r?.ok) throw new Error('o inventário não aceitou o nome/local');
+  }
+  if (e.def?.updateUrl && e.nomePonto) {
+    const ponto = {};
+    if (v.nome && v.nome !== o.nome && v.nome !== e.nomePonto) ponto.novo_nome = v.nome;
+    if (Math.abs(v.lat - o.lat) > 1e-7 || Math.abs(v.lng - o.lng) > 1e-7) { ponto.lat = v.lat; ponto.lon = v.lng; }
+    if (Object.keys(ponto).length) {
+      const r = await api(e.def.updateUrl, { method: 'PATCH', body: JSON.stringify({ ponto: { nome: e.nomePonto, ...ponto } }) });
+      const d = await r?.json().catch(() => ({}));
+      if (!r?.ok || d?.ok === false) throw new Error(`ponto do mapa não atualizado: ${d?.detail || d?.error || ''}`);
+    }
+  }
+}
+
+async function mcpSalvar() {
+  const mud = mcpMudancas();
+  if (!mud.length || _mcp.salvando) return;
+  const trocas = mud.filter(m => m.k === 'ip');
+  if (trocas.length) {
+    const lista = trocas.map(m => `${m.camera}: ${m.de} → ${m.para}`).join('; ');
+    const ok = await showConfirm({ title: 'Trocar IP na câmera', msg: `O IP será trocado na própria câmera (${lista}). Ela reinicia a rede e some por alguns segundos.`, label: 'Trocar e salvar' });
+    if (!ok) return;
+  }
+  _mcp.salvando = true;
+  renderMapCamPanel();
+  const falhas = []; let salvas = 0;
+  for (const key of [...new Set(mud.map(m => m.key))]) {
+    const e = mcpEntrada(key);
+    if (!e) continue;
+    try {
+      await mcpSalvarUma(e);
+      delete _mcp.drafts[key];
+      salvas += 1;
+    } catch (err) {
+      falhas.push(`${mcpValor(e).nome || e.cam.ip}: ${err.message || err}`);
+    }
+  }
+  _mcp.salvando = false;
+  // Nome, IP e posicao mudam a chave e o desenho dos pinos: recarrega tudo.
+  closeMapCamPanel();
+  _mcp.drafts = {};
+  await mapLoadCameraIndex();
+  await loadMapLayers();
+  if (falhas.length) showToast(`Salvas ${salvas}. Com problema: ${falhas.join(' | ')}`, true);
+  else showToast(`Salvo no inventário: ${salvas} câmera(s).`);
 }
