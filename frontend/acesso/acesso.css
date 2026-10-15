@@ -393,3 +393,5 @@
 #viewAccessPainel .dv-sugestoes button:hover{border-color:var(--primary);color:var(--primary);background:var(--primary-soft)}
 /* Barra de abas compartilhada entre Painel e Dispositivos (abas que sao links) */
 #viewAccessPainel .access-control-tabs a.tab-btn{text-decoration:none;display:inline-flex;align-items:center}
+/* Aba Dispositivos dentro do Painel: busca e "Novo dispositivo" numa barra */
+#viewAccessPainel .dv-barra{display:flex;justify-content:flex-end;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap}

@@ -1,5 +1,5 @@
-// Dispositivos (/v3/acesso/dispositivos/): leitores faciais e controladoras de
-// cada local. Lista: GET /api/access-control/painel/dispositivos (so leitura).
+// Aba Dispositivos do Painel de Acesso (/v3/acesso/#dispositivos): leitores
+// faciais e controladoras de cada local. Lista: GET /api/access-control/painel/dispositivos (so leitura).
 // Cadastro, teste e remocao usam as rotas que ja existiam e as mesmas
 // permissoes: POST /devices (operador), POST /devices/{id}/test, DELETE (admin).
 // save_device faz UPDATE completo: a edicao reenvia todos os campos do leitor.
@@ -127,7 +127,9 @@ function dvLinha(d) {
 function dvDesenhar() {
   const el = document.getElementById('dvConteudo');
   if (!el || !_dvDados) return;
-  const todos = _dvDados.dispositivos || [];
+  // Respeita o site escolhido no topo do Painel.
+  const siteFiltro = typeof _apSite === 'string' ? _apSite.toUpperCase() : '';
+  const todos = (_dvDados.dispositivos || []).filter(d => !siteFiltro || String(d.site).toUpperCase() === siteFiltro);
   const b = _dvBusca.trim().toLowerCase();
   const lista = todos.filter(d => !b || [d.nome, d.site, d.host, d.modelo, d.conector, (d.ip || {}).virtual]
     .some(x => String(x || '').toLowerCase().includes(b)));
@@ -140,7 +142,7 @@ function dvDesenhar() {
   });
   const conectores = new Map((_dvDados.conectores || []).map(c => [c.id, c]));
   const grupos = [...porLocal.values()].sort((a, b2) => a.site.localeCompare(b2.site, 'pt-BR'));
-  const vazios = b ? [] : locais.filter(l => !l.leitores);
+  const vazios = b || siteFiltro ? [] : locais.filter(l => !l.leitores);
 
   el.innerHTML = `
     ${dvCards(todos)}
@@ -416,17 +418,19 @@ function dvLigarGaveta() {
   dvCampo('dvConfirmaSim').addEventListener('click', dvRemover);
 }
 
-async function dvIniciar() {
-  dvLigarGaveta();
-  dvCampo('dvNovo').addEventListener('click', () => dvAbrir(null, ''));
-  dvCampo('dvBusca').addEventListener('input', ev => { _dvBusca = ev.target.value; dvDesenhar(); });
-  dvCampo('dvAtualizar').addEventListener('click', dvCarregar);
+// Chamado pelo Painel ao abrir a aba: liga os botoes na primeira vez e carrega.
+let _dvLigado = false;
+async function dvAbrirAba() {
+  if (!_dvLigado) {
+    _dvLigado = true;
+    dvLigarGaveta();
+    dvCampo('dvNovo').addEventListener('click', () => dvAbrir(null, typeof _apSite === 'string' ? _apSite : ''));
+    dvCampo('dvBusca').addEventListener('input', ev => { _dvBusca = ev.target.value; dvDesenhar(); });
+  }
+  if (_dvDados) dvDesenhar();
   try {
     await dvCarregar();
   } catch (err) {
-    dvCampo('dvConteudo').innerHTML = `<p class="ap-vazio">Não consegui carregar os dispositivos: ${esc((err && err.message) || err)}</p>`;
+    if (!_dvDados) dvCampo('dvConteudo').innerHTML = `<p class="ap-vazio">Não consegui carregar os dispositivos: ${esc((err && err.message) || err)}</p>`;
   }
-  setInterval(() => { if (!document.hidden && dvCampo('dvGaveta').hidden) dvCarregar().catch(() => {}); }, 60000);
 }
-
-window.acPagina = { id: 'dispositivos', iniciar: dvIniciar };

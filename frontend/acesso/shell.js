@@ -11,7 +11,7 @@ const AC_RAIZ = (() => {
   const i = p.lastIndexOf('/acesso/');
   return i >= 0 ? p.slice(0, i + 1) : '../';
 })();
-const AC_PAGINAS = { painel: 'acesso/', dispositivos: 'acesso/dispositivos/' };
+const AC_PAGINAS = { painel: 'acesso/#vivo', dispositivos: 'acesso/#dispositivos' };
 
 function esc(str) {
   return String(str ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -98,7 +98,8 @@ function acLigarShell() {
   document.querySelectorAll('#sidebar .nav-item[data-pagina]').forEach(btn => {
     const aqui = btn.dataset.pagina === pagina;
     btn.classList.toggle('active', aqui);
-    btn.addEventListener('click', () => { if (!aqui) window.location.href = AC_RAIZ + AC_PAGINAS[btn.dataset.pagina]; });
+    // Mesmo documento com outra aba (#...) so troca a aba, sem recarregar.
+    btn.addEventListener('click', () => { window.location.href = AC_RAIZ + AC_PAGINAS[btn.dataset.pagina]; });
   });
   document.querySelectorAll('#sidebar .nav-group-toggle').forEach(btn => btn.addEventListener('click', () => {
     const g = btn.closest('.nav-group');

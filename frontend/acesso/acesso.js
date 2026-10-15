@@ -19,7 +19,7 @@ let _apPessoa = '';          // "ver so esta pessoa"
 let _apSel = '';             // passagem escolhida ('' = segue a mais recente)
 let _apPausado = false;
 let _apTopoVisto = '';       // id da passagem mais recente desenhada (para contar novas na pausa)
-const AP_TELAS = ['vivo', 'portas', 'alertas', 'relatorios'];
+const AP_TELAS = ['vivo', 'dispositivos', 'portas', 'alertas', 'relatorios'];
 
 // ---- datas: o leitor grava hora local sem fuso; o WhatsApp grava UTC ----
 function apLocal(s) { const d = new Date(String(s || '').slice(0, 19).replace(' ', 'T')); return isNaN(d) ? null : d; }
@@ -649,6 +649,7 @@ async function apGeral(forcar) {
 }
 
 function apDesenharAtual() {
+  if (_apTela === 'dispositivos') { apMarcarAba(); return; }   // a aba Dispositivos se desenha sozinha (dispositivos.js)
   apMostrarPerfil((_apTela === 'relatorios' ? (_apDados.rel || {}).perfil : (_apDados.vivo || {}).perfil) || (_apDados.geral || {}).perfil);
   if (_apTela === 'vivo') apDesenharVivo(_apDados.vivo || {});
   else if (_apTela === 'portas') apDesenharPortas(_apDados.vivo || {});
@@ -661,6 +662,10 @@ function apDesenharAtual() {
 }
 
 async function apAtualizar(manual) {
+  if (_apTela === 'dispositivos') {
+    dvCarregar().catch(() => {});
+    return;
+  }
   if (_apCarregando) return;
   _apCarregando = true;
   try {
@@ -711,9 +716,14 @@ function apTrocarTela(tela) {
   document.getElementById('apPortas').hidden = _apTela !== 'portas';
   document.getElementById('apAlertas').hidden = _apTela !== 'alertas';
   document.getElementById('apRel').hidden = _apTela !== 'relatorios';
+  document.getElementById('apDisp').hidden = _apTela !== 'dispositivos';
+  // Menu lateral: "Dispositivos" acende na aba dele; nas outras, "Painel de Acesso".
+  document.querySelectorAll('#sidebar .nav-item[data-pagina]').forEach(b =>
+    b.classList.toggle('active', b.dataset.pagina === (_apTela === 'dispositivos' ? 'dispositivos' : 'painel')));
   try { sessionStorage.setItem('sightops.acesso.painel.tela', _apTela); } catch (_) {}
   try { history.replaceState(null, '', '#' + _apTela); } catch (_) {}
   apLigarStream();
+  if (_apTela === 'dispositivos') { dvAbrirAba(); return; }
   // Troca de aba desenha na hora com o que ja tem; o fetch atualiza depois.
   if ((_apTela === 'relatorios' && _apDados.rel) || (_apTela !== 'relatorios' && _apDados.vivo)) apDesenharAtual();
   apAtualizar();
@@ -753,9 +763,16 @@ async function loadAccessPainel() {
   } catch (_) { /* a propria tela mostra o erro ao carregar */ }
   let salva = 'vivo';
   try { salva = sessionStorage.getItem('sightops.acesso.painel.tela') || 'vivo'; } catch (_) {}
-  // Vindo da pagina de Dispositivos (../#portas): a aba do endereco manda.
+  // A aba do endereco manda (/v3/acesso/#dispositivos, link do menu, recarregar).
   const pedida = window.location.hash.slice(1);
   if (AP_TELAS.includes(pedida)) salva = pedida;
+  if (!window._apHashLigado) {
+    window._apHashLigado = true;
+    window.addEventListener('hashchange', () => {
+      const h = window.location.hash.slice(1);
+      if (AP_TELAS.includes(h) && h !== _apTela) apTrocarTela(h);
+    });
+  }
   stopAccessPainel();
   apTrocarTela(salva);
   _apTimer = setInterval(() => { if (!document.hidden) apAtualizar(); }, 20000);
