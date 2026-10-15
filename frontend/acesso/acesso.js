@@ -270,21 +270,49 @@ function apFiltradas(lista) {
     && (!b || [p.nome, p.turma, p.porta, apUnidade(p.nome, p.site)].some(x => String(x || '').toLowerCase().includes(b))));
 }
 
+// Cards do topo: mescla dos cards antigos (icone colorido, rotulo, numero
+// grande, linha de contexto) com a faixa nova (uma peca so, compacta, clicavel
+// e com a cor dizendo o estado: verde normal, ambar atencao, vermelho problema).
 function apSaude(d) {
   const r = d.resumo || {}, ah = d.avisos_hoje || {};
   const totAv = (ah.lido || 0) + (ah.entregue || 0) + (ah.enviado || 0) + (ah.falha || 0);
   const portas = d.portas || [];
   const vivas = portas.filter(apPortaViva).length;
-  const item = (cor, val, rot, tela) => `<button type="button" class="ap-sau" ${tela ? `data-ap-ir="${tela}"` : ''}>
-      <span class="ap-pt ${cor}"></span><span><b class="monospace">${val}</b><small>${rot}</small></span></button>`;
-  const semCad = r.without_person || 0;
-  return `<div class="ap-saude">
-    ${item(vivas === portas.length ? 'ok' : 'ruim', `${vivas} de ${portas.length}`, 'leitores com sinal', 'portas')}
-    ${item('ok', apNum(r.inside_now ?? 0), apVocab().dentro, 'relatorios')}
-    ${item('ok', `${apNum(r.entries ?? 0)} · ${apNum(r.exits ?? 0)}`, 'entradas · saídas hoje', '')}
-    ${_apUsaAvisos ? item(ah.falha ? 'am' : 'ok', totAv ? apPct((ah.lido || 0) + (ah.entregue || 0), totAv) + '%' : '—', `avisos entregues hoje${ah.falha ? ' · ' + ah.falha + ' não' : ''}`, 'alertas') : ''}
-    ${item(semCad ? 'am' : 'ok', apNum(semCad), apEhCondominio() ? 'passagens de quem só está no leitor' : 'passagens sem cadastro', '')}
-  </div>`;
+  const semCad = r.without_person || 0, total = r.total || 0;
+  const alunos = (d.turmas || []).reduce((n, t) => n + (t.total || 0), 0);
+  const card = ({ icone, cor, estado = '', rot, val, sub, subCor = '', tela = '' }) => `
+    <button type="button" class="ap-card ${estado}" ${tela ? `data-ap-ir="${tela}" title="Abrir ${tela}"` : 'disabled'}>
+      <span class="metric-icon ${cor}"><i data-lucide="${icone}"></i></span>
+      <span class="ap-card-txt"><span class="ap-card-rot">${rot}</span>
+        <strong class="ap-card-val">${val}</strong>
+        <small class="${subCor}">${sub}</small></span>
+      ${tela ? '<i data-lucide="chevron-right" class="ap-card-ir"></i>' : ''}
+    </button>`;
+  const cards = [];
+  const semSinal = portas.length - vivas;
+  cards.push(card({ icone: 'door-open', cor: semSinal ? 'red' : 'green', estado: semSinal ? 'ruim' : '',
+    rot: 'Leitores com sinal', val: `${vivas}<span class="ap-card-de">/${portas.length}</span>`,
+    sub: semSinal ? `${semSinal} sem sinal` : 'todos respondendo', subCor: semSinal ? 'ruim' : '', tela: 'portas' }));
+  const dentro = r.inside_now ?? 0;
+  cards.push(card({ icone: 'users', cor: 'cyan', rot: apEhCondominio() ? 'Dentro agora' : 'Presentes agora', val: apNum(dentro),
+    sub: !apEhCondominio() && alunos ? `de ${apNum(alunos)} alunos ativos` : 'última passagem foi entrada', tela: 'relatorios' }));
+  cards.push(card({ icone: 'log-in', cor: 'green', rot: 'Entradas hoje', val: apNum(r.entries ?? 0),
+    sub: `${apNum(r.exits ?? 0)} saída${(r.exits ?? 0) === 1 ? '' : 's'}${r.manual_exits ? ` · ${r.manual_exits} manual` : ''}` }));
+  if (_apUsaAvisos) {
+    const entregues = (ah.lido || 0) + (ah.entregue || 0);
+    const pct = totAv ? apPct(entregues, totAv) : null;
+    const ruim = (ah.falha || 0) > 0;
+    cards.push(card({ icone: 'message-circle', cor: ruim ? (pct !== null && pct < 90 ? 'red' : 'amber') : 'green', estado: ruim ? 'atencao' : '',
+      rot: 'Avisos entregues', val: pct === null ? '—' : pct + '%',
+      sub: ruim ? `${ah.falha} não entregue${ah.falha === 1 ? '' : 's'} hoje` : (totAv ? `${apPct(ah.lido || 0, totAv)}% lidos pelos responsáveis` : 'nenhum aviso hoje'),
+      subCor: ruim ? 'atencao' : '', tela: 'alertas' }));
+  }
+  const comum = total >= 20 && semCad / total >= 0.2;
+  cards.push(card({ icone: 'user-x', cor: semCad ? 'amber' : 'blue', estado: semCad && !comum ? 'atencao' : '',
+    rot: apEhCondominio() ? 'Só no leitor' : 'Sem cadastro', val: apNum(semCad),
+    sub: semCad ? `${apPct(semCad, total)}% das passagens de hoje` : 'todas no cadastro',
+    subCor: semCad && !comum ? 'atencao' : '', tela: semCad ? 'relatorios' : '' }));
+  return `<div class="ap-cards">${cards.join('')}</div>`;
 }
 
 function apLinhaPassagem(p, sel) {

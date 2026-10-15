@@ -152,3 +152,24 @@
 #viewAccessPainel .ap-perfil.misto{background:var(--primary-soft);color:var(--primary);border-color:transparent}
 #viewAccessPainel .ap-tr.atual b{color:var(--primary)}
 #viewAccessPainel .ap-dica-pe{margin:0;border-radius:0;border-width:1px 0 0}
+/* cards do topo: mescla dos cards antigos com a faixa */
+#viewAccessPainel .ap-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden;margin-bottom:14px}
+#viewAccessPainel .ap-card{position:relative;display:flex;align-items:center;gap:14px;padding:16px 18px;border:0;border-right:1px solid var(--border);background:none;font:inherit;color:inherit;text-align:left;min-width:0;cursor:pointer;transition:background .15s}
+#viewAccessPainel .ap-card:last-child{border-right:0}
+#viewAccessPainel .ap-card[disabled]{cursor:default;opacity:1}
+#viewAccessPainel .ap-card:not([disabled]):hover{background:var(--surface-soft)}
+#viewAccessPainel .ap-card:focus-visible{outline:2px solid var(--primary);outline-offset:-2px}
+#viewAccessPainel .ap-card::after{content:"";position:absolute;left:0;right:0;bottom:0;height:3px;background:transparent}
+#viewAccessPainel .ap-card.atencao::after{background:var(--amber)}
+#viewAccessPainel .ap-card.ruim::after{background:var(--danger)}
+#viewAccessPainel .ap-card .metric-icon{flex:0 0 auto;margin:0}
+#viewAccessPainel .ap-card-txt{display:flex;flex-direction:column;min-width:0;flex:1}
+#viewAccessPainel .ap-card-rot{font-size:12px;color:var(--muted);margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#viewAccessPainel .ap-card-val{font-size:24px;font-weight:700;line-height:1.1;font-variant-numeric:tabular-nums}
+#viewAccessPainel .ap-card-de{font-size:15px;font-weight:600;color:var(--muted)}
+#viewAccessPainel .ap-card small{font-size:12px;color:var(--muted);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#viewAccessPainel .ap-card small.atencao{color:var(--amber);font-weight:600}
+#viewAccessPainel .ap-card small.ruim{color:var(--danger);font-weight:600}
+#viewAccessPainel .ap-card-ir{width:16px;height:16px;color:var(--border);flex:0 0 auto;transition:color .15s,transform .15s}
+#viewAccessPainel .ap-card:not([disabled]):hover .ap-card-ir{color:var(--primary);transform:translateX(2px)}
+@media(max-width:720px){#viewAccessPainel .ap-cards{grid-template-columns:1fr 1fr}#viewAccessPainel .ap-card{border-bottom:1px solid var(--border);padding:12px 14px;gap:10px}#viewAccessPainel .ap-card-ir{display:none}#viewAccessPainel .ap-card-val{font-size:20px}}
