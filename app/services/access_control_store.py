@@ -410,10 +410,22 @@ def save_person(payload: Dict[str, Any]) -> Dict[str, Any]:
     # desta checagem existir -- mesma pessoa, duas matriculas, sem CPF pra
     # flagrar que era a mesma gente).
     document_id = _clean_cpf(payload.get("document_id"))
-    if not document_id:
+    # Excecao (decisao do usuario em 15/10/2026): pessoa que ja existe num
+    # leitor e foi trazida dele. Leitor Intelbras nao guarda CPF; o ID no
+    # leitor e a identidade dela ate alguem preencher o CPF.
+    id_no_leitor = re.sub(r"\D", "", str(payload.get("controller_user_id") or ""))[:32]
+    if not document_id and not id_no_leitor:
         raise ValueError("Informe o CPF da pessoa.")
-    if len(document_id) != 11:
+    if document_id and len(document_id) != 11:
         raise ValueError(f"CPF invalido: precisa ter 11 digitos ({document_id!r}).")
+    if not document_id:
+        with db_store._conn() as conn:
+            dono = conn.execute(
+                "SELECT id FROM access_people WHERE tenant_slug=? AND controller_user_id=?",
+                (tenant, id_no_leitor),
+            ).fetchone()
+        if dono and dict(dono)["id"] != person_id:
+            raise ValueError(f"O ID {id_no_leitor} no leitor ja pertence a outra pessoa neste cliente.")
 
     # A matricula identifica o aluno para a escola. Sem casar por ela, gravar o
     # mesmo aluno de novo criaria outro UUID e outra pessoa -- que e o que
@@ -436,11 +448,12 @@ def save_person(payload: Dict[str, Any]) -> Dict[str, Any]:
     # casa por ele tambem pra pegar o caso "matricula trocou, pessoa e a
     # mesma" em vez de criar duplicata.
     existente_por_cpf = None
+    # Sem CPF nao procura: document_id='' casaria com toda pessoa sem CPF.
     with db_store._conn() as conn:
         achado_cpf = conn.execute(
             "SELECT id FROM access_people WHERE tenant_slug=? AND document_id=?",
             (tenant, document_id),
-        ).fetchone()
+        ).fetchone() if document_id else None
     if achado_cpf:
         existente_por_cpf = dict(achado_cpf)["id"]
         if person_id and person_id != existente_por_cpf:

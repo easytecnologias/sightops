@@ -239,3 +239,80 @@ def excluir(person_id: str, remover=None) -> Dict[str, Any]:
         c.execute("DELETE FROM access_provision_status WHERE tenant_slug=? AND person_id=?", (tenant, pid))
     delete_person(pid)
     return {"ok": True, "excluida": True, "desativada": False, "removidos": removidos, "falhas": []}
+
+
+# ---------------------------------------------------------------- trazer do leitor
+
+def _nome_do_leitor(nome: str) -> str:
+    """'ADRIZIA.jpg I 29' -> 'ADRIZIA I 29': quem cadastrou no leitor colou o
+    nome do arquivo da foto junto do nome."""
+    import re
+    return " ".join(re.sub(r"\.(jpe?g|png|bmp|webp)\b", " ", _t(nome), flags=re.I).split())
+
+
+def trazer_do_leitor(device_id: str, site: str = "", usuario: str = "", progresso=None,
+                     listar=None, baixar_foto=None) -> Dict[str, Any]:
+    """Cadastra no SightOps quem esta no leitor, com a foto. So LE o leitor:
+    nada de grupo, porta ou envio. Leitor nao guarda CPF: a pessoa entra sem
+    CPF e o ID no leitor e a identidade dela (excecao em save_person). Quem ja
+    existe com o mesmo ID no leitor nao e mexido (so ganha a foto que faltava)."""
+    from datetime import datetime, timedelta, timezone
+    from app.services.access_control_device import get_controller_person_photo, list_controller_people
+    from app.services.access_control_import import TIPO_PADRAO, _tipo_do_local
+    from app.services.access_control_photos import save_person_face_photo
+    from app.services.access_control_store import get_device_with_password, save_person
+
+    device = get_device_with_password(device_id)
+    if not device:
+        raise HTTPException(status_code=404, detail="Leitor nao encontrado neste cliente.")
+    listar = listar or list_controller_people
+    baixar_foto = baixar_foto or get_controller_person_photo
+    progresso = progresso or (lambda feitas, total: None)
+    site = _t(site) or _t(device.get("site"))
+    tipo = TIPO_PADRAO.get(_tipo_do_local(site), "visitor")
+    hoje = datetime.now(timezone(timedelta(hours=-3))).strftime("%d/%m/%Y")
+    tenant = _tenant()
+    existentes = {_t(r["controller_user_id"]): r for r in _rows(
+        "SELECT id, controller_user_id, face_photo_path FROM access_people WHERE tenant_slug=? AND controller_user_id<>''",
+        (tenant,))}
+
+    lidas = listar(device)
+    r: Dict[str, Any] = {"ok": True, "leitor": _t(device.get("name")), "site": site, "tipo": tipo, "lidas": len(lidas),
+                         "criadas": 0, "ja_existiam": 0, "fotos": 0, "sem_foto": [], "recusadas": []}
+    for n, p in enumerate(lidas):
+        progresso(n, len(lidas))
+        uid, nome = _t(p.get("controller_user_id")), _nome_do_leitor(p.get("full_name"))
+        if not uid or not nome:
+            r["recusadas"].append({"id": uid, "nome": nome, "motivo": "sem ID ou sem nome no leitor"})
+            continue
+        atual = existentes.get(uid)
+        if atual:
+            r["ja_existiam"] += 1
+            pid, tem_foto = atual["id"], bool(_t(atual.get("face_photo_path")))
+        else:
+            try:
+                novo = save_person({
+                    "full_name": nome, "person_type": tipo, "document_id": "", "enrollment_code": "",
+                    "site": site, "controller_user_id": uid, "whatsapp_enabled": False,
+                    "active": _t(p.get("raw_active")) in ("", "0"),
+                    "notes": f"Trazido do leitor {_t(device.get('name'))} em {hoje}" + (f" por {usuario}" if usuario else "") + ". Sem CPF.",
+                })
+            except ValueError as exc:
+                r["recusadas"].append({"id": uid, "nome": nome, "motivo": _t(exc)})
+                continue
+            r["criadas"] += 1
+            existentes[uid] = novo
+            pid, tem_foto = novo["id"], False
+        if tem_foto:
+            continue
+        try:
+            foto = baixar_foto(device, uid)
+            if foto:
+                save_person_face_photo(pid, foto)
+                r["fotos"] += 1
+            else:
+                r["sem_foto"].append({"id": uid, "nome": nome})
+        except Exception as exc:   # foto ruim nao derruba o cadastro
+            r["sem_foto"].append({"id": uid, "nome": nome, "erro": _t(getattr(exc, "detail", exc))})
+    progresso(len(lidas), len(lidas))
+    return r

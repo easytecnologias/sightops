@@ -116,3 +116,35 @@ def test_lista_traz_grupos_leitores_e_situacao(banco, monkeypatch):
     grupos = {g["nome"]: g for g in r["grupos"]}
     assert [x["nome"] for x in grupos["FUNCIONARIOS"]["leitores"]] == ["ENTRADA", "SAIDA"]
     assert grupos["ALUNOS"]["membros"] == 1
+
+
+def test_trazer_do_leitor_sem_cpf_com_foto_sem_grupo_e_sem_duplicar(banco, monkeypatch):
+    import io
+    from PIL import Image
+    from app.services import access_control_import as Imp
+    from app.services.access_control_pessoas import trazer_do_leitor
+    monkeypatch.setattr(Imp, "_tipo_do_local", lambda site: "condominio")
+    leitor = S.save_device({"name": "ACADEMIA", "site": "RESERVA", "vendor": "intelbras", "host": "10.0.0.1", "password": "x"})
+    b = io.BytesIO(); Image.new("RGB", (30, 30), "blue").save(b, "JPEG")
+    no_leitor = [{"controller_user_id": "1004", "full_name": "ADRIZIA.jpg I 29", "raw_active": "0"},
+                 {"controller_user_id": "570", "full_name": "MARIA FICTICIA F13", "raw_active": "0"},
+                 {"controller_user_id": "", "full_name": "SEM ID", "raw_active": "0"}]
+    fotos = {"1004": b.getvalue(), "570": None}
+    r = trazer_do_leitor(leitor["id"], listar=lambda d: no_leitor, baixar_foto=lambda d, uid: fotos[uid])
+    assert r["criadas"] == 2 and r["fotos"] == 1 and [x["id"] for x in r["sem_foto"]] == ["570"] and len(r["recusadas"]) == 1
+    pessoas = {p["controller_user_id"]: p for p in S.list_people()}
+    assert pessoas["1004"]["full_name"] == "ADRIZIA I 29" and pessoas["1004"]["document_id"] == ""
+    assert pessoas["1004"]["person_type"] == "resident" and pessoas["1004"]["site"] == "RESERVA"
+    assert pessoas["1004"]["face_photo_path"] and not pessoas["570"]["face_photo_path"]
+    assert S.list_provision_status_for_person(pessoas["1004"]["id"]) == []      # nada vai ao leitor
+    # de novo: ninguem duplica (sem CPF, o ID no leitor e a identidade)
+    r2 = trazer_do_leitor(leitor["id"], listar=lambda d: no_leitor, baixar_foto=lambda d, uid: fotos[uid])
+    assert r2["criadas"] == 0 and r2["ja_existiam"] == 2 and len(S.list_people()) == 2
+
+
+def test_sem_cpf_so_com_id_no_leitor_e_id_nao_se_repete(banco):
+    with pytest.raises(ValueError):
+        S.save_person({"full_name": "SEM NADA", "person_type": "resident", "site": "X"})
+    S.save_person({"full_name": "A", "person_type": "resident", "site": "X", "controller_user_id": "77"})
+    with pytest.raises(ValueError):
+        S.save_person({"full_name": "B", "person_type": "resident", "site": "X", "controller_user_id": "77"})

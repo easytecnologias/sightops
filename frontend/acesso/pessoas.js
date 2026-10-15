@@ -96,6 +96,8 @@ const PS_FILTROS = [
   ['semfoto', 'Sem foto', p => p.ativo && !p.tem_foto],
   ['recusada', 'Foto recusada', p => (p.leitores || []).some(x => x.status === 'failed')],
   ['semgrupo', 'Sem grupo', p => p.ativo && !p.grupos.length],
+  // Trazidas do leitor (que nao guarda CPF): o ID no leitor e a identidade ate preencher.
+  ['semcpf', 'Sem CPF', p => !psDigitos(p.cpf)],
   ['inativos', 'Inativas', p => !p.ativo],
 ];
 
@@ -362,7 +364,8 @@ async function psSalvar() {
   if (!p.site) return psErro('Escolha o local da pessoa.');
   if (!p.person_type) return psErro('Escolha o tipo da pessoa.');
   if (p.full_name.length < 3) return psErro('Informe o nome completo.');
-  if (!psCpfValido(p.document_id)) return psErro('CPF inválido. Confira os 11 dígitos.');
+  // Sem CPF so quem ja tem ID no leitor (veio dele); cadastro novo continua exigindo.
+  if (!(p.document_id === '' && p.controller_user_id) && !psCpfValido(p.document_id)) return psErro('CPF inválido. Confira os 11 dígitos.');
   if (p.person_type === 'student' && !p.enrollment_code) return psErro('Informe a matrícula do aluno.');
   // Sem id, o backend casa por CPF/matricula e ATUALIZA quem ja existe: barra aqui.
   if (!p.id) {
