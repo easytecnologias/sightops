@@ -11,7 +11,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="../styles.css?v=1792000033">
-  <link rel="stylesheet" href="acesso.css?v=1792000052">
+  <link rel="stylesheet" href="acesso.css?v=1792000053">
 </head>
 <body>
   <div id="appShell" class="app-shell" hidden>
@@ -227,8 +227,9 @@
               </section>
               <section class="dv-passo">
                 <h3 class="dv-passo-tit"><i data-lucide="triangle-alert"></i>Avançado</h3>
-                <div class="dvc-linha"><button type="button" class="dv-remover" id="dvcReiniciar"><i data-lucide="power"></i> Reiniciar o leitor</button></div>
-                <small class="dv-ajuda">Só administrador. O leitor fica cerca de 1 minuto sem reconhecer ninguém.</small>
+                <div class="dvc-linha"><button type="button" class="dv-remover" id="dvcReiniciar"><i data-lucide="power"></i> Reiniciar o leitor</button>
+                  <button type="button" class="dv-remover" id="dvcExcluir"><i data-lucide="trash-2"></i> Excluir do SightOps</button></div>
+                <small class="dv-ajuda">Só administrador. Reiniciar deixa o leitor cerca de 1 minuto sem reconhecer ninguém. Excluir tira o leitor do Painel e do Zabbix e não mexe no aparelho: as pessoas gravadas nele continuam abrindo a porta e as passagens antigas ficam nos relatórios.</small>
                 <p class="dvc-res" id="dvcResReinicio" hidden></p>
               </section>
             </div>
@@ -295,11 +296,11 @@
               <p class="dv-erro" id="dvErro" role="alert" hidden></p>
             </form>
             <footer class="dv-gaveta-pe">
-              <button type="button" class="dv-remover" id="dvRemover" hidden><i data-lucide="trash-2"></i> Remover</button>
+              <button type="button" class="dv-remover" id="dvRemover" hidden><i data-lucide="trash-2"></i> Excluir</button>
               <div class="dv-confirma" id="dvConfirma" hidden>
-                <span>Remover este leitor? As passagens já registradas continuam.</span>
+                <span>Excluir este leitor do SightOps? O aparelho não é mexido e as passagens já registradas continuam.</span>
                 <button type="button" class="secondary-action" id="dvConfirmaNao">Não</button>
-                <button type="button" class="dv-remover forte" id="dvConfirmaSim">Remover</button>
+                <button type="button" class="dv-remover forte" id="dvConfirmaSim">Excluir</button>
               </div>
               <span class="dv-espaco"></span>
               <button type="button" class="secondary-action" id="dvCancelar">Cancelar</button>
@@ -562,10 +563,10 @@
 
   <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js"></script>
   <script src="../config.js?v=1791000212"></script>
-  <script src="dispositivos/dispositivos.js?v=1792000052"></script>
-  <script src="pessoas.js?v=1792000052"></script>
-  <script src="acesso-grupos.js?v=1792000052"></script>
-  <script src="shell.js?v=1792000052"></script>
-  <script src="acesso.js?v=1792000052"></script>
+  <script src="dispositivos/dispositivos.js?v=1792000053"></script>
+  <script src="pessoas.js?v=1792000053"></script>
+  <script src="acesso-grupos.js?v=1792000053"></script>
+  <script src="shell.js?v=1792000053"></script>
+  <script src="acesso.js?v=1792000053"></script>
 </body>
 </html>

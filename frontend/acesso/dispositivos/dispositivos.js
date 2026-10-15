@@ -463,11 +463,11 @@ async function dvRemover() {
   if (!d) return;
   try {
     await acEnviar('DELETE', `/api/access-control/devices/${encodeURIComponent(d.id)}`);
-    acToast('Dispositivo removido.');
+    acToast('Dispositivo excluído.');
     dvFechar();
     await dvCarregar();
   } catch (err) {
-    dvErro((err && err.message) || 'Não foi possível remover.');
+    dvErro((err && err.message) || 'Não foi possível excluir.');
   }
 }
 
@@ -646,6 +646,17 @@ function dvcLigar() {
     dvConfirmar(b, 'Confirmar reiniciar', () => dvcAcao(b, 'dvcResReinicio',
       () => acEnviar('POST', `/api/access-control/painel/reiniciar-controladora/${encodeURIComponent(_dvcId)}`),
       'Reiniciando. O leitor volta em cerca de 1 minuto; até lá a porta não reconhece ninguém.'));
+  });
+  dvCampo('dvcExcluir').addEventListener('click', ev => {
+    const b = ev.currentTarget;
+    const d = (_dvDados.dispositivos || []).find(x => x.id === _dvcId) || {};
+    dvConfirmar(b, `Confirmar excluir ${d.nome || ''}`.trim(), () => dvcAcao(b, 'dvcResReinicio',
+      () => acEnviar('DELETE', `/api/access-control/devices/${encodeURIComponent(_dvcId)}`), 'Excluído.').then(r => {
+      if (!r) return;
+      acToast(`${d.nome || 'Leitor'} excluído do SightOps.`);
+      dvcFechar();
+      dvCarregar().catch(() => {});
+    }));
   });
 }
 
