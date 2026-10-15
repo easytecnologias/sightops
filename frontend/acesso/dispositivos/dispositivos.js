@@ -587,7 +587,6 @@ function dvcAbrir(id) {
   dvCampo('dvcTitulo').textContent = d.nome;
   const ip = d.ip || {};
   dvCampo('dvcSub').textContent = [[DV_FABRICANTE[d.fabricante] || d.fabricante, d.modelo].filter(Boolean).join(' '), ip.traduzido ? `${d.host} → ${ip.virtual}` : d.host].filter(Boolean).join(' · ');
-  dvCampo('dvcWeb').href = `${API_BASE}/api/maintenance/web/${encodeURIComponent(d.host)}/`;
   dvCampo('dvcNtp').value = 'a.ntp.br';
   delete dvCampo('dvcNtp').dataset.mexido;
   ['dvcResHora', 'dvcResNtp', 'dvcResPorta', 'dvcResTeste', 'dvcResReinicio'].forEach(x => { dvCampo(x).hidden = true; });
@@ -608,6 +607,10 @@ function dvcLigar() {
   dvCampo('dvcFundo').addEventListener('click', dvcFechar);
   document.addEventListener('keydown', ev => { if (ev.key === 'Escape' && !dvCampo('dvcGaveta').hidden) dvcFechar(); });
   dvCampo('dvcLer').addEventListener('click', dvcLer);
+  dvCampo('dvcWeb').addEventListener('click', () => {
+    const d = (_dvDados.dispositivos || []).find(x => x.id === _dvcId);
+    if (d) acAbrirWeb(d.host, 80);
+  });
   dvCampo('dvcEditar').addEventListener('click', () => {
     const d = (_dvDados.dispositivos || []).find(x => x.id === _dvcId);
     dvcFechar();

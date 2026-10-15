@@ -61,6 +61,55 @@ function acToast(msg, erro) {
   setTimeout(() => t.remove(), erro ? 6600 : 4100);
 }
 
+// Abre a pagina web de um equipamento do cliente (controladora) do mesmo jeito
+// que as cameras no /v3 (core.js openDeviceWeb): pelo SightOps Agent rodando no
+// PC (127.0.0.1:47600), que abre um tunel ate o IP virtual do conector pela
+// ponte /ws/web-tunnel. So sem o agente cai no proxy do servidor.
+const AC_AGENTE = 'http://127.0.0.1:47600';
+async function acAbrirWeb(ip, porta) {
+  ip = String(ip || '').trim();
+  if (!ip) return;
+  const proxyUrl = `${API_BASE}/api/maintenance/web/${encodeURIComponent(ip)}/`;
+  // A janela abre ainda no clique: depois dos awaits o navegador bloquearia como pop-up.
+  let win = null;
+  try {
+    win = window.open('', '_blank');
+    if (win) {
+      win.opener = null;
+      win.document.title = `Abrindo ${ip}…`;
+      win.document.body.innerHTML = `<p style="font:14px sans-serif;padding:24px">Abrindo <b>${esc(ip)}</b> pela rede do cliente…</p>`;
+    }
+  } catch (_) { win = null; }
+  const ir = url => { if (win && !win.closed) win.location.href = url; else window.open(url, '_blank', 'noopener'); };
+  acToast(`Abrindo ${ip} pela rede do cliente…`);
+  let saude = null, aberto = null, erro = '';
+  try {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 2500);
+    const r = await fetch(`${AC_AGENTE}/health`, { signal: ctrl.signal });
+    clearTimeout(t);
+    saude = r.ok ? await r.json() : null;
+  } catch (e) { erro = 'agente: ' + ((e && e.message) || e); }
+  if (saude && saude.ok) {
+    try {
+      // O cookie de sessao e httponly: o agente recebe um token curto.
+      const tr = await apiJson('/api/auth/agent-token').catch(() => null);
+      const token = (tr && tr.token) || '';
+      const wsbase = (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host;
+      const q = `wsbase=${encodeURIComponent(wsbase)}&ip=${encodeURIComponent(ip)}&port=${encodeURIComponent(porta || 80)}&token=${encodeURIComponent(token)}`;
+      const res = await fetch(`${AC_AGENTE}/open?${q}`);
+      aberto = await res.json();
+      if (aberto && aberto.ok && aberto.url) { ir(aberto.url); return; }
+      erro = 'agente: ' + ((aberto && aberto.error) || 'sem url');
+    } catch (e) { erro = 'agente: ' + ((e && e.message) || e); }
+    acToast(`O agente não abriu ${ip} (${erro}). Abrindo pelo acesso web do servidor.`, true);
+  } else {
+    acToast('SightOps Agent não está rodando neste computador. Abrindo pelo acesso web do servidor.', true);
+  }
+  console.warn('[SightOps Agent]', JSON.stringify(saude), JSON.stringify(aberto), erro, '-> proxy');
+  ir(proxyUrl);
+}
+
 // Mesma regra do menu do /v3 (core.js applyModuleVisibility).
 const AC_DESLIGADAS = new Set(['access-whatsapp-triage', 'ia-nvr']);
 const AC_SO_EQUIPE = new Set(['script-zabbix', 'script-grafana']);
