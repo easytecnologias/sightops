@@ -124,6 +124,8 @@ class ApiAuthMiddleware(BaseHTTPMiddleware):
             (("DELETE",), "/api/access-control/devices", "admin"),
             # Reiniciar controladora deixa a porta sem leitor por ~1 minuto.
             (("POST",), "/api/access-control/painel/reiniciar-controladora", "admin"),
+            # Backup leva CPF e foto de todo mundo; excluir local apaga o local inteiro.
+            (("GET", "POST"), "/api/access-control/painel/dados", "admin"),
             (("POST", "PUT", "DELETE"), "/api/access-control/whatsapp", "admin"),
             (("POST",), "/api/system/bootstrap", "admin"),
             (("DELETE", "PATCH"), "/api/auth/tenants/", "admin"),

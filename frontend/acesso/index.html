@@ -11,7 +11,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="../styles.css?v=1792000033">
-  <link rel="stylesheet" href="acesso.css?v=1792000053">
+  <link rel="stylesheet" href="acesso.css?v=1792000054">
 </head>
 <body>
   <div id="appShell" class="app-shell" hidden>
@@ -166,6 +166,7 @@
           <div class="page-heading-actions">
             <span class="ap-relogio monospace" id="apRelogio"></span>
             <select id="apSite" aria-label="Site"><option value="">Todos os sites</option></select>
+            <button class="secondary-action" id="apDados" type="button" title="Backup e excluir local (administrador)"><i data-lucide="database"></i> Dados</button>
             <button class="secondary-action" id="btnApAtualizar" type="button"><i data-lucide="refresh-cw"></i> Atualizar</button>
           </div>
         </div>
@@ -176,6 +177,16 @@
           <button type="button" class="tab-btn" data-ap-tela="acesso" role="tab" aria-selected="false">Acesso</button>
           <button type="button" class="tab-btn" data-ap-tela="alertas" role="tab" aria-selected="false">Alertas</button>
           <button type="button" class="tab-btn" data-ap-tela="relatorios" role="tab" aria-selected="false">Relatórios</button>
+        </div>
+        <div class="dv-gaveta" id="daGaveta" hidden>
+          <div class="dv-fundo" id="daFundo"></div>
+          <aside class="dv-painel pi-painel" role="dialog" aria-modal="true" aria-labelledby="daTitulo">
+            <header class="dv-gaveta-cab">
+              <div><p class="eyebrow">Controle de Acesso · administrador</p><h2 id="daTitulo">Dados</h2><p>Backup dos dados deste cliente e exclusão de um local inteiro.</p></div>
+              <button class="icon-button" id="daFechar" type="button" aria-label="Fechar"><i data-lucide="x"></i></button>
+            </header>
+            <div class="dv-form" id="daConteudo"></div>
+          </aside>
         </div>
         <div id="apVivo"></div>
         <div id="apDisp" hidden>
@@ -563,10 +574,11 @@
 
   <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js"></script>
   <script src="../config.js?v=1791000212"></script>
-  <script src="dispositivos/dispositivos.js?v=1792000053"></script>
-  <script src="pessoas.js?v=1792000053"></script>
-  <script src="acesso-grupos.js?v=1792000053"></script>
-  <script src="shell.js?v=1792000053"></script>
-  <script src="acesso.js?v=1792000053"></script>
+  <script src="dispositivos/dispositivos.js?v=1792000054"></script>
+  <script src="pessoas.js?v=1792000054"></script>
+  <script src="acesso-grupos.js?v=1792000054"></script>
+  <script src="shell.js?v=1792000054"></script>
+  <script src="dados.js?v=1792000054"></script>
+  <script src="acesso.js?v=1792000054"></script>
 </body>
 </html>

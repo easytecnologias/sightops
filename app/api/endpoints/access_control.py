@@ -1152,6 +1152,36 @@ def api_access_control_painel_controladora_reiniciar(device_id: str, user: Dict[
     return reiniciar(device_id, user.get("username") or "")
 
 
+@router.get("/painel/dados")
+def api_access_control_painel_dados() -> Dict[str, Any]:
+    """Janela "Dados": o que cada local tem e os backups guardados (so admin)."""
+    from app.services.access_control_dados import resumo
+    return resumo()
+
+
+@router.post("/painel/dados/backup")
+def api_access_control_painel_dados_backup(payload: Dict[str, Any] = Body(default={}), user: Dict[str, Any] = Depends(current_user)) -> Dict[str, Any]:
+    from app.services.access_control_dados import fazer_backup
+    return fazer_backup(str((payload or {}).get("site") or ""), user.get("username") or "", motivo="manual")
+
+
+@router.get("/painel/dados/backup/{nome}")
+def api_access_control_painel_dados_baixar(nome: str) -> Response:
+    from app.services.access_control_dados import arquivo_backup
+    arq = arquivo_backup(nome)
+    return Response(content=arq.read_bytes(), media_type="application/zip",
+                    headers={"Content-Disposition": f'attachment; filename="{arq.name}"', "Cache-Control": "no-store"})
+
+
+@router.post("/painel/dados/excluir-local")
+def api_access_control_painel_dados_excluir_local(payload: Dict[str, Any] = Body(...), user: Dict[str, Any] = Depends(current_user)) -> Dict[str, Any]:
+    """Faz backup do local e so entao apaga (pessoas saem dos leitores primeiro)."""
+    from app.services.access_control_dados import excluir_local
+    p = payload or {}
+    return excluir_local(str(p.get("site") or ""), str(p.get("confirmacao") or ""),
+                         bool(p.get("apagar_historico") is True), user.get("username") or "")
+
+
 @router.get("/painel/ip-virtual")
 def api_access_control_painel_ip_virtual(connector_id: str = Query(""), host: str = Query("")) -> Dict[str, Any]:
     """Previa do cadastro: por qual IP o SightOps vai falar com o leitor."""

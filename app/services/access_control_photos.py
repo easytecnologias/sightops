@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from io import BytesIO
 from pathlib import Path
 from typing import Any, Dict
@@ -33,7 +34,8 @@ def _normalize_face_photo(raw: bytes) -> bytes:
 
 def save_person_face_photo(person_id: str, raw: bytes) -> Dict[str, Any]:
     clean_id = str(person_id or "").strip()
-    if not clean_id:
+    # O id vira nome de arquivo: "../" gravaria fora da pasta do cliente.
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", clean_id):
         raise ValueError("Pessoa invalida.")
     jpg = _normalize_face_photo(raw)
     rel_path = f"access-control/faces/{clean_id}.jpg"
