@@ -203,3 +203,69 @@ def test_ajuda_nunca_manda_enter():
     c.ajuda("set epon slot 4 pon 7 onu 89 port 2 service 2 type")
     assert all(b"\r" not in d and b"\n" not in d for d in enviados)
     assert enviados[-1] == b"\x15"
+
+
+def test_lista_de_online_vazia_ou_cortada_nao_vira_los():
+    """OLT SIERRA, 15/10/2026: resposta vazia virou 106 ONUs em LOS."""
+    import pytest
+    with pytest.raises(fh.LeituraIncompleta):
+        fh.parse_online("show online slot 4 link 1\r\nAdmin\\gpononu# ", 4, 1)
+    cortada = _f("online_4_3").split(" 49 ")[0]          # 25 anunciadas, chegaram menos
+    with pytest.raises(fh.LeituraIncompleta):
+        fh.parse_online(cortada, 4, 3)
+    assert fh.parse_online("ONLINE ONU TOTAL NUM = 0\r\nAdmin\\gpononu# ", 4, 1) == []   # ninguem online: LOS de verdade
+    assert len(fh.parse_online(_f("online_4_6"), 4, 6)) == 42
+
+
+def test_online_tenta_de_novo_antes_de_descartar():
+    import pytest
+
+    class Cli:
+        host = "olt"
+        def __init__(self, respostas): self.respostas = list(respostas)
+    leitor = fh._Leitor(Cli([]))
+    respostas = ["lixo sem cabecalho", _f("online_4_3")]
+    leitor._cmd = lambda menu, cmd, maximum=30.0: respostas.pop(0)
+    assert len(leitor.online(4, 3)) == 25                       # segunda veio inteira
+    respostas[:] = ["lixo", "lixo de novo"]
+    with pytest.raises(fh.LeituraIncompleta):
+        leitor.online(4, 3)
+
+
+def test_command_descarta_sobra_de_comando_anterior():
+    """Sessao deslocada: a sobra do comando anterior chega antes da resposta."""
+    cli = fh.FiberHomeTelnet.__new__(fh.FiberHomeTelnet)
+    cli.host, cli.timeout = "olt", 5.0
+    pedacos = ["show online slot 4 link 3\r\nONLINE ONU TOTAL NUM = 4\r\n 01 HG260 HWTC00000001 ,\r\nAdmin\gpononu# ",
+               _f("online_4_6")]
+    cli.send = lambda v: None
+    cli._read_quiet = lambda quiet=0.45, maximum=None: pedacos.pop(0) if pedacos else ""
+    out = cli.command("show online slot 4 link 6", prompt="Admin\gpononu#", maximum=3.0)
+    assert out.startswith("show online slot 4 link 6") and len(fh.parse_online(out, 4, 6)) == 42
+
+
+def test_command_sem_eco_volta_vazio_e_online_recusa():
+    cli = fh.FiberHomeTelnet.__new__(fh.FiberHomeTelnet)
+    cli.host, cli.timeout = "olt", 1.0
+    cli.send = lambda v: None
+    cli._read_quiet = lambda quiet=0.45, maximum=None: "show online slot 4 link 3\r\nONLINE ONU TOTAL NUM = 0\r\nAdmin\gpononu# "
+    out = cli.command("show online slot 4 link 6", prompt="Admin\gpononu#", maximum=1.0)
+    assert out == ""
+    import pytest
+    with pytest.raises(fh.LeituraIncompleta):
+        fh.parse_online(out, 4, 6)
+
+
+def test_onu_so_e_offline_se_faltar_nas_duas_leituras(monkeypatch):
+    monkeypatch.setattr(fh.time, "sleep", lambda s: None)
+    autorizadas = [{"onu_id": i, "onu_serial": f"S{i}", "onu_model": "HG260"} for i in (1, 2, 3)]
+    leituras = [{1}, {1, 2}]                     # 1a leitura parcial; 2a traz a 2
+
+    class L:
+        def autorizadas(self, s, p): return autorizadas
+        def online(self, s, p): return leituras.pop(0)
+        def versoes(self, s, p): return {}
+        def sinal(self, *a): return {}
+        def distancia(self, *a): return ""
+    rows = fh._onus_da_pon(L(), fh.FiberHomeLayout(slots=(4,)), 4, 6, com_sinal=False, com_distancia=False)
+    assert {r["onu_id"]: r["oper_status"] for r in rows} == {1: "Active", 2: "Active", 3: "Offline"}

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import re
 import socket
 import threading
@@ -10,6 +11,7 @@ from typing import Any
 
 
 IAC, DO, DONT, WILL, WONT, SB, SE = 255, 253, 254, 251, 252, 250, 240
+_log = logging.getLogger("cam-snapshot")
 GPON_BOARD_RE = re.compile(r"^\s*(\d+)\s+up\s+connected\s+(G\w+)", re.MULTILINE | re.IGNORECASE)
 
 
@@ -271,8 +273,19 @@ class FiberHomeTelnet:
             raise PermissionError("Login aceito, mas nao foi possivel abrir o modo administrativo FiberHome.")
 
     def command(self, command: str, prompt: str = "Admin\\", maximum: float | None = None) -> str:
+        """Resposta DESTE comando: tudo a partir do eco dele ate o prompt.
+
+        Antes valia "o que chegar ate o prompt". Comando que estourava o tempo
+        deixava o resto da resposta no canal, e o seguinte lia a sobra como se
+        fosse dele: a sessao andava deslocada. Em 15/10/2026 na OLT SIERRA isso
+        deu "nenhuma placa GPON", PONs inteiras em LOS e a PON 4/6 com 4 online
+        (eram 43). A AN5516 ecoa o comando na primeira linha da resposta; sobra
+        anterior ao eco e descartada, e sem eco a resposta volta VAZIA -- quem
+        le (parse_online) recusa vazio em vez de usar resposta de outro comando.
+        """
         self.send(command)
         output = ""
+        eco = command.strip()
         started = time.monotonic()
         maximum = maximum or self.timeout
         while time.monotonic() - started < maximum:
@@ -282,9 +295,20 @@ class FiberHomeTelnet:
             if "--Press any key" in tail:
                 self.sock.sendall(b" ")
                 continue
+            if eco and eco not in output:
+                continue          # ainda e sobra de comando anterior
             tail_clean = output.rstrip()
             if tail_clean.endswith(prompt) or tail_clean.endswith("Admin#"):
                 break
+        if eco:
+            pos = output.rfind(eco)
+            if pos < 0:
+                _log.warning("OLT %s: resposta de %r nao chegou em %.0fs (sessao atrasada); descartada.",
+                             self.host, eco, maximum)
+                return ""
+            if pos > 0 and output[:pos].strip():
+                _log.info("OLT %s: sobra de comando anterior descartada antes de %r.", self.host, eco)
+            output = output[pos:]
         if "% Unknown command." in output:
             raise RuntimeError(f"Comando FiberHome nao suportado: {command}")
         return _clean_output(output)
@@ -308,7 +332,27 @@ def parse_layout(output: str) -> FiberHomeLayout:
     return FiberHomeLayout(slots=slots)
 
 
+ONLINE_TOTAL_RE = re.compile(r"ONLINE\s+ONU\s+TOTAL\s+NUM\s*=\s*(\d+)", re.IGNORECASE)
+
+
+class LeituraIncompleta(RuntimeError):
+    """A OLT nao devolveu a lista de online inteira (sessao disputada, timeout,
+    resposta cortada). Quem coleta tem que DESCARTAR a leitura, nao gravar."""
+
+
 def parse_online(output: str, slot: int, pon: int) -> list[dict[str, Any]]:
+    """ONUs online da PON. Toda ONU autorizada que nao vem aqui vira LOS, entao
+    esta lista NAO pode ser um vazio por engano: em 15/10/2026 a OLT SIERRA,
+    disputada por sessoes do proprio SightOps a tarde toda, devolveu respostas
+    vazias e 106 ONUs de 5 PONs viraram LOS ao mesmo tempo (a PON 6, lida
+    certo, ficou com 43 online). Resposta valida sempre traz
+    "ONLINE ONU TOTAL NUM = N" e N linhas; sem isso, LeituraIncompleta."""
+    total = ONLINE_TOTAL_RE.search(output or "")
+    if not total:
+        raise LeituraIncompleta(
+            f"OLT nao devolveu a lista de ONUs online da PON {slot}/{pon} (resposta sem 'ONLINE ONU TOTAL NUM'). "
+            "Leitura descartada: o estado anterior foi mantido."
+        )
     rows: list[dict[str, Any]] = []
     pattern = re.compile(r"(?:^|\s)(\d+)\s+(\S+)\s+([A-Z0-9]{4}[0-9a-f]{8})\b", re.MULTILINE | re.IGNORECASE)
     for match in pattern.finditer(output):
@@ -322,6 +366,11 @@ def parse_online(output: str, slot: int, pon: int) -> list[dict[str, Any]]:
             "oper_status": "Active",
             "omci_status": "",
         })
+    if len(rows) < int(total.group(1)):
+        raise LeituraIncompleta(
+            f"OLT anunciou {total.group(1)} ONU(s) online na PON {slot}/{pon} e mandou {len(rows)}: resposta cortada. "
+            "Leitura descartada: o estado anterior foi mantido."
+        )
     return rows
 
 
@@ -1134,8 +1183,20 @@ class _Leitor:
         return parse_authorization(self._cmd("gpononu", f"show authorization slot {slot} link {pon}"))
 
     def online(self, slot: int, pon: int) -> set[int]:
-        out = self._cmd("gpononu", f"show online slot {slot} link {pon}")
-        return {int(r["onu_id"]) for r in parse_online(out, slot, pon)}
+        # A AN5516 da SIERRA as vezes devolve a lista sem cabecalho (15/10/2026,
+        # PON 4/6). Uma segunda tentativa costuma vir inteira; se nao vier, a
+        # leitura inteira e descartada (LeituraIncompleta) em vez de virar LOS.
+        for tentativa in (1, 2):
+            out = self._cmd("gpononu", f"show online slot {slot} link {pon}")
+            try:
+                return {int(r["onu_id"]) for r in parse_online(out, slot, pon)}
+            except LeituraIncompleta:
+                _log.warning("OLT %s PON %s/%s: lista de online incompleta (tentativa %d): %r",
+                             self.c.host, slot, pon, tentativa, (out or "")[-300:])
+                if tentativa == 2:
+                    raise
+                time.sleep(1.0)
+        return set()
 
     def versoes(self, slot: int, pon: int) -> dict[int, str]:
         return parse_versions(self._cmd("gpononu", f"show onu_ver slot {slot} link {pon}"))
@@ -1167,6 +1228,18 @@ def _onus_da_pon(leitor: _Leitor, layout: FiberHomeLayout, slot: int, pon: int,
     if not autorizadas:
         return []
     online = leitor.online(slot, pon)
+    # Segunda opiniao antes de dar ONU como offline. Com a placa de linha
+    # ocupada (a coleta pede sinal ONU por ONU), a AN5516 da SIERRA respondeu
+    # "[ ERR -21 ] linecard no return!" e listas parciais: a PON 4/6 saiu com
+    # 12 e com 4 online quando eram 43 (15/10/2026). Quem aparece online em
+    # QUALQUER das duas leituras esta online.
+    faltando = [int(o["onu_id"]) for o in autorizadas if int(o["onu_id"]) not in online]
+    if faltando:
+        time.sleep(2.0)   # deixa a placa de linha respirar antes de perguntar de novo
+        try:
+            online = online | leitor.online(slot, pon)
+        except LeituraIncompleta:
+            pass   # a primeira leitura ja era valida; fica com ela
     versoes = leitor.versoes(slot, pon)
     rotulo = _pon_label(layout, slot, pon)
     saida: list[dict[str, Any]] = []
