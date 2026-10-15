@@ -467,6 +467,8 @@ async function psAbrirAba() {
     _psLigado = true;
     psLigarGaveta();
     psCampo('psNova').addEventListener('click', () => psAbrir(null));
+    piLigar();
+    psCampo('psImportar').addEventListener('click', piAbrir);
     psCampo('psBusca').addEventListener('input', ev => { _psBusca = ev.target.value; _psMostrar = 120; psDesenhar(); });
   }
   if (_psDados) psDesenhar();
@@ -475,4 +477,192 @@ async function psAbrirAba() {
   } catch (err) {
     if (!_psDados) psCampo('psConteudo').innerHTML = `<p class="ap-vazio">Não consegui carregar as pessoas: ${esc((err && err.message) || err)}</p>`;
   }
+}
+
+// ---------------------------------------------------------------- importar planilha
+// POST /people/import?aplicar=false analisa (nada gravado); aplicar=true grava.
+// Atualizar nao apaga nada: o backend parte do cadastro atual e so troca o
+// que a planilha traz preenchido.
+let _piArquivo = null;
+let _piAnalise = null;
+
+const PI_MODELOS = {
+  escola: { cab: ['Nome', 'CPF', 'Matrícula', 'Turma', 'Responsável', 'WhatsApp do responsável', 'Tipo', 'Grupo'],
+    ex: [['MARIA EXEMPLO DA SILVA', '000.000.000-00', '1234', '5º Ano A', 'Joana da Silva', '(82) 99999-0000', 'aluno', ''],
+      ['JOSE EXEMPLO PROFESSOR', '000.000.000-00', '', 'Sala dos professores', '', '', 'funcionario', '']],
+    txt: 'Escola: Nome, CPF e Matrícula (para aluno) são obrigatórios. Turma e WhatsApp do responsável completam o cadastro e o aviso de entrada e saída.' },
+  condominio: { cab: ['Nome', 'CPF', 'Unidade', 'Tipo', 'Grupo', 'Observações'],
+    ex: [['ANA EXEMPLO MORADORA', '000.000.000-00', 'Bloco A 101', 'morador', '', ''],
+      ['CARLOS EXEMPLO DIARISTA', '000.000.000-00', 'Bloco A 101', 'prestador', '', 'seg, qua e sex']],
+    txt: 'Condomínio: Nome e CPF são obrigatórios. Use Unidade (bloco e apartamento) e Tipo: morador, prestador, funcionário ou visitante.' },
+  empresa: { cab: ['Nome', 'CPF', 'Setor', 'Tipo', 'Grupo', 'Observações'],
+    ex: [['PAULA EXEMPLO ANALISTA', '000.000.000-00', 'Financeiro', 'colaborador', '', ''],
+      ['RUI EXEMPLO TECNICO', '000.000.000-00', 'Manutenção', 'prestador', '', 'empresa terceira']],
+    txt: 'Empresa: Nome e CPF são obrigatórios. Use Setor e Tipo: colaborador, prestador ou visitante.' },
+  evento: { cab: ['Nome', 'CPF', 'Credencial', 'Tipo', 'Grupo'],
+    ex: [['LUCAS EXEMPLO PARTICIPANTE', '000.000.000-00', 'VIP', 'participante', ''],
+      ['BIA EXEMPLO PRODUCAO', '000.000.000-00', 'Produção', 'equipe', '']],
+    txt: 'Evento: Nome e CPF são obrigatórios. Use Credencial (VIP, Imprensa...) e Tipo: participante, equipe ou convidado.' },
+};
+const PI_TIPO_ROT = { student: 'Aluno', resident: 'Morador', employee: 'Funcionário', contractor: 'Prestador', visitor: 'Visitante', participant: 'Participante', staff: 'Equipe' };
+
+function piTipoLocal() {
+  const site = psCampo('piSite').value.trim();
+  const t = site ? psTipoLocal(site) : ((_apPerfil && _apPerfil.tipo) || 'escola');
+  return PI_MODELOS[t] ? t : 'escola';
+}
+
+function piAtualizarModelo() {
+  const m = PI_MODELOS[piTipoLocal()];
+  psCampo('piModeloTxt').textContent = m.txt;
+}
+
+function piAbrir() {
+  _piArquivo = null;
+  _piAnalise = null;
+  psCampo('piSite').value = typeof _apSite === 'string' ? _apSite : '';
+  const grupos = (_psDados && _psDados.grupos) || [];
+  psCampo('piGrupo').innerHTML = '<option value="">Nenhum (usar a coluna Grupo, se houver)</option>' +
+    grupos.map(g => `<option value="${esc(g.id)}">${esc(g.nome)}${g.site ? ' · ' + esc(g.site) : ''}</option>`).join('');
+  psCampo('piArquivo').value = '';
+  psCampo('piZonaTxt').textContent = 'Escolher a planilha';
+  psCampo('piPassoConferir').hidden = true;
+  psCampo('piErro').hidden = true;
+  psCampo('piAplicar').disabled = true;
+  psCampo('piAplicar').innerHTML = '<i data-lucide="check"></i> Importar';
+  piAtualizarModelo();
+  psCampo('piGaveta').hidden = false;
+  requestAnimationFrame(() => psCampo('piGaveta').classList.add('aberta'));
+  if (window.lucide) lucide.createIcons();
+}
+
+function piFechar() {
+  const g = psCampo('piGaveta');
+  g.classList.remove('aberta');
+  setTimeout(() => { g.hidden = true; }, 200);
+}
+
+function piErro(msg) {
+  const e = psCampo('piErro');
+  e.textContent = msg || '';
+  e.hidden = !msg;
+}
+
+// Modelo em CSV com ponto e virgula e BOM: o Excel brasileiro abre direto.
+function piBaixarModelo() {
+  const m = PI_MODELOS[piTipoLocal()];
+  const linha = l => l.map(v => (/[;"\n]/.test(v) ? `"${String(v).replace(/"/g, '""')}"` : v)).join(';');
+  const csv = '﻿' + [m.cab].concat(m.ex).map(linha).join('\r\n') + '\r\n';
+  const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `modelo-pessoas-${piTipoLocal()}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
+
+async function piEnviar(aplicar) {
+  const q = new URLSearchParams({ site: psCampo('piSite').value.trim(), aplicar: aplicar ? 'true' : 'false', grupo: psCampo('piGrupo').value });
+  const fd = new FormData();
+  fd.append('arquivo', _piArquivo, _piArquivo.name);
+  const res = await fetch(`${API_BASE}/api/access-control/people/import?${q}`, { method: 'POST', credentials: 'same-origin', body: fd });
+  let d = null;
+  try { d = await res.json(); } catch (_) { d = null; }
+  if (!res.ok) {
+    const det = d && d.detail;
+    throw new Error(res.status === 403 ? 'Seu perfil não pode importar pessoas.' : (typeof det === 'string' ? det : 'HTTP ' + res.status));
+  }
+  return d;
+}
+
+function piMostrarAnalise(a) {
+  const novos = a.criar || [], atual = a.atualizar || [], rec = a.recusados || [], av = a.avisos || [];
+  const total = novos.length + atual.length;
+  const grupoNome = psCampo('piGrupo').selectedOptions[0] && psCampo('piGrupo').value ? psCampo('piGrupo').selectedOptions[0].textContent : '';
+  const linhas = novos.map(r => ({ ...r, sit: 'nova' })).concat(atual.map(r => ({ ...r, sit: 'atualiza' })))
+    .sort((x, y) => x.linha - y.linha);
+  const ROT = { enrollment_code: 'matrícula', full_name: 'nome', guardian_phone: 'WhatsApp', guardian_name: 'responsável', class_name: 'turma/unidade/setor', document_id: 'CPF', controller_user_id: 'ID no leitor', person_type: 'tipo', groups: 'grupo', notes: 'observações' };
+  psCampo('piAnalise').innerHTML = `
+    <div class="pi-numeros">
+      <div class="ok"><b>${apNum(novos.length)}</b><span>nova${novos.length === 1 ? '' : 's'}</span></div>
+      <div class="azul"><b>${apNum(atual.length)}</b><span>atualizada${atual.length === 1 ? '' : 's'}</span></div>
+      <div class="${rec.length ? 'ruim' : ''}"><b>${apNum(rec.length)}</b><span>recusada${rec.length === 1 ? '' : 's'}</span></div>
+      <div class="${av.length ? 'at' : ''}"><b>${apNum(av.length)}</b><span>aviso${av.length === 1 ? '' : 's'}</span></div>
+    </div>
+    <p class="dv-ajuda">${apNum(a.total_linhas)} linhas lidas. Colunas reconhecidas: ${(a.colunas_reconhecidas || []).map(c => `<span class="ag-chip">${esc(ROT[c] || c)}</span>`).join(' ')}
+      ${grupoNome ? `<br>Todos vão para o grupo <b>${esc(grupoNome)}</b>.` : ''} Quem já existe só tem trocado o que a planilha traz preenchido.</p>
+    ${rec.length ? `<details class="pi-lista ruim" open><summary>${apNum(rec.length)} linha${rec.length === 1 ? '' : 's'} recusada${rec.length === 1 ? '' : 's'}: não entram</summary>
+      <ul>${rec.slice(0, 200).map(r => `<li><b>Linha ${r.linha}</b> ${esc(r.nome || '')} · ${esc(r.motivo)}</li>`).join('')}</ul></details>` : ''}
+    ${av.length ? `<details class="pi-lista at"><summary>${apNum(av.length)} aviso${av.length === 1 ? '' : 's'}: a pessoa entra assim mesmo</summary>
+      <ul>${av.slice(0, 200).map(r => `<li><b>Linha ${r.linha}</b> ${esc(r.nome || '')} · ${esc(r.aviso)}</li>`).join('')}</ul></details>` : ''}
+    ${linhas.length ? `<div class="ap-tabela pi-tabela"><table><thead><tr><th>Linha</th><th></th><th>Nome</th><th>Tipo</th><th>Turma/unidade</th><th>Grupos</th></tr></thead><tbody>
+      ${linhas.slice(0, 300).map(r => `<tr><td class="monospace">${r.linha}</td><td><span class="ap-chip ${r.sit === 'nova' ? 'entrada' : 'pi-atual'}">${r.sit === 'nova' ? 'nova' : 'atualiza'}</span></td>
+        <td>${esc(r.full_name)}${r.sit === 'atualiza' && r.nome_atual && r.nome_atual !== r.full_name ? `<small class="pi-antes">era ${esc(r.nome_atual)}</small>` : ''}</td>
+        <td>${esc(PI_TIPO_ROT[r.person_type] || r.person_type)}</td><td>${esc(r.class_name || '—')}</td><td>${esc((r.grupos_nomes || []).join(', ') || '—')}</td></tr>`).join('')}
+    </tbody></table></div>${linhas.length > 300 ? `<small class="dv-ajuda">Mostrando 300 de ${apNum(linhas.length)}.</small>` : ''}` : ''}`;
+  psCampo('piPassoConferir').hidden = false;
+  psCampo('piAplicar').disabled = !total;
+  psCampo('piAplicar').innerHTML = `<i data-lucide="check"></i> Importar ${apNum(total)} pessoa${total === 1 ? '' : 's'}`;
+  if (window.lucide) lucide.createIcons();
+  psCampo('piPassoConferir').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+async function piAnalisar() {
+  if (!_piArquivo) return;
+  piErro('');
+  psCampo('piAplicar').disabled = true;
+  psCampo('piPassoConferir').hidden = false;
+  psCampo('piAnalise').innerHTML = '<p class="dv-ajuda"><i data-lucide="loader-circle" class="dv-gira"></i> Lendo a planilha…</p>';
+  if (window.lucide) lucide.createIcons();
+  try {
+    _piAnalise = await piEnviar(false);
+    piMostrarAnalise(_piAnalise);
+  } catch (err) {
+    psCampo('piPassoConferir').hidden = true;
+    piErro(err.message);
+  }
+}
+
+async function piAplicar() {
+  const b = psCampo('piAplicar');
+  b.disabled = true;
+  b.innerHTML = '<i data-lucide="loader-circle" class="dv-gira"></i> Importando…';
+  if (window.lucide) lucide.createIcons();
+  try {
+    const r = await piEnviar(true);
+    const falhas = r.falhas || [];
+    piFechar();
+    await psCarregar();
+    acToast(`${apNum(r.criados)} nova${r.criados === 1 ? '' : 's'}, ${apNum(r.atualizados)} atualizada${r.atualizados === 1 ? '' : 's'}${falhas.length ? `, ${falhas.length} com erro (${esc(falhas[0].motivo)})` : ''}. Quem está em grupo vai para os leitores.`, falhas.length > 0);
+  } catch (err) {
+    piErro(err.message);
+    b.disabled = false;
+    b.innerHTML = '<i data-lucide="check"></i> Tentar de novo';
+    if (window.lucide) lucide.createIcons();
+  }
+}
+
+function piLigar() {
+  psCampo('piFechar').addEventListener('click', piFechar);
+  psCampo('piCancelar').addEventListener('click', piFechar);
+  psCampo('piFundo').addEventListener('click', piFechar);
+  document.addEventListener('keydown', ev => { if (ev.key === 'Escape' && !psCampo('piGaveta').hidden) piFechar(); });
+  psCampo('piModelo').addEventListener('click', piBaixarModelo);
+  psCampo('piSite').addEventListener('change', () => { piAtualizarModelo(); if (_piArquivo) piAnalisar(); });
+  psCampo('piGrupo').addEventListener('change', () => { if (_piArquivo) piAnalisar(); });
+  const escolher = f => {
+    if (!f) return;
+    if (f.size > 10 * 1024 * 1024) { piErro('Arquivo maior que 10 MB.'); return; }
+    _piArquivo = f;
+    psCampo('piZonaTxt').textContent = f.name;
+    piAnalisar();
+  };
+  psCampo('piArquivo').addEventListener('change', ev => escolher(ev.target.files[0]));
+  const zona = psCampo('piZona');
+  ['dragover', 'dragenter'].forEach(t => zona.addEventListener(t, ev => { ev.preventDefault(); zona.classList.add('sobre'); }));
+  ['dragleave', 'drop'].forEach(t => zona.addEventListener(t, () => zona.classList.remove('sobre')));
+  zona.addEventListener('drop', ev => { ev.preventDefault(); escolher(ev.dataTransfer.files[0]); });
+  psCampo('piAplicar').addEventListener('click', piAplicar);
 }

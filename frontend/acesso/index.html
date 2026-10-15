@@ -11,7 +11,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="../styles.css?v=1792000033">
-  <link rel="stylesheet" href="acesso.css?v=1792000050">
+  <link rel="stylesheet" href="acesso.css?v=1792000051">
 </head>
 <body>
   <div id="appShell" class="app-shell" hidden>
@@ -312,10 +312,50 @@
         <div id="apPess" hidden>
           <div class="dv-barra">
             <label class="dv-busca"><i data-lucide="search"></i><input id="psBusca" type="search" placeholder="Nome, CPF, matrícula, turma" aria-label="Buscar pessoa"></label>
+            <button class="secondary-action" id="psImportar" type="button"><i data-lucide="file-spreadsheet"></i> Importar planilha</button>
             <button class="primary-action" id="psNova" type="button"><i data-lucide="user-plus"></i> Nova pessoa</button>
           </div>
           <div id="psConteudo"><p class="ap-vazio">Carregando pessoas…</p></div>
 
+          <div class="dv-gaveta" id="piGaveta" hidden>
+            <div class="dv-fundo" id="piFundo"></div>
+            <aside class="dv-painel pi-painel" role="dialog" aria-modal="true" aria-labelledby="piTitulo">
+              <header class="dv-gaveta-cab">
+                <div><p class="eyebrow">Pessoas</p><h2 id="piTitulo">Importar planilha</h2><p>Cadastre ou atualize muitas pessoas de uma vez. Nada é gravado antes de você conferir.</p></div>
+                <button class="icon-button" id="piFechar" type="button" aria-label="Fechar"><i data-lucide="x"></i></button>
+              </header>
+              <div class="dv-form">
+                <section class="dv-passo">
+                  <h3 class="dv-passo-tit"><span>1</span>Planilha modelo</h3>
+                  <p class="dv-ajuda" id="piModeloTxt"></p>
+                  <div class="dvc-linha"><button type="button" class="secondary-action" id="piModelo"><i data-lucide="download"></i> Baixar modelo</button></div>
+                  <small class="dv-ajuda">Pode ser Excel (.xlsx) ou CSV. Os nomes das colunas não precisam ser exatos: "Celular do responsável", "Apto" e "Setor" também são reconhecidos. A foto não vem pela planilha: ela entra depois, em cada pessoa.</small>
+                </section>
+                <section class="dv-passo">
+                  <h3 class="dv-passo-tit"><span>2</span>Arquivo</h3>
+                  <div class="dv-duas">
+                    <div><label class="dv-rot" for="piSite">Local</label><input id="piSite" list="psSites" autocomplete="off" placeholder="Local das pessoas"></div>
+                    <div><label class="dv-rot" for="piGrupo">Colocar todos no grupo</label><select id="piGrupo"></select></div>
+                  </div>
+                  <label class="ps-foto-zona pi-zona" id="piZona">
+                    <input type="file" id="piArquivo" accept=".xlsx,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv">
+                    <i data-lucide="file-up"></i><b id="piZonaTxt">Escolher a planilha</b>
+                    <small>ou arraste aqui (.xlsx ou .csv, até 10 MB)</small>
+                  </label>
+                </section>
+                <section class="dv-passo" id="piPassoConferir" hidden>
+                  <h3 class="dv-passo-tit"><span>3</span>Conferir</h3>
+                  <div id="piAnalise"></div>
+                </section>
+                <p class="dv-erro" id="piErro" role="alert" hidden></p>
+              </div>
+              <footer class="dv-gaveta-pe">
+                <span class="dv-espaco"></span>
+                <button type="button" class="secondary-action" id="piCancelar">Cancelar</button>
+                <button type="button" class="primary-action" id="piAplicar" disabled><i data-lucide="check"></i> Importar</button>
+              </footer>
+            </aside>
+          </div>
           <div class="dv-gaveta" id="psGaveta" hidden>
             <div class="dv-fundo" id="psFundo"></div>
             <aside class="dv-painel ps-painel" role="dialog" aria-modal="true" aria-labelledby="psTitulo">
@@ -488,10 +528,10 @@
 
   <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js"></script>
   <script src="../config.js?v=1791000212"></script>
-  <script src="dispositivos/dispositivos.js?v=1792000050"></script>
-  <script src="pessoas.js?v=1792000050"></script>
-  <script src="acesso-grupos.js?v=1792000050"></script>
-  <script src="shell.js?v=1792000050"></script>
-  <script src="acesso.js?v=1792000050"></script>
+  <script src="dispositivos/dispositivos.js?v=1792000051"></script>
+  <script src="pessoas.js?v=1792000051"></script>
+  <script src="acesso-grupos.js?v=1792000051"></script>
+  <script src="shell.js?v=1792000051"></script>
+  <script src="acesso.js?v=1792000051"></script>
 </body>
 </html>

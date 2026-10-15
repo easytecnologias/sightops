@@ -602,6 +602,8 @@ async def api_access_control_import_people(
     arquivo: UploadFile = File(...),
     site: str = Query(""),
     aplicar: bool = Query(False),
+    grupo: str = Query(""),
+    tipo: str = Query(""),
 ) -> Dict[str, Any]:
     """Importa alunos de planilha (XLSX ou CSV).
 
@@ -621,12 +623,12 @@ async def api_access_control_import_people(
     nome = arquivo.filename or ""
     try:
         if aplicar:
-            resultado = aplicar_planilha(conteudo, site=site, nome_arquivo=nome)
-            criados = [p["id"] for p in list_people()
-                       if str(p.get("enrollment_code") or "").strip()]
-            _enqueue_provisioning(criados, force=False)
+            resultado = aplicar_planilha(conteudo, site=site, nome_arquivo=nome, grupo_id=grupo, tipo_padrao=tipo)
+            # So quem a planilha criou/atualizou vai para os leitores (antes ia
+            # todo mundo com matricula, inclusive quem nem estava na planilha).
+            _enqueue_provisioning(resultado.get("pessoas") or [], force=False)
             return resultado
-        return analisar_planilha(conteudo, site=site, nome_arquivo=nome)
+        return analisar_planilha(conteudo, site=site, nome_arquivo=nome, grupo_id=grupo, tipo_padrao=tipo)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 

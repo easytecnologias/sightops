@@ -640,3 +640,24 @@
 #viewAccessPainel .dv-linha{grid-template-columns:minmax(210px,1.4fr) minmax(220px,1.3fr) minmax(190px,1fr) minmax(120px,.7fr) 320px}
 #viewAccessPainel .dv-l-acoes{justify-content:flex-end}
 @media(max-width:1100px){#viewAccessPainel .dv-linha{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}#viewAccessPainel .dv-l-acoes{justify-content:flex-start}}
+/* Importar planilha */
+#viewAccessPainel .pi-painel{width:min(720px,100%)}
+#viewAccessPainel .pi-zona{margin-top:10px;padding:18px}
+#viewAccessPainel .pi-numeros{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+#viewAccessPainel .pi-numeros div{background:var(--surface-soft);border-radius:9px;padding:10px 12px}
+#viewAccessPainel .pi-numeros b{display:block;font-size:22px;line-height:1.1}
+#viewAccessPainel .pi-numeros span{font-size:12px;color:var(--muted)}
+#viewAccessPainel .pi-numeros .ok b{color:var(--primary)}
+#viewAccessPainel .pi-numeros .azul b{color:var(--blue)}
+#viewAccessPainel .pi-numeros .ruim b{color:var(--danger)}
+#viewAccessPainel .pi-numeros .at b{color:var(--amber)}
+#viewAccessPainel .pi-lista{border:1px solid var(--border);border-radius:9px;padding:8px 12px;font-size:12.5px}
+#viewAccessPainel .pi-lista summary{cursor:pointer;font-weight:600}
+#viewAccessPainel .pi-lista.ruim summary{color:var(--danger)}
+#viewAccessPainel .pi-lista.at summary{color:var(--amber)}
+#viewAccessPainel .pi-lista ul{margin:8px 0 0;padding-left:18px;max-height:180px;overflow-y:auto}
+#viewAccessPainel .pi-tabela{max-height:340px;border:1px solid var(--border);border-radius:9px}
+#viewAccessPainel .pi-tabela td,#viewAccessPainel .pi-tabela th{padding:6px 10px}
+#viewAccessPainel .ap-chip.pi-atual{background:var(--blue-soft);color:var(--blue)}
+#viewAccessPainel .pi-antes{display:block;font-size:11px;color:var(--muted)}
+@media(max-width:620px){#viewAccessPainel .pi-numeros{grid-template-columns:repeat(2,1fr)}}
