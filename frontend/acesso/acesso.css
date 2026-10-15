@@ -173,3 +173,22 @@
 #viewAccessPainel .ap-card-ir{width:16px;height:16px;color:var(--border);flex:0 0 auto;transition:color .15s,transform .15s}
 #viewAccessPainel .ap-card:not([disabled]):hover .ap-card-ir{color:var(--primary);transform:translateX(2px)}
 @media(max-width:720px){#viewAccessPainel .ap-cards{grid-template-columns:1fr 1fr}#viewAccessPainel .ap-card{border-bottom:1px solid var(--border);padding:12px 14px;gap:10px}#viewAccessPainel .ap-card-ir{display:none}#viewAccessPainel .ap-card-val{font-size:20px}}
+/* Ao vivo: as duas colunas com a mesma altura. A lista nao empurra a linha
+   (height:0 + flex:1): quem define a altura e o painel da passagem; a lista
+   ocupa o que sobra e rola por dentro. Rodape com o dia em numeros. */
+#viewAccessPainel .ap-grade{align-items:stretch}
+#viewAccessPainel .ap-grade > .panel,#viewAccessPainel .ap-lado > .panel{margin-bottom:14px}
+#viewAccessPainel .ap-feed{display:flex;flex-direction:column}
+#viewAccessPainel .ap-feed .ap-lista{flex:1 1 auto;height:0;min-height:300px;max-height:none}
+#viewAccessPainel .ap-lado{display:flex;flex-direction:column}
+#viewAccessPainel .ap-lado > .ap-det{flex:1;position:static}
+#viewAccessPainel .ap-rodape{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));border-top:1px solid var(--border);background:var(--surface-soft)}
+#viewAccessPainel .ap-rd{display:flex;gap:10px;align-items:flex-start;padding:11px 16px;border-right:1px solid var(--border);min-width:0}
+#viewAccessPainel .ap-rd:last-child{border-right:0}
+#viewAccessPainel .ap-rd > svg{width:16px;height:16px;color:var(--primary);flex:0 0 auto;margin-top:2px}
+#viewAccessPainel .ap-rd div{display:flex;flex-direction:column;min-width:0}
+#viewAccessPainel .ap-rd span{font-size:11px;letter-spacing:.04em;text-transform:uppercase;color:var(--muted);font-weight:600}
+#viewAccessPainel .ap-rd b{font-size:16px;line-height:1.25;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-variant-numeric:tabular-nums}
+#viewAccessPainel .ap-rd small{font-size:11.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+@media(max-width:1100px){#viewAccessPainel .ap-feed .ap-lista{height:auto;max-height:520px}}
+@media(max-width:720px){#viewAccessPainel .ap-rodape{grid-template-columns:1fr 1fr}#viewAccessPainel .ap-rd{border-bottom:1px solid var(--border)}}

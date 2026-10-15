@@ -352,6 +352,37 @@ function apDetalhe(p, todas) {
   </section>`;
 }
 
+// Rodape da lista: o dia em quatro numeros. Tudo sai do que o ao vivo ja traz.
+function apRodape(d, todas) {
+  if (!todas.length) return '';
+  const horas = d.horas || [];
+  const primeira = todas[todas.length - 1];
+  const pico = horas.reduce((m, h) => (h.entradas + h.saidas > m.n ? { h: h.h, n: h.entradas + h.saidas } : m), { h: -1, n: 0 });
+  const agora = Date.now();
+  const ultimaHora = todas.filter(p => agora - (apLocal(p.hora) || 0) < 3600000).length;
+  const itens = [
+    ['sunrise', 'Primeira do dia', apHm(apLocal(primeira.hora)), esc(primeira.nome || apPorta(primeira.porta) || '')],
+    ['trending-up', 'Pico', pico.h >= 0 ? String(pico.h).padStart(2, '0') + 'h' : '—', pico.n ? `${apNum(pico.n)} passagens` : ''],
+    ['timer', 'Última hora', apNum(ultimaHora), ultimaHora === 1 ? 'passagem' : 'passagens'],
+  ];
+  // Escola: quanto o responsavel espera pelo aviso (mediana passagem -> envio).
+  const atrasos = todas.map(p => {
+    const env = apUtc((p.aviso || {}).enviado), hora = apLocal(p.hora);
+    return env && hora ? (env - hora) / 1000 : null;
+  }).filter(x => x !== null && x >= 0 && x < 600).sort((a, b) => a - b);
+  if (_apUsaAvisos && atrasos.length) {
+    const med = Math.round(atrasos[Math.floor(atrasos.length / 2)]);
+    itens.push(['send', 'Aviso chega em', med < 60 ? `${med} s` : `${Math.round(med / 60)} min`, `mediana de ${apNum(atrasos.length)} avisos`]);
+  } else {
+    const porPorta = {};
+    todas.forEach(p => { porPorta[p.porta] = (porPorta[p.porta] || 0) + 1; });
+    const top = Object.entries(porPorta).sort((a, b) => b[1] - a[1])[0];
+    if (top) itens.push(['door-open', 'Porta mais usada', esc(apPorta(top[0])), `${apNum(top[1])} passagens`]);
+  }
+  return `<footer class="ap-rodape">${itens.map(([ic, rot, val, sub]) => `<div class="ap-rd">
+      <i data-lucide="${ic}"></i><div><span>${rot}</span><b>${val}</b>${sub ? `<small>${sub}</small>` : ''}</div></div>`).join('')}</footer>`;
+}
+
 // Recibo do aviso so onde existe aviso: escola, ou condominio que usa WhatsApp.
 function apComAviso(p) { return _apUsaAvisos || apTipoLocal(p.site) === 'escola'; }
 
@@ -405,6 +436,7 @@ function apDesenharVivo(d) {
           <input type="search" id="apBusca" class="ap-busca" placeholder="Buscar nome, ${apEhCondominio() ? 'unidade' : 'turma'} ou porta" value="${esc(_apBusca)}" aria-label="Buscar passagem">
         </div>
         <div class="ap-lista" id="apLista">${lista.length ? lista.map(p => apLinhaPassagem(p, sel && p.id === sel.id)).join('') : `<p class="ap-vazio ap-pad">${todas.length ? 'Nenhuma passagem neste filtro.' : 'Nenhuma passagem hoje.'}</p>`}</div>
+        ${apRodape(d, todas)}
       </section>
       <div class="ap-lado">${apDetalhe(sel, todas)}</div>
     </div>`;
