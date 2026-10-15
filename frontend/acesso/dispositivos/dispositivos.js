@@ -164,11 +164,11 @@ function dvDesenhar() {
       <b>${b ? 'Nenhum leitor com “' + esc(_dvBusca) + '”' : 'Nenhum leitor cadastrado'}</b>
       <p>${b ? 'Busque por nome, local, IP ou modelo.' : 'Cadastre o primeiro leitor para o SightOps começar a receber as passagens.'}</p>
       ${b ? '' : '<button type="button" class="primary-action" data-dv-novo=""><i data-lucide="plus"></i> Novo dispositivo</button>'}</div>`}
-    ${vazios.length ? `<section class="dv-sem">
-      <header><b>Locais sem leitor</b><small>${vazios.length} local${vazios.length === 1 ? '' : 'is'} do cliente ainda sem controle de acesso</small></header>
+    ${vazios.length ? `<details class="dv-sem-discreto">
+      <summary>${vazios.length} local${vazios.length === 1 ? '' : 'is'} do cliente ainda sem leitor</summary>
       <div class="dv-sem-lista">${vazios.map(l => `<button type="button" class="dv-sem-item" data-dv-novo="${esc(l.site)}">
-        <span>${esc(l.site)}</span><small>${DV_TIPO[l.tipo] || ''}</small><i data-lucide="plus"></i></button>`).join('')}</div>
-    </section>` : ''}`;
+        <span>${esc(l.site)}</span><i data-lucide="plus"></i></button>`).join('')}</div>
+    </details>` : ''}`;
   dvLigar(el);
   if (window.lucide) lucide.createIcons();
 }
@@ -232,6 +232,16 @@ function dvAbrir(d, siteSugerido) {
   dvCampo('dvSubtitulo').textContent = novo ? 'Leitor facial ou controladora de um local do cliente.' : d.nome;
   const locais = _dvDados.locais || [];
   dvCampo('dvSites').innerHTML = locais.map(l => `<option value="${esc(l.site)}">`).join('');
+  const livres = novo ? locais.filter(l => !l.leitores) : [];
+  const sug = dvCampo('dvSugestoes');
+  sug.hidden = !livres.length;
+  sug.innerHTML = livres.length ? `<span>Ainda sem leitor:</span>${livres.map(l =>
+    `<button type="button" data-dv-sug="${esc(l.site)}">${esc(l.site)}</button>`).join('')}` : '';
+  sug.querySelectorAll('[data-dv-sug]').forEach(b => b.addEventListener('click', () => {
+    dvCampo('dvSite').value = b.dataset.dvSug;
+    dvCampo('dvSite').dispatchEvent(new Event('input'));
+    dvCampo('dvHost').focus();
+  }));
   dvCampo('dvSite').value = novo ? (siteSugerido || '') : d.site;
   dvOpcoesConector(novo ? ((locais.find(l => l.site.toUpperCase() === String(siteSugerido || '').toUpperCase()) || {}).connector_id || '') : d.connector_id);
   dvCampo('dvHost').value = novo ? '' : d.host;
