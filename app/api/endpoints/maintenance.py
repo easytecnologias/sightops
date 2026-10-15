@@ -4115,3 +4115,30 @@ def api_scripts_zabbix_groups(url: str = "", user: str = "", password: str = "")
         }
     except Exception as exc:
         return {"ok": False, "error": str(exc)[:200], "groups": []}
+
+
+# -- Ensinar UMA senha a todas as cameras de um site que recusam a guardada --
+# (editor do Mapa: "Usar em todas do site"). Ver app/services/camera_senha_lote.py
+# para o limite de tentativas que evita bloquear o usuario das Intelbras.
+@router.post("/maintenance/camera_senha/ensinar")
+def maintenance_camera_senha_ensinar(payload: Dict[str, Any]) -> Dict[str, Any]:
+    from app.services import camera_senha_lote
+
+    site = _as_str(payload.get("site"))
+    user = _as_str(payload.get("user")) or "admin"
+    senha = str(payload.get("password") or payload.get("pass") or "")
+    if not site:
+        return {"ok": False, "error": "informe o site"}
+    if not senha:
+        return {"ok": False, "error": "informe a senha"}
+    return {"ok": True, **camera_senha_lote.iniciar(site, user, senha)}
+
+
+@router.get("/maintenance/camera_senha/ensinar/{job_id}")
+def maintenance_camera_senha_ensinar_estado(job_id: str) -> Dict[str, Any]:
+    from app.services import camera_senha_lote
+
+    job = camera_senha_lote.estado(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="tarefa nao encontrada")
+    return {"ok": True, **job}

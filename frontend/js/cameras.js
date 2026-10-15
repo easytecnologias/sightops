@@ -3047,7 +3047,7 @@ function mcpCorpo(e, v) {
   }
   if (_mcp.aba === 'dados') {
     return `
-      ${mcpCampo('Nome no mapa e no inventário', `<input class="mcp-input" data-mcp-campo="nome" value="${esc(v.nome)}">`)}
+      ${mcpCampo('Nome (na câmera, no inventário e no mapa)', `<input class="mcp-input" data-mcp-campo="nome" value="${esc(v.nome)}">`)}
       ${mcpCampo('Local / setor', `<input class="mcp-input" data-mcp-campo="local" value="${esc(v.local)}">`)}
       <div class="mcp-ficha">
         <span>Modelo</span><b>${esc(cam.model || cam.modelo || cam.fabricante || '-')}</b>
@@ -3104,7 +3104,7 @@ function renderMapCamPanel() {
     <div class="mcp-corpo">${mcpCorpo(e, v)}</div>
     <div class="mcp-rodape">
       ${mud.length ? `<b>${mud.length} alteração(ões) em ${editadas.size} câmera(s) — ainda não salvas</b>
-        <div class="mcp-mudancas">${mud.map(m => `<div><b>${esc(m.camera)}</b> <span>${esc(m.campo)}:</span> <s>${esc(m.de)}</s> → <em>${esc(m.para)}</em>${m.k === 'ip' ? ' <span class="mcp-tag">também na câmera</span>' : ''}</div>`).join('')}</div>`
+        <div class="mcp-mudancas">${mud.map(m => `<div><b>${esc(m.camera)}</b> <span>${esc(m.campo)}:</span> <s>${esc(m.de)}</s> → <em>${esc(m.para)}</em>${m.k === 'ip' || m.k === 'nome' ? ' <span class="mcp-tag">também na câmera</span>' : ''}</div>`).join('')}</div>`
         : '<span class="mcp-dica">Nenhuma alteração ainda.</span>'}
       <div class="mcp-linha">
         <button type="button" class="secondary-action" data-mcp-descartar ${mud.length ? '' : 'disabled'}>Descartar</button>
@@ -3176,7 +3176,9 @@ function mcpPedirSenha(cam, status, jaTentou) {
       <input class="mcp-input" id="mcpSenhaUser" value="admin" aria-label="Usuário" autocomplete="off" style="width:90px">
       <input class="mcp-input" id="mcpSenhaPass" type="password" aria-label="Senha" placeholder="Senha" autocomplete="new-password" style="flex:1;min-width:120px">
       <button type="button" class="primary-action" id="mcpSenhaUsar">Usar e guardar</button>
-    </div>`;
+    </div>
+    ${mcpSiteDa(cam) ? `<button type="button" class="secondary-action" id="mcpSenhaSite">Usar em todas do site ${esc(mcpSiteDa(cam))}</button>
+    <span>Testa só nas câmeras do site que recusam a senha guardada (no máximo 2 tentativas em cada) e guarda onde funcionar.</span>` : ''}`;
   const usar = () => {
     const user = document.getElementById('mcpSenhaUser')?.value.trim() || 'admin';
     const pass = document.getElementById('mcpSenhaPass')?.value || '';
@@ -3186,8 +3188,53 @@ function mcpPedirSenha(cam, status, jaTentou) {
     mcpLigarAoVivo(cam, user, pass);
   };
   document.getElementById('mcpSenhaUsar')?.addEventListener('click', usar);
+  document.getElementById('mcpSenhaSite')?.addEventListener('click', () => {
+    const user = document.getElementById('mcpSenhaUser')?.value.trim() || 'admin';
+    const pass = document.getElementById('mcpSenhaPass')?.value || '';
+    if (pass) mcpEnsinarSite(cam, user, pass, status);
+  });
   document.getElementById('mcpSenhaPass')?.addEventListener('keydown', ev => { if (ev.key === 'Enter') usar(); });
   setTimeout(() => document.getElementById('mcpSenhaPass')?.focus(), 50);
+}
+
+function mcpSiteDa(cam) {
+  return String(cam?.site || cam?.site_name || cam?.local || '').trim();
+}
+
+// Ensina a senha a todas as cameras do site que recusam a guardada
+// (app/services/camera_senha_lote.py) e acompanha ate terminar.
+async function mcpEnsinarSite(cam, user, pass, status) {
+  const site = mcpSiteDa(cam);
+  status.innerHTML = `<b>Testando a senha nas câmeras de ${esc(site)}…</b><span id="mcpEnsinoProg">começando</span>`;
+  const r = await api('/api/maintenance/camera_senha/ensinar', { method: 'POST', body: JSON.stringify({ site, user, password: pass }) }).catch(() => null);
+  const d = await r?.json().catch(() => ({}));
+  if (!r?.ok || !d?.job_id) {
+    status.innerHTML = `<b>Não consegui começar: ${esc(d?.error || 'erro')}</b>`;
+    return;
+  }
+  const rotulos = { aprendeu: 'aprenderam', aprendeu_sem_mac: 'aprenderam (sem MAC)', guardada_funciona: 'já funcionavam',
+    ja_era_essa: 'já tinham essa senha', nova_recusada: 'recusaram as duas', sem_resposta: 'sem resposta', fora_do_conector: 'fora do conector' };
+  for (let i = 0; i < 600; i++) {
+    await new Promise(res => setTimeout(res, 2000));
+    const j = await apiJson(`/api/maintenance/camera_senha/ensinar/${encodeURIComponent(d.job_id)}`, { cacheTtl: 0, forceRefresh: true }).catch(() => null);
+    if (!j) continue;
+    const resumo = Object.entries(j.resultado || {}).map(([k, n]) => `${n} ${rotulos[k] || k}`).join(' · ');
+    const prog = document.getElementById('mcpEnsinoProg');
+    if (prog) prog.textContent = `${j.feitas}/${j.total} conferidas${resumo ? ' — ' + resumo : ''}`;
+    if (j.estado === 'concluido' || j.estado === 'erro') {
+      const recusaram = (j.pendentes || []).filter(p => p.motivo === 'nova_recusada').map(p => p.nome || p.ip);
+      status.innerHTML = `<b>${j.estado === 'erro' ? 'Parou com erro: ' + esc(j.erro || '') : `Pronto em ${esc(site)}.`}</b>
+        <span>${esc(resumo || 'nada a fazer')}${j.senha_do_site_trocada ? ' · a senha padrão do site também foi trocada' : ''}</span>
+        ${recusaram.length ? `<span>Recusaram a senha nova: ${esc(recusaram.slice(0, 8).join(', '))}${recusaram.length > 8 ? '…' : ''}</span>` : ''}
+        <div class="mcp-linha"><button type="button" class="primary-action" id="mcpEnsinoVer">Ver ao vivo</button></div>`;
+      document.getElementById('mcpEnsinoVer')?.addEventListener('click', () => {
+        status.classList.remove('mcp-senha');
+        status.textContent = 'Conectando…';
+        mcpLigarAoVivo(cam);
+      });
+      return;
+    }
+  }
 }
 
 async function mcpAcao(acao, e) {
@@ -3280,6 +3327,14 @@ async function mcpSalvarUma(e) {
     const res = (d?.results || [])[0] || {};
     if (!r?.ok || !res.ok) throw new Error(`IP não trocado: ${res.error || d?.error || 'sem resposta'}`);
     ipAtual = v.ip;
+  }
+  if (v.nome && v.nome !== o.nome) {
+    // O nome vai PRIMEIRO para a propria camera (titulo do canal/OSD). Se ela
+    // recusar, para aqui: inventario e mapa nao podem dizer um nome que a
+    // camera nao tem.
+    const r = await api('/api/cameras/rename', { method: 'POST', body: JSON.stringify({ ip: ipAtual, title: v.nome }) });
+    const d = await r?.json().catch(() => ({}));
+    if (!r?.ok || !d?.ok) throw new Error(`a câmera não aceitou o nome: ${d?.error || 'sem resposta'}`);
   }
   if (v.nome !== o.nome || v.local !== o.local) {
     const r = await api(`/api/cameras/save?mode=${encodeURIComponent(cam._mode || mapInventoryMode())}`, {

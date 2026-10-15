@@ -126,3 +126,34 @@ def resolve_camera_credential(mac: str, site: str) -> Optional[Dict[str, str]]:
                 return {"username": _text(item.get("username")) or "admin", "password": decrypt(_text(item.get("password_enc")))}
 
     return None
+
+
+def definir_senha_do_site(site: str, username: str, password: str) -> None:
+    """Troca a senha PADRAO do site (save_camera_credential so cria quando
+    falta). Usado pelo ensino em lote, quando a senha nova funciona na
+    maioria das cameras que recusaram a antiga -- sinal de que o site inteiro
+    mudou de senha."""
+    site_n = _norm_site(site)
+    pw = str(password or "")
+    if not site_n or not pw:
+        return
+    user = _text(username) or "admin"
+    tenant = _current_tenant_slug()
+    enc = encrypt(pw)
+    with _conn() as c:
+        existe = c.execute(
+            "SELECT id FROM camera_site_credentials WHERE tenant_slug = ? AND site = ?",
+            (tenant, site_n),
+        ).fetchone()
+        if existe:
+            c.execute(
+                "UPDATE camera_site_credentials SET username = ?, password_enc = ?, "
+                "updated_at = (datetime('now')) WHERE tenant_slug = ? AND site = ?",
+                (user, enc, tenant, site_n),
+            )
+        else:
+            c.execute(
+                "INSERT INTO camera_site_credentials(tenant_slug, site, username, password_enc) "
+                "VALUES(?, ?, ?, ?)",
+                (tenant, site_n, user, enc),
+            )
