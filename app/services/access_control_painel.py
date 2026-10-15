@@ -730,6 +730,13 @@ def dispositivos(agora: Optional[datetime] = None) -> Dict[str, Any]:
     ultima_geral = {_t(r.get("device_id")): _t(r.get("ultima")) for r in _rows(
         "SELECT device_id, max(occurred_at) AS ultima FROM access_events "
         "WHERE tenant_slug=? AND occurred_at >= ? GROUP BY device_id", (tenant, RELOGIO_MINIMO))}
+    # Movimento de hoje por hora (a curva e a hora de pico de cada leitor).
+    horas: Dict[str, List[int]] = defaultdict(lambda: [0] * 24)
+    for r in _rows("SELECT device_id, occurred_at FROM access_events WHERE tenant_slug=? AND occurred_at >= ?",
+                   (tenant, hoje + " 00:00:00")):
+        quando = _ler_local(r.get("occurred_at"))
+        if quando:
+            horas[_t(r.get("device_id"))][quando.hour] += 1
     fotos: Dict[str, Counter] = defaultdict(Counter)
     for r in _rows("SELECT device_id, status FROM access_provision_status WHERE tenant_slug=?", (tenant,)):
         fotos[_t(r.get("device_id"))][_t(r.get("status")).lower() or "pendente"] += 1
@@ -754,6 +761,7 @@ def dispositivos(agora: Optional[datetime] = None) -> Dict[str, Any]:
             "fotos_ok": f.get("ok", 0), "fotos_falha": f.get("failed", 0),
             "fotos_pendentes": sum(v for k, v in f.items() if k not in ("ok", "failed")),
             "relogio_errado": relogio.get(did, {}).get("qtd", 0),
+            "horas": horas[did] if did in horas else [0] * 24,
             "criado": _t(d.get("created_at")),
         })
 

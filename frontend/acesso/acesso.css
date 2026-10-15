@@ -602,3 +602,11 @@
 #viewAccessPainel .agp-porta small{display:block;font-size:11px;color:var(--muted)}
 @media(max-width:620px){#viewAccessPainel .agp-grade{grid-template-columns:1fr}}
 #viewAccessPainel #agGPortas{max-height:none;overflow:visible}
+/* Curva de hoje na linha do leitor (veio da aba Portas) */
+#viewAccessPainel .dv-l-mov-l{display:flex;align-items:center;gap:12px}
+#viewAccessPainel .dv-l-mov-l > span:first-child small{display:block}
+#viewAccessPainel .dv-curva{display:flex;flex-direction:column;align-items:flex-end;gap:1px;flex:0 0 auto}
+#viewAccessPainel .dv-curva svg{width:96px;height:26px;display:block}
+#viewAccessPainel .dv-curva small{font-size:10.5px;color:var(--muted);margin:0}
+#viewAccessPainel .dv-linha{grid-template-columns:minmax(220px,1.4fr) minmax(220px,1.3fr) minmax(200px,1fr) minmax(130px,.8fr) auto}
+@media(max-width:1300px){#viewAccessPainel .dv-curva{display:none}}

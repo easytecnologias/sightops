@@ -19,7 +19,7 @@ let _apPessoa = '';          // "ver so esta pessoa"
 let _apSel = '';             // passagem escolhida ('' = segue a mais recente)
 let _apPausado = false;
 let _apTopoVisto = '';       // id da passagem mais recente desenhada (para contar novas na pausa)
-const AP_TELAS = ['vivo', 'dispositivos', 'pessoas', 'acesso', 'portas', 'alertas', 'relatorios'];
+const AP_TELAS = ['vivo', 'dispositivos', 'pessoas', 'acesso', 'alertas', 'relatorios'];
 // Abas com arquivo proprio: o Painel so mostra/esconde e pede para carregar.
 const AP_ABAS_PROPRIAS = {
   dispositivos: { el: 'apDisp', abrir: () => dvAbrirAba(), carregar: () => dvCarregar() },
@@ -280,7 +280,7 @@ function apSaude(d) {
   const semSinal = portas.length - vivas;
   cards.push(card({ icone: 'door-open', cor: semSinal ? 'red' : 'green', estado: semSinal ? 'ruim' : '',
     rot: 'Leitores com sinal', val: `${vivas}<span class="ap-card-de">/${portas.length}</span>`,
-    sub: semSinal ? `${semSinal} sem sinal` : 'todos respondendo', subCor: semSinal ? 'ruim' : '', tela: 'portas' }));
+    sub: semSinal ? `${semSinal} sem sinal` : 'todos respondendo', subCor: semSinal ? 'ruim' : '', tela: 'dispositivos' }));
   const dentro = r.inside_now ?? 0;
   cards.push(card({ icone: 'users', cor: 'cyan', rot: apEhCondominio() ? 'Dentro agora' : 'Presentes agora', val: apNum(dentro),
     sub: !apEhCondominio() && alunos ? `de ${apNum(alunos)} alunos ativos` : 'última passagem foi entrada', tela: 'relatorios' }));
@@ -335,7 +335,7 @@ function apDetalhe(p, todas) {
     ${dele.length > 1 || !apComAviso(p) ? `<div class="ap-det-sec"><div class="ap-rot">Percurso de hoje</div>${apPercurso(dele, p)}</div>` : ''}
     <div class="ap-det-acoes">
       <button type="button" class="secondary-action" data-ap-pessoa="${esc(chave)}"><i data-lucide="user-search"></i> ${_apPessoa ? 'Ver todas as passagens' : 'Só esta pessoa'}</button>
-      <button type="button" class="secondary-action" data-ap-ir="portas"><i data-lucide="door-open"></i> Ver a porta</button>
+      <button type="button" class="secondary-action" data-ap-ir="dispositivos"><i data-lucide="door-open"></i> Ver o leitor</button>
     </div>
   </section>`;
 }
@@ -455,52 +455,6 @@ function apLigarAcoes(el) {
   }));
 }
 
-// ---------------------------------------------------------------- portas
-function apCurva(horas) {
-  horas = horas || [];
-  const w = 240, h = 36, max = Math.max(1, ...horas);
-  const agoraH = new Date().getHours();
-  const pts = horas.slice(0, agoraH + 1).map((n, i) => [i * w / 23, h - 3 - n / max * (h - 6)]);
-  if (!pts.length) return '';
-  const d = pts.map((p, i) => (i ? 'L' : 'M') + p[0].toFixed(1) + ' ' + p[1].toFixed(1)).join(' ');
-  const fim = pts[pts.length - 1];
-  return `<svg class="ap-curva" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" aria-hidden="true">
-    <path d="${d} L${fim[0].toFixed(1)} ${h} L0 ${h} Z" fill="var(--primary-soft)"/>
-    <path d="${d}" fill="none" stroke="var(--primary)" stroke-width="1.6" vector-effect="non-scaling-stroke"/>
-  </svg><div class="ap-curva-eixo monospace"><span>0h</span><span>12h</span><span>23h</span></div>`;
-}
-
-function apDesenharPortas(d) {
-  const el = document.getElementById('apPortas');
-  if (!el) return;
-  const portas = (d.portas || []).slice().sort((a, b) => (apPortaViva(a) - apPortaViva(b)) || (b.relogio_errado ? 1 : 0) - (a.relogio_errado ? 1 : 0) || b.hoje - a.hoje);
-  const vivas = portas.filter(apPortaViva).length;
-  el.innerHTML = `
-    <p class="ap-sub">${vivas} de ${portas.length} leitores com sinal. Sinal é o leitor informar online ou ter passagem nos últimos 30 minutos: o status que o leitor informa sozinho já mostrou offline com passagens no dia.</p>
-    <div class="ap-pcs">${portas.map(p => {
-      const viva = apPortaViva(p);
-      const pico = (p.horas || []).reduce((m, n, i) => (n > m[1] ? [i, n] : m), [-1, 0]);
-      const st = !viva ? '<span class="ap-chip falha">sem sinal</span>'
-        : p.relogio_errado ? '<span class="ap-chip saida">relógio errado</span>'
-        : '<span class="ap-chip entrada">com sinal</span>';
-      return `<article class="panel ap-pc ${viva ? '' : 'ruim'}">
-        <div class="ap-pc-cab"><div class="ap-cresce"><b title="${esc(p.nome)}">${esc(apPorta(p.nome))}</b>
-          <small>${p.ultima ? 'última passagem ' + apHa(apLocal(p.ultima)) : 'nenhuma passagem hoje'}</small></div>${st}</div>
-        <div class="ap-pc-nums">
-          <div><b class="monospace">${apNum(p.hoje)}</b><small>passagens hoje</small></div>
-          <div><b class="monospace">${p.ultima ? apHm(apLocal(p.ultima)) : '—'}</b><small>última</small></div>
-          <div><b class="monospace">${pico[0] >= 0 ? String(pico[0]).padStart(2, '0') + 'h' : '—'}</b><small>hora de pico</small></div>
-        </div>
-        ${apCurva(p.horas)}
-        <div class="ap-pc-pe">
-          <span>Leitor informa <b>${esc(p.status || 'sem status')}</b>${p.visto ? ' · falou com o SightOps ' + apHa(apUtc(p.visto) || apLocal(p.visto)) : ''}</span>
-          ${p.relogio_errado ? `<span class="ap-ruim">${p.relogio_errado} passagem${p.relogio_errado === 1 ? '' : 's'} gravada${p.relogio_errado === 1 ? '' : 's'} com data antes de 2020: o relógio do leitor zerou${p.relogio_errado_em ? ' (última recebida em ' + apLocal(p.relogio_errado_em)?.toLocaleDateString('pt-BR') + ')' : ''}.</span>` : ''}
-        </div>
-      </article>`;
-    }).join('') || '<p class="ap-vazio">Nenhum leitor cadastrado.</p>'}</div>`;
-  lucide.createIcons();
-}
-
 // ---------------------------------------------------------------- alertas
 // O que precisa de alguem, com gravidade. Separado da lista de passagens
 // (como no C•CURE / Verkada): a passagem comum nao disputa espaco com o alarme.
@@ -511,9 +465,9 @@ function apListaAlertas() {
   if (ag.alerta) itens.push({ nivel: 'grave', icone: 'message-circle-warning', titulo: 'Avisos de WhatsApp falhando agora',
     texto: `${ag.falhas} de ${ag.enviados} avisos não chegaram nos últimos ${ag.janela_min} min. Motivo da Meta: ${ag.erro_principal || 'não informado'}.`, ir: '' });
   (v.portas || []).filter(p => !apPortaViva(p)).forEach(p => itens.push({ nivel: 'grave', icone: 'door-closed', titulo: `Leitor sem sinal: ${apPorta(p.nome)}`,
-    texto: `${p.ultima ? 'Última passagem ' + apHa(apLocal(p.ultima)) : 'Nenhuma passagem hoje'} e o leitor informa "${p.status || 'sem status'}".`, ir: 'portas' }));
+    texto: `${p.ultima ? 'Última passagem ' + apHa(apLocal(p.ultima)) : 'Nenhuma passagem hoje'} e o leitor informa "${p.status || 'sem status'}".`, ir: 'dispositivos' }));
   (v.portas || []).filter(p => p.relogio_errado).forEach(p => itens.push({ nivel: 'medio', icone: 'clock-alert', titulo: `Relógio errado: ${apPorta(p.nome)}`,
-    texto: `${p.relogio_errado} passagens chegaram com data antes de 2020 e ficam fora dos relatórios. Acertar a hora do leitor.`, ir: 'portas' }));
+    texto: `${p.relogio_errado} passagens chegaram com data antes de 2020 e ficam fora dos relatórios. Acertar a hora do leitor.`, ir: 'dispositivos' }));
   const av = g.avisos || {};
   if ((av.falhando || []).length) itens.push({ nivel: 'medio', icone: 'phone-off', titulo: `${av.falhando.length} responsáve${av.falhando.length === 1 ? 'l não está' : 'is não estão'} recebendo aviso`,
     texto: av.falhando.slice(0, 4).map(f => `${f.responsavel || f.numero}${f.pessoa ? ' (' + f.pessoa + ')' : ''}`).join(', ') + (av.falhando.length > 4 ? '…' : '') + '. O último aviso para esses números falhou.', ir: 'relatorios' });
@@ -722,7 +676,6 @@ function apDesenharAtual() {
   if (AP_ABAS_PROPRIAS[_apTela]) { apMarcarAba(); return; }   // Dispositivos/Pessoas se desenham sozinhas
   apMostrarPerfil((_apTela === 'relatorios' ? (_apDados.rel || {}).perfil : (_apDados.vivo || {}).perfil) || (_apDados.geral || {}).perfil);
   if (_apTela === 'vivo') apDesenharVivo(_apDados.vivo || {});
-  else if (_apTela === 'portas') apDesenharPortas(_apDados.vivo || {});
   else if (_apTela === 'alertas') apDesenharAlertas();
   else {
     apDesenharRel(_apDados.rel || {});
@@ -761,7 +714,7 @@ async function apAtualizar(manual) {
     }
     apDesenharAtual();
   } catch (err) {
-    const alvo = document.getElementById({ vivo: 'apVivo', portas: 'apPortas', alertas: 'apAlertas', relatorios: 'apRelTopo' }[_apTela]);
+    const alvo = document.getElementById({ vivo: 'apVivo', alertas: 'apAlertas', relatorios: 'apRelTopo' }[_apTela]);
     if (alvo && !alvo.innerHTML.trim()) alvo.innerHTML = `<p class="ap-vazio">Não consegui carregar: ${esc(err?.message || err)}</p>`;
   } finally {
     _apCarregando = false;
@@ -770,13 +723,14 @@ async function apAtualizar(manual) {
 
 function apLigarStream() {
   if (_apFonte) { _apFonte.close(); _apFonte = null; }
-  if (!['vivo', 'portas', 'alertas'].includes(_apTela) || typeof EventSource === 'undefined') return;
+  if (!['vivo', 'alertas'].includes(_apTela) || typeof EventSource === 'undefined') return;
   _apFonte = new EventSource(`${API_BASE}/api/access-control/live/stream${apQ()}`);
   _apFonte.addEventListener('access-event', () => apAtualizar());
 }
 
 function apTrocarTela(tela) {
   if (tela === 'geral') tela = 'relatorios';   // aba antiga "Visao geral"
+  if (tela === 'portas') tela = 'dispositivos';  // aba Portas foi para Dispositivos
   _apTela = AP_TELAS.includes(tela) ? tela : 'vivo';
   if (_apTela !== 'vivo') _apPausado = false;
   document.querySelectorAll('[data-ap-tela]').forEach(b => {
@@ -785,7 +739,6 @@ function apTrocarTela(tela) {
     b.setAttribute('aria-selected', String(on));
   });
   document.getElementById('apVivo').hidden = _apTela !== 'vivo';
-  document.getElementById('apPortas').hidden = _apTela !== 'portas';
   document.getElementById('apAlertas').hidden = _apTela !== 'alertas';
   document.getElementById('apRel').hidden = _apTela !== 'relatorios';
   Object.entries(AP_ABAS_PROPRIAS).forEach(([k, a]) => { document.getElementById(a.el).hidden = _apTela !== k; });
@@ -838,12 +791,12 @@ async function loadAccessPainel() {
   try { salva = sessionStorage.getItem('sightops.acesso.painel.tela') || 'vivo'; } catch (_) {}
   // A aba do endereco manda (/v3/acesso/#dispositivos, link do menu, recarregar).
   const pedida = window.location.hash.slice(1);
-  if (AP_TELAS.includes(pedida)) salva = pedida;
+  if (AP_TELAS.includes(pedida) || pedida === 'portas') salva = pedida;
   if (!window._apHashLigado) {
     window._apHashLigado = true;
     window.addEventListener('hashchange', () => {
       const h = window.location.hash.slice(1);
-      if (AP_TELAS.includes(h) && h !== _apTela) apTrocarTela(h);
+      if ((AP_TELAS.includes(h) || h === 'portas') && h !== _apTela) apTrocarTela(h);
     });
   }
   stopAccessPainel();

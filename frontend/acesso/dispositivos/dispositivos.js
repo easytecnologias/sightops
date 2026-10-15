@@ -100,6 +100,20 @@ function dvObs(d) {
   return itens.length ? `<div class="dv-obs">${itens.join('')}</div>` : '';
 }
 
+// Curva de hoje (24 h) do leitor, com o pico. Vinha da aba Portas.
+function dvCurva(horas) {
+  horas = horas || [];
+  const max = Math.max(...horas, 0);
+  if (!max) return '';
+  const w = 96, h = 26, agoraH = new Date().getHours();
+  const pts = horas.slice(0, agoraH + 1).map((n, i) => [i * w / 23, h - 2 - n / max * (h - 4)]);
+  const d = pts.map((p, i) => (i ? 'L' : 'M') + p[0].toFixed(1) + ' ' + p[1].toFixed(1)).join(' ');
+  const pico = horas.indexOf(max);
+  return `<span class="dv-curva" title="Movimento de hoje por hora · pico às ${String(pico).padStart(2, '0')}h (${max})">
+    <svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" aria-hidden="true"><path d="${d} L${pts[pts.length - 1][0].toFixed(1)} ${h} L0 ${h} Z" fill="var(--primary-soft)"/><path d="${d}" fill="none" stroke="var(--primary)" stroke-width="1.5" vector-effect="non-scaling-stroke"/></svg>
+    <small>pico ${String(pico).padStart(2, '0')}h</small></span>`;
+}
+
 function dvLinha(d) {
   const e = dvEstado(d);
   const f = DV_FUNCAO[d.funcao] || DV_FUNCAO.entrada;
@@ -114,7 +128,7 @@ function dvLinha(d) {
         <small>${f.rot} · ${esc([DV_FABRICANTE[d.fabricante] || d.fabricante, d.modelo].filter(Boolean).join(' ') || 'modelo ainda não lido')}</small></div>
     </div>
     <div class="dv-l-rota"><span class="dv-l-rot">Rota</span><div>${r.val}</div><small>${r.sub}</small></div>
-    <div class="dv-l-mov"><span class="dv-l-rot">Hoje</span><div><b class="monospace">${dvNum(d.hoje)}</b> <span>passage${d.hoje === 1 ? 'm' : 'ns'}</span></div><small>${ultimaTxt}</small></div>
+    <div class="dv-l-mov"><span class="dv-l-rot">Hoje</span><div class="dv-l-mov-l"><span><b class="monospace">${dvNum(d.hoje)}</b> <span>passage${d.hoje === 1 ? 'm' : 'ns'}</span><small>${ultimaTxt}</small></span>${dvCurva(d.horas)}</div></div>
     <div class="dv-l-est"><span class="dv-ponto ${e.cls}"></span><div><b>${e.rot}</b><small>${d.visto ? 'falou ' + dvHa(dvUtc(d.visto)) : 'nunca testado'}</small></div></div>
     <div class="dv-l-acoes">
       <button type="button" class="dv-btn" data-dv-testar="${esc(d.id)}" ${rodando ? 'disabled' : ''} title="Testar conexão"><i data-lucide="activity"></i><span>Testar</span></button>
