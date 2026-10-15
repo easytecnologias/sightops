@@ -160,3 +160,38 @@ def test_morador_nao_aparece_como_aluno_sem_responsavel(monkeypatch):
     pessoas = [_p(1, "RESERVA"), _p(2, "ESCOLA", turma="7B"), _p(3, "ESCOLA", turma="7B", fone="82999990000")]
     av = P._avisos(AGORA, pessoas, {"ESCOLA"})
     assert [x["pessoa"] for x in av["sem_numero"]] == ["P2"]
+
+
+def test_local_sem_cadastro_herda_pelo_nome_ou_pelo_cliente():
+    """RADS: so a Presidente Dutra tem alunos; ESCOLA MEDEA (nome) e CANAPI
+    (resto do cliente) tambem sao escola. No default, JARDINS II segue o RESERVA."""
+    escola = [_p(i, "ESCOLA PRESIDENTE DUTRA", turma="4º Ano") for i in range(20)]
+    r = P.perfil_locais(escola, ["ESCOLA MEDEA", "CANAPI", "ESCOLA PRESIDENTE DUTRA"])
+    tipos = {x["site"]: (x["tipo"], x["origem"]) for x in r["locais"]}
+    assert tipos == {"CANAPI": ("escola", "cliente"), "ESCOLA MEDEA": ("escola", "nome"),
+                     "ESCOLA PRESIDENTE DUTRA": ("escola", "cadastro")}
+    assert r["tipo"] == "escola"
+    condo = [_p(i, "RESERVA") for i in range(30)]
+    r = P.perfil_locais(condo, ["JARDINS II", "RESERVA", "ESCOLINHA DO CLUBE"])
+    assert {x["site"]: x["tipo"] for x in r["locais"]}["JARDINS II"] == "condominio"
+    assert P.perfil_locais([], [], "ESCOLA NOVA")["tipo"] == "escola"
+
+
+def test_ip_virtual_sem_conector_e_com_mapa(monkeypatch):
+    from app.services import connector_routing_vnat as V
+    monkeypatch.setattr(P, "_conectores", lambda: [{"id": "c1"}, {"id": "c2"}, {"id": "outro-cliente"}])
+    monkeypatch.setattr(V, "virtual_ip_for", lambda cid, ip: "10.209.128.201" if cid == "c1" else ip)
+    assert P.ip_virtual("c1", "192.168.1.201") == {"host": "192.168.1.201", "connector_id": "c1",
+                                                   "virtual": "10.209.128.201", "traduzido": True, "bloqueado": False}
+    assert P.ip_virtual("c2", "192.168.1.201")["traduzido"] is False
+    monkeypatch.setattr(V, "virtual_ip_for", lambda cid, ip: V.IP_BLOQUEADO)
+    r = P.ip_virtual("outro-cliente", "192.168.1.201")
+    assert r["bloqueado"] is True and r["virtual"] == ""
+
+
+def test_ip_virtual_de_conector_alheio_e_sempre_bloqueado(monkeypatch):
+    from app.services import connector_routing_vnat as V
+    monkeypatch.setattr(P, "_conectores", lambda: [{"id": "meu"}])
+    monkeypatch.setattr(V, "virtual_ip_for", lambda cid, ip: ip)   # sem faixa: antes devolvia o host
+    r = P.ip_virtual("de-outro-cliente", "192.168.1.201")
+    assert r["bloqueado"] is True and r["virtual"] == ""

@@ -1012,6 +1012,19 @@ def api_access_control_painel_relatorios(site: str = Query(""), dias: int = Quer
     return relatorios(site=site, dias=dias)
 
 
+@router.get("/painel/dispositivos")
+def api_access_control_painel_dispositivos() -> Dict[str, Any]:
+    from app.services.access_control_painel import dispositivos
+    return dispositivos()
+
+
+@router.get("/painel/ip-virtual")
+def api_access_control_painel_ip_virtual(connector_id: str = Query(""), host: str = Query("")) -> Dict[str, Any]:
+    """Previa do cadastro: por qual IP o SightOps vai falar com o leitor."""
+    from app.services.access_control_painel import ip_virtual
+    return {"ok": True, **ip_virtual(connector_id, host)}
+
+
 @router.get("/live/stream")
 async def api_access_control_live_stream(
     request: Request,

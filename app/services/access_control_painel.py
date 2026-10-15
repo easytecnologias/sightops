@@ -15,6 +15,7 @@ resposta o que a tela antiga espalhava (ou nao mostrava):
 """
 from __future__ import annotations
 
+import re
 from collections import Counter, defaultdict
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Iterable, List, Optional
@@ -255,20 +256,33 @@ def _avisos(agora: datetime, pessoas: List[Dict[str, Any]], escolas: Optional[se
 ESCOLA_MINIMO = 0.3
 
 
+# Nome que denuncia escola, para local sem ninguem no cadastro ainda.
+NOME_ESCOLA = re.compile(r"\b(ESCOLA|COL[EÉ]GIO|CRECHE|CMEI|EMEF|EMEI|ESC\.?|INSTITUTO|UNIVERSIDADE|FACULDADE)\b", re.I)
+
+
 def _tipo_do_grupo(pessoas: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Tipo pelo cadastro. Sem aluno nenhum no local, o cadastro nao decide
+    (tipo vazio): quem decide e o nome do local ou o resto do cliente."""
     ativas = [p for p in pessoas if p.get("active")]
     alunos = [p for p in ativas if _t(p.get("person_type")) == "student"]
     com_turma = sum(1 for p in alunos if _t(p.get("class_name")))
     com_resp = sum(1 for p in alunos if _numero(p.get("guardian_phone")))
     base = len(alunos)
-    escola = bool(base) and max(com_turma, com_resp) / base >= ESCOLA_MINIMO
-    return {"tipo": "escola" if escola else "condominio", "pessoas": len(ativas),
+    tipo = ""
+    if base:
+        tipo = "escola" if max(com_turma, com_resp) / base >= ESCOLA_MINIMO else "condominio"
+    return {"tipo": tipo, "origem": "cadastro" if tipo else "", "pessoas": len(ativas),
             "com_turma": com_turma, "com_responsavel": com_resp, "alunos": base}
 
 
 def perfil_locais(pessoas: List[Dict[str, Any]], sites: Iterable[str], site: str = "") -> Dict[str, Any]:
     """Tipo de cada local (escola/condominio) e o do filtro atual. Com
-    "todos os sites" e locais de tipos diferentes, o tipo e "misto"."""
+    "todos os sites" e locais de tipos diferentes, o tipo e "misto".
+
+    Local sem aluno no cadastro (leitor recem-instalado, moradores so no
+    leitor): o nome decide ("ESCOLA MEDEA" e escola); sem pista no nome, vale
+    o tipo que predomina no cliente; cliente sem cadastro nenhum = condominio.
+    """
     por_site: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
     for p in pessoas:
         por_site[_t(p.get("site")).upper()].append(p)
@@ -282,8 +296,20 @@ def perfil_locais(pessoas: List[Dict[str, Any]], sites: Iterable[str], site: str
         info = {"site": nome, **_tipo_do_grupo(por_site.get(nome.upper(), []))}
         vistos[nome.upper()] = info
         locais.append(info)
+    decididos = Counter(x["tipo"] for x in locais if x["tipo"])
+    predominante = decididos.most_common(1)[0][0] if decididos else "condominio"
+    for x in locais:
+        if x["tipo"]:
+            continue
+        if NOME_ESCOLA.search(x["site"]):
+            x["tipo"], x["origem"] = "escola", "nome"
+        else:
+            x["tipo"], x["origem"] = predominante, "cliente"
     if site:
-        atual = vistos.get(site.upper()) or {"site": site, **_tipo_do_grupo([])}
+        atual = vistos.get(site.upper())
+        if atual is None:
+            atual = {"site": site, **_tipo_do_grupo([])}
+            atual["tipo"] = "escola" if NOME_ESCOLA.search(site) else predominante
         tipo = atual["tipo"]
     else:
         tipos = {x["tipo"] for x in locais}
@@ -585,3 +611,96 @@ def ao_vivo(site: str = "", limite: int = 40, agora: Optional[datetime] = None) 
         "dentro": dentro,
         "dentro_total": len(lista_presentes),
     }
+
+
+# ---------------------------------------------------------------- dispositivos
+# Pagina /v3/acesso/dispositivos/: lista os leitores com o que o cadastro
+# antigo nao mostrava (IP virtual pelo qual o SightOps fala com ele, conector e
+# se esta online, movimento do dia, fotos recusadas, relogio zerado) e os
+# locais do cliente com o conector de cada um, para o cadastro sugerir.
+# So leitura: salvar, testar e remover usam as rotas /devices que ja existem.
+
+def ip_virtual(connector_id: str, host: str) -> Dict[str, Any]:
+    """IP que o SightOps vai usar para alcancar `host` pelo conector. Igual ao
+    host = conector sem faixa virtual (ou IP fora das redes mapeadas)."""
+    from app.services import connector_routing_vnat as vnat
+    cid, real = _t(connector_id), _t(host)
+    # Conector que nao e deste cliente responde sempre igual (bloqueado), tenha
+    # ele faixa virtual ou nao: a previa nao confirma id de conector alheio.
+    if cid and cid not in {c["id"] for c in _conectores()}:
+        return {"host": real, "connector_id": cid, "virtual": "", "traduzido": False, "bloqueado": True}
+    virtual = _t(vnat.virtual_ip_for(cid, real)) if cid and real else real
+    bloqueado = bool(virtual) and virtual == _t(getattr(vnat, "IP_BLOQUEADO", ""))
+    return {"host": real, "connector_id": cid, "virtual": "" if bloqueado else virtual,
+            "traduzido": bool(virtual) and virtual != real and not bloqueado, "bloqueado": bloqueado}
+
+
+def _conectores() -> List[Dict[str, Any]]:
+    from app.services.connector_service import list_connectors
+    r = list_connectors()
+    lista = r.get("connectors") if isinstance(r, dict) else r
+    return [{"id": _t(c.get("id")), "nome": _t(c.get("name") or c.get("site") or c.get("id")),
+             "site": _t(c.get("site")), "status": _t(c.get("status")).lower(),
+             "visto": _t(c.get("last_seen")), "isolado": bool(c.get("iso_vnat"))}
+            for c in (lista or []) if _t(c.get("id"))]
+
+
+def _locais_do_cliente() -> List[Dict[str, str]]:
+    try:
+        from app.services.windows_inventory_service import sites_do_cliente
+        return sites_do_cliente(_tenant())
+    except Exception:  # sem a lista oficial, a tela ainda lista os sites dos leitores
+        return []
+
+
+def dispositivos(agora: Optional[datetime] = None) -> Dict[str, Any]:
+    from app.services.access_control_store import list_devices
+    agora = agora or _agora()
+    tenant = _tenant()
+    hoje = agora.astimezone(FUSO_LOCAL).strftime("%Y-%m-%d")
+    leitores = list_devices()
+    conectores = _conectores()
+    por_conector = {c["id"]: c for c in conectores}
+
+    mov = {_t(r.get("device_id")): r for r in _rows(
+        "SELECT device_id, count(*) AS hoje, max(occurred_at) AS ultima FROM access_events "
+        "WHERE tenant_slug=? AND occurred_at >= ? GROUP BY device_id", (tenant, hoje + " 00:00:00"))}
+    ultima_geral = {_t(r.get("device_id")): _t(r.get("ultima")) for r in _rows(
+        "SELECT device_id, max(occurred_at) AS ultima FROM access_events "
+        "WHERE tenant_slug=? AND occurred_at >= ? GROUP BY device_id", (tenant, RELOGIO_MINIMO))}
+    fotos: Dict[str, Counter] = defaultdict(Counter)
+    for r in _rows("SELECT device_id, status FROM access_provision_status WHERE tenant_slug=?", (tenant,)):
+        fotos[_t(r.get("device_id"))][_t(r.get("status")).lower() or "pendente"] += 1
+    relogio = _relogio_errado()
+
+    saida = []
+    for d in leitores:
+        did = _t(d.get("id"))
+        cid = _t(d.get("connector_id"))
+        con = por_conector.get(cid) or {}
+        f = fotos.get(did, Counter())
+        saida.append({
+            "id": did, "nome": _t(d.get("name")), "site": _t(d.get("site")),
+            "fabricante": _t(d.get("vendor")), "modelo": _t(d.get("model")),
+            "host": _t(d.get("host")), "usuario": _t(d.get("username")),
+            "connector_id": cid, "conector": con.get("nome", cid), "conector_status": con.get("status", ""),
+            "ip": ip_virtual(cid, _t(d.get("host"))) if cid else {"host": _t(d.get("host")), "virtual": _t(d.get("host")), "traduzido": False, "bloqueado": False},
+            "funcao": _t(d.get("access_direction")) or "entrada", "ativo": bool(d.get("active")),
+            "status": _t(d.get("status")).lower(), "visto": _t(d.get("last_seen_at")),
+            "hoje": int((mov.get(did) or {}).get("hoje") or 0),
+            "ultima": _t((mov.get(did) or {}).get("ultima")) or ultima_geral.get(did, ""),
+            "fotos_ok": f.get("ok", 0), "fotos_falha": f.get("failed", 0),
+            "fotos_pendentes": sum(v for k, v in f.items() if k not in ("ok", "failed")),
+            "relogio_errado": relogio.get(did, {}).get("qtd", 0),
+            "criado": _t(d.get("created_at")),
+        })
+
+    todas = _pessoas()
+    nomes = [x["site"] for x in _locais_do_cliente()] + [x["site"] for x in saida]
+    perfil = perfil_locais(todas, nomes, "")
+    sugestao = {_t(x.get("site")).upper(): _t(x.get("connector_id")) for x in _locais_do_cliente()}
+    locais = [{**l, "connector_id": sugestao.get(l["site"].upper(), ""),
+               "leitores": sum(1 for x in saida if x["site"].upper() == l["site"].upper())}
+              for l in perfil["locais"]]
+    return {"ok": True, "gerado_em": _utc_txt(agora), "dispositivos": saida,
+            "locais": locais, "conectores": conectores, "perfil": perfil}

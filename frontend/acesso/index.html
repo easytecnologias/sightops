@@ -11,7 +11,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="../styles.css?v=1792000033">
-  <link rel="stylesheet" href="acesso.css?v=1792000038">
+  <link rel="stylesheet" href="acesso.css?v=1792000039">
 </head>
 <body>
   <div id="appShell" class="app-shell" hidden>
@@ -101,6 +101,7 @@
         <button class="nav-item" data-view="access-messenger"><i data-lucide="message-circle"></i><span>Messenger</span></button>
         <button class="nav-item" data-view="access-control"><i data-lucide="scan-face"></i><span>Controle de Acesso</span></button>
         <button class="nav-item" data-view="access-painel"><i data-lucide="layout-dashboard"></i><span>Painel de Acesso</span><span class="nav-novo">novo</span></button>
+        <button class="nav-item" data-pagina="dispositivos"><i data-lucide="door-open"></i><span>Dispositivos</span><span class="nav-novo">novo</span></button>
         <button class="nav-item nav-item-hidden" data-view="access-whatsapp-triage"><i data-lucide="inbox"></i><span>Triagem WhatsApp</span></button>
 
         <!-- Alerta (botao de panico) -->
@@ -143,7 +144,7 @@
           </div>
         </div>
         <div class="topbar-actions">
-          <a class="ghost-action" href="../?tela=access-control"><i data-lucide="arrow-left"></i> Telas atuais</a>
+          <a class="ghost-action" href="../?tela=access-control" data-ac-raiz="?tela=access-control"><i data-lucide="arrow-left"></i> Telas atuais</a>
           <div class="profile" id="profileMenu">
             <div class="avatar" id="profileAvatar">?</div>
             <div><strong id="profileName">-</strong><span id="profileRole">-</span></div>
@@ -184,6 +185,7 @@
 
   <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js"></script>
   <script src="../config.js?v=1791000212"></script>
-  <script src="acesso.js?v=1792000038"></script>
+  <script src="shell.js?v=1792000039"></script>
+  <script src="acesso.js?v=1792000039"></script>
 </body>
 </html>

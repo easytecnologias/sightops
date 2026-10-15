@@ -1,87 +1,5 @@
-// Painel de Acesso em /v3/acesso/: pagina propria, para testar sem mexer no
-// SightOps em /v3/. Mesmo login (cookie de sessao), mesma API, mesmo visual:
-// usa o styles.css do sistema e o menu lateral dele; cada item do menu volta
-// para a tela correspondente em /v3/ (?tela=<view>).
-// So leitura: todas as chamadas daqui sao GET em /api/access-control/painel/*.
-
-function esc(str) {
-  return String(str ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-}
-
-async function apiJson(path) {
-  const res = await fetch(`${API_BASE}${path}`, { credentials: 'same-origin' });
-  if (res.status === 401) { window.location.href = '../'; return null; }
-  if (!res.ok) throw new Error('HTTP ' + res.status);
-  return res.json();
-}
-
-// Mesma regra do menu do /v3 (core.js applyModuleVisibility).
-const AC_DESLIGADAS = new Set(['access-whatsapp-triage', 'ia-nvr']);
-const AC_SO_EQUIPE = new Set(['script-zabbix', 'script-grafana']);
-
-function acMenu(user) {
-  const enabled = user && user.enabled_modules;
-  const restrito = Array.isArray(enabled);
-  document.querySelectorAll('#sidebar .nav-item[data-view]').forEach(btn => {
-    const key = btn.dataset.view;
-    const addon = restrito && (key === 'access-live' || key === 'access-painel') && enabled.includes('access-control');
-    const visivel = !AC_DESLIGADAS.has(key) && !(AC_SO_EQUIPE.has(key) && !(user && user.is_platform_admin))
-      && (!restrito || enabled.includes(key) || addon);
-    btn.classList.toggle('nav-item-hidden', !visivel);
-  });
-  const snap = document.getElementById('ngSnapshots');
-  if (snap) snap.classList.toggle('nav-item-hidden', ![...snap.querySelectorAll('.nav-sub-item[data-view]')].some(b => !b.classList.contains('nav-item-hidden')));
-}
-
-function acLigarShell() {
-  document.querySelectorAll('#sidebar .nav-item[data-view]').forEach(btn => {
-    const aqui = btn.dataset.view === 'access-painel';
-    btn.classList.toggle('active', aqui);
-    btn.addEventListener('click', () => {
-      if (!aqui) window.location.href = '../?tela=' + encodeURIComponent(btn.dataset.view);
-    });
-  });
-  document.querySelectorAll('#sidebar .nav-group-toggle').forEach(btn => btn.addEventListener('click', () => {
-    const g = btn.closest('.nav-group');
-    const abrindo = !g.classList.contains('open');
-    document.querySelectorAll('#sidebar .nav-group.open').forEach(x => { if (x !== g) x.classList.remove('open'); });
-    g.classList.toggle('open', abrindo);
-  }));
-  const fecha = () => { document.getElementById('sidebar').classList.remove('open'); document.getElementById('mobileBackdrop').classList.remove('open'); };
-  document.getElementById('menuBtn')?.addEventListener('click', () => {
-    document.getElementById('sidebar').classList.add('open'); document.getElementById('mobileBackdrop').classList.add('open');
-  });
-  document.getElementById('mobileBackdrop')?.addEventListener('click', fecha);
-  const sair = () => {
-    fetch(`${API_BASE}/api/auth/logout`, { method: 'POST', credentials: 'same-origin' }).catch(() => {}).finally(() => { window.location.href = '../'; });
-  };
-  document.getElementById('logoutBtn')?.addEventListener('click', sair);
-  document.getElementById('logoutBtnTop')?.addEventListener('click', sair);
-  document.getElementById('profileMenu')?.addEventListener('click', () => document.getElementById('profileDropdown')?.classList.toggle('open'));
-}
-
-async function acIniciar() {
-  acLigarShell();
-  if (window.lucide) lucide.createIcons();
-  const me = await apiJson('/api/auth/me');
-  if (!me) return;
-  const user = me.user || me;
-  const nome = user.full_name || user.username || user.email || '?';
-  const pn = document.getElementById('profileName'); if (pn) pn.textContent = nome;
-  const pr = document.getElementById('profileRole'); if (pr) pr.textContent = user.role || user.perfil || '';
-  const pa = document.getElementById('profileAvatar'); if (pa) pa.textContent = nome[0].toUpperCase();
-  acMenu(user);
-  document.getElementById('appShell').removeAttribute('hidden');
-  loadAccessPainel();
-  if (window.lucide) lucide.createIcons();
-}
-
-document.addEventListener('DOMContentLoaded', () => {
-  acIniciar().catch(err => {
-    document.body.insertAdjacentHTML('beforeend', `<p style="padding:24px">Não consegui abrir o painel: ${esc(err && err.message || err)}. <a href="../">Voltar ao SightOps</a></p>`);
-  });
-});
-
+// Painel de Acesso (/v3/acesso/). O menu, o login e as chamadas a API ficam
+// em shell.js, compartilhado com as outras paginas novas.
 // ---- Painel (so leitura). Dados: /api/access-control/painel/*
 // (GET, so leitura). Quatro abas, cada uma com um trabalho (estudo de UX dos
 // sistemas de mercado): Ao vivo (lista + passagem selecionada com o recibo do
@@ -842,3 +760,5 @@ async function loadAccessPainel() {
     if (r) r.textContent = new Date().toLocaleTimeString('pt-BR');
   }, 1000);
 }
+
+window.acPagina = { id: 'painel', iniciar: loadAccessPainel };
