@@ -91,7 +91,11 @@ function dvRotaTexto(d) {
 
 function dvObs(d) {
   const itens = [];
-  const t = _dvTestes[d.id];
+  let t = _dvTestes[d.id];
+  // Falha velha: o leitor falou depois do teste (ex.: senha corrigida). Nao
+  // deixa um "HTTP 502" de antes ao lado de "Com sinal".
+  const visto = dvUtc(d.visto);
+  if (t && t.ok === false && visto && visto.getTime() > (t.em || 0)) { delete _dvTestes[d.id]; t = null; }
   if (t && t.rodando) itens.push('<span class="dv-obs-teste"><i data-lucide="loader-circle" class="dv-gira"></i>Testando conexão…</span>');
   else if (t && t.ok) itens.push(`<span class="dv-obs-ok"><i data-lucide="check"></i>Respondeu em ${(t.ms / 1000).toFixed(1).replace('.', ',')} s${t.modelo ? ' · ' + esc(t.modelo) : ''}</span>`);
   else if (t) itens.push(`<span class="dv-obs-ruim"><i data-lucide="x"></i>${esc(t.erro)}</span>`);
@@ -267,7 +271,7 @@ async function dvTestar(id) {
     _dvTestes[id] = { ok: true, ms: performance.now() - inicio, modelo: info.deviceType || info.updateSerial || (r.device || {}).model || '' };
     acToast('O leitor respondeu.');
   } catch (err) {
-    _dvTestes[id] = { ok: false, erro: (err && err.message) || 'O leitor não respondeu.' };
+    _dvTestes[id] = { ok: false, erro: (err && err.message) || 'O leitor não respondeu.', em: Date.now() };
   }
   await dvCarregar();
 }

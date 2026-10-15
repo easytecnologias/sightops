@@ -684,3 +684,4 @@
 #viewAccessPainel .da-excluir{margin-top:12px;width:100%;justify-content:center}
 #viewAccessPainel .da-excluir:disabled{opacity:.45;cursor:not-allowed}
 @media (max-width:640px){#viewAccessPainel .da-lista li{grid-template-columns:1fr auto}#viewAccessPainel .da-lista li>small{grid-column:1/-1}}
+#viewAccessPainel #btnApAtualizar.girando svg{animation:dvGira 1s linear infinite}

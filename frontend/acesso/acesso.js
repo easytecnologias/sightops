@@ -688,7 +688,22 @@ async function apAtualizar(manual) {
   if (AP_ABAS_PROPRIAS[_apTela]) {
     // Gaveta aberta: nao redesenha por baixo de quem esta editando.
     if (document.querySelector('.dv-gaveta:not([hidden])')) return;
-    AP_ABAS_PROPRIAS[_apTela].carregar().catch(() => {});
+    if (!manual) { AP_ABAS_PROPRIAS[_apTela].carregar().catch(() => {}); return; }
+    // Clique: o botao gira ate terminar. Antes recarregava calado e parecia
+    // que nao fazia nada (o resultado de um teste antigo continuava na linha).
+    if (_apTela === 'dispositivos' && typeof _dvTestes !== 'undefined') {
+      Object.keys(_dvTestes).forEach(k => { if (!_dvTestes[k].rodando) delete _dvTestes[k]; });
+    }
+    const b = document.getElementById('btnApAtualizar');
+    if (b) { b.disabled = true; b.classList.add('girando'); }
+    try {
+      await AP_ABAS_PROPRIAS[_apTela].carregar();
+      acToast('Atualizado.');
+    } catch (err) {
+      acToast((err && err.message) || 'Não foi possível atualizar.', true);
+    } finally {
+      if (b) { b.disabled = false; b.classList.remove('girando'); }
+    }
     return;
   }
   if (_apCarregando) return;
