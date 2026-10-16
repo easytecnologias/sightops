@@ -71,11 +71,11 @@ def test_filtro_de_varias_portas_nas_passagens(banco):
     for i, d in enumerate((a, b, c)):
         S.record_event({"site": "R", "device_id": d["id"], "person_name_raw": f"P{i}", "event_type": "entrada",
                         "occurred_at": "2026-10-15 10:0%d:00" % i})
-    ev = S.list_access_report_events({"site": "R", "device_ids": [a["id"], b["id"]], "start": "2026-10-15", "end": "2026-10-15"})
+    ev = S.list_access_report_events({"site": "R", "device_ids": [a["id"], b["id"]], "period": "custom", "start": "2026-10-15", "end": "2026-10-15"})
     assert sorted(e["device_id"] for e in ev) == sorted([a["id"], b["id"]])
     token = tenant_context.set_current_tenant_slug("outro")
     try:
-        assert S.list_access_report_events({"device_ids": [a["id"]], "start": "2026-10-15", "end": "2026-10-15"}) == []
+        assert S.list_access_report_events({"device_ids": [a["id"]], "period": "custom", "start": "2026-10-15", "end": "2026-10-15"}) == []
     finally:
         tenant_context.reset_current_tenant_slug(token)
 
