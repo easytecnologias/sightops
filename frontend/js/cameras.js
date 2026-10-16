@@ -3464,6 +3464,7 @@ function mocCameras() {
     porIp.set(ip, {
       ip,
       nome: info.cam.titulo || info.nomePonto || ip,
+      site: info.cam.local || info.cam.site || '',
       ll: m.getLatLng(),
       alvo,
       chave: alvo ? `${alvo.host}|${alvo.http_port || 80}|${alvo.channel}` : '',
@@ -3515,6 +3516,7 @@ function closeMapOcorrencia() {
 
 async function mocLocalizar() {
   const texto = document.getElementById('mocTexto')?.value || '';
+  if (!texto.trim()) { document.getElementById('mocTexto')?.focus(); return; }
   const r = mocLer(texto);
   if (!r) { mocAviso('Nao reconheci uma localizacao nesse texto. Cole o link ou a coordenada como chegou.', true); return; }
   if (r.curto) {
@@ -3535,8 +3537,7 @@ function mocDefinirPonto(lat, lng, origem) {
   _moc.origem = origem;
   _moc.desmarcadas.clear();
   _moc.extras.clear();
-  const n = mocEstado().lista.filter(c => c.dentro).length;
-  mocAviso(n ? `Localizado (${origem}).` : `Localizado (${origem}), mas nenhuma camera do mapa a ate ${_moc.raio} m. Aumente o raio ou ligue a camada do site.`, !n);
+  mocAviso(`Localizado (${origem}).`);
   if (_moc.mini) _moc.mini.setView(_moc.ponto, 18);
   mocRender();
 }
@@ -3546,10 +3547,25 @@ function mocRender() {
   document.getElementById('mocVazio')?.classList.toggle('hidden', tem);
   document.getElementById('mocConteudo')?.classList.toggle('hidden', !tem);
   const { lista, marcadas } = mocEstado();
+  const dentro = lista.filter(c => c.dentro);
+  const semGravador = tem && dentro.length > 0 && !lista.some(c => c.alvo);
   const btn = document.getElementById('mocInvestigar');
   if (btn) {
     btn.disabled = !marcadas.length;
-    btn.textContent = marcadas.length ? `Investigar ${marcadas.length} câmera${marcadas.length === 1 ? '' : 's'} →` : 'Marque ao menos uma câmera';
+    btn.textContent = marcadas.length ? `Investigar ${marcadas.length} câmera${marcadas.length === 1 ? '' : 's'} →`
+      : (semGravador ? 'Nenhuma câmera com gravador' : 'Marque ao menos uma câmera');
+  }
+  // Sem isto a tela so dizia "marque ao menos uma" com tudo desabilitado: o
+  // caso real foi um site inteiro (RADS/Santana) sem NVR cadastrado.
+  const nota = document.getElementById('mocNota');
+  if (nota) {
+    const sites = [...new Set(dentro.map(c => c.site).filter(Boolean))].join(', ');
+    nota.textContent = !tem ? '' : (!dentro.length
+      ? `Nenhuma câmera do mapa a até ${_moc.raio} m. Aumente o raio ou ligue a camada do site no painel de camadas.`
+      : (semGravador
+        ? `As câmeras perto deste ponto${sites ? ` (${sites})` : ''} não estão em nenhum canal de gravador do SightOps, então não há gravação para investigar. Cadastre o NVR delas em Gravadores.`
+        : ''));
+    nota.classList.toggle('hidden', !nota.textContent);
   }
   mocDesenharFundo();
   if (!tem) return;
