@@ -150,6 +150,7 @@ function planningEditorMarkup() {
         ${pointButtons}
         <span class="pe-group">Puxar cabo</span>
         ${cableButtons}
+        <label class="pe-check"><input type="checkbox" id="peAutoPole" checked> Clique fora de um ponto vira poste</label>
         <div class="pe-coord">
           <span class="pe-group">Marcar por posicao</span>
           <label class="sr-only" for="peCoordInput">Coordenada</label>
@@ -257,7 +258,7 @@ function planningEditorHelp() {
   let text;
   if (tool === 'select') text = 'Clique num ponto para ver e editar. Arraste para corrigir a posicao. Clique numa linha para ver a rota.';
   else if (PLANNING_POINT_TOOLS[tool]) text = `Clique no mapa onde fica ${PLANNING_POINT_TOOLS[tool].label.toLowerCase()}. Cada clique marca um. Esc volta para selecionar.`;
-  else if (_pe.drawing) text = 'Clique em cada poste do caminho. Clique no equipamento de destino para terminar, ou Enter. Backspace volta um ponto, Esc cancela.';
+  else if (_pe.drawing) text = 'Clique em cada poste do caminho (clique livre cria o poste). Clique no equipamento de destino para terminar, ou Enter. Backspace volta, Esc cancela.';
   else text = `${PLANNING_ROUTE_KINDS[tool].label}: clique no equipamento de onde o cabo sai.`;
   help.textContent = text;
 }
@@ -373,7 +374,15 @@ function planningEditorNearest(latlng) {
   return best;
 }
 
-async function planningEditorClick(latlng, device) {
+// Cliques entram numa fila: criar o poste vai ao servidor, e dois cliques
+// rapidos nao podem chegar fora de ordem no tracado.
+function planningEditorClick(latlng, device) {
+  if (!_pe) return Promise.resolve();
+  _pe.queue = (_pe.queue || Promise.resolve()).then(() => planningEditorClickNow(latlng, device)).catch(() => {});
+  return _pe.queue;
+}
+
+async function planningEditorClickNow(latlng, device) {
   if (!_pe) return;
   const tool = _pe.tool;
   if (tool === 'select') {
@@ -399,13 +408,20 @@ async function planningEditorClick(latlng, device) {
     }
     const last = _pe.drawing.points[_pe.drawing.points.length - 1];
     if (snapped && Number(snapped.id) === Number(last.device_id)) return;
-    const point = snapped
-      ? { lat: Number(snapped.latitude), lon: Number(snapped.longitude), device_id: Number(snapped.id), device: snapped }
+    let target = snapped;
+    // Na pratica todo vertice do cabo e um poste: clique livre ja cria o poste.
+    if (!target && document.getElementById('peAutoPole')?.checked) {
+      const drawing = _pe.drawing;
+      target = await planningEditorCreatePoint('pole', latlng.lat, latlng.lng);
+      if (_pe.drawing !== drawing) return;
+    }
+    const point = target
+      ? { lat: Number(target.latitude), lon: Number(target.longitude), device_id: Number(target.id), device: target }
       : { lat: latlng.lat, lon: latlng.lng, device_id: null };
     _pe.drawing.points.push(point);
     planningEditorDrawPreview();
     // Chegou num equipamento que nao e poste: o cabo termina ali.
-    if (snapped && snapped.device_type !== 'pole') await planningEditorFinish();
+    if (target && target.device_type !== 'pole') await planningEditorFinish();
   }
 }
 
@@ -516,12 +532,15 @@ async function planningEditorCreatePoint(tool, lat, lon) {
     device_type: cfg.type, name: planningEditorNextName(tool), site_id: site ? site.id : null,
     latitude: Number(lat.toFixed(7)), longitude: Number(lon.toFixed(7)), metadata: { ...cfg.metadata }, status: 'planned',
   };
+  let created = null;
   await planningEditorSave(async () => {
     const data = await planningRequest(`/api/planning/projects/${Number(_planningCurrent.id)}/devices`, { method: 'POST', body: JSON.stringify(payload) });
-    _planningCurrent.devices = [...(_planningCurrent.devices || []), planningParseDevice({ ...data.item, site_name: site?.name || null })];
+    created = planningParseDevice({ ...data.item, site_name: site?.name || null });
+    _planningCurrent.devices = [...(_planningCurrent.devices || []), created];
   });
   planningEditorRenderPoints();
   planningEditorRenderTotals();
+  return created;
 }
 
 async function planningEditorMoveDevice(item, latlng) {
@@ -678,7 +697,7 @@ function planningEditorRenderSide() {
   const over = route.kind === 'utp' && Number(route.length_m) + Number(route.slack_m || 0) > 100;
   const segRows = route.segments_m.map((meters, index) => {
     const a = route.path[index]; const b = route.path[index + 1];
-    const name = pt => planningDeviceName(pt.device_id) || 'ponto';
+    const name = pt => planningDeviceName(pt.device_id) || 'ponto sem poste';
     return `<div class="pe-seg"><span>${planningEscape(name(a))} → ${planningEscape(name(b))}</span><b>${Math.round(meters)} m</b></div>`;
   }).join('');
   side.innerHTML = `

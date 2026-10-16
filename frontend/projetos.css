@@ -294,6 +294,8 @@ body.pe-open { overflow: hidden; }
 .pe-tool-label { display: flex; flex: 1; flex-direction: column; min-width: 0; }
 .pe-tool-label small { color: var(--muted); font-size: 11px; font-weight: 500; }
 .pe-tool kbd { padding: 0 5px; border: 1px solid var(--border); border-radius: 4px; background: var(--surface-soft); color: var(--muted); font-size: 11px; font-family: inherit; }
+.pe-check { display: flex; align-items: center; gap: 8px; padding: 8px; color: #445159; font-size: 12px; cursor: pointer; }
+.pe-check input { width: 16px; height: 16px; accent-color: var(--primary); }
 .pe-coord { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; padding: 0 4px 6px; }
 .pe-coord input { height: 36px; padding: 0 10px; border: 1px solid var(--border); border-radius: 8px; font: inherit; font-size: 13px; }
 .pe-coord-actions { display: flex; gap: 6px; }
