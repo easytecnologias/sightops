@@ -1966,6 +1966,12 @@ def api_deployments_recorder_rede(host: str, http_port: int = 80, connector_id: 
     host = _text(host)
     if not host:
         raise HTTPException(status_code=400, detail="host do gravador obrigatorio")
+    # So gravador cadastrado deste cliente: sem conector, o driver iria ao IP
+    # real (revisor de isolamento) -- e um IP privado pode existir atras de
+    # conector isolado de outro cliente.
+    linhas = _read_rows()
+    if not any(_text(r.get("host")) == host for r in linhas):
+        raise HTTPException(status_code=404, detail="gravador nao cadastrado neste cliente")
     conector = _text(connector_id) or _conector_efetivo(host)
     con = get_connector(conector, enforce_tenant=True) if conector else None
     if conector and not con:
@@ -1981,7 +1987,7 @@ def api_deployments_recorder_rede(host: str, http_port: int = 80, connector_id: 
         "conector": ({"id": con.get("id"), "nome": con.get("name"), "status": con.get("status"),
                       "ultimo_contato": con.get("last_seen"), "versao": con.get("version")} if con else None),
         "resposta": RL.medir_resposta(g),
-        "cameras": RL.onde_estao(lista[:256], _read_rows(), host),
+        "cameras": RL.onde_estao(lista[:256], linhas, host),
         "quedas": RL.quedas_recentes(host, conector),
     }
     try:

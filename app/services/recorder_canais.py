@@ -29,6 +29,14 @@ def _t(v: Any) -> str:
     return str(v or "").strip()
 
 
+def _utc_iso(v: Any) -> str:
+    """created_at do monitoramento e UTC ("2026-10-16 12:49:19.34+00"). Sai
+    como "2026-10-16T12:49:19Z" para a tela converter para a hora local --
+    cortar em [:19] e mostrar como local deixava 3 h adiantado."""
+    s = _t(v).replace(" ", "T")[:19]
+    return s + "Z" if len(s) == 19 else s
+
+
 def base_registros() -> Path:
     # Mesma base de recorder_driver._base_registros (por cliente).
     return tenant_scoped_path("gravador_backups")
@@ -215,7 +223,7 @@ def eventos_das_cameras(ips: List[str], dias: int = 7, limite: int = 60) -> List
         if f":{ip}" not in alvo:
             continue
         saida.append({"ip": ip, "de": _t(r.get("from_status")), "para": _t(r.get("to_status")),
-                      "mensagem": _t(r.get("message")), "quando": _t(r.get("created_at"))[:19]})
+                      "mensagem": _t(r.get("message")), "quando": _utc_iso(r.get("created_at"))})
         if len(saida) >= limite:
             break
     return saida

@@ -23,6 +23,14 @@ def _t(v: Any) -> str:
     return str(v or "").strip()
 
 
+def _utc_iso(v: Any) -> str:
+    """created_at do monitoramento e UTC ("2026-10-16 12:49:19.34+00"). Sai
+    como "2026-10-16T12:49:19Z" para a tela converter para a hora local --
+    cortar em [:19] e mostrar como local deixava 3 h adiantado."""
+    s = _t(v).replace(" ", "T")[:19]
+    return s + "Z" if len(s) == 19 else s
+
+
 def _mac(v: Any) -> str:
     return re.sub(r"[^0-9a-f]", "", _t(v).lower())
 
@@ -161,4 +169,4 @@ def quedas_recentes(host: str, conector: str, dias: int = 7, limite: int = 20) -
         ).fetchall()
     return [{"quem": "conector" if _t(dict(r).get("entity_type")) == "connector" else "gravador",
              "de": _t(dict(r).get("from_status")), "para": _t(dict(r).get("to_status")),
-             "mensagem": _t(dict(r).get("message")), "quando": _t(dict(r).get("created_at"))[:19]} for r in rows]
+             "mensagem": _t(dict(r).get("message")), "quando": _utc_iso(dict(r).get("created_at"))} for r in rows]

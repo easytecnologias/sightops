@@ -369,7 +369,10 @@ function g5SecHistorico(d) {
       sub: `pelo SightOps${r.por ? ' · ' + r.por : ''}${r.ok === false ? ' · <b class="g5-ruim">o gravador recusou</b>' : ''}${r.desfeito_em ? ` · desfeito em ${esc(g5Data(r.desfeito_em))}${r.desfeito_por ? ' por ' + esc(r.desfeito_por) : ''}` : ''}`,
       subHtml: true, reg: r, pode: pode && !r.desfeito_em && r.ok !== false });
   });
-  itens.sort((a, b) => String(b.quando).localeCompare(String(a.quando)));
+  // Eventos do monitoramento vem em UTC ("…Z"); registros e gravador, na hora
+  // local. Ordena pelo instante, nao pelo texto.
+  const ms = q => { const t = new Date(String(q || '').replace(' ', 'T')).getTime(); return isNaN(t) ? 0 : t; };
+  itens.sort((a, b) => ms(b.quando) - ms(a.quando));
 
   const corpo = !h || h.carregando ? '<p class="g5-vazio">Lendo o histórico…</p>'
     : h.erro ? `<p class="g5-vazio g5-ruim">Não consegui ler o histórico: ${esc(h.erro)}</p>`

@@ -12478,3 +12478,38 @@ table.recorder-tabela tbody tr:hover { background: var(--surface-soft); }
 #deployRecorderApp .re-reiniciar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;font-size:13px}
 #deployRecorderApp .re-reiniciar > span{flex:1 1 260px;color:var(--muted)}
 #deployRecorderApp .re-reiniciar .re-campo{grid-template-columns:auto 140px}
+
+/* ---- Gravador aberto > Rede: abas de leitura (js/gravador-rede-leitura.js) ---- */
+#deployRecorderApp .rl-vazio{padding:16px;color:var(--muted)}
+#deployRecorderApp .rl-ruim{color:var(--danger)}
+#deployRecorderApp .rl-bom{color:var(--primary)}
+#deployRecorderApp .rl-medio{color:var(--amber,#d97706)}
+#deployRecorderApp .rl-rot{color:var(--muted);width:34%}
+#deployRecorderApp .rl-nota{display:block;color:var(--muted);font-weight:400;font-size:12px;margin-top:2px}
+#deployRecorderApp .rl-dica{margin:0;padding:10px 16px 14px;color:var(--muted);font-size:12.5px}
+#deployRecorderApp .rl-caminho{display:flex;align-items:stretch;gap:0;flex-wrap:wrap;padding:4px 16px 16px}
+#deployRecorderApp .rl-no{display:flex;flex-direction:column;gap:2px;min-width:140px;padding:10px 12px;border:1px solid var(--border);border-radius:10px;background:var(--surface)}
+#deployRecorderApp .rl-no b{font-size:14px}
+#deployRecorderApp .rl-no small{color:var(--muted);font-size:12px}
+#deployRecorderApp .rl-no.bom{border-color:color-mix(in srgb,var(--primary) 45%,transparent)}
+#deployRecorderApp .rl-no.ruim{border-color:color-mix(in srgb,var(--danger) 45%,transparent)}
+#deployRecorderApp .rl-no.medio{border-color:color-mix(in srgb,var(--amber,#d97706) 45%,transparent)}
+#deployRecorderApp .rl-no-rot{font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted)}
+#deployRecorderApp .rl-seta{display:flex;align-items:center;padding:0 6px;color:var(--muted);font-size:11.5px}
+#deployRecorderApp .rl-seta span::after{content:" 92";}
+#deployRecorderApp .rl-banda{padding:4px 16px 16px}
+#deployRecorderApp .rl-banda-num b{font-size:20px}
+#deployRecorderApp .rl-banda-num span{color:var(--muted);font-size:13px}
+#deployRecorderApp .rl-trilho{height:9px;border-radius:5px;background:var(--border);overflow:hidden;margin:8px 0 4px}
+#deployRecorderApp .rl-trilho i{display:block;height:100%;background:var(--primary)}
+#deployRecorderApp .rl-trilho i.alto{background:var(--danger)}
+#deployRecorderApp .rl-banda small{color:var(--muted)}
+#deployRecorderApp .rl-top{margin-top:12px;width:100%}
+#deployRecorderApp .rl-onde{display:inline-block;padding:1px 6px;border-radius:5px;font-size:11px;font-weight:600;background:var(--surface-soft);border:1px solid var(--border)}
+#deployRecorderApp .rl-quedas{list-style:none;margin:0;padding:0 16px 12px}
+#deployRecorderApp .rl-quedas li{display:grid;grid-template-columns:96px 1fr auto;gap:12px;align-items:center;padding:8px 0;border-top:1px solid var(--border);font-size:13px}
+#deployRecorderApp .rl-quedas li:first-child{border-top:0}
+#deployRecorderApp .rl-quedas li.ruim b{color:var(--danger)}
+#deployRecorderApp .rl-quedas li.bom b{color:var(--primary)}
+#deployRecorderApp .rl-quedas small{color:var(--muted)}
+@media (max-width:640px){#deployRecorderApp .rl-seta{width:100%;padding:4px 0}#deployRecorderApp .rl-no{flex:1 1 100%}}
