@@ -12227,3 +12227,49 @@ table.recorder-tabela tbody tr:hover { background: var(--surface-soft); }
 #viewAccessPainel .ap-item.novo{animation:apChegou 1.6s ease-out}
 #viewAccessPainel .ap-item.novo .ap-av{box-shadow:0 0 0 3px var(--primary-soft),0 0 0 4px var(--primary)}
 @media(max-width:720px){#viewAccessPainel .ap-spark{display:none}}
+
+/* ── Mapa: localizar ocorrencia (cameras.js, bloco _moc) ── */
+.moc-btn-barra { color: var(--danger); border-color: var(--danger); background: var(--danger-soft); font-weight: 600; }
+.moc-modal { width: min(1040px, 100%); }
+.moc-body { display: flex; flex-direction: column; gap: 10px; }
+.moc-entrada { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-end; }
+.moc-campo { flex: 1 1 360px; display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); }
+.moc-campo input { height: 44px; border: 1px solid var(--border); border-radius: 10px; padding: 0 12px; font-size: 14px; color: var(--text); background: var(--surface); }
+.moc-campo input:focus { outline: 2px solid var(--primary); border-color: var(--primary); }
+.moc-btn-loc { height: 44px; padding: 0 16px; border: 0; border-radius: 10px; background: var(--danger); color: #fff; font-weight: 600; cursor: pointer; }
+.moc-entrada .secondary-action { height: 44px; }
+.moc-aviso { min-height: 18px; font-size: 13px; font-weight: 600; color: var(--primary); }
+.moc-aviso.erro { color: var(--danger); }
+.moc-vazio { margin: 24px 0; text-align: center; color: var(--muted); font-size: 14px; }
+.moc-grid { display: flex; flex-wrap: wrap; gap: 16px; }
+.moc-esq { flex: 1 1 380px; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.moc-mapa { width: 100%; aspect-ratio: 4 / 3; border-radius: 10px; overflow: hidden; background: var(--surface-soft); }
+.moc-raio-rot { display: flex; justify-content: space-between; font-size: 13px; color: var(--muted); margin-top: 4px; }
+.moc-raio-rot b { color: var(--text); }
+#mocRaio { width: 100%; accent-color: var(--danger); }
+.moc-raios { display: flex; gap: 6px; }
+.moc-raios button { flex: 1; height: 34px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text); font-size: 13px; cursor: pointer; }
+.moc-raios button.on { border-color: var(--danger); background: var(--danger-soft); color: var(--danger); font-weight: 600; }
+.moc-dir { flex: 1 1 340px; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.moc-resumo { font-size: 13px; font-weight: 600; }
+.moc-origem { font-size: 12px; color: var(--muted); font-family: 'IBM Plex Mono', monospace; }
+.moc-lista { flex: 1; max-height: 320px; overflow: auto; display: flex; flex-direction: column; gap: 6px; }
+.moc-cam { display: flex; align-items: center; gap: 10px; min-height: 52px; padding: 6px 8px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); cursor: pointer; }
+.moc-cam input { width: 20px; height: 20px; accent-color: var(--primary); flex: none; }
+.moc-cam.on { border-color: var(--primary); background: var(--primary-soft); }
+.moc-cam.fora:not(.on) { opacity: .7; background: var(--surface-soft); }
+.moc-cam.sem { cursor: not-allowed; }
+.moc-cam-txt { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.moc-cam-txt b { font-size: 14px; }
+.moc-cam-txt small { font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+.moc-dist { flex: none; font-family: 'IBM Plex Mono', monospace; font-size: 13px; font-weight: 600; color: var(--danger); }
+.moc-cam.fora .moc-dist { color: var(--muted); }
+.moc-nada { color: var(--muted); font-size: 13px; }
+.moc-quando { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; padding-top: 8px; border-top: 1px solid var(--border); }
+.moc-quando label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); }
+.moc-quando input, .moc-quando select { height: 40px; border: 1px solid var(--border); border-radius: 8px; padding: 0 8px; font-size: 13px; color: var(--text); background: var(--surface); }
+#mocInvestigar:disabled { opacity: .55; cursor: not-allowed; }
+.moc-pino { background: none; border: 0; }
+.leaflet-container.moc-marcando { cursor: crosshair; }
+.moc-faixa { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); z-index: 1000; display: flex; align-items: center; gap: 8px; background: var(--danger); color: #fff; padding: 6px 6px 6px 14px; border-radius: 99px; font-weight: 600; font-size: 13px; box-shadow: 0 4px 14px rgba(0,0,0,.35); }
+.moc-faixa button { height: 30px; border: 0; border-radius: 99px; padding: 0 12px; background: #fff; color: var(--danger); font-weight: 600; cursor: pointer; }

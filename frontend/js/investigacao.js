@@ -73,6 +73,7 @@ async function loadInvestigacao() {
   if (!_inv.periodo) invAplicarPreset('ontem');
   const data = await apiJson('/api/ia/nvr/targets');
   _inv.targets = data?.targets || [];
+  invAplicarDoMapa();
   invRenderArvore();
   invRenderChips();
   invMostrarPaineis();
@@ -165,6 +166,32 @@ function invRenderPeriodo() {
   if (!el || !_inv.periodo) return;
   const f = d => `${_invPad(d.getDate())}/${_invPad(d.getMonth() + 1)} ${_invPad(d.getHours())}:${_invPad(d.getMinutes())}`;
   el.textContent = `${f(_inv.periodo.ini)} → ${f(_inv.periodo.fim)}`;
+}
+
+// Vindo do mapa (Localizar ocorrencia): as cameras perto do ponto e o
+// periodo em volta do horario informado ja chegam escolhidos. A chave e a
+// mesma da arvore (_invChave), entao o mapa so passa o que ja casou com um
+// canal de gravador.
+function invAbrirDoMapa(pedido) {
+  _inv.doMapa = pedido;
+  navigateTo('playback');
+}
+
+function invAplicarDoMapa() {
+  const p = _inv.doMapa;
+  if (!p) return;
+  _inv.doMapa = null;
+  _inv.selecionadas.clear();
+  (p.chaves || []).slice(0, INV_MAX_CAMERAS).forEach(k => {
+    const t = _inv.targets.find(x => _invChave(x) === k);
+    if (t) _inv.selecionadas.set(k, t);
+  });
+  _inv.abertos = null;
+  const agora = new Date();
+  _inv.periodo = { ini: p.ini, fim: p.fim > agora ? agora : p.fim, preset: 'custom' };
+  invAplicarPreset('custom');
+  const n = _inv.selecionadas.size;
+  showToast(`Vindo do mapa: ${n} câmera${n === 1 ? '' : 's'} ${p.rotulo || ''}. Confira e aperte Investigar.`);
 }
 
 // ---------------------------------------------------------------- arvore

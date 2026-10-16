@@ -3387,3 +3387,325 @@ async function mcpSalvar() {
   if (falhas.length) showToast(`Salvas ${salvas}. Com problema: ${falhas.join(' | ')}`, true);
   else showToast(`Salvo no inventário: ${salvas} câmera(s).`);
 }
+
+// =====================================================================
+// Localizar ocorrencia: alguem manda a localizacao pelo WhatsApp, o operador
+// cola aqui (ou clica no mapa), ve as cameras a ate N metros e vai para a
+// Investigacao com elas e o periodo ja escolhidos.
+//
+// Uma camera do mapa so entra na Investigacao se o IP dela for o camera_ip de
+// um canal de gravador (/api/ia/nvr/targets). Sem canal, ela aparece na lista
+// como "sem gravacao no SightOps" e nao pode ser marcada.
+// =====================================================================
+const MOC_FOLGA_M = 25;           // alem do raio: aparece esmaecida, marca a mao
+const MOC_RAIOS = [20, 30, 50, 100];
+
+let _moc = {
+  ponto: null,          // L.LatLng
+  origem: '',
+  raio: 30,
+  desmarcadas: new Set(),
+  extras: new Set(),
+  alvos: [],            // targets da Investigacao
+  mini: null,           // L.map do modal
+  miniCamada: null,
+  fundo: null,          // pino + raio no mapa principal
+  marcando: false,
+};
+
+function _mocPad(n) { return String(n).padStart(2, '0'); }
+function _mocLocal(d) {
+  return `${d.getFullYear()}-${_mocPad(d.getMonth() + 1)}-${_mocPad(d.getDate())}T${_mocPad(d.getHours())}:${_mocPad(d.getMinutes())}`;
+}
+
+// O que chega pelo WhatsApp: link longo do Google Maps, coordenada solta ou
+// graus/minutos/segundos. Link curto volta {curto: true} e vai ao servidor.
+function mocLer(texto) {
+  let t = String(texto || '').trim();
+  if (!t) return null;
+  try { t = decodeURIComponent(t); } catch (_) {}
+  if (/(^|\/\/|\.)goo\.gl\//i.test(t)) return { curto: true, url: (t.match(/https?:\/\/\S+/) || [t])[0] };
+  const ok = (lat, lng) => Math.abs(lat) <= 90 && Math.abs(lng) <= 180 && !(lat === 0 && lng === 0);
+  const dms = t.match(/(\d{1,2})[°º]\s*(\d{1,2})['’′]\s*([\d.,]+)["”″]?\s*([NS])[\s,;]+(\d{1,3})[°º]\s*(\d{1,2})['’′]\s*([\d.,]+)["”″]?\s*([EWOL])/i);
+  if (dms) {
+    const g = (a, b, c) => (+a) + (+b) / 60 + parseFloat(String(c).replace(',', '.')) / 3600;
+    let lat = g(dms[1], dms[2], dms[3]), lng = g(dms[5], dms[6], dms[7]);
+    if (/S/i.test(dms[4])) lat = -lat;
+    if (/[WO]/i.test(dms[8])) lng = -lng;
+    if (ok(lat, lng)) return { lat, lng, origem: 'graus, minutos e segundos' };
+  }
+  const padroes = [
+    /!3d(-?\d{1,2}\.\d+)!4d(-?\d{1,3}\.\d+)/,
+    /[?&](?:q|query|ll|destination|center)=(-?\d{1,2}\.\d+),\s*\+?(-?\d{1,3}\.\d+)/,
+    /\/(?:place|search)\/(-?\d{1,2}\.\d+),\+?(-?\d{1,3}\.\d+)/,
+    /@(-?\d{1,2}\.\d+),(-?\d{1,3}\.\d+)/,
+    /(-?\d{1,2}\.\d{2,})\s*[,;]\s*(-?\d{1,3}\.\d{2,})/,
+    /(-?\d{1,2}\.\d{4,})\s+(-?\d{1,3}\.\d{4,})/,
+  ];
+  for (const re of padroes) {
+    const m = t.match(re);
+    if (m && ok(+m[1], +m[2])) {
+      return { lat: +m[1], lng: +m[2], origem: /https?:|maps|google/i.test(t) ? 'link do Google Maps' : 'coordenada' };
+    }
+  }
+  return null;
+}
+
+// Cameras do mapa (com IP), uma por IP, com o canal de gravador que a grava.
+function mocCameras() {
+  const porIp = new Map();
+  const canal = new Map();
+  _moc.alvos.forEach(t => { const ip = String(t.camera_ip || '').trim(); if (ip && !canal.has(ip)) canal.set(ip, t); });
+  Object.values(_mapLayerGroups || {}).forEach(g => Object.values(g.markers || {}).forEach(m => {
+    const info = m._mcp;
+    const ip = String(info?.cam?.ip || '').trim();
+    if (!ip || porIp.has(ip) || typeof m.getLatLng !== 'function') return;
+    const alvo = canal.get(ip) || null;
+    porIp.set(ip, {
+      ip,
+      nome: info.cam.titulo || info.nomePonto || ip,
+      ll: m.getLatLng(),
+      alvo,
+      chave: alvo ? `${alvo.host}|${alvo.http_port || 80}|${alvo.channel}` : '',
+    });
+  }));
+  return [...porIp.values()];
+}
+
+function mocEstado() {
+  if (!_moc.ponto) return { lista: [], marcadas: [] };
+  const lista = mocCameras()
+    .map(c => ({ ...c, dist: _moc.ponto.distanceTo(c.ll) }))
+    .filter(c => c.dist <= _moc.raio + MOC_FOLGA_M)
+    .sort((a, b) => a.dist - b.dist);
+  let vagas = INV_MAX_CAMERAS;
+  lista.forEach(c => {
+    c.dentro = c.dist <= _moc.raio;
+    c.marcada = !!c.alvo && (c.dentro ? !_moc.desmarcadas.has(c.ip) : _moc.extras.has(c.ip));
+    if (c.marcada) { if (vagas > 0) vagas--; else c.marcada = false; }   // as mais proximas primeiro
+  });
+  return { lista, marcadas: lista.filter(c => c.marcada) };
+}
+
+function mocAviso(msg, erro = false) {
+  const el = document.getElementById('mocAviso');
+  if (!el) return;
+  el.textContent = msg || '';
+  el.classList.toggle('erro', !!erro);
+}
+
+async function openMapOcorrencia() {
+  const modal = document.getElementById('modalMapOcorrencia');
+  if (!modal) return;
+  modal.classList.remove('hidden');
+  const q = document.getElementById('mocQuando');
+  if (q && !q.value) q.value = _mocLocal(new Date());
+  lucide.createIcons();
+  // forceRefresh: o cache do apiJson e por token, e a troca de cliente
+  // mantem o token -- sem isto viriam os gravadores do cliente anterior.
+  const data = await apiJson('/api/ia/nvr/targets', { forceRefresh: true });
+  _moc.alvos = data?.targets || [];
+  mocRender();
+  setTimeout(() => document.getElementById('mocTexto')?.focus(), 50);
+}
+
+function closeMapOcorrencia() {
+  document.getElementById('modalMapOcorrencia')?.classList.add('hidden');
+}
+
+async function mocLocalizar() {
+  const texto = document.getElementById('mocTexto')?.value || '';
+  const r = mocLer(texto);
+  if (!r) { mocAviso('Nao reconheci uma localizacao nesse texto. Cole o link ou a coordenada como chegou.', true); return; }
+  if (r.curto) {
+    mocAviso('Abrindo o link curto do Google...');
+    try {
+      const res = await api(`/api/mapa/resolver-link?url=${encodeURIComponent(r.url)}`);
+      const d = res && res.ok ? await res.json() : null;
+      if (!d?.ok) { mocAviso(d?.erro || 'Nao consegui abrir o link.', true); return; }
+      mocDefinirPonto(d.lat, d.lng, 'link curto do Google');
+    } catch (e) { mocAviso(`Nao consegui abrir o link: ${e.message}`, true); }
+    return;
+  }
+  mocDefinirPonto(r.lat, r.lng, r.origem);
+}
+
+function mocDefinirPonto(lat, lng, origem) {
+  _moc.ponto = L.latLng(lat, lng);
+  _moc.origem = origem;
+  _moc.desmarcadas.clear();
+  _moc.extras.clear();
+  const n = mocEstado().lista.filter(c => c.dentro).length;
+  mocAviso(n ? `Localizado (${origem}).` : `Localizado (${origem}), mas nenhuma camera do mapa a ate ${_moc.raio} m. Aumente o raio ou ligue a camada do site.`, !n);
+  if (_moc.mini) _moc.mini.setView(_moc.ponto, 18);
+  mocRender();
+}
+
+function mocRender() {
+  const tem = !!_moc.ponto;
+  document.getElementById('mocVazio')?.classList.toggle('hidden', tem);
+  document.getElementById('mocConteudo')?.classList.toggle('hidden', !tem);
+  const { lista, marcadas } = mocEstado();
+  const btn = document.getElementById('mocInvestigar');
+  if (btn) {
+    btn.disabled = !marcadas.length;
+    btn.textContent = marcadas.length ? `Investigar ${marcadas.length} câmera${marcadas.length === 1 ? '' : 's'} →` : 'Marque ao menos uma câmera';
+  }
+  mocDesenharFundo();
+  if (!tem) return;
+
+  document.getElementById('mocRaioValor').textContent = `${_moc.raio} m`;
+  const range = document.getElementById('mocRaio');
+  if (range && +range.value !== _moc.raio) range.value = _moc.raio;
+  document.querySelectorAll('#mocRaios [data-raio]').forEach(b => b.classList.toggle('on', +b.dataset.raio === _moc.raio));
+  const nDentro = lista.filter(c => c.dentro).length;
+  document.getElementById('mocResumo').textContent =
+    `${nDentro} câmera${nDentro === 1 ? '' : 's'} a até ${_moc.raio} m · ${marcadas.length} marcada${marcadas.length === 1 ? '' : 's'}`;
+  document.getElementById('mocOrigem').textContent =
+    `${_moc.ponto.lat.toFixed(6)}, ${_moc.ponto.lng.toFixed(6)} · de: ${_moc.origem}`;
+
+  const box = document.getElementById('mocLista');
+  box.innerHTML = lista.length ? lista.map(c => {
+    const sub = c.alvo
+      ? `${esc(c.ip)} · ${esc(c.alvo.recorder_name || c.alvo.host)} · canal ${esc(c.alvo.channel)}`
+      : `${esc(c.ip)} · sem gravação no SightOps`;
+    const cls = ['moc-cam', c.marcada ? 'on' : '', c.dentro ? '' : 'fora', c.alvo ? '' : 'sem'].filter(Boolean).join(' ');
+    return `<label class="${cls}">
+      <input type="checkbox" data-ip="${esc(c.ip)}" ${c.marcada ? 'checked' : ''} ${c.alvo ? '' : 'disabled'}>
+      <span class="moc-cam-txt"><b>${esc(c.nome)}</b><small>${sub}</small></span>
+      <span class="moc-dist">${Math.round(c.dist)} m</span>
+    </label>`;
+  }).join('') : `<p class="moc-nada">Nenhuma câmera do mapa até ${_moc.raio + MOC_FOLGA_M} m. Aumente o raio ou ligue a camada do site no painel de camadas.</p>`;
+  box.querySelectorAll('input[data-ip]').forEach(i => i.addEventListener('change', () => mocAlternar(i.dataset.ip)));
+
+  mocDesenharMini(lista);
+}
+
+function mocAlternar(ip) {
+  const { lista, marcadas } = mocEstado();
+  const c = lista.find(x => x.ip === ip);
+  if (!c || !c.alvo) return;
+  if (!c.marcada && marcadas.length >= INV_MAX_CAMERAS) {
+    showToast(`No maximo ${INV_MAX_CAMERAS} cameras por investigacao.`, true);
+    mocRender();
+    return;
+  }
+  const conj = c.dentro ? _moc.desmarcadas : _moc.extras;
+  if (conj.has(ip)) conj.delete(ip); else conj.add(ip);
+  mocRender();
+}
+
+function mocDesenharMini(lista) {
+  const el = document.getElementById('mocMapa');
+  if (!el) return;
+  if (!_moc.mini) {
+    _moc.mini = L.map(el, { zoomControl: true, attributionControl: false }).setView(_moc.ponto, 18);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 20, maxNativeZoom: 19 }).addTo(_moc.mini);
+    _moc.miniCamada = L.layerGroup().addTo(_moc.mini);
+  }
+  setTimeout(() => _moc.mini.invalidateSize(), 0);
+  const g = _moc.miniCamada;
+  g.clearLayers();
+  L.circle(_moc.ponto, { radius: _moc.raio + MOC_FOLGA_M, color: '#ff6b6b', weight: 1, dashArray: '4 4', fill: false, interactive: false }).addTo(g);
+  L.circle(_moc.ponto, { radius: _moc.raio, color: '#c92a2a', weight: 2, fillColor: '#c92a2a', fillOpacity: 0.15, interactive: false }).addTo(g);
+  lista.forEach(c => {
+    const m = L.circleMarker(c.ll, {
+      radius: c.marcada ? 10 : 8,
+      color: c.marcada ? '#ffd43b' : '#ffffff',
+      weight: c.marcada ? 3 : 2,
+      fillColor: c.alvo ? '#087f5b' : '#66747e',
+      fillOpacity: c.dentro || c.marcada ? 1 : 0.5,
+    }).addTo(g);
+    m.bindTooltip(`${esc(c.nome)} · ${Math.round(c.dist)} m`, { direction: 'top' });
+    m.on('click', () => mocAlternar(c.ip));
+  });
+  L.marker(_moc.ponto, { icon: mocIconePino(), interactive: false, zIndexOffset: 1000 }).addTo(g);
+}
+
+function mocIconePino() {
+  return L.divIcon({
+    className: 'moc-pino',
+    html: '<svg width="34" height="34" viewBox="0 0 24 24" fill="#c92a2a" stroke="#ffffff" stroke-width="1.6" aria-hidden="true"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3" fill="#ffffff"/></svg>',
+    iconSize: [34, 34], iconAnchor: [17, 32],
+  });
+}
+
+// O ponto e o raio ficam no mapa principal depois de fechar o modal.
+function mocDesenharFundo() {
+  if (!_map) return;
+  if (!_moc.fundo) _moc.fundo = L.layerGroup().addTo(_map);
+  _moc.fundo.clearLayers();
+  if (!_moc.ponto) return;
+  L.circle(_moc.ponto, { radius: _moc.raio, color: '#c92a2a', weight: 2, fillColor: '#c92a2a', fillOpacity: 0.12, interactive: false }).addTo(_moc.fundo);
+  L.marker(_moc.ponto, { icon: mocIconePino(), zIndexOffset: 1000, title: 'Ocorrência' })
+    .on('click', openMapOcorrencia).addTo(_moc.fundo);
+}
+
+// "Marcar no mapa": o modal some, o proximo clique no mapa principal vira o ponto.
+function mocComecarMarcar() {
+  if (!_map) { showToast('Abra o mapa primeiro.', true); return; }
+  closeMapOcorrencia();
+  _moc.marcando = true;
+  const box = _map.getContainer();
+  box.classList.add('moc-marcando');
+  let faixa = document.getElementById('mocFaixa');
+  if (!faixa) {
+    faixa = document.createElement('div');
+    faixa.id = 'mocFaixa';
+    faixa.className = 'moc-faixa';
+    faixa.innerHTML = 'Clique no mapa onde aconteceu <button type="button">Cancelar</button>';
+    L.DomEvent.disableClickPropagation(faixa);
+    faixa.querySelector('button').addEventListener('click', () => mocPararMarcar(true));
+    box.appendChild(faixa);
+  }
+  faixa.classList.remove('hidden');
+  _map.once('click', mocCliqueMapa);
+}
+
+function mocCliqueMapa(e) {
+  if (!_moc.marcando) return;
+  mocPararMarcar(false);
+  openMapOcorrencia();
+  mocDefinirPonto(e.latlng.lat, e.latlng.lng, 'clique no mapa');
+}
+
+function mocPararMarcar(reabrir) {
+  _moc.marcando = false;
+  _map?.off('click', mocCliqueMapa);
+  _map?.getContainer().classList.remove('moc-marcando');
+  document.getElementById('mocFaixa')?.classList.add('hidden');
+  if (reabrir) openMapOcorrencia();
+}
+
+function mocInvestigar() {
+  const { marcadas } = mocEstado();
+  if (!marcadas.length) return;
+  const quando = new Date(document.getElementById('mocQuando')?.value || '');
+  if (isNaN(quando)) { showToast('Informe quando aconteceu.', true); return; }
+  const janela = Number(document.getElementById('mocJanela')?.value || 30) * 60e3;
+  closeMapOcorrencia();
+  invAbrirDoMapa({
+    chaves: marcadas.map(c => c.chave),
+    ini: new Date(quando.getTime() - janela),
+    fim: new Date(quando.getTime() + janela),
+    rotulo: `a até ${_moc.raio} m de ${_moc.ponto.lat.toFixed(5)}, ${_moc.ponto.lng.toFixed(5)}`,
+  });
+}
+
+function bindMapOcorrencia() {
+  const $ = id => document.getElementById(id);
+  $('btnMapOcorrencia')?.addEventListener('click', openMapOcorrencia);
+  $('mocFechar')?.addEventListener('click', closeMapOcorrencia);
+  $('mocFechar2')?.addEventListener('click', closeMapOcorrencia);
+  $('mocLocalizar')?.addEventListener('click', mocLocalizar);
+  $('mocTexto')?.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); mocLocalizar(); } });
+  // Colar ja localiza: e o caminho normal (copiou do WhatsApp, colou).
+  $('mocTexto')?.addEventListener('paste', () => setTimeout(mocLocalizar, 0));
+  $('mocMarcar')?.addEventListener('click', mocComecarMarcar);
+  $('mocInvestigar')?.addEventListener('click', mocInvestigar);
+  $('mocRaio')?.addEventListener('input', e => { _moc.raio = +e.target.value; mocRender(); });
+  document.querySelectorAll('#mocRaios [data-raio]').forEach(b => b.addEventListener('click', () => { _moc.raio = +b.dataset.raio; mocRender(); }));
+  $('modalMapOcorrencia')?.addEventListener('keydown', e => { if (e.key === 'Escape') closeMapOcorrencia(); });
+}
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', bindMapOcorrencia);
+else bindMapOcorrencia();

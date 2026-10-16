@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=1792000064">
+  <link rel="stylesheet" href="styles.css?v=1792000081">
 </head>
 <body>
 
@@ -3150,6 +3150,7 @@
                valor usa `?.value || ''`, entao sem o campo o filtro fica neutro. -->
           <!-- A--es -->
           <button class="secondary-action" id="btnMapReload" style="font-size:12px;padding:5px 12px;white-space:nowrap"><i data-lucide="refresh-cw"></i> Atualizar</button>
+          <button class="secondary-action moc-btn-barra" id="btnMapOcorrencia" type="button" style="font-size:12px;padding:5px 12px;white-space:nowrap"><i data-lucide="map-pin"></i> Localizar ocorrência</button>
           <button class="primary-action" id="btnMapTools" style="font-size:12px;padding:5px 14px;white-space:nowrap"><i data-lucide="settings-2"></i> Ferramentas KMZ</button>
           </div>
         </div>
@@ -6062,6 +6063,57 @@
     </div>
   </div>
 
+  <!-- --- MODAL: LOCALIZAR OCORRENCIA (cameras.js, bloco _moc) --- -->
+  <div id="modalMapOcorrencia" class="modal-backdrop hidden">
+    <div class="modal moc-modal" role="dialog" aria-modal="true" aria-labelledby="mocTitulo">
+      <div class="modal-header">
+        <div><p class="eyebrow">Mapa</p><h2 id="mocTitulo">Localizar ocorrência</h2></div>
+        <button id="mocFechar" class="icon-button" type="button" aria-label="Fechar"><i data-lucide="x"></i></button>
+      </div>
+      <div class="modal-body moc-body">
+        <div class="moc-entrada">
+          <label class="moc-campo">Localização recebida
+            <input id="mocTexto" type="text" autocomplete="off" placeholder="Cole o link do WhatsApp/Google Maps ou a coordenada (-9.7315, -36.6385)">
+          </label>
+          <button id="mocLocalizar" class="moc-btn-loc" type="button">Localizar</button>
+          <button id="mocMarcar" class="secondary-action" type="button"><i data-lucide="crosshair"></i> Marcar no mapa</button>
+        </div>
+        <div id="mocAviso" class="moc-aviso" role="status"></div>
+        <p id="mocVazio" class="moc-vazio">Cole a localização recebida ou use “Marcar no mapa”. As câmeras do raio aparecem aqui, da mais próxima para a mais distante.</p>
+        <div id="mocConteudo" class="moc-grid hidden">
+          <div class="moc-esq">
+            <div id="mocMapa" class="moc-mapa"></div>
+            <label class="moc-raio-rot" for="mocRaio">Raio <b id="mocRaioValor">30 m</b></label>
+            <input id="mocRaio" type="range" min="10" max="100" step="5" value="30">
+            <div id="mocRaios" class="moc-raios" role="group" aria-label="Raio rápido">
+              <button type="button" data-raio="20">20 m</button><button type="button" data-raio="30">30 m</button><button type="button" data-raio="50">50 m</button><button type="button" data-raio="100">100 m</button>
+            </div>
+          </div>
+          <div class="moc-dir">
+            <div id="mocResumo" class="moc-resumo"></div>
+            <div id="mocOrigem" class="moc-origem"></div>
+            <div id="mocLista" class="moc-lista"></div>
+            <div class="moc-quando">
+              <label>Quando aconteceu<input id="mocQuando" type="datetime-local"></label>
+              <label>Janela
+                <select id="mocJanela">
+                  <option value="15">± 15 min</option>
+                  <option value="30" selected>± 30 min</option>
+                  <option value="60">± 1 hora</option>
+                  <option value="120">± 2 horas</option>
+                </select>
+              </label>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button id="mocFechar2" class="secondary-action" type="button">Fechar</button>
+        <button id="mocInvestigar" class="primary-action" type="button" disabled>Marque ao menos uma câmera</button>
+      </div>
+    </div>
+  </div>
+
   <!-- --- MODAL: FERRAMENTAS KMZ --- -->
   <div id="modalMapTools" class="modal-backdrop hidden">
     <div class="modal" style="max-width:480px">
@@ -6876,13 +6928,13 @@
   <script src="js/core.js?v=1792000031"></script>
   <script src="js/dashboard.js?v=1791000212"></script>
   <script src="js/liveStream.js?v=1791000212"></script>
-  <script src="js/cameras.js?v=1792000065"></script>
+  <script src="js/cameras.js?v=1792000082"></script>
   <script src="js/recorders.js?v=1792000003"></script>
   <script src="js/windows.js?v=1792000024"></script>
   <script src="js/snapshots.js?v=1791000212"></script>
   <script src="js/maintenance.js?v=1791000212"></script>
   <script src="js/analysis.js?v=1791000212"></script>
-  <script src="js/investigacao.js?v=1792000002"></script>
+  <script src="js/investigacao.js?v=1792000083"></script>
   <script src="js/network.js?v=1791000212"></script>
   <script src="js/rede.js?v=1791000212"></script>
   <script src="js/deploy.js?v=1792000012"></script>

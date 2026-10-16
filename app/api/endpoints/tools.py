@@ -1425,6 +1425,14 @@ async def api_kmz_import(file: UploadFile = File(...)) -> Dict[str, Any]:
     }
 
 
+@router.get("/mapa/resolver-link")
+def api_mapa_resolver_link(url: str) -> Dict[str, Any]:
+    """Link curto do Google Maps (o que chega pelo WhatsApp) -> coordenada.
+    So segue enderecos do Google; ver app/services/mapa_link.py."""
+    from app.services.mapa_link import resolver_link
+    return resolver_link(url)
+
+
 @router.get("/kmz/import/layers")
 async def api_kmz_import_layers(include_features: bool = True) -> Dict[str, Any]:
     layers = _list_kmz_import_layers(include_features=include_features)

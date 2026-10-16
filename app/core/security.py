@@ -46,6 +46,7 @@ class ApiAuthMiddleware(BaseHTTPMiddleware):
         )
         self._role_rules = [
             (("GET",), "/api/auth/users", "admin"),
+            (("GET",), "/api/mapa/resolver-link", "viewer"),
             (("GET",), "/api/auth/audit", "admin"),
             (("GET",), "/api/auth/tenants", "admin"),
             (("POST",), "/api/auth/users", "admin"),
