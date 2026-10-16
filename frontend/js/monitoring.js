@@ -24,6 +24,17 @@ function monitoringOnuTexto(detail) {
   return `Última ONU: ${fmt(u)}${quando ? ` (até ${monitoringDate(quando)})` : ''}`;
 }
 
+// Linha de baixo de cada membro de ocorrencia: onde o equipamento esta na
+// fibra. Camera caida mostra a ultima ONU conhecida -- e por ela que o tecnico
+// acha a camera em campo.
+function monitoringMembroOnu(row) {
+  let detail = {};
+  try { detail = JSON.parse(row.detail_json || '{}'); } catch (_) { return ''; }
+  if (row.entity_type === 'camera') return monitoringOnuTexto(detail);
+  if (row.entity_type === 'onu') return [detail.pon && `PON ${detail.pon}`, detail.serial && `serial ${detail.serial}`].filter(Boolean).join(' · ');
+  return '';
+}
+
 function monitoringDetail(row) {
   try {
     const detail = JSON.parse(row.detail_json || '{}');
@@ -433,7 +444,10 @@ function renderMonitoringIncidents() {
         ${visible.map(row => `
           <div class="mn-member">
             <span class="mn-sev ${esc(row.status)}"></span>
-            <span class="mn-member-name" title="${esc(row.display_name || row.entity_key)}">${esc(row.display_name || row.entity_key)}</span>
+            <span class="mn-member-main">
+              <span class="mn-member-name" title="${esc(row.display_name || row.entity_key)}">${esc(row.display_name || row.entity_key)}</span>
+              ${(o => o ? `<span class="mn-member-onu${o.startsWith('Última') ? ' ultima' : ''}">${esc(o)}</span>` : '')(monitoringMembroOnu(row))}
+            </span>
             <span class="mn-member-ip">${esc(monitoringHostOf(row) || '--')}</span>
             <span class="monitoring-status ${esc(row.status)}">${esc(monitoringStatusLabel(row.status))}</span>
             <button class="mn-act" type="button" data-incident-focus="${esc(row.entity_key)}">Localizar</button>
