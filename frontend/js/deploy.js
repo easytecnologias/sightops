@@ -1188,7 +1188,10 @@ function deployStandaloneRecorderRowPort(row) {
 }
 
 function deployStandaloneRecorderRowMode(row) {
-  const raw = String(row?.inventory_mode || row?.mode || '').trim().toLowerCase();
+  // O modo do GRAVADOR, nao o da camera do canal: o inventario troca
+  // inventory_mode pelo da camera (status_efetivo.herdar_da_camera) e o mesmo
+  // NVR virava dois cards (RADS 01 e 06 em 15/10/2026, canais via OLT e basico).
+  const raw = String(row?.inventory_mode_gravador || row?.inventory_mode || row?.mode || '').trim().toLowerCase();
   if (raw === 'basico' || raw === 'basic') return 'basic';
   if (raw === 'switch') return 'switch';
   if (raw === 'olt') return 'olt';

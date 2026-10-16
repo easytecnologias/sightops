@@ -224,6 +224,15 @@ def herdar_da_camera(linha: Dict[str, Any], medidas: Dict[str, Dict[str, Any]],
     ip = _texto(linha.get(campo_ip))
     medida = medidas.get(ip) if ip else None
     linha["status_gravador"] = linha.get("status")   # o que a varredura catalogou
+    if (not medida or not medida.get("status")) and linha.get("status_source") == "verificacao_leve"             and linha.get("status_checked_at"):
+        # O proprio gravador foi medido (nvr_status_service: consulta canal a
+        # canal, com hora). Sem camera no inventario IP, vale essa medicao --
+        # antes ela era jogada fora e 8 NVRs da RADS (07, 08, Praia Bonita,
+        # Medea...) apareciam "Nao verificado / nunca" sendo lidos a cada
+        # poucos minutos (15/10/2026). Conector caido e leitura velha continuam
+        # valendo depois, em aplicar_em_linha.
+        linha["status_origem"] = "gravador"
+        return linha
     if not medida or not medida.get("status"):
         linha["status"] = "unknown"
         linha["status_motivo"] = MOTIVO_SEM_CAMERA

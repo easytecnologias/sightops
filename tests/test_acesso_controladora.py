@@ -167,3 +167,15 @@ def test_erro_do_leitor_nao_sai_como_502_no_controle_de_acesso():
                                               HTTPException(502, "Usuario ou senha invalidos no dispositivo.")))
     assert r.status_code == 424 and b"Usuario ou senha invalidos" in r.body
     assert asyncio.run(m._erro_do_leitor_sem_502(req("/api/cameras/c1"), HTTPException(502, "x"))).status_code == 502
+
+
+def test_canal_sem_camera_no_inventario_usa_a_verificacao_do_gravador():
+    from app.services.status_efetivo import herdar_da_camera, MOTIVO_SEM_CAMERA
+    medido = herdar_da_camera({"camera_ip": "10.0.0.9", "status": "online", "status_source": "verificacao_leve",
+                               "status_checked_at": "2026-10-16T01:47:54+00:00"}, {"10.0.0.1": {"status": "online"}})
+    assert medido["status"] == "online" and medido["status_checked_at"] and medido["status_origem"] == "gravador"
+    catalogado = herdar_da_camera({"camera_ip": "10.0.0.9", "status": "online"}, {"10.0.0.1": {"status": "online"}})
+    assert catalogado["status"] == "unknown" and catalogado["status_motivo"] == MOTIVO_SEM_CAMERA   # varredura nao e medicao
+    da_camera = herdar_da_camera({"camera_ip": "10.0.0.1", "status": "online", "status_source": "verificacao_leve",
+                                  "status_checked_at": "x"}, {"10.0.0.1": {"status": "offline", "status_checked_at": "y"}})
+    assert da_camera["status"] == "offline"                                                       # camera medida continua mandando
