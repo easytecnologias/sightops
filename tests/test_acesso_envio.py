@@ -98,6 +98,9 @@ def test_presenca_vale_8_horas_e_vira_saida_nao_registrada(banco):
     assert [x["name"] for x in r["dentro"]] == ["CARLOS"]                     # 21:18, menos de 8 h
     assert [x["name"] for x in r["sem_saida"]] == ["VALDICE"]                 # 09:14, mais de 8 h
     assert r["dentro"][0]["dupla_entrada"] and r["sem_saida"][0]["dupla_entrada"]
+    noite = access_presence_lists(site="E", agora=datetime(2026, 10, 15, 23, 59, 0))
+    assert noite["dentro"] == [] and {x["name"] for x in noite["sem_saida"]} == {"VALDICE", "CARLOS"}   # 23:59 zera
+    assert [x["name"] for x in access_presence_lists(site="E", agora=datetime(2026, 10, 15, 23, 58, 59))["dentro"]] == ["CARLOS"]
     manha = access_presence_lists(site="E", agora=datetime(2026, 10, 16, 6, 0))
     assert manha["dentro"] == [] and {x["name"] for x in manha["sem_saida"]} == {"VALDICE", "CARLOS"}   # dia zerado
     assert access_presence_lists(site="E", agora=datetime(2026, 10, 17, 8, 0)) == {"dentro": [], "sem_saida": []}

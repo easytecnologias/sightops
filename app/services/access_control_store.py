@@ -1377,6 +1377,8 @@ def _momento(valor: Any):
 PRESENCA_MAX_HORAS = 8
 # Ate quando quem ficou sem saida aparece no aviso (depois disso, so historico).
 SEM_SAIDA_JANELA_HORAS = 24
+# A partir desta hora ninguem conta como presente (8 h OU fim do dia).
+FIM_DO_DIA = "23:59:00"
 
 
 def _situacao(eventos: List[Any], hoje: str, agora: Optional[datetime] = None) -> str:
@@ -1402,7 +1404,9 @@ def _situacao(eventos: List[Any], hoje: str, agora: Optional[datetime] = None) -
     if quando is None:
         return "fora"
     horas = (agora - quando).total_seconds() / 3600
-    if str(ultimo["occurred_at"] or "").strip()[:10] == hoje and horas <= PRESENCA_MAX_HORAS:
+    # Zera as 23:59:00 (pedido do usuario): o dia seguinte comeca sem ninguem.
+    fim_do_dia = agora.strftime("%H:%M:%S") >= FIM_DO_DIA
+    if str(ultimo["occurred_at"] or "").strip()[:10] == hoje and horas <= PRESENCA_MAX_HORAS and not fim_do_dia:
         return "dentro"
     return "sem_saida" if horas <= SEM_SAIDA_JANELA_HORAS else "fora"
 
