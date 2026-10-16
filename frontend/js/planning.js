@@ -6,6 +6,8 @@ let _planningMapLayers = null;
 let _planningMarkers = {};
 let _planningCatalog = null;
 let _planningExpandedRows = new Set();
+// Pendencia escolhida no painel "Antes de implantar": { label, ids:Set }.
+let _planningIssueFilter = null;
 
 // Overlay de progresso pra operacoes longas (ex: duplicar caixa em lote) --
 // sem isso, a tela fica parada varios segundos sem nenhum sinal de que
@@ -164,42 +166,31 @@ async function loadPlanning(force = false) {
   const data = await apiJson('/api/planning/projects', { forceRefresh: force, cacheTtl: 0 });
   _planningProjects = data?.items || [];
   renderPlanningProjects();
+  // Sem projeto aberto, a tela abre no pipeline (todos os projetos por etapa)
+  // em vez de entrar sozinha no primeiro da lista.
   const currentId = Number(_planningCurrent?.id || 0);
-  const next = _planningProjects.find(item => Number(item.id) === currentId) || _planningProjects[0];
-  if (next) await selectPlanningProject(next.id);
+  const current = currentId ? _planningProjects.find(item => Number(item.id) === currentId) : null;
+  if (current) await selectPlanningProject(current.id);
   else showPlanningEmpty();
 }
 
+// Pipeline e seletor de projeto ficam em planning-workspace.js.
 function renderPlanningProjects() {
-  const box = document.getElementById('planningProjectList');
-  const count = document.getElementById('planningProjectCount');
-  if (!box || !count) return;
-  count.textContent = `${_planningProjects.length} projeto(s).`;
-  if (!_planningProjects.length) {
-    box.innerHTML = '<div class="planning-list-empty">Nenhum projeto cadastrado.</div>';
-    return;
-  }
-  box.innerHTML = _planningProjects.map(item => `
-    <button class="planning-project-card ${Number(item.id) === Number(_planningCurrent?.id) ? 'active' : ''}" onclick="selectPlanningProject(${Number(item.id)})">
-      <span class="planning-project-card-top"><strong>${planningEscape(item.name)}</strong><span>${planningEscape(PLANNING_STATUS[item.status] || item.status)}</span></span>
-      <small>${planningEscape(item.client_name || 'Cliente nao informado')}</small>
-      <span class="planning-project-card-stats">${Number(item.sites_count || 0)} sites · ${Number(item.cameras_count || 0)} cameras · ${Number(item.onus_count || 0)} ONUs</span>
-    </button>`).join('');
+  planningRenderPipeline();
 }
 
 function showPlanningEmpty() {
   _planningCurrent = null;
-  document.getElementById('planningEmpty')?.classList.remove('hidden');
-  document.getElementById('planningDetail')?.classList.add('hidden');
+  planningShowPipeline();
   renderPlanningProjects();
 }
 
 async function selectPlanningProject(projectId) {
   const data = await apiJson(`/api/planning/projects/${Number(projectId)}`, { forceRefresh: true, cacheTtl: 0 });
   if (!data?.item) return false;
+  if (Number(_planningCurrent?.id) !== Number(data.item.id)) _planningIssueFilter = null;
   _planningCurrent = data.item;
-  document.getElementById('planningEmpty')?.classList.add('hidden');
-  document.getElementById('planningDetail')?.classList.remove('hidden');
+  planningShowWorkspace();
   renderPlanningProjects();
   renderPlanningDetail();
   setTimeout(() => renderPlanningMap(), 50);
@@ -218,19 +209,8 @@ async function planningRefreshCurrentProject(retries = 2) {
 }
 
 function renderPlanningDetail() {
-  const project = _planningCurrent;
-  if (!project) return;
-  const devices = project.devices || [];
-  const cameras = devices.filter(item => item.device_type === 'camera').length;
-  const onus = devices.filter(item => ['onu', 'ont'].includes(item.device_type)).length;
-  document.getElementById('planningStatus').textContent = PLANNING_STATUS[project.status] || project.status;
-  document.getElementById('planningStatus').dataset.status = project.status;
-  document.getElementById('planningTitle').textContent = project.name;
-  document.getElementById('planningSubtitle').textContent = [project.client_name, project.description].filter(Boolean).join(' · ') || 'Projeto sem descricao.';
-  document.getElementById('planningSitesKpi').textContent = (project.sites || []).length;
-  document.getElementById('planningCamerasKpi').textContent = cameras;
-  document.getElementById('planningOnusKpi').textContent = onus;
-  document.getElementById('planningDevicesKpi').textContent = devices.length;
+  if (!_planningCurrent) return;
+  planningRenderWorkspace();
   fillPlanningFilters();
   renderPlanningDevices();
 }
@@ -250,6 +230,7 @@ function fillPlanningFilters() {
 // nao como linha solta na lista. Busca/filtro de tipo e "achar algo
 // especifico", entao ai mostra tudo de forma plana, inclusive aninhados.
 function planningIsBrowsingHierarchy() {
+  if (_planningIssueFilter) return false;
   const term = String(document.getElementById('planningSearch')?.value || '').trim();
   const type = document.getElementById('planningTypeFilter')?.value || '';
   return !term && !type;
@@ -265,6 +246,8 @@ function filteredPlanningDevices() {
   // antigo, importado, ou pai excluido), tratar como raiz -- senao o item
   // some da lista sem nenhum pai valido pra abrir e mostrar ele de volta.
   const deviceIds = new Set(devices.map(d => Number(d.id)));
+  // Vindo de uma pendencia ("3 cameras sem IP"): mostra exatamente esses.
+  if (_planningIssueFilter) return devices.filter(item => _planningIssueFilter.ids.has(Number(item.id)));
   return devices.filter(item => {
     if (type && item.device_type !== type) return false;
     if (site && String(item.site_id || '') !== site) return false;
@@ -292,6 +275,8 @@ function togglePlanningRowExpand(id) {
 }
 
 function planningClearDeviceFilters() {
+  _planningIssueFilter = null;
+  planningRenderIssueChip();
   const search = document.getElementById('planningSearch'); if (search) search.value = '';
   const type = document.getElementById('planningTypeFilter'); if (type) type.value = '';
   const site = document.getElementById('planningSiteFilter'); if (site) site.value = '';
@@ -1508,48 +1493,7 @@ async function deletePlanningProject() {
   showToast('Projeto removido.'); _planningCurrent = null; await loadPlanning(true);
 }
 
-async function renderPlanningMap() {
-  const container = document.getElementById('planningMap');
-  if (!container || !_planningCurrent || typeof L === 'undefined') return;
-  if (!_planningMap) {
-    _planningMap = L.map('planningMap', { zoomControl: true }).setView([-9.76, -36.67], 14);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 20, attribution: '&copy; OpenStreetMap' }).addTo(_planningMap);
-  }
-  if (_planningMapLayers) _planningMapLayers.remove();
-  _planningMapLayers = L.layerGroup().addTo(_planningMap);
-  _planningMarkers = {};
-  const bounds = [];
-  if (_planningCurrent.kmz_layer_id) {
-    const data = await apiJson('/api/kmz/import/layers?include_features=true', { forceRefresh: true, cacheTtl: 0 });
-    const layer = (data?.layers || []).find(item => item.id === _planningCurrent.kmz_layer_id);
-    if (layer?.features?.length) {
-      const geo = L.geoJSON({ type: 'FeatureCollection', features: layer.features }, { style: { color: '#5f3dc4', weight: 3, fillOpacity: .08 }, pointToLayer: (_feature, latlng) => L.circleMarker(latlng, { radius: 5, color: '#5f3dc4', fillOpacity: .7 }) }).addTo(_planningMapLayers);
-      if (geo.getBounds().isValid()) bounds.push(...[geo.getBounds().getSouthWest(), geo.getBounds().getNorthEast()]);
-    }
-  }
-  (_planningCurrent.devices || []).forEach(item => {
-    const lat = Number(item.latitude); const lon = Number(item.longitude);
-    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
-    const color = item.device_type === 'camera' ? '#087f5b' : ['onu','ont'].includes(item.device_type) ? '#1971c2' : '#b86b00';
-    const referenceImage = item.reference_image_url
-      ? `<img class="planning-popup-image" src="${planningEscape(item.reference_image_url)}" alt="Imagem ilustrativa" loading="lazy"><small>Imagem ilustrativa do modelo</small>` : '';
-    const marker = L.circleMarker([lat, lon], { radius: item.device_type === 'camera' ? 7 : 9, color: '#fff', weight: 2, fillColor: color, fillOpacity: 1 })
-      .bindPopup(`<div class="planning-popup">${referenceImage}<strong>${planningEscape(item.name)}</strong><span>${planningEscape(PLANNING_TYPES[item.device_type] || item.device_type)} · ${planningEscape(item.site_name || 'Sem site')}</span>${planningItemHasNoIp(item) ? '' : `<code>${planningEscape(item.ip || 'IP a definir')}</code>`}<span>${planningEscape([item.manufacturer,item.model].filter(Boolean).join(' / ') || 'Modelo a definir')}</span></div>`)
-      .addTo(_planningMapLayers);
-    _planningMarkers[item.id] = marker; bounds.push([lat, lon]);
-  });
-  document.getElementById('planningMapHint').textContent = bounds.length ? `${bounds.length} referencia(s) posicionada(s).` : 'Importe um KMZ ou informe coordenadas.';
-  if (bounds.length) _planningMap.fitBounds(L.latLngBounds(bounds), { padding: [24, 24], maxZoom: 18 });
-  setTimeout(() => _planningMap.invalidateSize(), 100);
-}
-
-function focusPlanningDevice(deviceId) {
-  const marker = _planningMarkers[deviceId];
-  if (!marker || !_planningMap) { openPlanningDeviceModal(deviceId); return; }
-  const position = marker.getLatLng();
-  _planningMap.flyTo(position, Math.max(_planningMap.getZoom(), 18), { duration: .45 });
-  setTimeout(() => marker.openPopup(), 480);
-}
+// renderPlanningMap e focusPlanningDevice ficam em planning-workspace.js.
 
 async function exportPlanningKmz() {
   if (!_planningCurrent) return;
@@ -1687,6 +1631,12 @@ function planningDistanceMeters(lat1, lon1, lat2, lon2) {
   return earth * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
+// Coordenada vazia (null/'') precisa virar NaN: Number(null) e 0 e virava um
+// ponto no oceano, com cabo de milhares de km em vez de "Coordenadas incompletas".
+function planningCoordinate(value) {
+  return value === null || value === undefined || value === '' ? NaN : Number(value);
+}
+
 function planningCameraBox(camera, byId) {
   const visited = new Set();
   let current = camera;
@@ -1703,7 +1653,7 @@ function planningCableCalculation(config) {
   const byId = new Map(devices.map(item => [Number(item.id), item]));
   const rows = devices.filter(item => item.device_type === 'camera').map(camera => {
     const box = planningCameraBox(camera, byId);
-    const coordinates = [camera.latitude, camera.longitude, box?.latitude, box?.longitude].map(Number);
+    const coordinates = [camera.latitude, camera.longitude, box?.latitude, box?.longitude].map(planningCoordinate);
     if (!box || coordinates.some(value => !Number.isFinite(value))) return { camera, box, error: !box ? 'Camera sem caixa vinculada' : 'Coordenadas incompletas' };
     const straight = planningDistanceMeters(...coordinates);
     // Sem percurso viario medido a mao, usa a distancia aerea (caixa->camera)
@@ -1875,7 +1825,7 @@ function planningFiberCalculation(config) {
   const byId = new Map(devices.map(item => [Number(item.id), item]));
   const rows = devices.filter(item => ['cto', 'dio'].includes(item.device_type)).map(node => {
     const parent = planningParentDevice(node, byId);
-    const coordinates = [node.latitude, node.longitude, parent?.latitude, parent?.longitude].map(Number);
+    const coordinates = [node.latitude, node.longitude, parent?.latitude, parent?.longitude].map(planningCoordinate);
     if (!parent || coordinates.some(value => !Number.isFinite(value))) {
       return { node, parent, error: !parent ? 'Sem equipamento pai (topo da arvore)' : 'Coordenadas incompletas' };
     }
@@ -2110,4 +2060,5 @@ function bindPlanningUi() {
   on('planningSearch', 'input', renderPlanningDevices);
   on('planningTypeFilter', 'change', renderPlanningDevices);
   on('planningSiteFilter', 'change', renderPlanningDevices);
+  planningBindWorkspace();
 }

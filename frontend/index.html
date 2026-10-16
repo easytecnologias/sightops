@@ -8,6 +8,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="styles.css?v=1792000211">
+  <link rel="stylesheet" href="projetos.css?v=1792000301">
 </head>
 <body>
 
@@ -3890,77 +3891,176 @@
 
       <!-- --- VIEW: PROJETOS / PLANEJAMENTO --- -->
       <section class="workspace hidden planning-view" id="viewPlanning">
-        <div class="page-heading">
-          <div>
-            <p class="eyebrow">Planejamento</p>
-            <h1>Projetos de CFTV</h1>
-            <p>Desenhe o parque antes da instalacao. Itens planejados nao entram no inventario nem no monitoramento.</p>
+        <!-- Pipeline: todos os projetos, uma coluna por etapa -->
+        <div class="pj-pipeline" id="planningPipeline">
+          <div class="page-heading">
+            <div>
+              <p class="eyebrow">Implantacao</p>
+              <h1>Projetos</h1>
+              <p id="planningPipelineSummary">Carregando projetos...</p>
+            </div>
+            <div class="page-heading-actions">
+              <div class="search-wrap pj-search"><i data-lucide="search"></i><input id="planningProjectSearch" placeholder="Buscar projeto ou cliente" aria-label="Buscar projeto ou cliente"></div>
+              <button class="secondary-action" id="btnPlanningRefresh"><i data-lucide="refresh-cw"></i> Atualizar</button>
+              <button class="primary-action" id="btnPlanningNew"><i data-lucide="plus"></i> Novo projeto</button>
+            </div>
           </div>
-          <div class="page-heading-actions">
-            <button class="secondary-action" id="btnPlanningRefresh"><i data-lucide="refresh-cw"></i> Atualizar</button>
-            <button class="primary-action" id="btnPlanningNew"><i data-lucide="plus"></i> Novo projeto</button>
-          </div>
+          <div class="pj-board-wrap"><div class="pj-board" id="planningBoard"></div></div>
         </div>
 
-        <div class="planning-layout">
-          <aside class="panel planning-projects-panel">
-            <div class="panel-header">
-              <div><h2>Projetos</h2><p id="planningProjectCount">Nenhum projeto.</p></div>
-            </div>
-            <div class="planning-project-list" id="planningProjectList"></div>
-          </aside>
+        <!-- Workspace de um projeto -->
+        <div class="pj-workspace hidden" id="planningWorkspace">
+          <nav class="pj-crumbs" aria-label="Caminho">
+            <button type="button" class="pj-crumb-back" id="btnPlanningBack"><i data-lucide="chevron-left"></i> Projetos</button>
+            <span aria-hidden="true">/</span>
+            <label class="pj-switch"><span class="sr-only">Trocar de projeto</span><select id="planningProjectSwitch"></select></label>
+          </nav>
 
-          <div class="planning-main">
-            <div class="panel planning-empty" id="planningEmpty">
-              <i data-lucide="drafting-compass"></i>
-              <h2>Comece criando um projeto</h2>
-              <p>Depois adicione sites, importe o KMZ e gere cameras por faixa de IP ou CSV.</p>
-              <button class="primary-action" type="button" onclick="openPlanningProjectModal(true)"><i data-lucide="plus"></i> Criar projeto</button>
-            </div>
-
-            <div class="planning-detail hidden" id="planningDetail">
-              <div class="panel planning-summary">
-                <div class="planning-summary-head">
-                  <div><span class="planning-status" id="planningStatus">Rascunho</span><h2 id="planningTitle">Projeto</h2><p id="planningSubtitle"></p></div>
-                  <div class="planning-actions">
-                    <button class="secondary-action" id="btnPlanningEdit"><i data-lucide="pencil"></i> Editar</button>
-                    <button class="secondary-action" id="btnPlanningSite"><i data-lucide="map-pin-plus"></i> Site</button>
-                    <button class="secondary-action" id="btnPlanningKmz"><i data-lucide="map"></i> Importar KMZ</button>
-                    <button class="secondary-action" id="btnPlanningExportKmz"><i data-lucide="download"></i> Exportar KMZ</button>
-                    <button class="secondary-action" id="btnPlanningNetworkPdf"><i data-lucide="file-network"></i> Documento de rede</button>
-                    <button class="primary-action" id="btnPlanningProposal"><i data-lucide="file-text"></i> Gerar proposta</button>
-                    <button class="icon-button danger" id="btnPlanningDelete" aria-label="Excluir projeto"><i data-lucide="trash-2"></i></button>
-                  </div>
-                </div>
-                <div class="planning-kpis">
-                  <div><span>Sites</span><strong id="planningSitesKpi">0</strong></div>
-                  <div><span>Cameras</span><strong id="planningCamerasKpi">0</strong></div>
-                  <div><span>ONUs / ONTs</span><strong id="planningOnusKpi">0</strong></div>
-                  <div><span>Total planejado</span><strong id="planningDevicesKpi">0</strong></div>
-                </div>
+          <section class="panel pj-head">
+            <div class="pj-head-top">
+              <div class="pj-head-title">
+                <div class="pj-head-name"><h1 id="planningTitle">Projeto</h1><span class="pj-status" id="planningStatus">Rascunho</span></div>
+                <div class="pj-head-meta" id="planningSubtitle"></div>
               </div>
-
-              <div class="planning-work-grid planning-work-grid-list-only">
-                <div class="panel planning-devices-panel">
-                  <div class="panel-header planning-devices-head">
-                    <div><h2>Equipamentos planejados</h2><p>Revise IP, modelo, site e vinculo antes da implantacao.</p></div>
-                    <div class="planning-actions">
-                      <button class="primary-action" id="btnPlanningAdd"><i data-lucide="plus"></i> Adicionar</button>
-                      <button class="secondary-action" id="btnPlanningCables"><i data-lucide="cable"></i> Calcular cabo UTP</button>
-                      <button class="secondary-action" id="btnPlanningFiber"><i data-lucide="split"></i> Calcular fibra (backbone)</button>
-                      <button class="secondary-action" id="btnPlanningNetworkDiagram"><i data-lucide="network"></i> Diagrama de rede</button>
-                    </div>
+              <div class="pj-head-actions">
+                <button class="secondary-action" id="btnPlanningEdit"><i data-lucide="pencil"></i> Editar</button>
+                <details class="pj-menu">
+                  <summary class="secondary-action"><i data-lucide="file-text"></i> Entregaveis <i data-lucide="chevron-down"></i></summary>
+                  <div class="pj-menu-list">
+                    <button type="button" id="btnPlanningNetworkPdf"><i data-lucide="file-text"></i><span><strong>Documento de rede</strong><small>PDF com caixas, portas e cabos</small></span></button>
+                    <button type="button" id="btnPlanningExportKmz"><i data-lucide="download"></i><span><strong>Exportar KMZ</strong><small>Abrir no Google Earth</small></span></button>
+                    <button type="button" id="btnPlanningNetworkDiagram"><i data-lucide="network"></i><span><strong>Diagrama de rede</strong><small>OLT ate a camera</small></span></button>
                   </div>
-                  <div class="planning-filters">
-                    <div class="search-wrap"><i data-lucide="search"></i><input id="planningSearch" placeholder="Buscar nome, IP, modelo ou site"></div>
-                    <select id="planningTypeFilter"><option value="">Todos os tipos</option><option value="box">Caixas de CFTV</option><option value="camera">Cameras</option><option value="onu">ONUs</option><option value="ont">ONTs</option><option value="olt">OLTs</option><option value="switch">Switches</option><option value="injector">Injetores PoE</option><option value="cto">CTOs</option><option value="recorder">Gravadores</option></select>
-                    <select id="planningSiteFilter"><option value="">Todos os sites</option></select>
+                </details>
+                <button class="primary-action" id="btnPlanningProposal"><i data-lucide="badge-dollar-sign"></i> Gerar proposta</button>
+                <details class="pj-menu pj-menu-right">
+                  <summary class="icon-button" aria-label="Mais acoes"><i data-lucide="more-horizontal"></i></summary>
+                  <div class="pj-menu-list">
+                    <button type="button" id="btnPlanningSite"><i data-lucide="map-pin-plus"></i><span><strong>Sites do projeto</strong></span></button>
+                    <button type="button" id="btnPlanningKmz"><i data-lucide="map"></i><span><strong>Importar KMZ</strong></span></button>
+                    <button type="button" class="danger" id="btnPlanningDelete"><i data-lucide="trash-2"></i><span><strong>Excluir projeto</strong></span></button>
                   </div>
-                  <div class="planning-device-list" id="planningDeviceList"></div>
-                </div>
-
+                </details>
               </div>
             </div>
+            <div class="pj-steps-row">
+              <ol class="pj-steps" id="planningSteps" aria-label="Etapas do projeto"></ol>
+              <button type="button" class="pj-advance" id="btnPlanningAdvance"></button>
+            </div>
+          </section>
+
+          <!-- Projeto sem nenhum equipamento -->
+          <div class="pj-start hidden" id="planningStart">
+            <div class="pj-start-head">
+              <p class="eyebrow">Projeto novo</p>
+              <h2>Como voce quer comecar?</h2>
+              <p>Escolha um ponto de partida. Da para misturar depois: importar o KMZ e completar as caixas a mao, por exemplo.</p>
+            </div>
+            <div class="pj-start-grid">
+              <button type="button" class="pj-start-card is-main" onclick="openPlanningKmzModal()">
+                <span class="pj-start-tag">Mais rapido</span>
+                <span class="pj-start-icon green"><i data-lucide="map"></i></span>
+                <strong>Importar KMZ do Google Earth</strong>
+                <span class="pj-start-text">Cada ponto vira uma camera no lugar certo do mapa, numerada e com IP em sequencia.</span>
+                <span class="pj-start-list"><span>Posicao e nome de cada ponto</span><span>IP inicial e modelo para todas</span><span>Area do projeto desenhada no mapa</span></span>
+                <span class="pj-start-cta">Escolher arquivo .kmz</span>
+              </button>
+              <button type="button" class="pj-start-card" onclick="openPlanningBoxModal()">
+                <span class="pj-start-icon blue"><i data-lucide="package"></i></span>
+                <strong>Montar caixa de CFTV padrao</strong>
+                <span class="pj-start-text">Uma caixa com ONU, switch PoE e as cameras ligadas por porta. Depois e so duplicar.</span>
+                <span class="pj-start-list"><span>ONU + switch + cameras</span><span>Portas ja ligadas</span><span>Duplicar como CX-02, CX-03...</span></span>
+                <span class="pj-start-cta">Montar caixa</span>
+              </button>
+              <button type="button" class="pj-start-card" onclick="openPlanningCsvModal()">
+                <span class="pj-start-icon cyan"><i data-lucide="file-spreadsheet"></i></span>
+                <strong>Planilha ou um a um</strong>
+                <span class="pj-start-text">Importe um CSV ou cadastre cada equipamento: OLT, CTO, poste, rack, gravador.</span>
+                <span class="pj-start-list"><span>Importar CSV</span><span>Gerar cameras em lote por faixa de IP</span><span>Qualquer tipo de equipamento</span></span>
+                <span class="pj-start-cta">Importar planilha</span>
+              </button>
+            </div>
+            <div class="pj-start-more">
+              <button type="button" class="secondary-action" onclick="openPlanningDeviceModal()"><i data-lucide="plus"></i> Cadastrar um equipamento</button>
+              <button type="button" class="secondary-action" onclick="openPlanningGenerateModal()"><i data-lucide="list-plus"></i> Gerar cameras em lote</button>
+            </div>
+            <section class="panel pj-journey">
+              <div class="pj-journey-head"><h3>O caminho do projeto ate o inventario</h3><span>Itens planejados nao entram no inventario nem no monitoramento ate a etapa Concluido.</span></div>
+              <ol>
+                <li class="is-now"><span>1 · Agora</span><strong>Desenhar</strong><small>Mapa, caixas, cameras e fibra.</small></li>
+                <li><span>2</span><strong>Conferir</strong><small>Cabo UTP, fibra, portas livres.</small></li>
+                <li><span>3</span><strong>Aprovar</strong><small>Proposta e documento de rede para o cliente.</small></li>
+                <li><span>4</span><strong>Implantar</strong><small>Equipe em campo.</small></li>
+                <li><span>5</span><strong>Entregar</strong><small>Projeto concluido e entregue ao cliente.</small></li>
+              </ol>
+            </section>
+          </div>
+
+          <!-- Projeto com equipamentos -->
+          <div class="pj-filled" id="planningFilled">
+            <section class="pj-kpis" id="planningKpis" aria-label="Resumo do projeto"></section>
+
+            <div class="pj-mapgrid">
+              <section class="panel pj-map-panel">
+                <div class="pj-map-toolbar">
+                  <h2>Mapa do projeto</h2>
+                  <div class="pj-layers" id="planningLayers" role="group" aria-label="Camadas do mapa"></div>
+                  <span class="pj-spacer"></span>
+                  <button type="button" class="secondary-action pj-small" onclick="openPlanningKmzModal()"><i data-lucide="upload"></i> Importar KMZ</button>
+                </div>
+                <div class="pj-map-wrap">
+                  <div id="planningMap" class="pj-map"></div>
+                  <div class="pj-map-legend" aria-hidden="true">
+                    <span><i class="dot green"></i>Camera</span>
+                    <span><i class="dot red"></i>Camera longe demais</span>
+                    <span><i class="sq blue"></i>Caixa de CFTV</span>
+                    <span><i class="sq amber"></i>Caixa sem folga</span>
+                    <span><i class="dot cyan"></i>CTO / DIO</span>
+                    <span><i class="sq dark"></i>OLT / rack</span>
+                    <span><i class="line amber"></i>Fibra principal</span>
+                    <span><i class="line cyan"></i>Fibra drop</span>
+                    <span><i class="line blue"></i>Cabo UTP</span>
+                    <span class="pj-legend-note">Linhas retas ate a rota ser tracada</span>
+                  </div>
+                  <div class="pj-map-hint" id="planningMapHint"></div>
+                </div>
+              </section>
+              <aside class="panel pj-ready" id="planningReady" aria-label="Antes de implantar"></aside>
+            </div>
+
+            <section class="panel pj-equip">
+              <div class="pj-equip-toolbar">
+                <div class="pj-tabs" role="tablist" aria-label="Visao dos equipamentos">
+                  <button type="button" role="tab" aria-selected="true" data-pj-tab="boxes">Por caixa</button>
+                  <button type="button" role="tab" aria-selected="false" data-pj-tab="list" id="planningListTabBtn">Lista</button>
+                </div>
+                <span class="pj-spacer"></span>
+                <button class="secondary-action" id="btnPlanningCables"><i data-lucide="cable"></i> Calcular cabo UTP</button>
+                <button class="secondary-action" id="btnPlanningFiber"><i data-lucide="split"></i> Calcular fibra</button>
+                <details class="pj-menu pj-menu-right">
+                  <summary class="primary-action"><i data-lucide="plus"></i> Adicionar <i data-lucide="chevron-down"></i></summary>
+                  <div class="pj-menu-list">
+                    <button type="button" id="btnPlanningAdd"><i data-lucide="plus"></i><span><strong>Equipamento</strong><small>OLT, CTO, poste, gravador...</small></span></button>
+                    <button type="button" onclick="openPlanningBoxModal()"><i data-lucide="package"></i><span><strong>Caixa de CFTV completa</strong><small>ONU + switch + cameras</small></span></button>
+                    <button type="button" onclick="openPlanningGenerateModal()"><i data-lucide="list-plus"></i><span><strong>Cameras em lote</strong><small>Por faixa de IP</small></span></button>
+                    <button type="button" onclick="openPlanningCsvModal()"><i data-lucide="file-spreadsheet"></i><span><strong>Importar CSV</strong></span></button>
+                  </div>
+                </details>
+              </div>
+              <div class="pj-chain" id="planningChain"></div>
+
+              <div class="pj-tab-body" id="planningBoxesTab"><div class="pj-boxes" id="planningBoxes"></div></div>
+
+              <div class="pj-tab-body hidden" id="planningListTab">
+                <div class="pj-issue-chip hidden" id="planningIssueChip"></div>
+                <div class="planning-filters">
+                  <div class="search-wrap"><i data-lucide="search"></i><input id="planningSearch" placeholder="Buscar nome, IP, modelo ou site"></div>
+                  <select id="planningTypeFilter"><option value="">Todos os tipos</option><option value="box">Caixas de CFTV</option><option value="camera">Cameras</option><option value="onu">ONUs</option><option value="ont">ONTs</option><option value="olt">OLTs</option><option value="switch">Switches</option><option value="injector">Injetores PoE</option><option value="cto">CTOs</option><option value="dio">DIOs</option><option value="pole">Postes</option><option value="rack">Racks</option><option value="recorder">Gravadores</option></select>
+                  <select id="planningSiteFilter"><option value="">Todos os sites</option></select>
+                </div>
+                <div class="planning-devices-panel"><div class="planning-device-list" id="planningDeviceList"></div></div>
+              </div>
+            </section>
           </div>
         </div>
       </section>
@@ -6948,7 +7048,8 @@
   <script src="js/deployOlt.js?v=1791000212"></script>
   <script src="js/connectors.js?v=1791000212"></script>
   <script src="js/monitoring.js?v=1792000122"></script>
-  <script src="js/planning.js?v=1791000212"></script>
+  <script src="js/planning.js?v=1792000302"></script>
+  <script src="js/planning-workspace.js?v=1792000303"></script>
   <script src="js/helpers.js?v=1791000212"></script>
   <script src="js/accessControl.js?v=1791000212"></script>
   <script src="js/accessLive.js?v=1791000212"></script>
