@@ -4970,6 +4970,22 @@ function recSecEquip(d) {
 const _REC_SEC_RENDER = { geral: recSecGeral, vivo: recSecVivo, achados: recSecAchados, canais: recSecCanais,
   discos: recSecDiscos, deteccao: recSecDeteccao, rede: recSecRede, equip: recSecEquip };
 
+// Secoes que moram em arquivo proprio (js/gravador-*.js) se registram aqui,
+// para duas pessoas mexerem no gravador sem editar o mesmo trecho:
+//   recRegistrarSecao('grav', 'Gravações', render(d) -> html, ligar(app, d), 'canais')
+// `render` tambem pode SUBSTITUIR uma secao que ja existe (ex.: 'canais').
+const _REC_LIGAR_EXTRA = [];
+function recRegistrarSecao(id, rotulo, render, ligar, antesDe) {
+  const ja = _REC_SECOES.findIndex(x => x[0] === id);
+  if (ja >= 0) _REC_SECOES[ja] = [id, rotulo];
+  else {
+    const i = antesDe ? _REC_SECOES.findIndex(x => x[0] === antesDe) : -1;
+    if (i >= 0) _REC_SECOES.splice(i, 0, [id, rotulo]); else _REC_SECOES.push([id, rotulo]);
+  }
+  if (render) _REC_SEC_RENDER[id] = render;
+  if (ligar) _REC_LIGAR_EXTRA.push(ligar);
+}
+
 function recContagem(d, id) {
   const z = d.resumo || {};
   if (id === 'achados') { const n = recAvErros(d); return n || null; }
@@ -5689,6 +5705,7 @@ function recPintarApp() {
     el.addEventListener('click', () => recAbrirVivo(Number(el.dataset.recVivo))));
   app.querySelector('[data-rec-trocar]')?.addEventListener('click', () => recAbrirSeletor());
   recLigarAvisos(app);
+  _REC_LIGAR_EXTRA.forEach(f => { try { f(app, d); } catch (e) { console.error('secao do gravador', e); } });
   app.querySelectorAll('[data-rec-editar]').forEach(b =>
     b.addEventListener('click', () => recAbrirEdicao('editar', Number(b.dataset.recEditar))));
   app.querySelector('[data-rec-buscar]')?.addEventListener('click', () => recBuscarCameras());
