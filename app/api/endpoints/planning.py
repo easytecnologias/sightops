@@ -167,6 +167,37 @@ def projects_device_delete(project_id: int, device_id: int) -> Dict[str, Any]:
     return {"ok": True, "removed": True}
 
 
+@router.put("/projects/{project_id}/devices/{device_id}/position")
+def projects_device_move(project_id: int, device_id: int, payload: Dict[str, Any]) -> Dict[str, Any]:
+    try:
+        return {"ok": True, "item": planning_service.move_device(project_id, device_id, payload.get("latitude"), payload.get("longitude"))}
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
+@router.post("/projects/{project_id}/routes")
+def projects_route_create(project_id: int, payload: Dict[str, Any]) -> Dict[str, Any]:
+    try:
+        return {"ok": True, "item": planning_service.save_route(project_id, payload)}
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
+@router.put("/projects/{project_id}/routes/{route_id}")
+def projects_route_update(project_id: int, route_id: int, payload: Dict[str, Any]) -> Dict[str, Any]:
+    try:
+        return {"ok": True, "item": planning_service.save_route(project_id, payload, route_id)}
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
+@router.delete("/projects/{project_id}/routes/{route_id}")
+def projects_route_delete(project_id: int, route_id: int) -> Dict[str, Any]:
+    if not planning_service.delete_route(project_id, route_id):
+        raise HTTPException(404, "Rota nao encontrada")
+    return {"ok": True, "removed": True}
+
+
 @router.post("/projects/{project_id}/generate")
 def projects_generate(project_id: int, payload: Dict[str, Any]) -> Dict[str, Any]:
     try:

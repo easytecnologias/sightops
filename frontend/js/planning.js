@@ -1564,11 +1564,30 @@ async function downloadPlanningNetworkPdf(cableConfig = null, triggerButton = nu
 function planningProposalGroups() {
   const groups = new Map();
   (_planningCurrent?.devices || []).forEach(item => {
+    // Poste e da concessionaria: nao se compra. O que entra e a ferragem (abaixo).
+    if (item.device_type === 'pole') return;
     const key = [item.device_type, item.manufacturer || '', item.model || ''].join('|');
     if (!groups.has(key)) groups.set(key, { device_type: item.device_type, manufacturer: item.manufacturer || '', model: item.model || '', count: 0 });
     groups.get(key).count += 1;
   });
   const result = [...groups.values()];
+  // Fibra tracada no editor: metros por modelo de cabo (tracado + sobra + 10%).
+  const fiberByCable = new Map();
+  const fiberPoles = new Set();
+  (_planningCurrent?.routes || []).filter(route => route.kind !== 'utp').forEach(route => {
+    const label = route.cable_model || (route.kind === 'fiber_drop' ? 'Cabo drop' : 'Cabo optico');
+    fiberByCable.set(label, (fiberByCable.get(label) || 0) + planningRoutePurchase(route));
+    route.path.forEach(pt => {
+      const device = pt.device_id && (_planningCurrent.devices || []).find(item => Number(item.id) === Number(pt.device_id));
+      if (device?.device_type === 'pole') fiberPoles.add(Number(device.id));
+    });
+  });
+  fiberByCable.forEach((meters, label) => result.push({
+    device_type: 'fiber_cable', label, manufacturer: 'Metros pelo tracado no mapa', model: 'tracado + sobra tecnica + 10% de reserva', count: Math.ceil(meters),
+  }));
+  if (fiberPoles.size) result.push({
+    device_type: 'pole_hardware', label: 'Ferragem de fixacao em poste', manufacturer: 'Alca, abracadeira e suporte', model: `${fiberPoles.size} poste(s) no caminho da fibra`, count: fiberPoles.size,
+  });
   const cableQuote = planningLoadCableQuote();
   if (cableQuote?.spools > 0) result.push({
     device_type: 'network_cable', label: 'Cabo de rede CAT5e', manufacturer: 'Cabo para instalacao',
@@ -1653,9 +1672,18 @@ function planningCableCalculation(config) {
   const byId = new Map(devices.map(item => [Number(item.id), item]));
   const rows = devices.filter(item => item.device_type === 'camera').map(camera => {
     const box = planningCameraBox(camera, byId);
+    // Rota tracada no mapa (Tracar rotas) e a medida real: vale mais que o
+    // percurso digitado a mao, que vale mais que a linha reta.
+    const traced = typeof planningRouteTouching === 'function' ? planningRouteTouching(camera.id, ['utp']) : null;
+    if (!box) return { camera, box, error: 'Camera sem caixa vinculada' };
     const coordinates = [camera.latitude, camera.longitude, box?.latitude, box?.longitude].map(planningCoordinate);
-    if (!box || coordinates.some(value => !Number.isFinite(value))) return { camera, box, error: !box ? 'Camera sem caixa vinculada' : 'Coordenadas incompletas' };
-    const straight = planningDistanceMeters(...coordinates);
+    if (!traced && coordinates.some(value => !Number.isFinite(value))) return { camera, box, error: 'Coordenadas incompletas' };
+    const straight = coordinates.every(Number.isFinite) ? planningDistanceMeters(...coordinates) : Number(traced.length_m);
+    if (traced) {
+      const installed = Number(traced.length_m || 0) + Number(traced.slack_m || 0);
+      const purchase = installed * (1 + config.reservePercent / 100);
+      return { camera, box, straight, route: Number(traced.length_m || 0), installed, purchase, estimated: false, traced: true, overLimit: installed > config.maxMeters };
+    }
     // Sem percurso viario medido a mao, usa a distancia aerea (caixa->camera)
     // como base automatica -- e assim que sempre funcionou; o campo manual e
     // so pra refinar quando tiver a medida real da rua.
@@ -1825,11 +1853,19 @@ function planningFiberCalculation(config) {
   const byId = new Map(devices.map(item => [Number(item.id), item]));
   const rows = devices.filter(item => ['cto', 'dio'].includes(item.device_type)).map(node => {
     const parent = planningParentDevice(node, byId);
+    if (!parent) return { node, parent, error: 'Sem equipamento pai (topo da arvore)' };
+    const traced = typeof planningRouteBetween === 'function'
+      ? (planningRouteBetween(node.id, parent.id, ['fiber_main', 'fiber_drop'])
+        || planningRoutes().find(route => route.kind === 'fiber_main' && Number(route.to_device_id) === Number(node.id)) || null)
+      : null;
     const coordinates = [node.latitude, node.longitude, parent?.latitude, parent?.longitude].map(planningCoordinate);
-    if (!parent || coordinates.some(value => !Number.isFinite(value))) {
-      return { node, parent, error: !parent ? 'Sem equipamento pai (topo da arvore)' : 'Coordenadas incompletas' };
+    if (!traced && coordinates.some(value => !Number.isFinite(value))) return { node, parent, error: 'Coordenadas incompletas' };
+    const straight = coordinates.every(Number.isFinite) ? planningDistanceMeters(...coordinates) : Number(traced.length_m);
+    if (traced) {
+      const installed = Number(traced.length_m || 0) + Number(traced.slack_m || 0);
+      const purchase = installed * (1 + config.reservePercent / 100);
+      return { node, parent, straight, route: Number(traced.length_m || 0), installed, purchase, estimated: false, traced: true, overLimit: installed > config.maxMeters };
     }
-    const straight = planningDistanceMeters(...coordinates);
     const manualRoute = Number(node.metadata?.route_distance_m);
     const route = Number.isFinite(manualRoute) ? manualRoute : straight;
     const estimated = !Number.isFinite(manualRoute);

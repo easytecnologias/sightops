@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="styles.css?v=1792000211">
-  <link rel="stylesheet" href="projetos.css?v=1792000301">
+  <link rel="stylesheet" href="projetos.css?v=1792000307">
 </head>
 <body>
 
@@ -4006,6 +4006,7 @@
                   <h2>Mapa do projeto</h2>
                   <div class="pj-layers" id="planningLayers" role="group" aria-label="Camadas do mapa"></div>
                   <span class="pj-spacer"></span>
+                  <button type="button" class="primary-action pj-small" onclick="openPlanningRouteEditor()"><i data-lucide="route"></i> Tracar rotas</button>
                   <button type="button" class="secondary-action pj-small" onclick="openPlanningKmzModal()"><i data-lucide="upload"></i> Importar KMZ</button>
                 </div>
                 <div class="pj-map-wrap">
@@ -4020,7 +4021,7 @@
                     <span><i class="line amber"></i>Fibra principal</span>
                     <span><i class="line cyan"></i>Fibra drop</span>
                     <span><i class="line blue"></i>Cabo UTP</span>
-                    <span class="pj-legend-note">Linhas retas ate a rota ser tracada</span>
+                    <span class="pj-legend-note">Tracejado fino: linha reta, rota ainda nao tracada</span>
                   </div>
                   <div class="pj-map-hint" id="planningMapHint"></div>
                 </div>
@@ -7048,8 +7049,9 @@
   <script src="js/deployOlt.js?v=1791000212"></script>
   <script src="js/connectors.js?v=1791000212"></script>
   <script src="js/monitoring.js?v=1792000122"></script>
-  <script src="js/planning.js?v=1792000302"></script>
-  <script src="js/planning-workspace.js?v=1792000303"></script>
+  <script src="js/planning.js?v=1792000304"></script>
+  <script src="js/planning-workspace.js?v=1792000306"></script>
+  <script src="js/planning-routes.js?v=1792000305"></script>
   <script src="js/helpers.js?v=1791000212"></script>
   <script src="js/accessControl.js?v=1791000212"></script>
   <script src="js/accessLive.js?v=1791000212"></script>

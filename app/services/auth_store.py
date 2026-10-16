@@ -560,6 +560,7 @@ def delete_tenant(actor: Dict[str, Any], tenant_id: int) -> Dict[str, Any]:
             "monitoring_events",
             "monitoring_entities",
             "monitoring_profiles",
+            "planning_routes",
             "planning_devices",
             "planning_project_sites",
             "planning_projects",
@@ -579,7 +580,7 @@ def delete_tenant(actor: Dict[str, Any], tenant_id: int) -> Dict[str, Any]:
                     SELECT table_name
                     FROM information_schema.tables
                     WHERE table_schema='public'
-                      AND table_name IN (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                      AND table_name IN (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     wanted_tables,
                 )
@@ -593,7 +594,7 @@ def delete_tenant(actor: Dict[str, Any], tenant_id: int) -> Dict[str, Any]:
                     SELECT name
                     FROM sqlite_master
                     WHERE type='table'
-                      AND name IN (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                      AND name IN (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     wanted_tables,
                 )

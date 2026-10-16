@@ -4,6 +4,7 @@ import csv
 import io
 import ipaddress
 import json
+import math
 import struct
 import uuid
 import zipfile
@@ -18,6 +19,9 @@ from app.services.db_store import _conn, _current_tenant_slug
 
 PROJECT_STATUSES = {"draft", "planned", "approved", "deploying", "completed"}
 DEVICE_TYPES = {"camera", "onu", "ont", "olt", "switch", "injector", "cto", "recorder", "box", "pole", "rack", "dio", "other"}
+# fiber_main: OLT/DIO -> emenda/CTO; fiber_drop: CTO -> caixa; utp: caixa/switch -> camera.
+ROUTE_KINDS = {"fiber_main", "fiber_drop", "utp"}
+ROUTE_MAX_POINTS = 500
 
 KNOWN_CATALOG: Dict[str, Dict[str, List[str]]] = {
     "camera": {
@@ -212,6 +216,7 @@ def get_project(project_id: int) -> Dict[str, Any] | None:
             device["metadata"] = {}
     project["sites"] = sites
     project["devices"] = devices
+    project["routes"] = _project_routes(int(project_id), tenant, devices)
     return project
 
 
@@ -414,12 +419,229 @@ def save_device(project_id: int, payload: Dict[str, Any], device_id: int | None 
     return dict(saved)
 
 
+def move_device(project_id: int, device_id: int, latitude: Any, longitude: Any) -> Dict[str, Any]:
+    """So a posicao: arrastar um poste/CTO no mapa nao pode regravar o resto
+    do equipamento (save_device sobrescreve todos os campos)."""
+    tenant = _current_tenant_slug()
+    lat, lon = _optional_float(latitude), _optional_float(longitude)
+    if lat is None or lon is None or not (-90 <= lat <= 90) or not (-180 <= lon <= 180):
+        raise ValueError("Coordenada invalida")
+    with _conn() as c:
+        _require_project(c, project_id, tenant)
+        cur = c.execute(
+            "UPDATE planning_devices SET latitude=?, longitude=?, updated_at=datetime('now') "
+            "WHERE id=? AND project_id=? AND tenant_slug=?",
+            (lat, lon, int(device_id), int(project_id), tenant),
+        )
+        if not cur.rowcount:
+            raise LookupError("Equipamento planejado nao encontrado")
+        c.execute(
+            "UPDATE planning_projects SET updated_at=datetime('now') WHERE id=? AND tenant_slug=?",
+            (int(project_id), tenant),
+        )
+        c.commit()
+    return {"id": int(device_id), "latitude": lat, "longitude": lon}
+
+
 def delete_device(project_id: int, device_id: int) -> bool:
     tenant = _current_tenant_slug()
     with _conn() as c:
         cur = c.execute(
             "DELETE FROM planning_devices WHERE id=? AND project_id=? AND tenant_slug=?",
             (int(device_id), int(project_id), tenant),
+        )
+        c.commit()
+        return bool(cur.rowcount)
+
+
+def _distance_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """Distancia em metros entre dois pontos (haversine)."""
+    r1, r2 = math.radians(lat1), math.radians(lat2)
+    d_lat, d_lon = r2 - r1, math.radians(lon2 - lon1)
+    a = math.sin(d_lat / 2) ** 2 + math.cos(r1) * math.cos(r2) * math.sin(d_lon / 2) ** 2
+    return 6371000.0 * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+
+
+def _resolve_route_path(raw_points: Any, devices_by_id: Dict[int, Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Ponto ligado a um equipamento segue a posicao atual dele; sem
+    equipamento (ou se ele foi apagado) fica a coordenada gravada."""
+    points: List[Dict[str, Any]] = []
+    for raw in raw_points if isinstance(raw_points, list) else []:
+        if not isinstance(raw, dict):
+            continue
+        device_id = raw.get("device_id")
+        device = devices_by_id.get(int(device_id)) if device_id not in (None, "") else None
+        lat = device.get("latitude") if device and device.get("latitude") is not None else raw.get("lat")
+        lon = device.get("longitude") if device and device.get("longitude") is not None else raw.get("lon")
+        try:
+            lat_f, lon_f = float(lat), float(lon)
+        except (TypeError, ValueError):
+            continue
+        points.append({"lat": lat_f, "lon": lon_f, "device_id": int(device["id"]) if device else None})
+    return points
+
+
+def _path_length(points: List[Dict[str, Any]]) -> tuple[float, List[float]]:
+    segments = [
+        _distance_m(a["lat"], a["lon"], b["lat"], b["lon"])
+        for a, b in zip(points, points[1:])
+    ]
+    return sum(segments), segments
+
+
+def _route_out(row: Any, devices_by_id: Dict[int, Dict[str, Any]]) -> Dict[str, Any]:
+    item = dict(row)
+    item["id"] = int(item["id"])
+    try:
+        raw_path = json.loads(item.pop("path_json", None) or "[]")
+    except (TypeError, ValueError):
+        raw_path = []
+    try:
+        item["metadata"] = json.loads(item.pop("metadata_json", None) or "{}")
+    except (TypeError, ValueError):
+        item["metadata"] = {}
+    path = _resolve_route_path(raw_path, devices_by_id)
+    length, segments = _path_length(path)
+    item["path"] = path
+    item["length_m"] = round(length, 1)
+    item["segments_m"] = [round(value, 1) for value in segments]
+    return item
+
+
+def _project_routes(project_id: int, tenant: str, devices: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    devices_by_id = {int(device["id"]): device for device in devices}
+    with _conn() as c:
+        rows = c.execute(
+            "SELECT * FROM planning_routes WHERE project_id=? AND tenant_slug=? ORDER BY kind, id",
+            (int(project_id), tenant),
+        ).fetchall()
+    return [_route_out(row, devices_by_id) for row in rows]
+
+
+def _project_devices_by_id(c: Any, project_id: int, tenant: str) -> Dict[int, Dict[str, Any]]:
+    rows = c.execute(
+        "SELECT id, device_type, name, latitude, longitude FROM planning_devices WHERE project_id=? AND tenant_slug=?",
+        (int(project_id), tenant),
+    ).fetchall()
+    return {int(dict(row)["id"]): dict(row) for row in rows}
+
+
+def _clean_route_payload(payload: Dict[str, Any], devices_by_id: Dict[int, Dict[str, Any]]) -> Dict[str, Any]:
+    kind = str(payload.get("kind") or "").strip().lower()
+    if kind not in ROUTE_KINDS:
+        raise ValueError("Tipo de rota invalido")
+
+    def device_ref(key: str) -> int | None:
+        value = payload.get(key)
+        if value in (None, ""):
+            return None
+        device_id = int(value)
+        if device_id not in devices_by_id:
+            raise ValueError("Equipamento da rota nao pertence a este projeto")
+        return device_id
+
+    from_id, to_id = device_ref("from_device_id"), device_ref("to_device_id")
+    if from_id is not None and from_id == to_id:
+        raise ValueError("A rota precisa ligar dois equipamentos diferentes")
+
+    raw_path = payload.get("path")
+    if not isinstance(raw_path, list) or len(raw_path) < 2:
+        raise ValueError("A rota precisa de pelo menos dois pontos")
+    if len(raw_path) > ROUTE_MAX_POINTS:
+        raise ValueError(f"A rota passa do limite de {ROUTE_MAX_POINTS} pontos")
+    clean_path: List[Dict[str, Any]] = []
+    for raw in raw_path:
+        if not isinstance(raw, dict):
+            raise ValueError("Ponto da rota invalido")
+        device_id = raw.get("device_id")
+        if device_id not in (None, ""):
+            device_id = int(device_id)
+            if device_id not in devices_by_id:
+                raise ValueError("Ponto da rota ligado a equipamento de outro projeto")
+        else:
+            device_id = None
+        lat, lon = _optional_float(raw.get("lat")), _optional_float(raw.get("lon"))
+        if lat is None or lon is None or not (-90 <= lat <= 90) or not (-180 <= lon <= 180):
+            raise ValueError("Coordenada da rota invalida")
+        clean_path.append({"lat": lat, "lon": lon, "device_id": device_id})
+
+    length, _segments = _path_length(_resolve_route_path(clean_path, devices_by_id))
+    fiber_count = int(payload.get("fiber_count") or 0)
+    slack = _optional_float(payload.get("slack_m")) or 0.0
+    if not (0 <= fiber_count <= 288):
+        raise ValueError("Quantidade de fibras invalida")
+    if not (0 <= slack <= 1000):
+        raise ValueError("Sobra tecnica invalida")
+    metadata = payload.get("metadata") or {}
+    if not isinstance(metadata, dict):
+        raise ValueError("metadata da rota invalido")
+    return {
+        "kind": kind,
+        "name": str(payload.get("name") or "").strip()[:120],
+        "from_device_id": from_id,
+        "to_device_id": to_id,
+        "path_json": json.dumps(clean_path, ensure_ascii=False),
+        "length_m": round(length, 1),
+        "cable_model": str(payload.get("cable_model") or "").strip()[:120],
+        "fiber_count": fiber_count,
+        "slack_m": slack,
+        "notes": str(payload.get("notes") or "").strip(),
+        "metadata_json": json.dumps(metadata, ensure_ascii=False),
+    }
+
+
+def save_route(project_id: int, payload: Dict[str, Any], route_id: int | None = None) -> Dict[str, Any]:
+    tenant = _current_tenant_slug()
+    with _conn() as c:
+        _require_project(c, project_id, tenant)
+        devices_by_id = _project_devices_by_id(c, project_id, tenant)
+        fields = _clean_route_payload(payload, devices_by_id)
+        columns = list(fields.keys())
+        if route_id:
+            row = c.execute(
+                "SELECT id FROM planning_routes WHERE id=? AND project_id=? AND tenant_slug=?",
+                (int(route_id), int(project_id), tenant),
+            ).fetchone()
+            if not row:
+                raise LookupError("Rota nao encontrada")
+            assignments = ", ".join(f"{column}=?" for column in columns)
+            c.execute(
+                f"UPDATE planning_routes SET {assignments}, updated_at=datetime('now') "
+                "WHERE id=? AND project_id=? AND tenant_slug=?",
+                (*fields.values(), int(route_id), int(project_id), tenant),
+            )
+            saved_id = int(route_id)
+        else:
+            key = uuid.uuid4().hex
+            placeholders = ", ".join("?" for _ in columns)
+            c.execute(
+                f"INSERT INTO planning_routes (tenant_slug, route_key, project_id, {', '.join(columns)}) "
+                f"VALUES(?, ?, ?, {placeholders})",
+                (tenant, key, int(project_id), *fields.values()),
+            )
+            row = c.execute(
+                "SELECT id FROM planning_routes WHERE tenant_slug=? AND route_key=?",
+                (tenant, key),
+            ).fetchone()
+            saved_id = int(row["id"])
+        c.execute(
+            "UPDATE planning_projects SET updated_at=datetime('now') WHERE id=? AND tenant_slug=?",
+            (int(project_id), tenant),
+        )
+        saved = c.execute(
+            "SELECT * FROM planning_routes WHERE id=? AND tenant_slug=?",
+            (saved_id, tenant),
+        ).fetchone()
+        c.commit()
+    return _route_out(saved, devices_by_id)
+
+
+def delete_route(project_id: int, route_id: int) -> bool:
+    tenant = _current_tenant_slug()
+    with _conn() as c:
+        cur = c.execute(
+            "DELETE FROM planning_routes WHERE id=? AND project_id=? AND tenant_slug=?",
+            (int(route_id), int(project_id), tenant),
         )
         c.commit()
         return bool(cur.rowcount)
@@ -674,6 +896,13 @@ def export_project_kmz(project_id: int) -> tuple[str, bytes]:
         '<Icon><href>files/icons/cctv-box.png</href></Icon>'
         '</IconStyle><LabelStyle><scale>0.85</scale></LabelStyle></Style>'
         f'{fiber_styles}'
+        # Rotas tracadas no editor (mesmas cores da tela; KML usa aabbggrr).
+        '<Style id="route-fiber_main"><LineStyle><color>ff006bb8</color><width>4</width></LineStyle></Style>'
+        '<Style id="route-fiber_drop"><LineStyle><color>ff85720b</color><width>3</width></LineStyle></Style>'
+        '<Style id="route-utp"><LineStyle><color>ffc27119</color><width>2</width></LineStyle></Style>'
+        '<Style id="pole"><IconStyle><scale>0.6</scale>'
+        '<Icon><href>http://maps.google.com/mapfiles/kml/shapes/placemark_circle.png</href></Icon>'
+        '</IconStyle><LabelStyle><scale>0.6</scale></LabelStyle></Style>'
     )
     children_by_parent: Dict[int, List[Dict[str, Any]]] = {}
     for device in devices:
@@ -874,6 +1103,19 @@ def export_project_kmz(project_id: int) -> tuple[str, bytes]:
     # (OLT, DIO ou outro CTO acima), igual ao trecho que "Calcular fibra
     # (backbone)" ja calcula no planejamento -- aqui so desenha no mapa.
     by_id = {int(d["id"]): d for d in devices}
+    routes = project.get("routes") or []
+    used_routes: set[int] = set()
+
+    def route_between(a_id: Any, b_id: Any) -> Dict[str, Any] | None:
+        pair = {int(a_id), int(b_id)}
+        for route in routes:
+            if route.get("kind") in ("fiber_main", "fiber_drop") and {route.get("from_device_id"), route.get("to_device_id")} == pair:
+                return route
+        return None
+
+    def route_coords(route: Dict[str, Any]) -> str:
+        return " ".join(f"{float(pt['lon']):.7f},{float(pt['lat']):.7f},0" for pt in route.get("path") or [])
+
     total_fo = next(
         (d.get("metadata", {}).get("total_fo") for d in devices if d.get("device_type") == "olt" and d.get("metadata", {}).get("total_fo")),
         None,
@@ -890,12 +1132,16 @@ def export_project_kmz(project_id: int) -> tuple[str, bytes]:
             continue
         lat1, lon1 = item.get("latitude"), item.get("longitude")
         lat2, lon2 = parent.get("latitude"), parent.get("longitude")
-        if lat1 in (None, "") or lon1 in (None, "") or lat2 in (None, "") or lon2 in (None, ""):
+        traced = route_between(item["id"], parent["id"])
+        if not traced and (lat1 in (None, "") or lon1 in (None, "") or lat2 in (None, "") or lon2 in (None, "")):
             continue
         item_meta = item.get("metadata") or {}
         color_key = str(item_meta.get("cor") or "").strip().lower()
         style_id = f"fiber-{color_key}" if color_key in fiber_colors else "fiber-default"
         line_name = f"{parent.get('name') or 'Equipamento'} -> {item.get('name') or 'Equipamento'}"
+        if traced:
+            used_routes.add(int(traced["id"]))
+            line_name += f" ({round(float(traced.get('length_m') or 0))} m tracados)"
         # Balao do trecho: mostra o que se sabe sobre ocupacao de fibra nesse
         # cabo -- fundida (spliced pra essa caixa/CTO) vs mencionada/livre,
         # conforme registrado no KMZ de origem (pode nao ser um inventario
@@ -928,13 +1174,43 @@ def export_project_kmz(project_id: int) -> tuple[str, bytes]:
             f"<styleUrl>#{style_id}</styleUrl>"
             f"<description><![CDATA[{line_description}]]></description>"
             "<LineString><tessellate>1</tessellate><coordinates>"
-            f"{float(lon2):.7f},{float(lat2):.7f},0 {float(lon1):.7f},{float(lat1):.7f},0"
-            "</coordinates></LineString>"
+            + (route_coords(traced) if traced else f"{float(lon2):.7f},{float(lat2):.7f},0 {float(lon1):.7f},{float(lat1):.7f},0")
+            + "</coordinates></LineString>"
             "</Placemark>"
         )
 
+    # Demais rotas tracadas no editor (drop, UTP e fibra que nao liga pai/filho).
+    route_labels = {"fiber_main": "Fibra principal", "fiber_drop": "Fibra drop", "utp": "Cabo UTP"}
+    route_lines: Dict[str, List[str]] = {"fiber_main": [], "fiber_drop": [], "utp": []}
+    for route in routes:
+        kind = str(route.get("kind") or "")
+        if kind not in route_lines or int(route["id"]) in used_routes or len(route.get("path") or []) < 2:
+            continue
+        ends = [by_id.get(int(x)) for x in (route.get("from_device_id"), route.get("to_device_id")) if x]
+        title = " -> ".join(str(d.get("name") or "") for d in ends if d) or route_labels[kind]
+        meters = round(float(route.get("length_m") or 0))
+        detail = (
+            '<div style="font-family:Roboto,Arial,sans-serif;width:260px;">'
+            f'<div style="font-size:14px;font-weight:700;">{esc(title)}</div>'
+            f'<div style="color:#5f6368;font-size:12px;">{esc(route_labels[kind])} · {meters} m tracados'
+            f'{" · " + esc(route.get("cable_model")) if route.get("cable_model") else ""}</div>'
+            '</div>'
+        )
+        route_lines[kind].append(
+            "<Placemark>"
+            f"<name>{xml_escape(f'{title} ({meters} m)')}</name>"
+            f"<styleUrl>#route-{kind}</styleUrl>"
+            f"<description><![CDATA[{detail}]]></description>"
+            f"<LineString><tessellate>1</tessellate><coordinates>{route_coords(route)}</coordinates></LineString>"
+            "</Placemark>"
+        )
+    pole_placemarks = "".join(placemark(item, "pole") for item in devices if item.get("device_type") == "pole")
+
     folders = (
-        '<Folder><name>Fibra (tracado)</name><open>1</open>' + ''.join(fiber_lines) + '</Folder>'
+        '<Folder><name>Fibra (tracado)</name><open>1</open>' + ''.join(fiber_lines) + ''.join(route_lines["fiber_main"]) + '</Folder>'
+        '<Folder><name>Fibra drop</name><open>1</open>' + ''.join(route_lines["fiber_drop"]) + '</Folder>'
+        '<Folder><name>Cabo UTP</name><open>0</open>' + ''.join(route_lines["utp"]) + '</Folder>'
+        '<Folder><name>Postes</name><open>0</open>' + pole_placemarks + '</Folder>'
         '<Folder><name>Cameras</name><open>0</open>' + camera_placemarks + '</Folder>'
         '<Folder><name>Caixas de CFTV</name><open>1</open>' + ''.join(box_placemarks) + '</Folder>'
         '<Folder><name>Racks</name><open>1</open>' + ''.join(rack_placemarks) + '</Folder>'

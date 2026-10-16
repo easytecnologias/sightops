@@ -319,6 +319,8 @@ function planningRenderWorkspace() {
   planningSetTab(_planningIssueFilter ? 'list' : (_planningTab === 'boxes' && !a.boxes.length ? 'list' : _planningTab), false);
   planningRenderIssueChip();
   if (typeof lucide !== 'undefined') lucide.createIcons();
+  // Editou um equipamento pelo modal com o editor de rotas aberto.
+  if (typeof planningEditorOpen === 'function' && planningEditorOpen()) planningEditorRender();
 }
 
 function planningRenderSteps(status) {
@@ -402,8 +404,8 @@ function planningRenderKpis(a, ready) {
     ${kpi('Cameras', a.cameras.length, '', a.cameras.length ? `${withIp} com IP${a.cameras.length - withIp ? ` · ${a.cameras.length - withIp} a definir` : ''}` : 'nenhuma ainda', a.cameras.length - withIp > 0)}
     ${kpi('Caixas de CFTV', a.boxes.length, '', a.boxes.length ? (fullBoxes ? `${fullBoxes} sem porta livre` : 'todas com porta livre') : 'nenhuma ainda', fullBoxes > 0)}
     ${kpi('ONUs / ONTs', a.onus.length, '', ctoCount ? `${ctoCount} CTO/DIO no caminho` : 'sem CTO/DIO cadastrada', false)}
-    ${kpi('Fibra', fiberValue, fiberUnit, fiberValid.length ? `${fiberValid.length} trecho(s), em linha reta` : 'cadastre OLT e CTO com posicao', false)}
-    ${kpi('Cabo UTP', cableValue, cableUnit, cableValid.length ? (cableOver ? `${cableOver} lance(s) acima de ${a.cableConfig.maxMeters} m` : 'todos dentro do limite') : 'cameras sem posicao ou caixa', cableOver > 0)}`;
+    ${kpi('Fibra', fiberValue, fiberUnit, fiberValid.length ? planningTracedLabel(fiberValid) : 'cadastre OLT e CTO com posicao', false)}
+    ${kpi('Cabo UTP', cableValue, cableUnit, cableValid.length ? (cableOver ? `${cableOver} lance(s) acima de ${a.cableConfig.maxMeters} m` : planningTracedLabel(cableValid)) : 'cameras sem posicao ou caixa', cableOver > 0)}`;
 }
 
 function planningRenderReady(a, ready) {
@@ -472,8 +474,17 @@ function planningRenderChain(a) {
     shown.map(item => chip(item, item.device_type === 'dio' ? 'amber' : 'cyan')).join(''),
     splitters.length > shown.length ? `<span class="pj-chain-muted">+${splitters.length - shown.length}</span>` : '',
     a.boxes.length ? arrow : '',
-    `<span class="pj-chain-muted">${a.boxes.length} caixa(s) de CFTV${fiberMeters ? ` · ${planningFormatMeters(fiberMeters)} de fibra (linha reta)` : ''}</span>`,
+    `<span class="pj-chain-muted">${a.boxes.length} caixa(s) de CFTV${fiberMeters ? ` · ${planningFormatMeters(fiberMeters)} de fibra (${planningTracedLabel(a.fiberRows.filter(row => !row.error))})` : ''}</span>`,
   ].join('');
+}
+
+// "3 tracados · 2 em linha reta": deixa claro o que e medida e o que e estimativa.
+function planningTracedLabel(rows) {
+  const traced = rows.filter(row => row.traced).length;
+  const guessed = rows.length - traced;
+  if (!guessed) return `${traced} tracado(s) no mapa`;
+  if (!traced) return `${guessed} em linha reta (estimado)`;
+  return `${traced} tracado(s) · ${guessed} em linha reta`;
 }
 
 function planningPortSquares(row) {
@@ -523,7 +534,7 @@ function planningRenderBoxes(a) {
       return `<li><button type="button" onclick="openPlanningDeviceModal(${Number(camera.id)})">
         <span class="pj-cam-name">${planningEscape(camera.name)}</span>
         <span class="pj-cam-ip ${ip ? '' : 'warn'}">${planningEscape(ip || 'IP a definir')}</span>
-        <span class="pj-cam-utp ${tone}" title="${cable?.error ? planningEscape(cable.error) : 'Cabo UTP instalado (linha reta + margem)'}">${meters === null ? '-' : `${Math.round(meters)} m`}</span>
+        <span class="pj-cam-utp ${tone}" title="${cable?.error ? planningEscape(cable.error) : cable?.traced ? 'Cabo UTP pela rota tracada + sobra' : 'Estimado: linha reta + margem (rota ainda nao tracada)'}">${meters === null ? '-' : `${cable.traced ? '' : '~'}${Math.round(meters)} m`}</span>
       </button></li>`;
     }).join('');
     const more = info.cameras.length > 6 ? `+ ${info.cameras.length - 6} camera(s)` : info.cameras.length ? `UTP da caixa: ${planningFormatMeters(info.utpMeters)} para comprar` : 'Nenhuma camera ligada';
@@ -580,14 +591,6 @@ function planningToggleLayer(key) {
   document.querySelectorAll(`.pj-layer.${key}`).forEach(button => button.setAttribute('aria-pressed', String(_planningLayerOn[key])));
 }
 
-function planningBoxIcon(label, tone) {
-  return L.divIcon({
-    className: 'pj-map-box-icon',
-    html: `<span class="pj-map-box ${tone}">${planningEscape(label)}</span>`,
-    iconSize: [34, 34], iconAnchor: [17, 17], popupAnchor: [0, -16],
-  });
-}
-
 function planningShortLabel(name) {
   const match = String(name || '').match(/(\d+)(?!.*\d)/);
   return match ? match[1].slice(-3) : String(name || '?').slice(0, 3).toUpperCase();
@@ -634,21 +637,32 @@ async function renderPlanningMap() {
   const boxState = new Map(a.boxInfo.map(info => [Number(info.box.id), info.state]));
   const max = Number(a.cableConfig.maxMeters) || 100;
 
-  // Linhas primeiro, para ficarem por baixo dos marcadores.
-  a.fiberRows.filter(row => !row.error).forEach(row => {
-    L.polyline([[row.parent.latitude, row.parent.longitude], [row.node.latitude, row.node.longitude]], { color: '#b86b00', weight: 4, opacity: .85 })
+  // Linhas primeiro, para ficarem por baixo dos marcadores. Rota tracada
+  // aparece pelo caminho real; sem rota, linha reta fina tracejada.
+  const routes = planningRoutes();
+  routes.forEach(route => {
+    const cfg = PLANNING_ROUTE_KINDS[route.kind] || PLANNING_ROUTE_KINDS.utp;
+    const over = route.kind === 'utp' && Number(route.length_m) + Number(route.slack_m || 0) > max;
+    L.polyline(route.path.map(pt => [pt.lat, pt.lon]), { color: over ? '#c92a2a' : cfg.color, weight: cfg.weight, dashArray: cfg.dash, opacity: .95 })
+      .bindTooltip(`${cfg.label} · ${Math.round(route.length_m)} m tracados`, { sticky: true })
+      .addTo(route.kind === 'utp' ? _planningMapGroups.utp : _planningMapGroups.fiber);
+    route.path.forEach(pt => bounds.push([pt.lat, pt.lon]));
+  });
+  a.fiberRows.filter(row => !row.error && !row.traced && planningHasCoords(row.parent) && planningHasCoords(row.node)).forEach(row => {
+    L.polyline([[row.parent.latitude, row.parent.longitude], [row.node.latitude, row.node.longitude]], { color: '#b86b00', weight: 2, opacity: .7, dashArray: '3 7' })
       .bindTooltip(`${planningEscape(row.parent.name)} → ${planningEscape(row.node.name)} · ${Math.round(row.straight)} m em linha reta`, { sticky: true })
       .addTo(_planningMapGroups.fiber);
   });
   a.boxInfo.forEach(info => {
     const parent = info.parent;
     if (!parent || !planningHasCoords(parent) || !planningHasCoords(info.box)) return;
-    L.polyline([[parent.latitude, parent.longitude], [info.box.latitude, info.box.longitude]], { color: '#0b7285', weight: 3, opacity: .85, dashArray: '9 6' })
+    if (planningRouteBetween(parent.id, info.box.id, ['fiber_drop', 'fiber_main']) || planningRouteTouching(info.box.id, ['fiber_drop'])) return;
+    L.polyline([[parent.latitude, parent.longitude], [info.box.latitude, info.box.longitude]], { color: '#0b7285', weight: 2, opacity: .7, dashArray: '3 7' })
       .bindTooltip(`Drop ${planningEscape(parent.name)} → ${planningEscape(info.box.name)}`, { sticky: true })
       .addTo(_planningMapGroups.fiber);
   });
-  a.cableRows.filter(row => !row.error).forEach(row => {
-    L.polyline([[row.box.latitude, row.box.longitude], [row.camera.latitude, row.camera.longitude]], { color: row.installed > max ? '#c92a2a' : '#1971c2', weight: 2, opacity: .9, dashArray: '2 5' })
+  a.cableRows.filter(row => !row.error && !row.traced).forEach(row => {
+    L.polyline([[row.box.latitude, row.box.longitude], [row.camera.latitude, row.camera.longitude]], { color: row.installed > max ? '#c92a2a' : '#1971c2', weight: 1.5, opacity: .7, dashArray: '2 6' })
       .bindTooltip(`${planningEscape(row.camera.name)} · ${Math.round(row.installed)} m de UTP`, { sticky: true })
       .addTo(_planningMapGroups.utp);
   });
@@ -659,23 +673,18 @@ async function renderPlanningMap() {
     let marker; let group;
     if (item.device_type === 'camera') {
       const over = a.cableByCamera.get(Number(item.id))?.overLimit;
-      marker = L.circleMarker([lat, lon], { radius: 7, color: '#fff', weight: 2, fillColor: over ? '#c92a2a' : '#087f5b', fillOpacity: 1 });
+      marker = L.marker([lat, lon], { icon: planningMapIcon(over ? 'camera-danger' : 'camera'), zIndexOffset: 400 });
       group = 'cameras';
     } else if (item.device_type === 'box') {
       const state = boxState.get(Number(item.id));
-      marker = L.marker([lat, lon], { icon: planningBoxIcon(planningShortLabel(item.name), state === 'danger' ? 'red' : state === 'full' ? 'amber' : 'blue') });
+      marker = L.marker([lat, lon], { icon: planningMapIcon(state === 'danger' ? 'box-danger' : state === 'full' ? 'box-full' : 'box', planningShortLabel(item.name)), zIndexOffset: 600 });
       group = 'boxes';
-    } else if (['olt', 'rack'].includes(item.device_type)) {
-      marker = L.marker([lat, lon], { icon: planningBoxIcon(item.device_type === 'olt' ? 'OLT' : 'RK', 'dark') });
-      group = 'network';
-    } else if (['cto', 'dio'].includes(item.device_type)) {
-      marker = L.circleMarker([lat, lon], { radius: 9, color: '#fff', weight: 3, fillColor: '#0b7285', fillOpacity: 1 });
-      group = 'network';
     } else {
       // Equipamento dentro da caixa repete a coordenada dela: nao desenha de novo.
       const insideBox = a.boxInfo.some(info => info.inside.some(child => Number(child.id) === Number(item.id)));
       if (insideBox) return;
-      marker = L.circleMarker([lat, lon], { radius: 6, color: '#fff', weight: 2, fillColor: item.device_type === 'pole' ? '#66747e' : '#b86b00', fillOpacity: 1 });
+      const kind = planningPointKind(item);
+      marker = L.marker([lat, lon], { icon: planningMapIcon(kind), zIndexOffset: kind === 'pole' ? 0 : 500 });
       group = 'network';
     }
     marker.bindPopup(planningPopupHtml(item)).addTo(_planningMapGroups[group]);
