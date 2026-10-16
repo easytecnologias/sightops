@@ -99,6 +99,16 @@ function cameraImgbbUrl(c) {
   return candidates.map(v => String(v || '').trim()).find(isImgbbUrl) || '';
 }
 
+// Camera caida perde a ONU na coleta da OLT; sem ONU atual, mostra a ultima
+// conhecida esmaecida, para o tecnico saber onde ela estava.
+function _camOnuCelula(c, campo, atual) {
+  const u = c.onu_ultima;
+  if (String(c[campo] || '').trim() || !u || !u[campo]) return atual;
+  const quando = u.visto_em;
+  const dica = `Última ONU conhecida: ${[u.olt_name || u.olt_ip, u.pon && `PON ${u.pon}`, u.onu_id && `ONU ${u.onu_id}`, u.onu_name, u.onu_serial].filter(Boolean).join(' · ')}${quando ? ` (até ${new Date(quando).toLocaleString('pt-BR')})` : ''}`;
+  return `<span class="onu-ultima" title="${esc(dica)}">${esc(u[campo])}</span>`;
+}
+
 // Celulas base compartilhadas entre as 3 visoes
 function _camCell(c) {
   const imgbbUrl = cameraImgbbUrl(c);
@@ -113,9 +123,9 @@ function _camCell(c) {
     status:    invStatusBadge(c.status, c.status_motivo),
     imgbb:     imgbbUrl ? `<a href="${esc(imgbbUrl)}" target="_blank" onclick="event.stopPropagation()" style="color:var(--primary);font-weight:700;font-size:12px;text-decoration:none"> up</a>` : `<span style="color:var(--danger);font-weight:700;font-size:12px"> down</span>`,
     local:     `<span class="text-muted" title="${esc(c.local||'')}">${esc(c.local||'')}</span>`,
-    pon:       `<span style="text-align:center;display:block;font-weight:500">${esc(c.pon||'')}</span>`,
-    onu_id:    `<span style="text-align:center;display:block;font-weight:500">${esc(c.onu_id||'')}</span>`,
-    onu_name:  `<span class="text-muted" title="${esc(c.onu_name||'')}" style="font-size:11px">${esc(c.onu_name||'')}</span>`,
+    pon:       _camOnuCelula(c, 'pon', `<span style="text-align:center;display:block;font-weight:500">${esc(c.pon||'')}</span>`),
+    onu_id:    _camOnuCelula(c, 'onu_id', `<span style="text-align:center;display:block;font-weight:500">${esc(c.onu_id||'')}</span>`),
+    onu_name:  _camOnuCelula(c, 'onu_name', `<span class="text-muted" title="${esc(c.onu_name||'')}" style="font-size:11px">${esc(c.onu_name||'')}</span>`),
     onu_ser:   `<span class="monospace text-muted" title="${esc(c.onu_serial||'')}" style="font-size:11px">${esc(c.onu_serial||'')}</span>`,
     sw_name:   `<span class="text-muted" title="${esc(c.switch_name||'')}">${esc(c.switch_name||'')}</span>`,
     sw_ip:     `<span class="monospace text-muted" title="${esc(c.switch_ip||'')}">${esc(c.switch_ip||'')}</span>`,

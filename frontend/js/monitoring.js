@@ -10,6 +10,20 @@ function monitoringStatusLabel(status) {
   return ({ up: 'Up', down: 'Down', unstable: 'Instavel', unknown: 'Nao verificado', maintenance: 'Manutencao' })[status] || status;
 }
 
+// Onde a camera esta (ou estava) na OLT. Camera caida some da coleta da OLT e
+// perde a ONU; a ultima conhecida vem em detail.onu_ultima e e o que diz ao
+// tecnico onde procurar.
+function monitoringOnuTexto(detail) {
+  const fmt = o => [o.olt_name || o.olt_ip, o.pon && `PON ${o.pon}`, o.onu_id && `ONU ${o.onu_id}`,
+    o.onu_name, !o.onu_id && o.onu_serial && `serial ${o.onu_serial}`].filter(Boolean).join(' · ');
+  if (detail?.onu) return fmt(detail.onu);
+  const u = detail?.onu_ultima;
+  if (!u) return '';
+  // So visto_em: sumiu_em e a hora em que o sistema notou, e na leitura vira "agora".
+  const quando = u.visto_em;
+  return `Última ONU: ${fmt(u)}${quando ? ` (até ${monitoringDate(quando)})` : ''}`;
+}
+
 function monitoringDetail(row) {
   try {
     const detail = JSON.parse(row.detail_json || '{}');
@@ -27,6 +41,7 @@ function monitoringDetail(row) {
       if (detail.offline_reason) partes.push(detail.offline_reason);
       return partes.join(' · ') || 'sem telemetria';
     }
+    if (row.entity_type === 'camera') return [detail.ip, monitoringOnuTexto(detail)].filter(Boolean).join(' · ');
     return detail.host || detail.ip || detail.model || detail.serial || '';
   } catch (_) { return ''; }
 }
@@ -52,6 +67,7 @@ function monitoringDrawerMeta(row) {
     const model = detail.model || '';
     if (address) parts.push(address);
     if (model) parts.push(model);
+    if (row.entity_type === 'camera') parts.push(monitoringOnuTexto(detail));
   }
   return parts.filter(Boolean).join(' · ');
 }

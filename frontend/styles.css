@@ -12274,3 +12274,4 @@ table.recorder-tabela tbody tr:hover { background: var(--surface-soft); }
 .moc-faixa { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); z-index: 1000; display: flex; align-items: center; gap: 8px; background: var(--danger); color: #fff; padding: 6px 6px 6px 14px; border-radius: 99px; font-weight: 600; font-size: 13px; box-shadow: 0 4px 14px rgba(0,0,0,.35); }
 .moc-faixa button { height: 30px; border: 0; border-radius: 99px; padding: 0 12px; background: #fff; color: var(--danger); font-weight: 600; cursor: pointer; }
 .moc-nota { font-size: 13px; color: var(--amber); background: var(--amber-soft); border-radius: 8px; padding: 8px 10px; }
+.onu-ultima { display: block; text-align: center; color: var(--muted); font-style: italic; opacity: .75; font-size: 11px; }

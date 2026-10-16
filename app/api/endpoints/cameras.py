@@ -23,7 +23,7 @@ from pydantic import BaseModel
 
 from app.core.paths import INVENTORY_JSON_PATH, SAIDA_DIR, DATA_DIR
 from app.core.tenant_context import tenant_recorder_inventory_path
-from app.services.inventory_json import inventory_row_key, load_inventory_json, save_inventory_json
+from app.services.inventory_json import guardar_onu_ultima, inventory_row_key, load_inventory_json, save_inventory_json
 from app.services.photo_store import attach_snapshot_fields, resolve_snapshot_file, snapshot_storage_dir
 from app.services.scan_service import _enrich_inventory_with_olt, _enrich_inventory_with_switch
 from app.services.camsnapshot.device_info import get_snapshot
@@ -367,6 +367,8 @@ def api_cameras(
             "onu_rx": r.get("onu_rx") or "",
             "olt_rx": r.get("olt_rx") or "",
             "onu_telemetry_updated_at": r.get("onu_telemetry_updated_at") or r.get("telemetry_updated_at") or "",
+            # Onde a camera estava quando a OLT deixou de enxerga-la.
+            "onu_ultima": r.get("onu_ultima") if isinstance(r.get("onu_ultima"), dict) else None,
             "switch_ip": r.get("switch_ip") or "",
             "switch_name": r.get("switch_name") or "",
             "switch_port": r.get("switch_port") or "",
@@ -512,6 +514,11 @@ def api_cameras_save(req: CamerasSaveRequest, mode: str = Query(default="olt")) 
             row["status"] = cam.status
         if cam.local is not None:
             row["local"] = cam.local
+        # A tela manda os campos de ONU vazios quando a leitura ja os limpou
+        # (camera caida). Antes de gravar vazio por cima, guarda onde ela estava.
+        novos = {"pon": cam.pon, "onu_id": cam.onu_id, "onu_serial": cam.onu_serial}
+        if any(v is not None and not str(v).strip() and str(row.get(k) or "").strip() for k, v in novos.items()):
+            guardar_onu_ultima(row)
         if cam.pon is not None:
             row["pon"] = cam.pon
         if cam.onu_id is not None:

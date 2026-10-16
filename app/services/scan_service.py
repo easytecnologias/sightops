@@ -16,7 +16,7 @@ from app.core.paths import BASE_DIR, INVENTORY_JSON_PATH, SAIDA_DIR, TOOLS_DIR, 
 from app.models.requests import ScanRequest
 from app.services.camsnapshot.device_info import get_snapshot
 from app.services.camsnapshot.uploader_imgbb import upload_to_imgbb
-from app.services.inventory_json import inventory_row_key, load_inventory_json, save_inventory_json
+from app.services.inventory_json import guardar_onu_ultima, inventory_row_key, load_inventory_json, save_inventory_json
 from app.services.photo_store import (
     attach_snapshot_fields,
     resolve_snapshot_file,
@@ -141,6 +141,9 @@ def _enrich_inventory_with_olt(rows: List[Dict[str, Any]], olt_json_path: Path) 
             apagar = [k for k in _OLT_LINK_FIELDS
                       if not (manual and k in _OLT_FIELDS_MANUAIS)]
             if any(str(cam.get(k) or "").strip() for k in apagar):
+                # A pista de onde ela estava fica guardada a parte.
+                if not manual:
+                    guardar_onu_ultima(cam)
                 for k in apagar:
                     if k in cam:
                         cam[k] = ""
@@ -166,6 +169,9 @@ def _enrich_inventory_with_olt(rows: List[Dict[str, Any]], olt_json_path: Path) 
         # A OLT passou a enxergar esta camera: o dado coletado manda, e a marca
         # de "digitado a mao" deixa de valer. Dado real vence dado digitado.
         if cam.pop("olt_manual", None):
+            cam_changed = True
+        # Voltou a aparecer na OLT: a ONU de agora e a verdade.
+        if cam.pop("onu_ultima", None) is not None:
             cam_changed = True
         if cam_changed:
             changed += 1

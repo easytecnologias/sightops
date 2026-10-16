@@ -390,6 +390,38 @@ OLT_LINK_FIELDS = (
 )
 
 
+# Onde a camera estava quando a OLT deixou de enxerga-la. Camera caida some da
+# coleta (o MAC nao e aprendido, e ONU desligada nem aparece), e a limpeza do
+# vinculo apagava a unica pista de onde ela estava -- o tecnico sabe achar a
+# camera pela ONU instalada, mas ficava sem saber qual ONU era. A identidade
+# atual continua sendo limpa (dado velho nao pode parecer de agora); isto
+# fica a parte, rotulado como "ultima ONU conhecida".
+ONU_ULTIMA_CAMPOS = ("olt_name", "olt_ip", "pon", "onu_id", "onu_name", "onu_serial")
+
+
+def guardar_onu_ultima(row: dict[str, Any]) -> bool:
+    """Copia a ONU atual da camera para `onu_ultima` antes de limpar o vinculo.
+
+    So guarda se havia ONU de fato (numero ou serial). Se a camera ja tinha a
+    mesma ONU guardada, mantem o registro antigo (e a data de quando sumiu).
+    """
+    from datetime import datetime, timezone
+
+    atual = {k: str(row.get(k) or "").strip() for k in ONU_ULTIMA_CAMPOS}
+    if not (atual["onu_id"] or atual["onu_serial"]):
+        return False
+    atual = {k: v for k, v in atual.items() if v}
+    anterior = row.get("onu_ultima") if isinstance(row.get("onu_ultima"), dict) else {}
+    if anterior and all(str(anterior.get(k) or "") == atual.get(k, "") for k in ONU_ULTIMA_CAMPOS):
+        return False
+    visto = str(row.get("onu_telemetry_updated_at") or "").strip()
+    if visto:
+        atual["visto_em"] = visto
+    atual["sumiu_em"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    row["onu_ultima"] = atual
+    return True
+
+
 def clear_olt_link(site: str = "", mode: str = "olt") -> dict[str, Any]:
     """Apaga o vinculo PON/ONU/serial das cameras (as cameras ficam).
 
@@ -405,6 +437,7 @@ def clear_olt_link(site: str = "", mode: str = "olt") -> dict[str, Any]:
             continue
         if not any(row.get(field) not in (None, "") for field in OLT_LINK_FIELDS):
             continue
+        guardar_onu_ultima(row)
         for field in OLT_LINK_FIELDS:
             if field in row:
                 row[field] = ""

@@ -70,7 +70,7 @@ from app.cli.tools.olt_8820i_add_onu import (
     profile_for_model,
 )
 from app.services.db_store import load_olt_cpe_state, save_olt_cpe_state
-from app.services.inventory_json import inventory_row_key, load_inventory_json, save_inventory_json
+from app.services.inventory_json import guardar_onu_ultima, inventory_row_key, load_inventory_json, save_inventory_json
 from app.services.connector_service import get_connector, list_connectors
 from app.services.olt_capabilities import require_olt_capability
 from app.services.onu_action_log import log_onu_action
@@ -1788,7 +1788,9 @@ def _clear_deleted_onu_from_camera_inventory(req: OltDeleteOnuRequest) -> Dict[s
             continue
         if _pon_num(camera.get("pon")) != pon_alvo or _norm_text(camera.get("onu_id")) != onu_alvo:
             continue
-        camera_changed = False
+        # ONU excluida: a camera fica sem ONU, mas o tecnico precisa saber
+        # qual era para achar a camera em campo.
+        camera_changed = guardar_onu_ultima(camera)
         for field in _ONU_TOPOLOGY_FIELDS:
             if _norm_text(camera.get(field)):
                 camera[field] = ""

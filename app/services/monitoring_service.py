@@ -43,6 +43,23 @@ def _text(value: Any) -> str:
     return str(value or "").strip()
 
 
+def _onu_da_camera(row: Dict[str, Any]) -> Dict[str, Any]:
+    """ONU da camera para o monitoramento: a atual, ou a ultima conhecida.
+
+    Camera caida perde a ONU na proxima coleta da OLT (o MAC some); a ultima
+    ONU fica em `onu_ultima` (inventory_json.guardar_onu_ultima) e e o que
+    mostra ao tecnico onde a camera estava.
+    """
+    campos = ("olt_name", "olt_ip", "pon", "onu_id", "onu_name", "onu_serial")
+    atual = {k: _text(row.get(k)) for k in campos if _text(row.get(k))}
+    if atual.get("onu_id") or atual.get("onu_serial"):
+        return {"onu": atual}
+    ultima = row.get("onu_ultima")
+    if isinstance(ultima, dict) and (ultima.get("onu_id") or ultima.get("onu_serial")):
+        return {"onu_ultima": {k: _text(v) for k, v in ultima.items() if _text(v)}}
+    return {}
+
+
 def _number(value: Any) -> float | None:
     match = re.search(r"-?\d+(?:[.,]\d+)?", _text(value))
     if not match:
@@ -453,7 +470,8 @@ def refresh_from_inventory() -> Dict[str, Any]:
         "entity_type": "camera", "entity_id": r.get("inventory_key") or r.get("ip"), "site": r.get("local") or r.get("site"),
         "connector_id": r.get("remote_connector_id") or r.get("connector_id"), "display_name": r.get("titulo") or r.get("title") or r.get("ip"),
         "status": _efetivo(r), "detail": {"ip": r.get("ip"), "mode": r.get("_mode"), "model": r.get("modelo") or r.get("model"),
-                                          "status_lido": r.get("status"), "checado_em": r.get("status_checked_at")},
+                                          "status_lido": r.get("status"), "checado_em": r.get("status_checked_at"),
+                                          **_onu_da_camera(r)},
     } for r in cameras if r.get("ip")), prune_entity_type="camera")
     # O gravador e julgado por TODOS os canais (resumo_gravador). Antes herdava
     # o status do primeiro canal da lista: canal "online" sem data nenhuma =
