@@ -5059,11 +5059,23 @@ function recPintarInicio() {
         </div>
       </div>
       <div class="ini-rolar"><table>
-        <thead><tr><th>Gravador</th><th>Site</th><th>Modelo</th><th>Cameras respondendo</th><th>Discos</th><th>Ultima verificacao</th><th>Status</th><th></th></tr></thead>
+        <thead><tr><th>Gravador</th><th>Site</th><th>Modelo</th><th>Cameras</th><th>Discos</th><th>Ultima verificacao</th><th>Status</th><th></th></tr></thead>
         <tbody id="recIniCorpo">${recInicioCorpo(todos)}</tbody>
       </table></div>
     </section>
   </div>`;
+}
+
+// Capacidade pelo modelo: o inventario so guarda canais COM camera (o
+// PERUCABA-01 tem 30 linhas num NVR de 32). Intelbras: os dois ultimos digitos
+// sao os canais (NVD 7132 = 32, NVD 1408 = 8, iNVD 1016 = 16, MHDX 3116 = 16);
+// Hikvision DS-76xx/DS-71xx idem (DS-7632 = 32). Modelo desconhecido: 0, e a
+// tela nao chuta "livres".
+function recCapacidade(modelo) {
+  const m = String(modelo || '').toUpperCase().replace(/\s+/g, ' ');
+  const k = m.match(/(?:^|\s)I?(?:NVD|NVR|MHDX|DVR|VD)[ -]?\d{2}(\d{2})\b/) || m.match(/DS-7[0-9](\d{2})/);
+  const n = k ? Number(k[1]) : 0;
+  return [4, 8, 16, 32, 64, 128].includes(n) ? n : 0;
 }
 
 function recInicioCorpo(todos) {
@@ -5077,7 +5089,18 @@ function recInicioCorpo(todos) {
   }
   return vistos.map(({ item, e }) => {
     const st = _REC_INICIO_ESTADO[e.estado];
-    const pct = e.verif ? Math.round(e.online / e.verif * 100) : 0;
+    // Duas perguntas separadas: as cameras funcionam (online de instaladas) e
+    // quanto do gravador esta ocupado (instaladas de capacidade). Antes era um
+    // "29/32" so, e 32 ora era camera instalada, ora parecia o tamanho do NVR.
+    const inst = e.cams;
+    const fora = e.camFora + (e.verif - e.online - e.camFora);
+    const pctOn = inst ? e.online / inst * 100 : 0;
+    const pctFora = inst ? fora / inst * 100 : 0;
+    const cap = recCapacidade(item.model) ? Math.max(recCapacidade(item.model), item.totalChannels || 0) : 0;
+    const livres = cap ? cap - inst : 0;
+    const semLeitura = inst - e.verif;
+    const linha2 = cap ? `${inst} de ${cap} canais${livres > 0 ? ` · ${livres} livre${livres === 1 ? '' : 's'}` : ''}`
+      : `${inst} cana${inst === 1 ? 'l' : 'is'} com camera`;
     const disco = e.hdd ? [e.hddN ? `${e.hddN}×` : '', e.hddTotal].filter(Boolean).join(' ') || 'lido' : 'nao lido';
     const txtSt = e.estado !== 'camfora' ? st.rot
       : e.camFora ? `${e.camFora} camera${e.camFora === 1 ? '' : 's'} fora` : 'Leitura parcial';
@@ -5085,7 +5108,10 @@ function recInicioCorpo(todos) {
       <td><b>${esc(item.name || item.host)}</b><small class="mono">${esc(item.host)}</small></td>
       <td>${esc(item.site || 'Sem site')}</td>
       <td class="fraco">${esc(item.model || (item.type === 'dvr' ? 'DVR' : 'NVR'))}</td>
-      <td><div class="ini-canais"><div class="ini-barra"><i style="width:${pct}%"></i></div><span class="mono">${e.online}/${e.verif}</span></div></td>
+      <td title="${esc(`${e.online} online, ${fora} fora${semLeitura > 0 ? `, ${semLeitura} sem leitura` : ''}. ${linha2}.`)}">
+        <div class="ini-canais"><b style="white-space:nowrap">${e.online} de ${inst} online</b>
+          <div class="ini-barra" style="display:flex"><i style="width:${pctOn}%;border-radius:0"></i><i style="width:${pctFora}%;background:var(--amber,#d97706);border-radius:0"></i></div></div>
+        <small class="fraco">${esc(linha2)}${semLeitura > 0 ? ` · ${semLeitura} sem leitura` : ''}</small></td>
       <td class="${e.discoRuim ? 'ruim' : 'fraco'}" title="${esc(e.hdd ? `${e.hdd} · lido ${recQuando(e.hddQuando)}` : 'Disco ainda nao lido')}">${esc(disco)}</td>
       <td class="fraco">${esc(recQuando(e.ultima))}</td>
       <td><span class="sinal ${st.classe}"><i></i>${esc(txtSt)}</span></td>
