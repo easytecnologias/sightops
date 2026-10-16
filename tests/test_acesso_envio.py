@@ -78,3 +78,26 @@ def test_filtro_de_varias_portas_nas_passagens(banco):
         assert S.list_access_report_events({"device_ids": [a["id"]], "start": "2026-10-15", "end": "2026-10-15"}) == []
     finally:
         tenant_context.reset_current_tenant_slug(token)
+
+
+def test_presenca_vale_8_horas_e_vira_saida_nao_registrada(banco):
+    """RADS 15/10 22:02: 5 'presentes' na escola vazia."""
+    from app.services.access_control_store import access_presence_lists
+    ent = S.save_device({"name": "ENTRADA", "site": "E", "vendor": "intelbras", "host": "10.0.0.1", "password": "x"})
+    sai = S.save_device({"name": "SAIDA", "site": "E", "vendor": "intelbras", "host": "10.0.0.2", "password": "x"})
+    def pessoa(nome, cpf):
+        return S.save_person({"full_name": nome, "person_type": "employee", "document_id": cpf, "site": "E"})
+    valdice, carlos, saiu = pessoa("VALDICE", "52998224725"), pessoa("CARLOS", "11144477735"), pessoa("SAIU", "39053344705")
+    def ev(p, d, t, h):
+        S.record_event({"site": "E", "device_id": d["id"], "person_id": p["id"], "person_name_raw": p["full_name"],
+                        "event_type": t, "occurred_at": "2026-10-15 " + h})
+    ev(valdice, ent, "entrada", "07:28:58"); ev(valdice, ent, "entrada", "09:14:32")      # saiu pela entrada?
+    ev(carlos, ent, "entrada", "19:16:06"); ev(carlos, ent, "entrada", "21:18:26")
+    ev(saiu, ent, "entrada", "19:00:00"); ev(saiu, sai, "saida", "21:00:00")
+    r = access_presence_lists(site="E", agora=datetime(2026, 10, 15, 22, 2))
+    assert [x["name"] for x in r["dentro"]] == ["CARLOS"]                     # 21:18, menos de 8 h
+    assert [x["name"] for x in r["sem_saida"]] == ["VALDICE"]                 # 09:14, mais de 8 h
+    assert r["dentro"][0]["dupla_entrada"] and r["sem_saida"][0]["dupla_entrada"]
+    manha = access_presence_lists(site="E", agora=datetime(2026, 10, 16, 6, 0))
+    assert manha["dentro"] == [] and {x["name"] for x in manha["sem_saida"]} == {"VALDICE", "CARLOS"}   # dia zerado
+    assert access_presence_lists(site="E", agora=datetime(2026, 10, 17, 8, 0)) == {"dentro": [], "sem_saida": []}

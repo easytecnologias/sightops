@@ -283,8 +283,11 @@ function apSaude(d) {
     rot: 'Leitores com sinal', val: `${vivas}<span class="ap-card-de">/${portas.length}</span>`,
     sub: semSinal ? `${semSinal} sem sinal` : 'todos respondendo', subCor: semSinal ? 'ruim' : '', tela: 'dispositivos' }));
   const dentro = r.inside_now ?? 0;
-  cards.push(card({ icone: 'users', cor: 'cyan', rot: apEhCondominio() ? 'Dentro agora' : 'Presentes agora', val: apNum(dentro),
-    sub: !apEhCondominio() && alunos ? `de ${apNum(alunos)} alunos ativos` : 'última passagem foi entrada', tela: 'relatorios' }));
+  const semSaida = (d.sem_saida || []).length;
+  cards.push(card({ icone: 'users', cor: 'cyan', estado: semSaida ? 'atencao' : '', rot: apEhCondominio() ? 'Dentro agora' : 'Presentes agora', val: apNum(dentro),
+    sub: semSaida ? `${apNum(semSaida)} saída${semSaida === 1 ? '' : 's'} não registrada${semSaida === 1 ? '' : 's'}`
+      : (!apEhCondominio() && alunos ? `de ${apNum(alunos)} alunos ativos` : 'última passagem foi entrada'),
+    subCor: semSaida ? 'atencao' : '', tela: semSaida ? 'alertas' : 'relatorios' }));
   cards.push(card({ icone: 'log-in', cor: 'green', rot: 'Entradas hoje', val: apNum(r.entries ?? 0),
     sub: `${apNum(r.exits ?? 0)} saída${(r.exits ?? 0) === 1 ? '' : 's'}${r.manual_exits ? ` · ${r.manual_exits} manual` : ''}` }));
   if (_apUsaAvisos) {
@@ -481,6 +484,16 @@ function apListaAlertas() {
     texto: apEhCondominio()
       ? 'Moradores que estão no leitor mas não no cadastro do SightOps ficam fora de "dentro agora" e dos relatórios. Para trazer: Controle de Acesso › Dispositivos › importar pessoas do leitor.'
       : 'Ficam fora da presença, dos relatórios e dos avisos.', ir: 'relatorios' });
+  // Presenca vale 8 h: quem entrou e nao passou na saida vira aviso e o dia
+  // comeca zerado. Duas entradas seguidas: quase sempre saiu pelo leitor de entrada.
+  const semSaida = v.sem_saida || [];
+  const hm = s => { const t = apLocal(s); return t ? apHm(t) : ''; };
+  const nomes = l => l.slice(0, 6).map(x => `${x.nome}${x.desde ? ' (entrou ' + hm(x.desde) + ')' : ''}`).join(', ') + (l.length > 6 ? '…' : '');
+  if (semSaida.length) itens.push({ nivel: 'medio', icone: 'log-out', titulo: `${semSaida.length} saída${semSaida.length === 1 ? '' : 's'} não registrada${semSaida.length === 1 ? '' : 's'}`,
+    texto: `${nomes(semSaida)}. Entraram e não passaram no leitor de saída em 8 horas; não contam mais como presentes.`, ir: '' });
+  const duplas = [...(v.dentro || []), ...semSaida].filter(x => x.dupla_entrada);
+  if (duplas.length) itens.push({ nivel: 'info', icone: 'repeat', titulo: `${duplas.length} com duas entradas seguidas`,
+    texto: `${nomes(duplas)}. Provavelmente saíram passando pelo leitor de entrada.`, ir: '' });
   if (av.sem_numero_total) itens.push({ nivel: 'info', icone: 'contact', titulo: `${av.sem_numero_total} aluno${av.sem_numero_total === 1 ? '' : 's'} sem número de responsável`,
     texto: 'Não recebem aviso nenhum.', ir: 'relatorios' });
   itens.push({ nivel: 'cinza', icone: 'shield-x', titulo: 'Acessos negados ainda não são coletados',

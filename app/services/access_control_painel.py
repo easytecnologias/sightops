@@ -621,7 +621,7 @@ def ao_vivo(site: str = "", limite: int = 40, agora: Optional[datetime] = None,
             portas: Optional[List[str]] = None) -> Dict[str, Any]:
     """`portas`: so estas portas (ids de leitor), ex. entrada + saida da
     portaria. Quem esta dentro continua sendo do local inteiro."""
-    from app.services.access_control_store import (access_present_people, access_report_summary,
+    from app.services.access_control_store import (access_presence_lists, access_report_summary,
                                                     list_access_report_events)
     agora = agora or _agora()
     portas = [p for p in (portas or []) if p]
@@ -690,7 +690,8 @@ def ao_vivo(site: str = "", limite: int = 40, agora: Optional[datetime] = None,
               for d in _leitores(site) if not portas or _t(d.get("id")) in portas]
 
     # Presenca por turma: alunos ativos de cada turma x presentes agora.
-    lista_presentes = access_present_people(site=site)
+    listas = access_presence_lists(site=site)
+    lista_presentes = listas["dentro"]
     presentes = {_t(x.get("person_id")) for x in lista_presentes}
     # Quem esta dentro agora, mais recente primeiro (o mosaico de fotos).
     dentro = []
@@ -698,7 +699,13 @@ def ao_vivo(site: str = "", limite: int = 40, agora: Optional[datetime] = None,
         p = pessoas.get(_t(x.get("person_id"))) or {}
         dentro.append({"pessoa_id": _t(x.get("person_id")), "nome": _t(x.get("name") or p.get("full_name")),
                        "turma": _t(p.get("class_name")), "tipo_pessoa": _t(p.get("person_type")),
-                       "tem_foto": bool(_t(p.get("face_photo_path"))), "desde": _t(x.get("since"))})
+                       "tem_foto": bool(_t(p.get("face_photo_path"))), "desde": _t(x.get("since")),
+                       "dupla_entrada": bool(x.get("dupla_entrada"))})
+    # Entrou e nao saiu em 8 h (ou ficou de ontem): aviso, fora de "presentes".
+    sem_saida = [{"pessoa_id": _t(x.get("person_id")), "nome": _t(x.get("name")),
+                  "turma": _t((pessoas.get(_t(x.get("person_id"))) or {}).get("class_name")),
+                  "desde": _t(x.get("since")), "dupla_entrada": bool(x.get("dupla_entrada"))}
+                 for x in listas["sem_saida"]]
     turmas: Dict[str, Dict[str, int]] = defaultdict(lambda: {"total": 0, "presentes": 0})
     for pid, p in pessoas.items():
         if not p.get("active") or _t(p.get("person_type")) != "student":
@@ -720,6 +727,7 @@ def ao_vivo(site: str = "", limite: int = 40, agora: Optional[datetime] = None,
         "horas": horas,
         "dentro": dentro,
         "dentro_total": len(lista_presentes),
+        "sem_saida": sem_saida,
     }
 
 

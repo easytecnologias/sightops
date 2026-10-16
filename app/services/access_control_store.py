@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 import uuid
 from datetime import datetime, timedelta
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from app.core.crypto import decrypt, encrypt
 from app.services import db_store
@@ -1370,25 +1370,58 @@ def _momento(valor: Any):
         return None
 
 
-def _esta_dentro(eventos: List[Any], hoje: str) -> bool:
-    """`eventos` e o historico da pessoa, do mais novo para o mais antigo.
+# Presenca vale 8 horas (decisao do usuario em 15/10/2026): quem entrou e nao
+# passou na saida em 8 horas sai de "presentes" e vira aviso de SAIDA NAO
+# REGISTRADA -- o dia comeca zerado. Na RADS, 15/10 22:02, 5 "presentes" na
+# escola vazia: uma desde 09:14, as outras da EJA que sairam sem passar no leitor.
+PRESENCA_MAX_HORAS = 8
+# Ate quando quem ficou sem saida aparece no aviso (depois disso, so historico).
+SEM_SAIDA_JANELA_HORAS = 24
+
+
+def _situacao(eventos: List[Any], hoje: str, agora: Optional[datetime] = None) -> str:
+    """"dentro", "sem_saida" ou "fora". `eventos` e o historico da pessoa, do
+    mais novo para o mais antigo (bastam os dois ultimos).
 
     Ninguem fica dentro de um dia para o outro: so conta a ultima marcacao se ela
     for de HOJE. Sem isso, quem saiu sem passar na leitora aparecia presente a
     meia-noite (9 pessoas na RADS em 07/10/2026 00:25, de 29/09 em diante).
+    E nem dentro do mesmo dia passa de PRESENCA_MAX_HORAS.
     """
     if not eventos:
-        return False
+        return "fora"
     ultimo = eventos[0]
     if normalize_access_event_type(ultimo["event_type"]) != "entrada":
-        return False
-    if str(ultimo["occurred_at"] or "").strip()[:10] != hoje:
-        return False
+        return "fora"
     if len(eventos) > 1 and normalize_access_event_type(eventos[1]["event_type"]) in {"saida", "saida_manual"}:
         t1, t0 = _momento(ultimo["occurred_at"]), _momento(eventos[1]["occurred_at"])
         if t1 and t0 and 0 <= (t1 - t0).total_seconds() <= _LEITURA_DUPLA_SEGUNDOS:
-            return False
-    return True
+            return "fora"
+    agora = agora or datetime.now()
+    quando = _momento(ultimo["occurred_at"])
+    if quando is None:
+        return "fora"
+    horas = (agora - quando).total_seconds() / 3600
+    if str(ultimo["occurred_at"] or "").strip()[:10] == hoje and horas <= PRESENCA_MAX_HORAS:
+        return "dentro"
+    return "sem_saida" if horas <= SEM_SAIDA_JANELA_HORAS else "fora"
+
+
+def _dupla_entrada(eventos: List[Any]) -> bool:
+    """Duas entradas seguidas, sem saida no meio e no mesmo dia: quase sempre a
+    pessoa SAIU passando pelo leitor de entrada (RADS 15/10: Valdice 07:28 e
+    09:14, Carlos 19:16 e 21:18). So aviso; nao muda a presenca sozinho."""
+    if len(eventos) < 2:
+        return False
+    a, b = eventos[0], eventos[1]
+    if normalize_access_event_type(a["event_type"]) != "entrada" or normalize_access_event_type(b["event_type"]) != "entrada":
+        return False
+    t1, t0 = _momento(a["occurred_at"]), _momento(b["occurred_at"])
+    return bool(t1 and t0 and t1.date() == t0.date() and (t1 - t0).total_seconds() > _LEITURA_DUPLA_SEGUNDOS)
+
+
+def _esta_dentro(eventos: List[Any], hoje: str, agora: Optional[datetime] = None) -> bool:
+    return _situacao(eventos, hoje, agora) == "dentro"
 
 
 def access_presence_summary(site: str = "", device_id: str = "", door_group_id: str = "") -> Dict[str, int]:
@@ -1436,7 +1469,16 @@ def access_presence_summary(site: str = "", device_id: str = "", door_group_id: 
 
 def access_present_people(site: str = "", device_id: str = "", door_group_id: str = "") -> List[Dict[str, Any]]:
     """Lista as pessoas PRESENTES agora (mesma regra do inside_now, ver
-    _esta_dentro: ultima marcacao e uma entrada de hoje, que nao e eco de saida)."""
+    _situacao: ultima marcacao e uma entrada de hoje, com menos de 8 h, que nao
+    e eco de saida)."""
+    return access_presence_lists(site, device_id, door_group_id)["dentro"]
+
+
+def access_presence_lists(site: str = "", device_id: str = "", door_group_id: str = "",
+                          agora: Optional[datetime] = None) -> Dict[str, List[Dict[str, Any]]]:
+    """{"dentro": [...], "sem_saida": [...]}: quem esta dentro agora e quem
+    entrou e nao registrou saida (mais de 8 h, ou de ontem). Cada pessoa leva
+    `dupla_entrada` quando as duas ultimas marcacoes foram entradas."""
     ensure_access_control_schema()
     tenant = db_store._current_tenant_slug()
     where = ["e.tenant_slug = ?", "e.person_id <> ''"]
@@ -1453,7 +1495,7 @@ def access_present_people(site: str = "", device_id: str = "", door_group_id: st
     elif clean_door_group_id:
         device_ids = list_door_group_members(clean_door_group_id)
         if not device_ids:
-            return []
+            return {"dentro": [], "sem_saida": []}
         placeholders = ",".join("?" for _ in device_ids)
         where.append(f"e.device_id IN ({placeholders})")
         params.extend(device_ids)
@@ -1477,22 +1519,26 @@ def access_present_people(site: str = "", device_id: str = "", door_group_id: st
         person_id = str(row["person_id"] or "")
         if person_id and len(historico.setdefault(person_id, [])) < 2:
             historico[person_id].append(row)
-    hoje = datetime.now().strftime("%Y-%m-%d")
-    present: List[Dict[str, Any]] = []
+    agora = agora or datetime.now()
+    hoje = agora.strftime("%Y-%m-%d")
+    saida: Dict[str, List[Dict[str, Any]]] = {"dentro": [], "sem_saida": []}
     for person_id, eventos in historico.items():
-        if not _esta_dentro(eventos, hoje):
+        situacao = _situacao(eventos, hoje, agora)
+        if situacao == "fora":
             continue
         row = eventos[0]
-        present.append({
+        saida[situacao].append({
             "person_id": person_id,
             "name": (str(row["full_name"] or "").strip() or "Pessoa nao identificada"),
             "site": str(row["site"] or "").strip(),
             "document": str(row["document_id"] or "").strip(),
             "enrollment": str(row["enrollment_code"] or "").strip(),
             "since": str(row["occurred_at"] or "").strip(),
+            "dupla_entrada": _dupla_entrada(eventos),
         })
-    present.sort(key=lambda item: item.get("since") or "", reverse=True)
-    return present
+    for lista in saida.values():
+        lista.sort(key=lambda item: item.get("since") or "", reverse=True)
+    return saida
 
 
 def access_report_summary(filters: Dict[str, Any]) -> Dict[str, int]:
