@@ -96,7 +96,9 @@ function reCampo(e, k, rot, numerico) {
 function reSecEditar(d) {
   const e = reEstado();
   if (!e.atual && !e.carregando && !e.erro) setTimeout(reCarregar, 0);
-  if (d.marca && d.marca !== 'intelbras') {
+  // O raio-x devolve "Intelbras" (maiusculo); o driver, "intelbras".
+  const marca = String(e.info?.marca || d.marca || '').toLowerCase();
+  if (marca && !marca.includes('intelbras')) {
     return `<div class="bloco"><div class="bloco-cab"><div><h2>Editar rede</h2>
       <p>Trocar a rede pelo SightOps ainda só em Intelbras (em ${esc(d.marca)} a escrita não foi provada em equipamento).</p></div></div></div>`;
   }
