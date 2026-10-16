@@ -121,6 +121,7 @@ def test_sem_continua_soma_o_bit_e_nao_e_seguro(pares, tmp_path):
     a = avisos["continua"]
     assert not a["seguro"] and "retenção" in a["alerta"] and "02" in a["lido"]
     assert {m["para"] for m in a["_mudancas"]} == {"3 00:00:00-24:00:00"}
+    assert a["canais"] == [2] and ra._publico(a)["canais"] == [2]
     falso = GravadorComRelogio(pares)
     assert ra.corrigir(_g(falso), "continua", tmp_path)["ok"]
     assert "continua" not in {x["id"] for x in ra.montar_avisos(falso.estado)}

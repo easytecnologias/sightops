@@ -4325,7 +4325,6 @@ function deployRecorderRotulo(chave) {
 //   - o mosaico ocupa a tela, imagens coladas e sem moldura, como mural de
 //     CFTV.
 let _recSec = 'geral';
-let _recCols = '4';
 let _recEdit = null;   // canal em edicao
 
 const _REC_SECOES = [
@@ -4403,34 +4402,113 @@ function recFoto(c, host, deduzir = true) {
   return /^https?:\/\//i.test(bruto) ? bruto : `${API_BASE}${bruto}`;
 }
 
+// ---- Ao vivo: mosaico com paginas, ronda e selos de verdade --------------
+// Selos: REC (camera respondendo e gravando), SEM IMAGEM (o gravador nao
+// recebe video), NAO GRAVA (tem imagem, mas a agenda nao grava -- vem do
+// aviso "continua" do servidor), LIVRE. "−30 s" abre o gravado do canal.
+let _recMosaico = 16;   // canais por pagina; 0 = todos
+let _recPagina = 0;
+let _recRonda = null;   // setInterval da ronda
+
+function recNaoGrava(d) {
+  const av = _recAv && _recAv.host === d.host ? _recAv : null;
+  const a = (av?.dados?.avisos || []).find(x => x.id === 'continua' && !av.feitos[x.id]?.ok);
+  return new Set(a?.canais || []);
+}
+
+function recPararRonda() {
+  if (_recRonda) { clearInterval(_recRonda); _recRonda = null; }
+}
+
+function recAlternarRonda() {
+  if (_recRonda) { recPararRonda(); recPintarApp(); return; }
+  _recRonda = setInterval(() => {
+    const d = _deployRecorderXray;
+    if (!d || _recSec !== 'vivo' || !document.getElementById('deployRecorderApp')?.isConnected) { recPararRonda(); return; }
+    const total = (d.canais || []).length, porPag = _recMosaico || total;
+    _recPagina = (_recPagina + 1) % Math.max(1, Math.ceil(total / porPag));
+    recPintarApp();
+  }, 10000);
+  recPintarApp();
+}
+
 function recSecVivo(d) {
   const canais = d.canais || [], host = d.host;
-  // Conta so foto de origem conhecida: o caminho deduzido pode nao existir
-  // em disco, e dizer "32 com imagem" sem ter seria mentir no cabecalho.
-  const comImagem = canais.filter(c => recFoto(c, host, false)).length;
-  const caidos = canais.filter(c => c.online === false).length;
+  const usados = canais.filter(c => c.ip);
+  const caidos = usados.filter(c => c.online === false).length;
+  const naoGrava = recNaoGrava(d);
+  const porPag = _recMosaico || canais.length || 1;
+  const paginas = Math.max(1, Math.ceil(canais.length / porPag));
+  if (_recPagina >= paginas) _recPagina = 0;
+  const pagina = canais.slice(_recPagina * porPag, _recPagina * porPag + porPag);
+  const col = { 4: 2, 9: 3, 16: 4 }[_recMosaico] || 6;
+  const primeiro = pagina[0]?.canal, ultimo = pagina[pagina.length - 1]?.canal;
+  const sub = [`${usados.length - caidos} com imagem`, caidos ? `${caidos} sem imagem` : '',
+    naoGrava.size ? `${naoGrava.size} sem gravar` : ''].filter(Boolean).join(' · ');
+
   return `<div class="bloco">
     <div class="bloco-cab">
-      <div><h2>Ao vivo</h2><p>${comImagem} com imagem${caidos ? ' · ' + caidos + ' sem resposta' : ''}</p></div>
-      <div class="bloco-dir"><div class="seg">
-        <button type="button" data-rec-col="2" aria-pressed="${_recCols === '2'}">Grande</button>
-        <button type="button" data-rec-col="4" aria-pressed="${_recCols === '4'}">Medio</button>
-        <button type="button" data-rec-col="6" aria-pressed="${_recCols === '6'}">Pequeno</button>
-      </div></div>
+      <div><h2>Ao vivo</h2><p>${esc(sub)} · clique num canal para ver ao vivo; “−30 s” abre o gravado</p></div>
+      <div class="bloco-dir">
+        ${paginas > 1 ? `<div class="rec-pag">
+          <button type="button" class="acao" data-rec-pag="-1" aria-label="Página anterior">‹</button>
+          <span>${esc(String(primeiro).padStart(2, '0'))}–${esc(String(ultimo).padStart(2, '0'))}</span>
+          <button type="button" class="acao" data-rec-pag="1" aria-label="Próxima página">›</button></div>` : ''}
+        <div class="seg" role="group" aria-label="Mosaico">${[[4, '2×2'], [9, '3×3'], [16, '4×4'], [0, 'Todos']].map(([n, r]) =>
+          `<button type="button" data-rec-mos="${n}" aria-pressed="${_recMosaico === n}">${r}</button>`).join('')}</div>
+        ${paginas > 1 ? `<button type="button" class="acao ${_recRonda ? 'forte' : ''}" data-rec-ronda>${_recRonda ? 'Ronda: troca a cada 10 s' : 'Ronda automática'}</button>` : ''}
+      </div>
     </div>
-    <div class="mosaico" data-col="${_recCols}">${canais.map(c => {
+    <div class="mosaico" data-col="${col}">${pagina.map(c => {
       const foto = recFoto(c, host), n = String(c.canal).padStart(2, '0');
-      if (!c.ip) return `<div class="cam livre"><div class="vazio">canal ${n} livre</div></div>`;
+      if (!c.ip) return `<div class="cam livre"><div class="marca"><span class="n">${n}</span><span class="selo livre">LIVRE</span></div><div class="vazio">canal livre</div></div>`;
       const caiu = c.online === false;
-      return `<div class="cam ${caiu ? 'caiu' : ''}" data-rec-vivo="${esc(c.canal)}"
+      const semGravar = !caiu && naoGrava.has(Number(c.canal));
+      const selo = caiu ? '<span class="selo erro">SEM IMAGEM</span>'
+        : (semGravar ? '<span class="selo erro">NÃO GRAVA</span>' : '<span class="rec"><i></i>REC</span>');
+      return `<div class="cam ${caiu ? 'caiu' : ''} ${semGravar ? 'sem-gravar' : ''}" data-rec-vivo="${esc(c.canal)}"
         title="${esc([c.nome, c.ip, 'clique para ver ao vivo'].filter(Boolean).join(' · '))}">
         ${foto ? `<img src="${esc(foto)}" alt="" loading="lazy" onerror="this.remove()">`
                : `<div class="vazio">${caiu ? 'sem sinal' : 'sem imagem'}</div>`}
-        <div class="marca"><span class="n">${n}</span>${caiu ? '' : '<span class="rec"><i></i>REC</span>'}</div>
-        <div class="rotulo">${esc(c.nome || c.ip)}</div>
+        <div class="marca"><span class="n">${n}</span>${selo}</div>
+        ${caiu ? `<div class="cam-caiu"><b>Câmera não responde</b>
+          <button type="button" class="acao" data-rec-sec="canais">Ver o canal</button></div>` : ''}
+        <div class="rotulo"><span>${esc(c.nome || c.ip)}</span>
+          ${caiu ? '' : `<button type="button" class="cam-bt" data-rec-gravado="${esc(c.canal)}" aria-label="Ver os últimos 30 segundos gravados do canal ${n}">−30 s</button>`}
+        </div>
       </div>`;
     }).join('')}</div>
   </div>`;
+}
+
+function recLigarVivo(app) {
+  app.querySelectorAll('[data-rec-mos]').forEach(b => b.addEventListener('click', () => {
+    _recMosaico = Number(b.dataset.recMos); _recPagina = 0; recPintarApp();
+  }));
+  app.querySelectorAll('[data-rec-pag]').forEach(b => b.addEventListener('click', () => {
+    const d = _deployRecorderXray; if (!d) return;
+    const total = (d.canais || []).length, porPag = _recMosaico || total;
+    const paginas = Math.max(1, Math.ceil(total / porPag));
+    _recPagina = (_recPagina + Number(b.dataset.recPag) + paginas) % paginas;
+    recPintarApp();
+  }));
+  app.querySelector('[data-rec-ronda]')?.addEventListener('click', () => recAlternarRonda());
+  app.querySelectorAll('[data-rec-gravado]').forEach(b => b.addEventListener('click', ev => {
+    ev.stopPropagation();   // o clique do cartao abriria o ao vivo
+    recAbrirVivo(Number(b.dataset.recGravado), { atras_s: 30 });
+  }));
+}
+
+// Hora "agora" no relogio do GRAVADOR: o playback e pedido pela hora dele.
+function recAgoraNoGravador() {
+  const d = _deployRecorderXray;
+  const rel = (_recRes?.host === d?.host && _recRes?.dados?.relogio) || (_recAv?.host === d?.host && _recAv?.dados?.relogio);
+  return new Date(Date.now() + (Number(rel?.diferenca_s) || 0) * 1000);
+}
+
+function recFmtHora(dt) {
+  const p = n => String(n).padStart(2, '0');
+  return `${dt.getFullYear()}-${p(dt.getMonth() + 1)}-${p(dt.getDate())} ${p(dt.getHours())}:${p(dt.getMinutes())}:${p(dt.getSeconds())}`;
 }
 
 // ---- Topo (5 numeros) e Visao geral -------------------------------------
@@ -4955,6 +5033,8 @@ function recSair() {
   // Sem isto so o F5 tirava o operador daqui: a tela do gravador aberta nao
   // tinha nenhuma saida.
   recFecharVivo();
+  recPararRonda();
+  _recPagina = 0;
   _deployRecorderXray = null;
   _recAv = null;
   _recRes = null;
@@ -4986,7 +5066,7 @@ function recFecharVivo() {
 
 let _recVivoAlta = true;
 
-function recAbrirVivo(canal) {
+function recAbrirVivo(canal, opcoes = {}) {
   // Video ao vivo pelo RTSP do PROPRIO gravador, servido ao navegador pelo
   // go2rtc (o mesmo player das cameras). O gravador vive atras do tunel do
   // conector, entao quem fala com ele e o backend -- a senha nunca chega aqui.
@@ -5004,17 +5084,24 @@ function recAbrirVivo(canal) {
   })();
   const nome = dados.nome || dados.ip;
   const n = String(canal).padStart(2, '0');
+  // atras_s > 0: gravado a partir de agora-atras_s, pela hora do gravador.
+  let atras = Number(opcoes.atras_s) || 0;
 
   tampa.innerHTML = `<div class="rec-tampa rec-tampa-vivo" role="dialog" aria-modal="true" aria-label="Ao vivo">
     <div class="rec-vivo">
       <div class="rec-vivo-topo">
         <div class="rec-vivo-id">
           <b>${esc(n)} · ${esc(nome)}</b>
-          <span>${esc(dados.ip)}${dados.modelo ? ' · ' + esc(dados.modelo) : ''} · ${esc(d.host)}</span>
+          <span id="recVivoSub">${esc(dados.ip)}${dados.modelo ? ' · ' + esc(dados.modelo) : ''} · ${esc(d.host)}</span>
         </div>
         <div class="rec-vivo-acoes">
           <span class="rec-vivo-taxa" id="recVivoTaxa"></span>
-          <div class="seg rec-vivo-seg">
+          <div class="seg rec-vivo-seg" role="group" aria-label="Ao vivo ou gravado">
+            <button type="button" data-rec-atras="0" aria-pressed="${!atras}">Ao vivo</button>
+            <button type="button" data-rec-atras="30" aria-pressed="${atras === 30}">−30 s</button>
+            <button type="button" data-rec-atras="300" aria-pressed="${atras === 300}">−5 min</button>
+          </div>
+          <div class="seg rec-vivo-seg" id="recVivoQualidade" ${atras ? 'hidden' : ''}>
             <button type="button" data-rec-q="1" aria-pressed="${_recVivoAlta}">Alta</button>
             <button type="button" data-rec-q="0" aria-pressed="${!_recVivoAlta}">Leve</button>
           </div>
@@ -5048,13 +5135,31 @@ function recAbrirVivo(canal) {
       alta: _recVivoAlta ? 1 : 0,
     };
     _recVivoAlvo = alvo;
-    if (aviso) { aviso.hidden = false; aviso.textContent = 'Conectando...'; }
+    const inicio = atras ? recFmtHora(new Date(recAgoraNoGravador().getTime() - atras * 1000)) : '';
+    const sub = document.getElementById('recVivoSub');
+    if (sub) sub.textContent = atras
+      ? `Gravado desde ${inicio.slice(11)} (hora do gravador) · ${dados.ip}`
+      : `${dados.ip}${dados.modelo ? ' · ' + dados.modelo : ''} · ${d.host}`;
+    const qual = document.getElementById('recVivoQualidade');
+    if (qual) qual.hidden = !!atras;
+    if (aviso) { aviso.hidden = false; aviso.textContent = atras ? 'Pedindo o gravado ao gravador... pode levar até 40 s' : 'Conectando...'; }
     if (taxa) taxa.textContent = '';
     _recVivoHandle = mountLiveStream(video, {
       ip: alvo.recorder_host, user: 'admin', pass: '', subtype: _recVivoAlta ? 0 : 1,
       // O backend e quem sabe a senha do gravador e o caminho RTSP de cada
       // marca; daqui so pedimos o stream pronto.
       registrar: async () => {
+        if (atras) {
+          // Mesmo caminho da Investigacao: o go2rtc toca a GRAVACAO do canal.
+          const res = await api('/api/nvr/driver/playback', {
+            method: 'POST', body: JSON.stringify({ host: alvo.recorder_host, http_port: Number(alvo.http_port) || 80,
+              connector_id: alvo.connector_id, canal: alvo.canal, inicio }),
+          });
+          const r = await res?.json().catch(() => ({}));
+          if (res?.status === 428) throw new Error('Este gravador nao tem senha guardada.');
+          if (!res?.ok || !r?.stream_name) throw new Error(r?.detail || 'nao consegui pedir o gravado');
+          return r.stream_name;
+        }
         const res = await api('/api/deployments/recorder-live-stream', {
           method: 'POST', body: JSON.stringify(alvo),
         });
@@ -5084,6 +5189,15 @@ function recAbrirVivo(canal) {
     _recVivoAlta = alta;
     tampa.querySelectorAll('[data-rec-q]').forEach(x =>
       x.setAttribute('aria-pressed', String((x.dataset.recQ === '1') === _recVivoAlta)));
+    ligar();
+  }));
+
+  tampa.querySelectorAll('[data-rec-atras]').forEach(b => b.addEventListener('click', () => {
+    const novo = Number(b.dataset.recAtras) || 0;
+    if (novo === atras && !novo) return;
+    atras = novo;
+    tampa.querySelectorAll('[data-rec-atras]').forEach(x =>
+      x.setAttribute('aria-pressed', String((Number(x.dataset.recAtras) || 0) === atras)));
     ligar();
   }));
 
@@ -5566,8 +5680,8 @@ function recPintarApp() {
 
   app.querySelectorAll('[data-rec-sec]').forEach(b =>
     b.addEventListener('click', () => { _recSec = b.dataset.recSec; recPintarApp(); }));
-  app.querySelectorAll('[data-rec-col]').forEach(b =>
-    b.addEventListener('click', () => { _recCols = b.dataset.recCol; recPintarApp(); }));
+  recLigarVivo(app);
+  if (_recSec !== 'vivo') recPararRonda();
   app.querySelector('[data-rec-reler]')?.addEventListener('click', () => { _recAv = null; _recRes = null; deployRecorderCarregarXray(); });
   app.querySelector('[data-rec-sair]')?.addEventListener('click', () => recSair());
   app.querySelector('[data-rec-salvar]')?.addEventListener('click', ev => recSalvarInventario(ev.target));

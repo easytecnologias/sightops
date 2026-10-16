@@ -219,6 +219,8 @@ def montar_avisos(pares: Dict[str, str], relogio: Optional[Dict[str, Any]] = Non
         if "_mudancas" not in a:
             a["_mudancas"] = [{"chave": x["chave"], "de": x["de"], "para": x["para"]}
                               for x in a["mudancas"] if x.get("chave")]
+        # Canais do aviso (1..N): a tela marca o mosaico com isso ("NAO GRAVA").
+        a["canais"] = canais(a["_mudancas"])
     return avisos
 
 
