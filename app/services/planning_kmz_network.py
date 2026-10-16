@@ -39,6 +39,8 @@ _COLOR_ALIASES = {
 }
 _COLOR_RE = "|".join(sorted(_COLOR_ALIASES, key=len, reverse=True))
 MAX_KMZ_BYTES = 30 * 1024 * 1024
+MAX_KML_BYTES = 40 * 1024 * 1024
+MAX_PLACEMARKS = 20000
 POLE_SNAP_M = 4.0
 EQUIPMENT_SNAP_M = 45.0
 
@@ -73,18 +75,35 @@ def _read_kml(raw: bytes) -> ET.Element:
                     raise ValueError("O KMZ nao tem nenhum .kml dentro")
                 main = "doc.kml" if "doc.kml" in names else names[0]
                 info = kmz.getinfo(main)
-                if info.file_size > MAX_KMZ_BYTES * 4:
-                    raise ValueError("KML grande demais")
-                data = kmz.read(main)
+                if info.file_size > MAX_KML_BYTES:
+                    raise ValueError("KML grande demais (limite de 40 MB descompactado)")
+                with kmz.open(main) as handle:
+                    data = handle.read(MAX_KML_BYTES + 1)
+                if len(data) > MAX_KML_BYTES:
+                    raise ValueError("KML grande demais (limite de 40 MB descompactado)")
         except zipfile.BadZipFile as exc:
             raise ValueError("Arquivo KMZ invalido") from exc
-    if b"<!DOCTYPE" in data[:2000].upper() or b"<!ENTITY" in data.upper():
-        raise ValueError("KML com DOCTYPE/ENTITY nao e aceito")
-    # Google Earth escreve gx:/kml: sem declarar o namespace: troca por _.
-    data = re.sub(rb"<(/?)(\w+):(\w)", rb"<\1\2_\3", data)
-    data = re.sub(rb" (\w+):(\w+)=", rb" \1_\2=", data).replace(b"xmlns_", b"xmlnsx_")
+    # Decodifica ANTES de procurar DOCTYPE/ENTITY: em UTF-16 os bytes de
+    # "<!ENTITY" vem intercalados com \x00 e passariam por uma busca em bytes.
+    if data[:4] in (b"\x00\x00\xfe\xff", b"\xff\xfe\x00\x00"):
+        encoding = "utf-32"
+    elif data[:2] in (b"\xff\xfe", b"\xfe\xff"):
+        encoding = "utf-16"
+    else:
+        encoding = "utf-8-sig"
     try:
-        return ET.fromstring(data)
+        text = data.decode(encoding)
+    except UnicodeDecodeError as exc:
+        raise ValueError("KML precisa estar em UTF-8 ou UTF-16") from exc
+    if "<!DOCTYPE" in text.upper() or "<!ENTITY" in text.upper():
+        raise ValueError("KML com DOCTYPE/ENTITY nao e aceito")
+    # Sem a declaracao <?xml encoding=...?>: o parse e sobre o texto ja decodificado.
+    text = re.sub(r"^\s*<\?xml[^>]*\?>", "", text)
+    # Google Earth escreve gx:/kml: sem declarar o namespace: troca por _.
+    text = re.sub(r"<(/?)(\w+):(\w)", r"<\1\2_\3", text)
+    text = re.sub(r" (\w+):(\w+)=", r" \1_\2=", text).replace("xmlns_", "xmlnsx_")
+    try:
+        return ET.fromstring(text)
     except ET.ParseError as exc:
         raise ValueError(f"KML invalido: {exc}") from exc
 
@@ -251,6 +270,8 @@ def _line_occupancy(desc: str) -> Dict[str, str]:
 def parse_network(raw: bytes) -> Dict[str, Any]:
     """KMZ -> lista de equipamentos e rotas (ainda sem ids), mais o relatorio."""
     placemarks = _placemarks(_read_kml(raw))
+    if len(placemarks) > MAX_PLACEMARKS:
+        raise ValueError(f"Arquivo com mais de {MAX_PLACEMARKS} itens: divida o KMZ")
     devices: List[Dict[str, Any]] = []
     lines: List[Dict[str, Any]] = []
     report = {"lidos": len(placemarks), "ignorados": [], "avisos": []}
@@ -522,12 +543,12 @@ def import_network(raw: bytes, project_name: str = "", client_name: str = "") ->
         report["ligados_por_proximidade"] = sum(1 for d in network if d.get("parent") is not None and d.get("ligacao") != "cabo")
         report["sem_ligacao"] = [d["name"] for d in network if d["type"] != "olt" and d.get("parent") is None][:30]
         for item in network:
-            meta_row = c.execute("SELECT metadata_json FROM planning_devices WHERE id=? AND tenant_slug=?", (item["id"], tenant)).fetchone()
+            meta_row = c.execute("SELECT metadata_json FROM planning_devices WHERE id=? AND tenant_slug=? AND project_id=?", (item["id"], tenant, project_id)).fetchone()
             meta = json.loads(meta_row["metadata_json"] or "{}")
             meta.pop("ligacao_sugerida", None)
             if item.get("parent") is not None:
                 meta["ligacao"] = item.get("ligacao") or "proximidade"
-            c.execute("UPDATE planning_devices SET metadata_json=? WHERE id=? AND tenant_slug=?", (json.dumps(meta, ensure_ascii=False), item["id"], tenant))
+            c.execute("UPDATE planning_devices SET metadata_json=? WHERE id=? AND tenant_slug=? AND project_id=?", (json.dumps(meta, ensure_ascii=False), item["id"], tenant, project_id))
         c.execute("UPDATE planning_projects SET updated_at=datetime('now') WHERE id=? AND tenant_slug=?", (project_id, tenant))
         c.commit()
 

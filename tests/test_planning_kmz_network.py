@@ -97,6 +97,18 @@ def test_kml_com_entity_e_recusado():
         kn.import_network(evil, "X")
 
 
+def test_entity_em_utf16_tambem_e_recusado():
+    evil = '<?xml version="1.0" encoding="UTF-16"?><!DOCTYPE k [<!ENTITY a "AAAA">]><kml><Document><name>&a;</name></Document></kml>'
+    with pytest.raises(ValueError, match="DOCTYPE"):
+        kn.import_network(evil.encode("utf-16"), "X")
+
+
+def test_kml_em_utf16_sem_entity_e_lido():
+    texto = zipfile.ZipFile(io.BytesIO(_kmz())).read("doc.kml").decode("utf-8").replace('encoding="UTF-8"', 'encoding="UTF-16"')
+    report = kn.import_network(texto.encode("utf-16"), "UTF16")
+    assert report["contagem"]["cto"] == 1
+
+
 def test_arquivo_sem_rede_e_recusado():
     vazio = b'<kml xmlns="http://www.opengis.net/kml/2.2"><Document><name>x</name></Document></kml>'
     with pytest.raises(ValueError, match="Nao encontrei"):

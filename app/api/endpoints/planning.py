@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import Any, Dict
 
@@ -243,7 +244,11 @@ async def projects_import_network(
     if not raw:
         raise HTTPException(400, "Arquivo vazio")
     try:
-        report = planning_kmz_network.import_network(raw, name or (file.filename or "").rsplit(".", 1)[0], client_name)
+        # Fora do loop da API: um KMZ grande nao pode travar os outros clientes.
+        # asyncio.to_thread copia o contexto (tenant da sessao) para a thread.
+        report = await asyncio.to_thread(
+            planning_kmz_network.import_network, raw, name or (file.filename or "").rsplit(".", 1)[0], client_name,
+        )
         return {"ok": True, "report": report}
     except Exception as exc:
         raise _handle_error(exc) from exc
