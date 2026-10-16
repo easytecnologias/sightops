@@ -6,7 +6,7 @@ from typing import Any, Dict
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from fastapi.responses import Response
 
-from app.services import planning_service
+from app.services import planning_kmz_network, planning_service
 from app.services.planning_pdf_report import generate_project_network_pdf
 
 
@@ -228,5 +228,22 @@ async def projects_import_csv(
     try:
         defaults = json.loads(defaults_json or "{}")
         return planning_service.import_csv(project_id, raw, defaults)
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
+@router.post("/import-network")
+async def projects_import_network(
+    file: UploadFile = File(...),
+    name: str = Form(""),
+    client_name: str = Form(""),
+) -> Dict[str, Any]:
+    """Cria um projeto novo a partir da rede desenhada no Google Earth (KMZ)."""
+    raw = await file.read(planning_kmz_network.MAX_KMZ_BYTES + 1)
+    if not raw:
+        raise HTTPException(400, "Arquivo vazio")
+    try:
+        report = planning_kmz_network.import_network(raw, name or (file.filename or "").rsplit(".", 1)[0], client_name)
+        return {"ok": True, "report": report}
     except Exception as exc:
         raise _handle_error(exc) from exc

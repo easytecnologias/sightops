@@ -676,6 +676,7 @@ const PLANNING_DEVICE_FIELD_RULES = {
   planDeviceSwitchModeField: { showOnlyFor: ['switch'] },
   planDeviceSwitchPortsField: { showOnlyFor: ['switch'] },
   planDeviceCtoPortsField: { showOnlyFor: ['cto', 'dio', 'emenda'] },
+  planDeviceSplitterField: { showOnlyFor: ['cto', 'emenda'] },
   // Caixa de emenda/CTO/DIO sao pontos de cabo optico -- "Site/local" da
   // lugar pro cabo que chega ali (total de FO), que e mais relevante pra
   // eles do que um site generico.
@@ -1000,6 +1001,11 @@ async function openPlanningDeviceModal(deviceId = 0, defaults = {}) {
         <option value="smart" ${metadata.switch_mode === 'smart' ? 'selected' : ''}>Smart - gerenciavel (com IP)</option>
       </select></label>
       <label class="planning-field" id="planDeviceSwitchPortsField"><span>Quantidade de portas</span><select id="planDeviceSwitchPorts">${[4, 5, 8, 16, 24, 48].map(n => `<option value="${n}" ${Number(metadata.port_capacity || 5) === n ? 'selected' : ''}>${n} portas</option>`).join('')}</select></label>
+      <label class="planning-field" id="planDeviceSplitterField"><span>Splitter</span><select id="planDeviceSplitter">
+        <option value="">Nao informado</option>
+        <option value="sem" ${metadata.sem_splitter ? 'selected' : ''}>Sem splitter (so emenda/passagem)</option>
+        ${[2, 4, 8, 16, 32].map(n => `<option value="1x${n}" ${String(metadata.splitter || '').toLowerCase() === `1x${n}` ? 'selected' : ''}>1x${n}</option>`).join('')}
+      </select></label>
       <label class="planning-field" id="planDeviceCtoPortsField"><span>Quantidade de portas</span><select id="planDeviceCtoPorts">${[1, 2, 4, 8, 12, 16, 24].map(n => `<option value="${n}" ${Number(metadata.port_capacity || 8) === n ? 'selected' : ''}>${n} portas</option>`).join('')}</select></label>
       <label class="planning-field" id="planDeviceOltPortsField"><span>Quantidade de portas PON</span><select id="planDeviceOltPorts">${[1, 2, 4, 8, 16, 32].map(n => `<option value="${n}" ${Number(metadata.pon_port_capacity || 8) === n ? 'selected' : ''}>${n} porta${n === 1 ? '' : 's'} PON</option>`).join('')}</select></label>
       ${planningField('IP planejado', 'planDeviceIp', item.ip, 'placeholder="10.10.20.1"', 'id="planDeviceIpField"')}
@@ -1225,6 +1231,11 @@ function planningDevicePayload(root, metadata = {}) {
     // escolhida direto no Tipo) do splitter secundario/terminal (CTO comum).
     if (deviceType === 'cto') nextMetadata.papel = rawType === 'emenda' ? 'splitter_primario' : 'splitter_terminal';
     else delete nextMetadata.papel;
+    // Splitter explicito: entra no orcamento optico (perda) da CTO/CDO.
+    const splitter = value('planDeviceSplitter');
+    delete nextMetadata.splitter; delete nextMetadata.sem_splitter;
+    if (deviceType === 'cto' && splitter === 'sem') nextMetadata.sem_splitter = true;
+    else if (deviceType === 'cto' && splitter) nextMetadata.splitter = splitter;
   } else if (deviceType === 'olt') {
     // OLT: portas PON, cada uma atende um CDO/CTO/caixa ligado direto nela.
     delete nextMetadata.switch_mode; delete nextMetadata.port_capacity;
@@ -2077,7 +2088,7 @@ function openPlanningNetworkDiagram() {
 
 function bindPlanningUi() {
   const on = (id, event, handler) => { const el = document.getElementById(id); if (el) el.addEventListener(event, handler); };
-  on('btnPlanningNew', 'click', () => openPlanningProjectModal(true));
+  on('btnPlanningNew', 'click', () => planningNewProject());
   on('btnPlanningRefresh', 'click', () => loadPlanning(true));
   on('btnPlanningFiber', 'click', openPlanningFiberModal);
   on('btnPlanningNetworkDiagram', 'click', openPlanningNetworkDiagram);

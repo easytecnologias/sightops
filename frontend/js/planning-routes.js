@@ -39,17 +39,21 @@ function planningPointKind(item) {
   return item.device_type;
 }
 
-function planningIconSvg(kind, label = '') {
+// Desenho parecido com o equipamento no poste: CTO e a caixa preta com
+// conectores verdes; CDO/emenda e o cilindro com nervuras; poste com
+// cruzeta. A faixa colorida da CTO/CDO e a cor da fibra que a alimenta.
+function planningIconSvg(kind, label = '', feed = '') {
   const text = planningEscape(String(label || '').slice(0, 3));
+  const band = (typeof PLANNING_FIBER_HEX !== 'undefined' && PLANNING_FIBER_HEX[String(feed || '').toLowerCase()]) || '#868e96';
   switch (kind) {
     case 'pole':
-      return `<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="#fff" stroke="#445159" stroke-width="2.4"/><path d="M12 6.5v11M8 9h8" stroke="#445159" stroke-width="2.2" stroke-linecap="round"/></svg>`;
+      return `<svg viewBox="0 0 24 30" width="24" height="30" aria-hidden="true"><g stroke="#fff" stroke-width="2.2" paint-order="stroke" stroke-linejoin="round"><rect x="10.7" y="7" width="2.6" height="21" rx="1" fill="#6b4f36"/><rect x="2.5" y="6" width="19" height="2.6" rx="1" fill="#6b4f36"/></g><path d="M7.5 8.6 12 12.4 16.5 8.6" stroke="#6b4f36" stroke-width="1.4" fill="none"/><g fill="#343a40"><rect x="4" y="3" width="2" height="3.4" rx="1"/><rect x="8" y="3" width="2" height="3.4" rx="1"/><rect x="14" y="3" width="2" height="3.4" rx="1"/><rect x="18" y="3" width="2" height="3.4" rx="1"/></g></svg>`;
     case 'cto':
-      return `<svg viewBox="0 0 28 28" width="28" height="28" aria-hidden="true"><circle cx="14" cy="14" r="12" fill="#0b7285" stroke="#fff" stroke-width="2.5"/><path d="M8 14h4M12 14l5-4.5M12 14h7M12 14l5 4.5" stroke="#fff" stroke-width="1.9" stroke-linecap="round" fill="none"/></svg>`;
+      return `<svg viewBox="0 0 30 34" width="30" height="34" aria-hidden="true"><rect x="1" y="4" width="3" height="5" rx="1" fill="#1f2328"/><rect x="26" y="4" width="3" height="5" rx="1" fill="#1f2328"/><rect x="3" y="2" width="24" height="30" rx="4" fill="#1f2328" stroke="#fff" stroke-width="1.8"/><path d="M4 6a3 3 0 0 1 3-3h16a3 3 0 0 1 3 3v3H4z" fill="${band}"/><rect x="7" y="12" width="16" height="9" rx="1.5" fill="#3b4148"/><path d="M10 14.5h10M10 17.5h7" stroke="#6c757d" stroke-width="1.2" stroke-linecap="round"/><g fill="#40c057"><rect x="7.5" y="24" width="3" height="5" rx=".6"/><rect x="11.5" y="24" width="3" height="5" rx=".6"/><rect x="15.5" y="24" width="3" height="5" rx=".6"/><rect x="19.5" y="24" width="3" height="5" rx=".6"/></g></svg>`;
     case 'emenda':
-      return `<svg viewBox="0 0 28 28" width="28" height="28" aria-hidden="true"><rect x="5" y="5" width="18" height="18" rx="3" transform="rotate(45 14 14)" fill="#b86b00" stroke="#fff" stroke-width="2.5"/><path d="M9 14h10M14 9.5v9" stroke="#fff" stroke-width="2" stroke-linecap="round"/></svg>`;
+      return `<svg viewBox="0 0 22 36" width="22" height="36" aria-hidden="true"><rect x="3" y="2" width="16" height="27" rx="8" fill="#1f2328" stroke="#fff" stroke-width="1.8"/><path d="M5 9.5h12M5 12.5h12M5 22h12M5 25h12" stroke="#495057" stroke-width="1.1"/><rect x="3.9" y="15" width="14.2" height="4.6" fill="${band}"/><rect x="1.5" y="28" width="19" height="3" rx="1.2" fill="#1f2328" stroke="#fff" stroke-width="1.2"/><g fill="#1f2328" stroke="#fff" stroke-width=".8"><rect x="5" y="31" width="3" height="4" rx="1"/><rect x="9.5" y="31" width="3" height="4" rx="1"/><rect x="14" y="31" width="3" height="4" rx="1"/></g></svg>`;
     case 'olt':
-      return `<svg viewBox="0 0 36 26" width="36" height="26" aria-hidden="true"><rect x="1.5" y="1.5" width="33" height="23" rx="5" fill="#172026" stroke="#fff" stroke-width="2.5"/><text x="18" y="17.5" text-anchor="middle" font-family="Inter,Arial,sans-serif" font-size="10" font-weight="800" fill="#fff">OLT</text></svg>`;
+      return `<svg viewBox="0 0 38 26" width="38" height="26" aria-hidden="true"><rect x="1.5" y="1.5" width="35" height="23" rx="4" fill="#172026" stroke="#fff" stroke-width="2.2"/><text x="14" y="17" text-anchor="middle" font-family="Inter,Arial,sans-serif" font-size="9.5" font-weight="800" fill="#fff">OLT</text><g fill="#40c057"><circle cx="26" cy="9" r="1.4"/><circle cx="30" cy="9" r="1.4"/></g><g fill="#868e96"><rect x="24" y="14" width="3" height="5" rx=".5"/><rect x="28.5" y="14" width="3" height="5" rx=".5"/></g></svg>`;
     case 'rack':
       return `<svg viewBox="0 0 26 30" width="24" height="28" aria-hidden="true"><rect x="2" y="1.5" width="22" height="27" rx="4" fill="#172026" stroke="#fff" stroke-width="2.5"/><path d="M7 8h12M7 13h12M7 18h12M7 23h12" stroke="#9fb0b8" stroke-width="2" stroke-linecap="round"/></svg>`;
     case 'dio':
@@ -58,12 +62,12 @@ function planningIconSvg(kind, label = '') {
     case 'box-full':
     case 'box-danger': {
       const fill = kind === 'box-danger' ? '#c92a2a' : kind === 'box-full' ? '#b86b00' : '#1971c2';
-      return `<svg viewBox="0 0 34 34" width="32" height="32" aria-hidden="true"><rect x="2" y="2" width="30" height="30" rx="8" fill="${fill}" stroke="#fff" stroke-width="3"/>${text ? `<text x="17" y="21.5" text-anchor="middle" font-family="Inter,Arial,sans-serif" font-size="11" font-weight="800" fill="#fff">${text}</text>` : '<path d="M10 13l7-4 7 4v8l-7 4-7-4zM10 13l7 4 7-4M17 17v8" stroke="#fff" stroke-width="1.8" fill="none" stroke-linejoin="round"/>'}</svg>`;
+      return `<svg viewBox="0 0 34 34" width="32" height="32" aria-hidden="true"><rect x="2.5" y="2.5" width="29" height="29" rx="6" fill="#dee2e6" stroke="#fff" stroke-width="2.2"/><rect x="2.5" y="2.5" width="29" height="29" rx="6" fill="none" stroke="#868e96" stroke-width="1"/><g fill="#868e96"><circle cx="7" cy="7" r="1.2"/><circle cx="27" cy="7" r="1.2"/><circle cx="7" cy="27" r="1.2"/><circle cx="27" cy="27" r="1.2"/></g><rect x="7" y="11" width="20" height="12" rx="3" fill="${fill}"/>${text ? `<text x="17" y="20.5" text-anchor="middle" font-family="Inter,Arial,sans-serif" font-size="9.5" font-weight="800" fill="#fff">${text}</text>` : '<path d="M12 17h10M17 13v8" stroke="#fff" stroke-width="1.8" stroke-linecap="round"/>'}</svg>`;
     }
     case 'camera':
     case 'camera-danger': {
-      const fill = kind === 'camera-danger' ? '#c92a2a' : '#087f5b';
-      return `<svg viewBox="0 0 26 26" width="24" height="24" aria-hidden="true"><circle cx="13" cy="13" r="11" fill="${fill}" stroke="#fff" stroke-width="2.4"/><path d="M7.5 10.5h8.5v6H7.5zM16 12.5l3-1.8v5.6l-3-1.8" fill="#fff"/></svg>`;
+      const dot = kind === 'camera-danger' ? '#e03131' : '#40c057';
+      return `<svg viewBox="0 0 30 24" width="28" height="22" aria-hidden="true"><g stroke="#fff" stroke-width="2" paint-order="stroke"><rect x="13" y="13" width="3" height="7" fill="#495057"/><rect x="9" y="19" width="11" height="3" rx="1" fill="#495057"/><rect x="2" y="4" width="22" height="10" rx="4" fill="#f1f3f5"/></g><rect x="2" y="4" width="22" height="10" rx="4" fill="none" stroke="#868e96" stroke-width="1"/><rect x="21" y="5.5" width="6" height="7" rx="2" fill="#212529"/><circle cx="24" cy="9" r="1.8" fill="#4dabf7"/><circle cx="7" cy="9" r="2.4" fill="${dot}" stroke="#fff" stroke-width="1"/></svg>`;
     }
     default:
       return `<svg viewBox="0 0 22 22" width="18" height="18" aria-hidden="true"><circle cx="11" cy="11" r="8" fill="#b86b00" stroke="#fff" stroke-width="2.4"/></svg>`;
@@ -71,16 +75,18 @@ function planningIconSvg(kind, label = '') {
 }
 
 const PLANNING_ICON_SIZE = {
-  pole: [22, 22], cto: [28, 28], emenda: [28, 28], olt: [36, 26], rack: [24, 28], dio: [26, 26],
-  box: [32, 32], 'box-full': [32, 32], 'box-danger': [32, 32], camera: [24, 24], 'camera-danger': [24, 24],
+  pole: [24, 30], cto: [30, 34], emenda: [22, 36], olt: [38, 26], rack: [24, 28], dio: [26, 26],
+  box: [32, 32], 'box-full': [32, 32], 'box-danger': [32, 32], camera: [28, 22], 'camera-danger': [28, 22],
 };
 
-function planningMapIcon(kind, label = '', selected = false) {
+function planningMapIcon(kind, label = '', feed = '') {
   const size = PLANNING_ICON_SIZE[kind] || [18, 18];
+  // Poste e CTO/CDO ficam "em pe": o ponto de verdade e a base.
+  const anchorY = ['pole', 'emenda'].includes(kind) ? size[1] - 2 : size[1] / 2;
   return L.divIcon({
-    className: `pj-icon${selected ? ' is-selected' : ''}`,
-    html: planningIconSvg(kind, label),
-    iconSize: size, iconAnchor: [size[0] / 2, size[1] / 2], popupAnchor: [0, -size[1] / 2],
+    className: 'pj-icon',
+    html: planningIconSvg(kind, label, feed),
+    iconSize: size, iconAnchor: [size[0] / 2, anchorY], popupAnchor: [0, -anchorY + 2],
   });
 }
 
@@ -189,7 +195,7 @@ function openPlanningRouteEditor() {
   if (!_pe) {
     const map = L.map('planningEditorMap', { zoomControl: true, doubleClickZoom: false, maxZoom: 21 });
     const streets = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 21, maxNativeZoom: 19, attribution: '&copy; OpenStreetMap' });
-    const satellite = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxZoom: 21, maxNativeZoom: 19, attribution: 'Imagens &copy; Esri' });
+    const satellite = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxZoom: 21, maxNativeZoom: 18, attribution: 'Imagens &copy; Esri' });
     satellite.addTo(map);
     L.control.layers({ Satelite: satellite, Mapa: streets }, null, { position: 'topright' }).addTo(map);
     map.on('click', event => planningEditorClick(event.latlng, null));
@@ -313,7 +319,9 @@ function planningEditorRenderRoutes() {
     const selected = Number(route.id) === Number(_pe.selectedRouteId);
     if (selected) L.polyline(latlngs, { color: '#fff6df', weight: cfg.weight + 12, opacity: .9, interactive: false }).addTo(_pe.groups.routes);
     const over = route.kind === 'utp' && Number(route.length_m) + Number(route.slack_m || 0) > 100;
-    const line = L.polyline(latlngs, { color: over ? '#c92a2a' : cfg.color, weight: cfg.weight + (selected ? 1 : 0), dashArray: cfg.dash, lineCap: 'round', lineJoin: 'round' })
+    const ramalHex = PLANNING_FIBER_HEX[String(route.metadata?.ramal || '').toLowerCase()];
+    if (ramalHex) L.polyline(latlngs, { color: '#13252d', weight: cfg.weight + 3, opacity: .85, interactive: false }).addTo(_pe.groups.routes);
+    const line = L.polyline(latlngs, { color: over ? '#c92a2a' : (ramalHex || cfg.color), weight: cfg.weight + (selected ? 1 : 0), dashArray: cfg.dash, lineCap: 'round', lineJoin: 'round' })
       .bindTooltip(`${cfg.label} · ${Math.round(route.length_m)} m`, { sticky: true })
       .addTo(_pe.groups.routes);
     // Linha fina e larga por cima: facil de clicar mesmo tracejada.
@@ -347,11 +355,11 @@ function planningEditorRenderPoints() {
     if (kind === 'box') {
       const state = boxState.get(Number(item.id));
       kind = state === 'danger' ? 'box-danger' : state === 'full' ? 'box-full' : 'box';
-      label = planningShortLabel(item.name);
+      label = planningBoxLabel(item, a);
     }
     if (kind === 'camera' && a.cableByCamera.get(Number(item.id))?.overLimit) kind = 'camera-danger';
     const marker = L.marker([Number(item.latitude), Number(item.longitude)], {
-      icon: planningMapIcon(kind, label), draggable, autoPan: true, keyboard: false,
+      icon: planningMapIcon(kind, label, planningFeedColor(item)), draggable, autoPan: true, keyboard: false,
       title: `${item.name} (${PLANNING_TYPES[planningPointKind(item)] || PLANNING_TYPES[item.device_type] || item.device_type})`,
       zIndexOffset: kind === 'pole' ? 0 : 500,
     });
@@ -564,12 +572,17 @@ async function planningEditorReloadRoutes() {
 function planningEditorDeviceMenu(item) {
   const marker = _pe?.markers[item.id];
   if (!marker) return;
+  if (item.device_type === 'cto') {
+    marker.unbindPopup();
+    marker.bindPopup(planningCtoCardHtml(item), { minWidth: 300, maxWidth: 360 }).openPopup();
+    return;
+  }
   const kind = planningPointKind(item);
   const routes = planningRoutes().filter(route => route.path.some(pt => Number(pt.device_id) === Number(item.id)));
   const coords = `${Number(item.latitude).toFixed(6)}, ${Number(item.longitude).toFixed(6)}`;
   marker.unbindPopup();
   marker.bindPopup(`<div class="pe-pop">
-      <span class="pe-pop-icon">${planningIconSvg(kind === 'box' ? 'box' : kind)}</span>
+      <span class="pe-pop-icon">${planningIconSvg(kind === 'box' ? 'box' : kind, '', planningFeedColor(item))}</span>
       <strong>${planningEscape(item.name)}</strong>
       <small>${planningEscape(PLANNING_TYPES[kind] || PLANNING_TYPES[item.device_type] || item.device_type)}${item.model ? ` · ${planningEscape(item.model)}` : ''}</small>
       <code>${coords}</code>
@@ -678,9 +691,10 @@ function planningEditorRenderSide() {
   if (!route) {
     const rows = planningRoutes().map(item => {
       const cfg = PLANNING_ROUTE_KINDS[item.kind];
+      const ramal = String(item.metadata?.ramal || '');
       return `<button type="button" class="pe-route-row" onclick="planningEditorSelectRoute(${Number(item.id)})">
-        ${planningLineSwatch(item.kind)}
-        <span><strong>${planningEscape(planningDeviceName(item.from_device_id) || 'Ponto livre')} → ${planningEscape(planningDeviceName(item.to_device_id) || 'Ponto livre')}</strong><small>${cfg.label}</small></span>
+        ${PLANNING_FIBER_HEX[ramal] ? planningFiberDot(ramal) : planningLineSwatch(item.kind)}
+        <span><strong>${planningEscape(planningDeviceName(item.from_device_id) || 'Ponto livre')} → ${planningEscape(planningDeviceName(item.to_device_id) || 'Ponto livre')}</strong><small>${planningEscape(item.metadata?.kmz_nome || cfg.label)}${PLANNING_FIBER_HEX[ramal] ? ` · ramal ${planningFiberLabel(ramal)}` : ''}</small></span>
         <b>${Math.round(item.length_m)} m</b>
       </button>`;
     }).join('');
@@ -705,6 +719,7 @@ function planningEditorRenderSide() {
       <button type="button" class="pj-link" onclick="planningEditorSelectRoute(null)">← Todas as rotas</button>
       <span class="pe-kind" style="color:${cfg.color}">${planningLineSwatch(route.kind)} ${cfg.label}</span>
       <h2>${planningEscape(planningDeviceName(route.from_device_id) || 'Ponto livre')} → ${planningEscape(planningDeviceName(route.to_device_id) || 'Ponto livre')}</h2>
+      ${route.metadata?.kmz_nome ? `<small class="pf-from-kmz">${planningEscape(route.metadata.kmz_nome)}${route.metadata.ramal && route.metadata.ramal !== 'principal' ? ` · ramal ${planningFiberChip(route.metadata.ramal)}` : ''}</small>` : ''}
     </div>
     <div class="pe-form">
       <label><span>Cabo</span><select id="peRouteCable">${cableOptions.map(option => `<option ${option === route.cable_model ? 'selected' : ''}>${planningEscape(option)}</option>`).join('')}</select></label>
@@ -717,6 +732,7 @@ function planningEditorRenderSide() {
       <div class="${over ? 'danger' : 'buy'}"><span>Para comprar</span><strong>${Math.round(purchase)} m</strong></div>
     </div>
     <p class="pe-note">${Math.round(route.length_m)} m tracados + ${Math.round(route.slack_m || 0)} m de sobra + ${Math.round(PLANNING_ROUTE_RESERVE * 100)}% de reserva. Passa por ${poles} poste(s).${over ? ' <b>Passa de 100 m: o UTP nao garante o sinal.</b>' : ''}</p>
+    ${route.kind !== 'utp' ? planningRouteFibersHtml(route) : ''}
     <div class="pe-segs"><span class="pe-group">Trechos</span>${segRows}</div>
     <div class="pe-side-foot">
       <button type="button" class="secondary-action danger-text" onclick="planningEditorDeleteRoute(${Number(route.id)})"><i data-lucide="trash-2"></i> Apagar rota</button>

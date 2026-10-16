@@ -23,6 +23,8 @@ let _planningTab = 'boxes';
 let _planningMapGroups = {};
 let _planningLayerOn = { cameras: true, boxes: true, network: true, fiber: true, utp: false, kmz: true };
 let _planningIssues = [];
+let _planningBoxesAll = false;
+const PLANNING_BOXES_PREVIEW = 12;
 
 function planningShowPipeline() {
   document.getElementById('planningPipeline')?.classList.remove('hidden');
@@ -516,7 +518,14 @@ function planningRenderBoxes(a) {
     return;
   }
   const max = Number(a.cableConfig.maxMeters) || 100;
-  box.innerHTML = a.boxInfo.map(info => {
+  // Projeto grande (importado) tem dezenas de caixas: mostra as primeiras,
+  // com as que tem problema na frente.
+  const rank = info => (info.state === 'danger' ? 0 : info.state === 'full' ? 1 : 2);
+  const sorted = a.boxInfo.slice().sort((x, y) => rank(x) - rank(y) || planningNaturalCompare(x.box.name, y.box.name));
+  const shown = _planningBoxesAll ? sorted : sorted.slice(0, PLANNING_BOXES_PREVIEW);
+  const moreButton = sorted.length > PLANNING_BOXES_PREVIEW
+    ? `<button type="button" class="secondary-action pj-boxes-more" onclick="_planningBoxesAll=!_planningBoxesAll;renderPlanningDetail()">${_planningBoxesAll ? 'Mostrar menos' : `Mostrar todas as ${sorted.length} caixas`}</button>` : '';
+  box.innerHTML = shown.map(info => {
     const feed = [
       info.parent ? `${info.parent.name}${info.box.metadata?.port_number ? ` porta ${info.box.metadata.port_number}` : ''}` : 'Sem CTO/OLT ligada',
       info.onu ? `${PLANNING_TYPES[info.onu.device_type]} ${info.onu.model || ''}`.trim() : 'sem ONU',
@@ -549,7 +558,7 @@ function planningRenderBoxes(a) {
         ${camRows ? `<ul class="pj-cams">${camRows}</ul>` : ''}
         <button type="button" class="pj-box-more" onclick="openPlanningBoxDetails(${Number(info.box.id)})">${planningEscape(more)}</button>
       </article>`;
-  }).join('');
+  }).join('') + moreButton;
 }
 
 function planningSetTab(tab, scroll = true) {
@@ -591,6 +600,16 @@ function planningToggleLayer(key) {
   document.querySelectorAll(`.pj-layer.${key}`).forEach(button => button.setAttribute('aria-pressed', String(_planningLayerOn[key])));
 }
 
+// Rotulo da caixa no mapa: numero dela (CX-03 -> 03); caixa criada pela
+// importacao (uma por ONU) mostra quantas cameras tem.
+function planningBoxLabel(item, a) {
+  if (item.metadata?.auto) {
+    const info = a?.boxInfo?.find(row => Number(row.box.id) === Number(item.id));
+    return String(info ? info.cameras.length : '');
+  }
+  return planningShortLabel(item.name);
+}
+
 function planningShortLabel(name) {
   const match = String(name || '').match(/(\d+)(?!.*\d)/);
   return match ? match[1].slice(-3) : String(name || '?').slice(0, 3).toUpperCase();
@@ -609,7 +628,7 @@ async function renderPlanningMap() {
   if (!_planningMap || _planningMap.getContainer() !== container) {
     _planningMap = L.map(container, { zoomControl: true }).setView([-9.76, -36.67], 14);
     const streets = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 20, maxNativeZoom: 19, attribution: '&copy; OpenStreetMap' });
-    const satellite = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxZoom: 20, maxNativeZoom: 19, attribution: 'Imagens &copy; Esri' });
+    const satellite = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxZoom: 20, maxNativeZoom: 18, attribution: 'Imagens &copy; Esri' });
     streets.addTo(_planningMap);
     L.control.layers({ Mapa: streets, Satelite: satellite }, null, { position: 'topright' }).addTo(_planningMap);
   }
@@ -643,7 +662,9 @@ async function renderPlanningMap() {
   routes.forEach(route => {
     const cfg = PLANNING_ROUTE_KINDS[route.kind] || PLANNING_ROUTE_KINDS.utp;
     const over = route.kind === 'utp' && Number(route.length_m) + Number(route.slack_m || 0) > max;
-    L.polyline(route.path.map(pt => [pt.lat, pt.lon]), { color: over ? '#c92a2a' : cfg.color, weight: cfg.weight, dashArray: cfg.dash, opacity: .95 })
+    const ramalHex = PLANNING_FIBER_HEX[String(route.metadata?.ramal || '').toLowerCase()];
+    if (ramalHex) L.polyline(route.path.map(pt => [pt.lat, pt.lon]), { color: '#13252d', weight: cfg.weight + 3, opacity: .8, interactive: false }).addTo(_planningMapGroups.fiber);
+    L.polyline(route.path.map(pt => [pt.lat, pt.lon]), { color: over ? '#c92a2a' : (ramalHex || cfg.color), weight: cfg.weight, dashArray: cfg.dash, opacity: .95 })
       .bindTooltip(`${cfg.label} · ${Math.round(route.length_m)} m tracados`, { sticky: true })
       .addTo(route.kind === 'utp' ? _planningMapGroups.utp : _planningMapGroups.fiber);
     route.path.forEach(pt => bounds.push([pt.lat, pt.lon]));
@@ -677,17 +698,19 @@ async function renderPlanningMap() {
       group = 'cameras';
     } else if (item.device_type === 'box') {
       const state = boxState.get(Number(item.id));
-      marker = L.marker([lat, lon], { icon: planningMapIcon(state === 'danger' ? 'box-danger' : state === 'full' ? 'box-full' : 'box', planningShortLabel(item.name)), zIndexOffset: 600 });
+      marker = L.marker([lat, lon], { icon: planningMapIcon(state === 'danger' ? 'box-danger' : state === 'full' ? 'box-full' : 'box', planningBoxLabel(item, a)), zIndexOffset: 600 });
       group = 'boxes';
     } else {
       // Equipamento dentro da caixa repete a coordenada dela: nao desenha de novo.
       const insideBox = a.boxInfo.some(info => info.inside.some(child => Number(child.id) === Number(item.id)));
       if (insideBox) return;
       const kind = planningPointKind(item);
-      marker = L.marker([lat, lon], { icon: planningMapIcon(kind), zIndexOffset: kind === 'pole' ? 0 : 500 });
+      marker = L.marker([lat, lon], { icon: planningMapIcon(kind, '', planningFeedColor(item)), zIndexOffset: kind === 'pole' ? 0 : 500 });
       group = 'network';
     }
-    marker.bindPopup(planningPopupHtml(item)).addTo(_planningMapGroups[group]);
+    if (item.device_type === 'cto') marker.bindPopup(() => planningCtoCardHtml(item), { minWidth: 300, maxWidth: 360 });
+    else marker.bindPopup(planningPopupHtml(item));
+    marker.addTo(_planningMapGroups[group]);
     _planningMarkers[item.id] = marker;
     bounds.push([lat, lon]);
   });

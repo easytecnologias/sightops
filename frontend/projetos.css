@@ -370,3 +370,59 @@ body.pe-open { overflow: hidden; }
   .pe-side { flex: 0 0 auto; max-height: 40vh; border-left: 0; border-top: 1px solid var(--border); }
   .pe-totals { display: none; }
 }
+
+/* ---------- Fibra: chips de cor, cartao da CTO, cabo ---------- */
+.pf-chip { display: inline-flex; align-items: center; gap: 5px; padding: 1px 8px 1px 4px; border: 1px solid var(--border); border-radius: 99px; background: var(--surface); color: var(--text); font-size: 11px; font-weight: 600; white-space: nowrap; vertical-align: middle; }
+.pf-chip i { display: inline-block; width: 11px; height: 11px; border: 1px solid rgba(23, 32, 38, .35); border-radius: 99px; }
+.pf-warn { color: var(--amber); font-weight: 600; }
+.pf-free { color: var(--muted); font-style: italic; }
+.pf-ok { color: var(--primary); font-weight: 600; }
+
+.pf-card { display: flex; flex-direction: column; gap: 10px; width: 300px; font-family: Inter, Arial, sans-serif; color: var(--text); }
+.pf-card-head { display: flex; align-items: center; gap: 10px; }
+.pf-card-head strong { display: block; font-size: 15px; }
+.pf-card-head small { color: var(--muted); font-size: 12px; }
+.pf-card-icon { display: grid; flex: 0 0 36px; place-items: center; }
+.pf-feed, .pf-power { display: grid; gap: 2px 10px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-soft); font-size: 12px; }
+.pf-feed > span, .pf-power > span { color: var(--muted); font-size: 11px; font-weight: 600; }
+.pf-power { grid-template-columns: auto auto; align-items: baseline; }
+.pf-power strong { font-size: 13px; }
+.pf-power small { grid-column: 1 / -1; color: var(--muted); font-size: 11px; }
+.pf-ports { width: 100%; border-collapse: collapse; font-size: 12px; }
+.pf-ports th { padding: 4px 6px; border-bottom: 1px solid var(--border); color: var(--muted); font-size: 10px; font-weight: 700; letter-spacing: .04em; text-align: left; text-transform: uppercase; }
+.pf-ports td { padding: 5px 6px; border-bottom: 1px solid #eef1f3; vertical-align: top; }
+.pf-ports td small { display: block; color: var(--muted); font-size: 11px; }
+.pf-port { width: 34px; font-weight: 800; text-align: center; }
+.pf-dbm { white-space: nowrap; text-align: right; font-weight: 600; }
+.pf-dbm.ok { color: var(--primary); }
+.pf-dbm.warn { color: var(--amber); }
+.pf-dbm.danger { color: var(--danger); }
+.pf-note { color: #445159; font-size: 12px; line-height: 1.6; }
+.pf-from-kmz { color: var(--muted); font-size: 12px; }
+
+.pf-fibers { display: flex; flex-direction: column; gap: 2px; padding: 4px 18px 10px; }
+.pf-fibers .pe-group { padding-left: 0; }
+.pf-fiber-row { display: grid; grid-template-columns: 34px auto minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 4px 0; border-bottom: 1px solid #eef1f3; font-size: 12px; }
+.pf-fiber-row.is-used .pf-fiber-state { font-weight: 700; }
+.pf-fiber-n { color: var(--muted); font-size: 11px; font-weight: 700; text-align: right; }
+.pf-fiber-state { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pf-fiber-kmz { padding: 0 6px; border-radius: 4px; background: #eef1f3; color: #445159; font-size: 10px; white-space: nowrap; }
+.pf-fiber-kmz.diff { background: var(--danger-soft); color: var(--danger); font-weight: 700; }
+.pf-legend { margin-top: 4px; color: var(--muted); font-size: 11px; }
+
+.pf-new { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; margin-bottom: 14px; }
+.pf-new-card { position: relative; display: flex; flex-direction: column; gap: 6px; padding: 16px; border: 1px solid var(--border); border-radius: 12px; cursor: pointer; }
+.pf-new-card:has(input:checked) { border: 2px solid var(--primary); background: var(--primary-soft); }
+.pf-new-card input { position: absolute; top: 14px; right: 14px; accent-color: var(--primary); }
+.pf-new-card strong { font-size: 15px; }
+.pf-new-card small { color: var(--muted); font-size: 12px; line-height: 1.45; }
+.pf-new-icon { display: grid; place-items: start; height: 38px; }
+.pf-new-kmz.hidden { display: none; }
+.pf-report ul { margin: 0 0 10px; padding-left: 18px; line-height: 1.8; }
+.pf-report-warn { margin: 10px 0; padding: 10px 12px; border: 1px solid #f0d9a8; border-radius: 10px; background: var(--amber-soft); color: #6b4300; font-size: 13px; }
+.pf-report-warn ul { margin: 6px 0 0; }
+.pf-report details { color: var(--muted); font-size: 12px; }
+.pf-dot { display: inline-block; flex: 0 0 auto; width: 14px; height: 14px; margin: 0 10px; border: 2px solid #fff; border-radius: 99px; box-shadow: 0 0 0 1px rgba(23, 32, 38, .35); }
+.pf-mini { margin: 0; padding: 7px 9px; font-size: 11px; line-height: 1.45; }
+.pe-route-row > span.pf-dot { flex: 0 0 14px; }
+.pj-boxes-more { grid-column: 1 / -1; justify-self: center; }
