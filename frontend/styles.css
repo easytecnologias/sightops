@@ -12519,3 +12519,9 @@ table.recorder-tabela tbody tr:hover { background: var(--surface-soft); }
 #deployRecorderApp .rl-qr-txt{display:flex;flex-direction:column;gap:4px;min-width:0}
 #deployRecorderApp .rl-qr-txt b{font-size:16px}
 #deployRecorderApp .rl-qr-txt small{color:var(--muted);font-size:12.5px}
+/* ── Gravador: leitura em duas fases (deploy.js, recXrayEstado) ── */
+#deployRecorderApp .rec-lido{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--muted)}
+#deployRecorderApp .rec-lido.erro{color:var(--danger)}
+#deployRecorderApp .rec-lido .giro{width:10px;height:10px;border-radius:50%;border:2px solid var(--border);border-top-color:var(--primary);animation:recGiro 0.9s linear infinite}
+@keyframes recGiro{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion: reduce){#deployRecorderApp .rec-lido .giro{animation:none}}

@@ -4118,40 +4118,123 @@ function deployRecorderPintarKpis(d) {
     `<div class="recorder-kpi ${cls}"><b>${esc(String(v ?? '-'))}</b><span>${esc(rot)}</span></div>`).join('');
 }
 
+// Entrar num gravador. A Intelbras atende UM pedido CGI por vez: ler tudo de
+// uma vez levava 14,5 s no NVD 7132 (31 pedidos), contra 0,4 s na Hikvision.
+// Agora:
+//   1) se este gravador ja foi lido nesta aba, a tela abre NA HORA com a
+//      ultima leitura ("lido ha X min") e atualiza por tras;
+//   2) fase "essencial" (~2,4 s: identificacao, cameras, discos, nomes) abre
+//      a tela;
+//   3) fase "resto" (codec, deteccoes, alarmes, rede, servicos) chega em
+//      segundo plano e e mesclada canal por canal.
+// Cache em memoria, por cliente + gravador + porta + conector: trocar de
+// cliente nunca mostra o gravador de outro.
+const _recXrayCache = new Map();
+
+function recXrayChave(p) {
+  const tenant = String(_currentUser?.effective_tenant_slug || _currentUser?.tenant_slug || '');
+  return `${tenant}|${p.recorder_host}|${p.recorder_http_port || 80}|${p.connector_id || ''}`;
+}
+
+function recXrayMesclarResto(d, resto) {
+  const extra = resto.canais_extra || {};
+  (d.canais || []).forEach(c => { const x = extra[c.canal] || extra[String(c.canal)]; if (x) Object.assign(c, x); });
+  ['rede', 'servicos', 'gravacao', 'plataforma', 'deteccao', 'alarmes'].forEach(k => { if (resto[k]) d[k] = resto[k]; });
+  if (resto.equipamento_extra) d.equipamento = { ...(d.equipamento || {}), ...resto.equipamento_extra };
+  d.fase = 'completo';
+  return d;
+}
+
+async function recXrayPedir(p, fase, marca = '') {
+  const res = await api('/api/deployments/recorder-xray', {
+    method: 'POST',
+    body: JSON.stringify({
+      recorder_host: p.recorder_host,
+      recorder_user: p.recorder_user,
+      recorder_password: p.recorder_password,
+      recorder_http_port: p.recorder_http_port,
+      connector_id: p.connector_id || '',
+      fase, marca,
+    }),
+  });
+  const data = await res?.json().catch(() => ({}));
+  if (!res?.ok || data?.ok === false) throw new Error(data?.detail || data?.error || 'nao consegui ler o gravador');
+  return data;
+}
+
 async function deployRecorderCarregarXray() {
   const p = deployStandaloneRecorderPayload();
   // Senha vazia nao e impedimento: em gravador conhecido quem tem a senha e o
   // servidor. Sem esta excecao o raio-x saia calado e a tela ficava parada.
   if (!p.recorder_host || !p.recorder_user) return;
   if (!p.recorder_password && !recTemSenhaSalva(p.recorder_host)) return;
-  deployRecorderPintarCarregando();
-  recProgresso(p.recorder_host, 1);
-  try {
-    const res = await api('/api/deployments/recorder-xray', {
-      method: 'POST',
-      body: JSON.stringify({
-        recorder_host: p.recorder_host,
-        recorder_user: p.recorder_user,
-        recorder_password: p.recorder_password,
-        recorder_http_port: p.recorder_http_port,
-        connector_id: p.connector_id || '',
-      }),
-    });
-    const data = await res?.json().catch(() => ({}));
-    if (!res?.ok || data?.ok === false) {
-      deployRecorderPintarErro(data?.detail || data?.error || 'nao consegui ler o gravador');
-      recProgressoErro(data?.detail || data?.error);
-      return;
-    }
-    recProgresso(p.recorder_host, 2);
-    _deployRecorderXray = data;
-    deployRecorderPintarXray(data);
+  const chave = recXrayChave(p);
+  const aindaEste = () => recXrayChave(deployStandaloneRecorderPayload()) === chave;
+  const guardado = _recXrayCache.get(chave);
+  if (guardado) {
+    // Copia: a leitura nova e mesclada por cima sem mexer no guardado.
+    _deployRecorderXray = { ...JSON.parse(JSON.stringify(guardado.dados)), _lidoEm: guardado.em, _atualizando: true };
+    deployRecorderPintarXray(_deployRecorderXray);
     recProgressoFim();
     recPintarApp();
+  } else {
+    deployRecorderPintarCarregando();
+    recProgresso(p.recorder_host, 1);
+  }
+  try {
+    const d = await recXrayPedir(p, 'essencial');
+    if (!aindaEste()) return;
+    if (d.fase === 'essencial' && guardado) {
+      // Enquanto o resto nao chega, o que ja se sabia de antes continua na tela.
+      // So os campos que a fase "resto" traz: nome e IP do canal vem da leitura nova.
+      const CAMPOS_RESTO = ['resolucao', 'fps', 'taxa_kbps', 'codec', 'perfil', 'movimento', 'perda_video', 'encoberta', 'movida'];
+      const extra = Object.fromEntries((guardado.dados.canais || []).map(c =>
+        [c.canal, Object.fromEntries(CAMPOS_RESTO.filter(k => k in c).map(k => [k, c[k]]))]));
+      recXrayMesclarResto(d, { ...guardado.dados, canais_extra: extra, equipamento_extra: { nome: guardado.dados.equipamento?.nome || '' } });
+      d.fase = 'essencial';
+    }
+    if (!guardado) recProgresso(p.recorder_host, 2);
+    d._atualizando = d.fase === 'essencial';
+    _deployRecorderXray = d;
+    deployRecorderPintarXray(d);
+    recProgressoFim();
+    recPintarApp();
+    if (d.fase === 'essencial') {
+      const resto = await recXrayPedir(p, 'resto', d.marca || '');
+      if (!aindaEste() || _deployRecorderXray !== d) return;
+      recXrayMesclarResto(d, resto);
+      d._atualizando = false;
+    }
+    _recXrayCache.set(chave, { dados: JSON.parse(JSON.stringify({ ...d, _lidoEm: undefined, _atualizando: undefined })), em: Date.now() });
+    if (aindaEste() && _deployRecorderXray === d) { deployRecorderPintarXray(d); recPintarApp(); }
   } catch (e) {
+    if (!aindaEste()) return;
+    if (_deployRecorderXray && guardado) {
+      // Tinha a leitura anterior na tela: avisa, nao apaga.
+      _deployRecorderXray._atualizando = false;
+      _deployRecorderXray._erroAtualizar = String(e?.message || e);
+      recPintarApp();
+      return;
+    }
+    if (_deployRecorderXray && _deployRecorderXray.fase === 'essencial') {
+      _deployRecorderXray._atualizando = false;
+      _deployRecorderXray._erroAtualizar = String(e?.message || e);
+      recPintarApp();
+      return;
+    }
     deployRecorderPintarErro(String(e?.message || e));
     recProgressoErro(e?.message || e);
   }
+}
+
+function recXrayEstado(d) {
+  if (d._erroAtualizar) return `<span class="rec-lido erro" title="${esc(d._erroAtualizar)}">não consegui atualizar</span>`;
+  if (d._atualizando) return '<span class="rec-lido"><i class="giro"></i>completando a leitura…</span>';
+  if (d._lidoEm) {
+    const min = Math.max(1, Math.round((Date.now() - d._lidoEm) / 60000));
+    return `<span class="rec-lido">lido há ${min} min</span>`;
+  }
+  return '';
 }
 
 function _dx(id) { return document.getElementById(id); }
@@ -5675,6 +5758,7 @@ function recPintarApp() {
         <span>${esc([d.marca, eq.firmware].filter(Boolean).join(' · '))}</span>
       </div>
       <div class="barra-dir">
+        ${recXrayEstado(d)}
         ${criticos ? `<span class="sinal erro"><i></i>${criticos} achados</span>`
                    : '<span class="sinal ok"><i></i>sem achado</span>'}
         <button class="acao forte" type="button" data-rec-salvar="1">Salvar no inventario</button>

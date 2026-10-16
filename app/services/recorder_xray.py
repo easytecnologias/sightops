@@ -193,8 +193,116 @@ def _cgi_indexado(pares: Dict[str, str], prefixo: str, campo: str) -> Dict[int, 
     return saida
 
 
-def _xray_intelbras(base: str, user: str, password: str) -> Dict[str, Any]:
+def _bool_ou_none(mapa: Dict[int, str], i: int):
+    """True/False quando a secao foi lida; None quando ainda nao (fase essencial)."""
+    return (mapa.get(i) == "true") if mapa else None
+
+
+def _equipamento_intelbras(equipamento: Dict[str, str]) -> Dict[str, str]:
+    return {
+        "modelo": equipamento.get("type", ""),
+        "serial": equipamento.get("serialnumber", ""),
+        "firmware": equipamento.get("version", ""),
+        "compilacao": equipamento.get("build", ""),
+        "processador": equipamento.get("processor", ""),
+        "plataforma": equipamento.get("updateserial", ""),
+        "nome": equipamento.get("name", ""),
+    }
+
+
+def _xray_intelbras_resto(cru: Dict[str, Dict[str, str]], v) -> Dict[str, Any]:
+    """O que a fase essencial deixou de fora, para a tela mesclar por canal."""
+    enc = cru.get("Encode", {})
+    deteccoes = {
+        rotulo: _cgi_indexado(cru.get(secao, {}), secao, "Enable")
+        for secao, rotulo in (
+            ("MotionDetect", "movimento"), ("LossDetect", "perda_video"),
+            ("BlindDetect", "encoberta"), ("MovedDetect", "movida"), ("AudioDetect", "audio"),
+        )
+    }
+    indices = set(_cgi_indexado(enc, "Encode", "MainFormat[0].Video.Compression"))
+    for m in deteccoes.values():
+        indices |= set(m)
+    extra: Dict[int, Dict[str, Any]] = {}
+    for i in sorted(indices):
+        largura = enc.get(f"table.Encode[{i}].MainFormat[0].Video.Width", "")
+        altura = enc.get(f"table.Encode[{i}].MainFormat[0].Video.Height", "")
+        extra[i + 1] = {
+            "resolucao": f"{largura}x{altura}" if largura and altura else "",
+            "fps": enc.get(f"table.Encode[{i}].MainFormat[0].Video.FPS", ""),
+            "taxa_kbps": enc.get(f"table.Encode[{i}].MainFormat[0].Video.BitRate", ""),
+            "codec": enc.get(f"table.Encode[{i}].MainFormat[0].Video.Compression", ""),
+            "perfil": enc.get(f"table.Encode[{i}].MainFormat[0].Video.Profile", ""),
+            "movimento": _bool_ou_none(deteccoes["movimento"], i),
+            "perda_video": _bool_ou_none(deteccoes["perda_video"], i),
+            "encoberta": _bool_ou_none(deteccoes["encoberta"], i),
+            "movida": _bool_ou_none(deteccoes["movida"], i),
+        }
+
+    def contar(rotulo: str) -> Dict[str, int]:
+        mapa = deteccoes.get(rotulo, {})
+        return {"ligados": sum(1 for x in mapa.values() if x == "true"), "total": len(mapa)}
+
+    return {
+        "marca": "Intelbras",
+        "fase": "resto",
+        "canais_extra": extra,
+        "rede": {
+            "ip": v("Network", "Network.eth0.IPAddress"),
+            "mascara": v("Network", "Network.eth0.SubnetMask"),
+            "gateway": v("Network", "Network.eth0.DefaultGateway"),
+            "mac": v("Network", "Network.eth0.PhysicalAddress"),
+            "mtu": v("Network", "Network.eth0.MTU"),
+            "dns": v("Network", "Network.DNSServer[0]"),
+        },
+        "servicos": {
+            "ntp_ligado": v("NTP", "NTP.Enable") == "true",
+            "ntp_servidor": v("NTP", "NTP.Address"),
+            "email_ligado": v("Email", "Email.Enable") == "true",
+            "snmp_ligado": v("SNMP", "SNMP.Enable") == "true",
+            "https_ligado": v("Https", "Https.Enable") == "true",
+            "nas_ligado": v("NAS", "NAS[0].Enable") == "true",
+        },
+        "gravacao": {
+            "por_canal": {
+                int(n) + 1: ("desligado" if modo == "2" else "manual" if modo == "1" else "programado")
+                for n, modo in sorted(_cgi_indexado(cru.get("RecordMode", {}), "RecordMode", "Mode").items())
+            },
+        },
+        "plataforma": {
+            "ligada": v("T2UServer", "T2UServer[0].Enable") == "true",
+            "servidor": v("T2UServer", "T2UServer[0].Address"),
+        },
+        "deteccao": {rotulo: contar(rotulo) for rotulo in deteccoes},
+        "alarmes": {
+            rotulo: (cru.get(secao, {}).get(f"table.{secao}.Enable")
+                     or cru.get(secao, {}).get(f"table.{secao}[0].Enable")) == "true"
+            for secao, rotulo in (
+                ("StorageLowSpace", "disco_cheio"), ("StorageFailure", "disco_falhou"),
+                ("StorageNotExist", "sem_disco"), ("IPConflict", "ip_duplicado"),
+                ("MacConflict", "mac_duplicado"), ("NetAbort", "rede_caiu"),
+                ("LoginFailureAlarm", "login_falho"), ("FanSpeedAlarm", "ventoinha"),
+            )
+        },
+    }
+
+
+# Fases da leitura Intelbras. O gravador atende UM CGI por vez (medido no NVD
+# 7132: ~0,5 s por pedido sozinho, ~3 s cada com 6 em paralelo -- 31 pedidos,
+# 14,5 s para abrir a tela; a Hikvision abre em 0,4 s). "essencial" e o minimo
+# para a tela aparecer (identificacao, cameras, discos, nomes); "resto" traz o
+# que so serve a avisos, deteccao, rede e servicos, e vem em segundo plano.
+_SECOES_ESSENCIAIS = ("ChannelTitle",)
+
+
+def _xray_intelbras(base: str, user: str, password: str, fase: str = "completo") -> Dict[str, Any]:
     cru: Dict[str, Dict[str, str]] = {}
+    if fase == "essencial":
+        secoes = [n for n in _SECOES_CGI if n in _SECOES_ESSENCIAIS]
+    elif fase == "resto":
+        secoes = [n for n in _SECOES_CGI if n not in _SECOES_ESSENCIAIS]
+    else:
+        secoes = list(_SECOES_CGI)
 
     def buscar(nome: str) -> Tuple[str, Dict[str, str]]:
         cod, corpo = _pedir(
@@ -203,20 +311,31 @@ def _xray_intelbras(base: str, user: str, password: str) -> Dict[str, Any]:
         return nome, (_cgi_pares(corpo) if cod and 200 <= cod < 300 else {})
 
     with ThreadPoolExecutor(max_workers=_PARALELO) as pool:
-        for nome, pares in pool.map(buscar, list(_SECOES_CGI)):
+        for nome, pares in pool.map(buscar, secoes):
             cru[nome] = pares
 
     def v(secao: str, chave: str) -> str:
         return cru.get(secao, {}).get(f"table.{chave}", "")
 
-    # identidade vem do magicBox, nao do configManager
+    if fase == "resto":
+        resto = _xray_intelbras_resto(cru, v)
+        cod, corpo = _pedir(f"{base}/cgi-bin/magicBox.cgi?action=getMachineName", user, password, timeout=6.0)
+        if cod and 200 <= cod < 300:
+            resto["equipamento_extra"] = {"nome": _cgi_pares(corpo).get("name", "")}
+        return resto
+
+    # identidade vem do magicBox, nao do configManager. O nome da maquina vai
+    # para o "resto" (o deviceType do getSystemInfo e um codigo, "31", nao o
+    # modelo -- o modelo so vem do getDeviceType).
     equipamento: Dict[str, str] = {}
-    for caminho in (
+    caminhos = (
         "/cgi-bin/magicBox.cgi?action=getDeviceType",
         "/cgi-bin/magicBox.cgi?action=getSystemInfo",
         "/cgi-bin/magicBox.cgi?action=getSoftwareVersion",
-        "/cgi-bin/magicBox.cgi?action=getMachineName",
-    ):
+    )
+    if fase != "essencial":
+        caminhos = caminhos + ("/cgi-bin/magicBox.cgi?action=getMachineName",)
+    for caminho in caminhos:
         cod, corpo = _pedir(f"{base}{caminho}", user, password, timeout=6.0)
         if cod and 200 <= cod < 300:
             for chave, valor in _cgi_pares(corpo).items():
@@ -273,10 +392,10 @@ def _xray_intelbras(base: str, user: str, password: str) -> Dict[str, Any]:
             "taxa_kbps": enc.get(f"table.Encode[{i}].MainFormat[0].Video.BitRate", ""),
             "codec": enc.get(f"table.Encode[{i}].MainFormat[0].Video.Compression", ""),
             "perfil": enc.get(f"table.Encode[{i}].MainFormat[0].Video.Profile", ""),
-            "movimento": deteccoes["movimento"].get(i) == "true",
-            "perda_video": deteccoes["perda_video"].get(i) == "true",
-            "encoberta": deteccoes["encoberta"].get(i) == "true",
-            "movida": deteccoes["movida"].get(i) == "true",
+            "movimento": _bool_ou_none(deteccoes["movimento"], i),
+            "perda_video": _bool_ou_none(deteccoes["perda_video"], i),
+            "encoberta": _bool_ou_none(deteccoes["encoberta"], i),
+            "movida": _bool_ou_none(deteccoes["movida"], i),
         })
 
     # discos
@@ -330,8 +449,19 @@ def _xray_intelbras(base: str, user: str, password: str) -> Dict[str, Any]:
         mapa = deteccoes.get(rotulo, {})
         return {"ligados": sum(1 for x in mapa.values() if x == "true"), "total": len(mapa)}
 
+    if fase == "essencial":
+        # Sem rede/servicos/deteccao/alarmes: chegam no "resto". A tela nao pode
+        # tomar ausencia por "desligado" (viraria achado falso).
+        return {
+            "marca": "Intelbras", "fase": "essencial",
+            "equipamento": _equipamento_intelbras(equipamento),
+            "canais": canais, "discos": discos,
+            "total_canais": len(titulos) or len(canais),
+        }
+
     return {
         "marca": "Intelbras",
+        "fase": "completo",
         "equipamento": {
             "modelo": equipamento.get("type", ""),
             "serial": equipamento.get("serialnumber", ""),
@@ -976,11 +1106,26 @@ def buscar_cameras(host: str, user: str, password: str, porta: Any = None,
 
 
 def raio_x(host: str, user: str, password: str, porta: Any = None,
-           connector_id: str = "") -> Dict[str, Any]:
-    """Le tudo que o gravador expoe. Levanta ValueError se nao entrar."""
+           connector_id: str = "", fase: str = "completo", marca: str = "") -> Dict[str, Any]:
+    """Le tudo que o gravador expoe. Levanta ValueError se nao entrar.
+
+    `fase` so muda a Intelbras ("essencial" abre a tela, "resto" completa);
+    Hikvision responde tudo em menos de 1 s e sempre vem completa. `marca`
+    (da fase anterior) poupa um pedido de deteccao.
+    """
     base = _base(host, porta, connector_id)  # recusa IP fora das redes do conector
-    marca = detectar_marca(base, user, password)
-    dados = (_xray_hikvision if marca == "hikvision" else _xray_intelbras)(base, user, password)
+    marca = (marca or "").strip().lower()
+    if marca not in ("hikvision", "intelbras"):
+        marca = detectar_marca(base, user, password)
+    if marca == "hikvision":
+        dados = _xray_hikvision(base, user, password)
+        dados.setdefault("fase", "completo")
+    else:
+        fase = fase if fase in ("essencial", "resto") else "completo"
+        dados = _xray_intelbras(base, user, password, fase)
+        if fase == "resto":
+            dados["host"] = host
+            return dados
     if not dados.get("equipamento", {}).get("modelo") and not dados.get("canais"):
         raise ValueError("o gravador respondeu, mas nao devolveu nada util -- confira usuario e senha")
     dados["host"] = host

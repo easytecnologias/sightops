@@ -1661,7 +1661,10 @@ def api_deployments_recorder_xray(payload: Dict[str, Any]) -> Dict[str, Any]:
     porta = payload.get("recorder_http_port") or payload.get("http_port")
     try:
         from app.services.recorder_xray import raio_x
-        dados = raio_x(host, user, password, porta, connector_id)
+        # fase: "essencial" abre a tela, "resto" completa (Intelbras; ver raio_x).
+        dados = raio_x(host, user, password, porta, connector_id,
+                       fase=_text(payload.get("fase")) or "completo",
+                       marca=_text(payload.get("marca")))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
