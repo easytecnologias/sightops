@@ -168,7 +168,49 @@ function rlPortas(d) {
   return `<div class="bloco"><div class="bloco-cab"><div><h2>Portas e acessos</h2><p>Por onde se entra no gravador · lido agora da configuração</p></div></div>
     ${rlLinhas(lin)}
     ${p.falhas && p.falhas.length ? `<p class="rl-dica">Não li: ${esc(p.falhas.join('; '))}</p>` : ''}
-  </div>`;
+  </div>${rlCelular(d, p.p2p.ligado)}`;
+}
+
+// QR Code para o iSIC Lite: o app da Intelbras adiciona o gravador pela nuvem
+// (P2P) lendo o NUMERO DE SERIE. So funciona com a nuvem ligada -- que e o
+// mesmo acesso que a linha acima marca como risco: o celular entra sem passar
+// pelo SightOps. A biblioteca do QR so carrega quando esta aba abre.
+function rlCelular(d, p2pLigado) {
+  const serie = String((d.equipamento || {}).serial || '').trim();
+  if (!serie) return '';
+  return `<div class="bloco"><div class="bloco-cab"><div><h2>Ver no celular (iSIC Lite)</h2>
+      <p>${p2pLigado ? 'Aponte o iSIC Lite para o QR: Adicionar dispositivo → Cloud (P2P) → ler QR Code' : '<b class="rl-ruim">A nuvem P2P está desligada: o QR só funciona com ela ligada</b>'}</p></div></div>
+    <div class="rl-qr-caixa">
+      <div class="rl-qr" data-rl-qr="${esc(serie)}" aria-label="QR Code do número de série"></div>
+      <div class="rl-qr-txt">
+        <span class="rl-rot">Número de série</span><b class="mono">${esc(serie)}</b>
+        <small>Depois de ler, o app pede usuário e senha do gravador (os mesmos que o SightOps usa).</small>
+        <small>Quem tiver esse QR e a senha vê as câmeras pelo celular, fora do SightOps.</small>
+      </div>
+    </div></div>`;
+}
+
+function rlCarregarQr() {
+  if (window.QRCode) return Promise.resolve(window.QRCode);
+  if (rlCarregarQr._p) return rlCarregarQr._p;
+  rlCarregarQr._p = new Promise((ok, falha) => {
+    const s = document.createElement('script');
+    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js';
+    s.onload = () => (window.QRCode ? ok(window.QRCode) : falha(new Error('sem QRCode')));
+    s.onerror = () => { rlCarregarQr._p = null; falha(new Error('não carregou o gerador de QR')); };
+    document.head.appendChild(s);
+  });
+  return rlCarregarQr._p;
+}
+
+function rlDesenharQr(app) {
+  const el = app.querySelector('[data-rl-qr]');
+  if (!el || el.dataset.feito) return;
+  el.dataset.feito = '1';
+  rlCarregarQr().then(QR => {
+    el.innerHTML = '';
+    new QR(el, { text: el.dataset.rlQr, width: 168, height: 168, correctLevel: QR.CorrectLevel.M });
+  }).catch(e => { el.innerHTML = `<small class="rl-ruim">${esc(e.message)}</small>`; });
 }
 
 // ---------------------------------------------------------------- 4. Alertas de rede
@@ -193,6 +235,7 @@ function rlAlertas(d) {
 
 function rlLigar(app, d) {
   rlCarregar(d);
+  rlDesenharQr(app);
   app.querySelectorAll('[data-rl-reler]').forEach(b => b.addEventListener('click', () => rlCarregar(d, true).then(recPintarApp)));
 }
 
