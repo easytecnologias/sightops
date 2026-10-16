@@ -12437,3 +12437,8 @@ table.recorder-tabela tbody tr:hover { background: var(--surface-soft); }
 #deployRecorderApp .g5-h-bom .g5-h-txt b{color:var(--primary)}
 #deployRecorderApp .g5-h-sightops{border-left:3px solid var(--primary);padding-left:8px}
 @media (max-width:640px){#deployRecorderApp .g5-hist li{grid-template-columns:1fr auto}#deployRecorderApp .g5-h-quando{grid-column:1/-1}}
+/* ── Gravador: Rede, esqueleto das abas (gravador-rede.js) ── */
+#deployRecorderApp .rede{display:flex;flex-direction:column;gap:12px}
+#deployRecorderApp .rede-abas{display:flex;flex-wrap:wrap;gap:4px;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:4px}
+#deployRecorderApp .rede-abas button{min-height:38px;padding:0 14px;border:0;border-radius:7px;background:transparent;color:var(--text);font:inherit;font-size:13px;cursor:pointer}
+#deployRecorderApp .rede-abas button[aria-selected="true"]{background:var(--primary);color:#fff;font-weight:600}
