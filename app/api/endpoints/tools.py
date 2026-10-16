@@ -191,6 +191,9 @@ def _list_kmz_import_layers(include_features: bool = True) -> list[dict[str, Any
             "download_url": f"/api/kmz/import/layers/{layer_id}/download-enriched",
             "raw_download_url": f"/api/kmz/import/layers/{layer_id}/download",
             "update_url": f"/api/kmz/import/layers/{layer_id}",
+            # camada criada no mapa aparece mesmo vazia (as outras com 0
+            # pontos seguem escondidas na tela)
+            "origem": str(meta.get("origem") or ""),
             **({"features": features, "type": geojson.get("type") or "FeatureCollection"} if include_features else {}),
         })
     return layers
@@ -1437,6 +1440,35 @@ def api_mapa_resolver_link(url: str) -> Dict[str, Any]:
 async def api_kmz_import_layers(include_features: bool = True) -> Dict[str, Any]:
     layers = _list_kmz_import_layers(include_features=include_features)
     return {"ok": True, "count": len(layers), "layers": layers}
+
+
+@router.post("/kmz/import/layers")
+async def api_kmz_import_layer_create(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Camada nova, sem arquivo: nasce vazia e os pontos sao marcados no mapa.
+
+    Nao mexe no "ultimo importado" de compatibilidade (KMZ_IMPORTED_PATH):
+    uma camada vazia nao deve substituir o mapa que os endpoints antigos leem.
+    """
+    from app.services.kmz_ops import criar_kmz_vazio
+
+    label = str(payload.get("label") or "").strip()[:120]
+    if not label:
+        raise HTTPException(400, "Informe o nome da camada.")
+    layer_id = f"{datetime.now().strftime('%Y%m%d-%H%M%S')}-{_safe_name(label)}-{secrets.token_hex(3)}"
+    kmz_path, geojson_path, meta_path = _kmz_layer_paths(layer_id)
+    criar_kmz_vazio(kmz_path, label)
+    geojson_path.write_text(json.dumps(kmz_to_geojson(kmz_path), ensure_ascii=False), encoding="utf-8")
+    meta = {
+        "id": layer_id,
+        "original_name": f"{label}.kmz",
+        "label": label,
+        "created_at": datetime.now().isoformat(timespec="seconds"),
+        "features_count": 0,
+        "origem": "mapa",
+    }
+    _write_kmz_layer_meta(meta_path, meta)
+    layer = next((l for l in _list_kmz_import_layers(include_features=False) if l["id"] == layer_id), None)
+    return {"ok": True, "id": layer_id, "layer": layer}
 
 
 @router.get("/kmz/import/layers/{layer_id}/download")

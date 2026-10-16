@@ -572,7 +572,11 @@ def editar_ponto_no_kmz(
         if not tem_coord:
             raise ValueError("Ponto nao encontrado. Informe latitude e longitude para criar um novo.")
         # pendura no primeiro Document/Folder disponivel
-        destino = root.find(".//kml:Document", KML_NS) or root
+        # `or` aqui nao serve: Element sem filhos e falso e o ponto ia parar
+        # solto na raiz do KML
+        destino = root.find(".//kml:Document", KML_NS)
+        if destino is None:
+            destino = root
         pm = ET.SubElement(destino, f"{{{KML_NS['kml']}}}Placemark")
         ET.SubElement(pm, f"{{{KML_NS['kml']}}}name").text = nome
         if descricao:
@@ -593,3 +597,21 @@ def editar_ponto_no_kmz(
     tmp.replace(kmz_path)
 
     return {"acao": acao, "nome": nome}
+
+
+def criar_kmz_vazio(kmz_path: Path, nome: str) -> None:
+    """Grava um KMZ com um Document vazio, para camada criada do zero no mapa.
+
+    O Document leva <name> para nao nascer sem filhos; os pontos entram depois
+    por editar_ponto_no_kmz.
+    """
+    ET.register_namespace("", KML_NS["kml"])
+    root = ET.Element(f"{{{KML_NS['kml']}}}kml")
+    doc = ET.SubElement(root, f"{{{KML_NS['kml']}}}Document")
+    ET.SubElement(doc, f"{{{KML_NS['kml']}}}name").text = str(nome or "Camada").strip() or "Camada"
+    kml = ET.tostring(root, encoding="utf-8", xml_declaration=True)
+    kmz_path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = kmz_path.with_suffix(".kmz.tmp")
+    with zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("doc.kml", kml)
+    tmp.replace(kmz_path)

@@ -669,6 +669,7 @@ async function loadMapLayers() {
     rawDownloadUrl: layer.raw_download_url || `/api/kmz/import/layers/${encodeURIComponent(layer.id)}/download`,
     updateUrl: layer.update_url || `/api/kmz/import/layers/${encodeURIComponent(layer.id)}`,
     deleteUrl: `/api/kmz/import/layers/${encodeURIComponent(layer.id)}`,
+    origem: layer.origem || '',
   }));
   const importedSignatures = new Set(importedLayers.map(layer => mapLayerSignature(layer.features)).filter(Boolean));
   const importedLayerIds = new Set(importedLayers.map(layer => layer.layerId).filter(Boolean));
@@ -696,7 +697,8 @@ async function loadMapLayers() {
   );
 
   const results = [
-    ...importedLayers.filter(r => r.count > 0),
+    // camada criada no mapa aparece vazia: e nela que se marcam os pontos
+    ...importedLayers.filter(r => r.count > 0 || r.origem === 'mapa'),
     ...generatedLayers.filter(r => r.count > 0),
   ];
   _mapFeatures = results.flatMap(layer => (layer.features || []).map(f => ({ ...f, _source: f._source || layer.source, _layerId: layer.layerId || layer.id })));
@@ -714,8 +716,13 @@ async function loadMapLayers() {
 
   listEl.innerHTML = '';
 
-  if (results.every(r => r.count === 0)) {
-    listEl.innerHTML = '<div style="font-size:12px;color:var(--muted);padding:12px;text-align:center">Nenhuma camada disponivel.<br><small>Importe um KMZ ou gere o mapa.</small></div>';
+  const btnNovaCamada = '<button type="button" class="map-layer-bulk-btn" data-map-layer-bulk="nova" style="grid-column:1/-1"><i data-lucide="plus"></i> Nova camada</button>';
+
+  if (!results.length) {
+    listEl.innerHTML = `<div style="font-size:12px;color:var(--muted);padding:12px;text-align:center">Nenhuma camada disponivel.<br><small>Importe um KMZ, gere o mapa ou crie uma camada e marque os pontos.</small></div>
+      <div class="map-layer-bulk">${btnNovaCamada}</div>`;
+    listEl.querySelector('[data-map-layer-bulk="nova"]')?.addEventListener('click', () => criarCamadaNoMapa());
+    lucide.createIcons();
     return;
   }
 
@@ -723,7 +730,8 @@ async function loadMapLayers() {
   controls.className = 'map-layer-bulk';
   controls.innerHTML = `
     <button type="button" class="map-layer-bulk-btn" data-map-layer-bulk="all"><i data-lucide="check-square"></i> Todas</button>
-    <button type="button" class="map-layer-bulk-btn" data-map-layer-bulk="none"><i data-lucide="square"></i> Nenhuma</button>`;
+    <button type="button" class="map-layer-bulk-btn" data-map-layer-bulk="none"><i data-lucide="square"></i> Nenhuma</button>
+    ${btnNovaCamada}`;
   listEl.appendChild(controls);
 
   results.forEach(def => {
@@ -850,7 +858,7 @@ async function loadMapLayers() {
       menu.appendChild(item('pencil', 'Renomear camada', () => openMapLayerRename(def)));
       menu.appendChild(item(
         mapEditIsActive(def.id) ? 'x' : 'move',
-        mapEditIsActive(def.id) ? 'Sair do modo de edicao' : 'Editar pontos no mapa',
+        mapEditIsActive(def.id) ? 'Sair do modo de edicao' : 'Editar / adicionar pontos',
         () => mapEditIsActive(def.id) ? exitMapPointEditor() : openMapPointEditor(def),
       ));
     }
@@ -885,6 +893,7 @@ async function loadMapLayers() {
     listEl.appendChild(row);
   });
 
+  controls.querySelector('[data-map-layer-bulk="nova"]')?.addEventListener('click', () => criarCamadaNoMapa());
   controls.querySelector('[data-map-layer-bulk="all"]')?.addEventListener('click', async () => {
     for (const def of results) {
       const state = _mapLayerGroups[def.id];
@@ -1175,7 +1184,7 @@ async function openMapPointEditor(def) {
   }
 
   renderMapEditBanner();
-  showToast(`Modo de edicao ativo em "${def.label}". Arraste um ponto para mover ou escolha uma camera na lista para adicionar.`);
+  showToast(`Modo de edicao ativo em "${def.label}". Arraste um ponto para mover, use "Marcar ponto novo" ou escolha uma camera na lista.`);
 }
 
 async function exitMapPointEditor({ silent = false } = {}) {
@@ -1222,10 +1231,118 @@ function mapEditBuildDescriptionHtml(cam) {
   return partes.join('\n');
 }
 
+// Caixa de texto simples para nome de camada/ponto. Monta o modal na hora
+// (mesma cara do "Renomear ponto") para nao depender de markup no index.html.
+// Resolve com o texto digitado, ou null se cancelar.
+function mapPedirTexto({ titulo, subtitulo = '', rotulo = 'Nome', valor = '', botao = 'Salvar' } = {}) {
+  return new Promise(resolve => {
+    const fundo = document.createElement('div');
+    fundo.className = 'modal-backdrop';
+    fundo.innerHTML = `
+      <div class="modal map-layer-rename-modal">
+        <div class="modal-header">
+          <div>
+            <p class="eyebrow">Mapa</p>
+            <h2>${esc(titulo || '')}</h2>
+            ${subtitulo ? `<p class="map-layer-rename-subtitle">${esc(subtitulo)}</p>` : ''}
+          </div>
+          <button class="icon-button" type="button" data-mpt-fechar><i data-lucide="x"></i></button>
+        </div>
+        <div class="modal-body">
+          <label class="map-layer-rename-field">${esc(rotulo)}
+            <input type="text" autocomplete="off" maxlength="120">
+          </label>
+        </div>
+        <div class="modal-actions">
+          <button class="secondary-action" type="button" data-mpt-fechar>Cancelar</button>
+          <button class="primary-action" type="button" data-mpt-ok><i data-lucide="check"></i> ${esc(botao)}</button>
+        </div>
+      </div>`;
+    const input = fundo.querySelector('input');
+    input.value = valor;
+    const fechar = (resultado) => { fundo.remove(); resolve(resultado); };
+    const confirmar = () => {
+      const txt = String(input.value || '').trim();
+      if (!txt) { showToast(`Informe ${rotulo.toLowerCase()}.`, true); input.focus(); return; }
+      fechar(txt);
+    };
+    fundo.addEventListener('click', ev => { if (ev.target === fundo) fechar(null); });
+    fundo.querySelectorAll('[data-mpt-fechar]').forEach(b => b.addEventListener('click', () => fechar(null)));
+    fundo.querySelector('[data-mpt-ok]').addEventListener('click', confirmar);
+    input.addEventListener('keydown', ev => {
+      if (ev.key === 'Escape') fechar(null);
+      if (ev.key === 'Enter') { ev.preventDefault(); confirmar(); }
+    });
+    document.body.appendChild(fundo);
+    lucide.createIcons();
+    setTimeout(() => { input.focus(); input.select(); }, 30);
+  });
+}
+
+// Camada do zero: nasce vazia no servidor (POST /api/kmz/import/layers) e ja
+// abre em modo de edicao com "Marcar ponto novo" ligado.
+async function criarCamadaNoMapa() {
+  const nome = await mapPedirTexto({
+    titulo: 'Nova camada',
+    subtitulo: 'A camada nasce vazia. Depois e so clicar no mapa onde fica cada ponto.',
+    rotulo: 'Nome da camada',
+    botao: 'Criar camada',
+  });
+  if (!nome) return;
+  let novoId = '';
+  try {
+    const res = await api('/api/kmz/import/layers', { method: 'POST', body: JSON.stringify({ label: nome }) });
+    const body = await res?.json().catch(() => ({}));
+    if (!res?.ok || body?.ok === false || !body?.id) {
+      showToast(body?.detail || 'Nao foi possivel criar a camada.', true);
+      return;
+    }
+    novoId = body.id;
+  } catch (err) {
+    showToast(`Falha ao criar camada: ${err.message || err}`, true);
+    return;
+  }
+  await loadMapLayers();
+  const def = _mapLayerGroups[`imported:${novoId}`]?.def;
+  if (!def) {
+    showToast(`Camada "${nome}" criada, mas nao apareceu na lista. Clique em Atualizar.`, true);
+    return;
+  }
+  await openMapPointEditor(def);
+  _mapEditPendingCam = { livre: true };
+  renderMapEditBanner();
+  showToast(`Camada "${nome}" criada. Clique no mapa para marcar o primeiro ponto.`);
+}
+
+// Ponto livre (CTO, poste, caixa, camera que ainda nao esta no inventario):
+// o nome e o que liga o ponto ao resto. O backend casa pelo nome, entao um
+// nome que ja existe na camada MOVERIA o ponto antigo em vez de criar outro.
+async function criarPontoLivre(def, latlng) {
+  const nome = await mapPedirTexto({
+    titulo: 'Novo ponto',
+    subtitulo: 'Para camera, use o titulo exato do inventario (assim o ponto mostra status e foto). CTO, CDO, poste e caixa: comece o nome pela sigla.',
+    rotulo: 'Nome do ponto',
+    botao: 'Marcar ponto',
+  });
+  if (!nome) return;
+  const jaExiste = (_mapLayerGroups[def.id]?.features || def.features || [])
+    .some(f => mapFeatureName(f).toLowerCase() === nome.toLowerCase());
+  if (jaExiste) {
+    showToast(`Ja existe um ponto "${nome}" nesta camada. Use outro nome ou arraste o existente.`, true);
+    return;
+  }
+  await saveMapPoint(def, { nome, lat: latlng.lat, lon: latlng.lng }, `Ponto "${nome}" marcado.`);
+}
+
 async function handleMapEditClick(e) {
   if (!_mapEditPendingCam || !_mapEditLayerId) return;
   const def = _mapLayerGroups[_mapEditLayerId]?.def || _mapEditDef;
   if (!def?.updateUrl) return;
+  if (_mapEditPendingCam.livre) {
+    // continua no modo "marcar ponto novo" para marcar varios em sequencia
+    await criarPontoLivre(def, e.latlng);
+    return;
+  }
   const cam = _mapEditPendingCam;
   _mapEditPendingCam = null;
   renderMapEditBanner();
@@ -1354,7 +1471,12 @@ function renderMapEditBanner() {
   const fora = camerasForaDoMapa(def);
   const lista = fora.lista || [];
 
-  const pendingHtml = _mapEditPendingCam
+  const pendingHtml = _mapEditPendingCam?.livre
+    ? `<div class="map-edit-pending">
+        Clique no mapa onde fica o ponto. Cada clique pede o nome.
+        <button type="button" class="map-edit-cancel-pending" id="mapEditCancelPending">Parar</button>
+      </div>`
+    : _mapEditPendingCam
     ? `<div class="map-edit-pending">
         Clique no mapa para posicionar <strong>${esc(_mapEditPendingCam.titulo || _mapEditPendingCam.ip)}</strong>.
         <button type="button" class="map-edit-cancel-pending" id="mapEditCancelPending">Cancelar</button>
@@ -1374,12 +1496,17 @@ function renderMapEditBanner() {
       <strong title="${esc(def.label || '')}">Editando: ${esc(def.label || '')}</strong>
       <button type="button" class="map-edit-exit" id="mapEditExitBtn" title="Sair do modo de edicao"><i data-lucide="x"></i></button>
     </div>
-    <div class="map-edit-hint">Arraste um ponto de camera existente pra move-lo. Escolha uma camera na lista e clique no mapa pra adicionar.</div>
+    <div class="map-edit-hint">Arraste um ponto existente pra move-lo. Use "Marcar ponto novo" e clique no mapa, ou escolha uma camera na lista abaixo.</div>
+    ${_mapEditPendingCam?.livre ? '' : '<button type="button" class="map-layer-bulk-btn" id="mapEditNovoPonto" style="width:100%;margin:6px 0"><i data-lucide="map-pin-plus"></i> Marcar ponto novo</button>'}
     ${pendingHtml}
     <div class="map-edit-cam-list-title">Sem ponto no mapa</div>
     <div class="map-edit-cam-list">${listHtml}</div>`;
 
   document.getElementById('mapEditExitBtn')?.addEventListener('click', () => exitMapPointEditor());
+  document.getElementById('mapEditNovoPonto')?.addEventListener('click', () => {
+    _mapEditPendingCam = { livre: true };
+    renderMapEditBanner();
+  });
   document.getElementById('mapEditCancelPending')?.addEventListener('click', () => {
     _mapEditPendingCam = null;
     renderMapEditBanner();
