@@ -41,11 +41,14 @@ CAMPOS = {
     "gateway": "Network.eth0.DefaultGateway",
     "dns1": "Network.eth0.DnsServers[0]",
     "dns2": "Network.eth0.DnsServers[1]",
-    "http": "Network.HTTPPort",
-    "tcp": "Network.TCPPort",
-    "https": "Network.HTTPSPort",
-    "rtsp": "Network.RTSPPort",
+    # Portas NAO ficam na tabela Network: cada servico tem a sua (conferido no
+    # NVD 7132: Web.Port=8081, RTSP.Port=554, DVRIP.TCPPort=30000, Https.Port=443).
+    "http": "Web.Port",
+    "tcp": "DVRIP.TCPPort",
+    "https": "Https.Port",
+    "rtsp": "RTSP.Port",
 }
+TABELAS = ("Network", "Web", "RTSP", "DVRIP", "Https")
 NOMES = {"ip": "IP", "mascara": "Máscara", "gateway": "Gateway", "dns1": "DNS 1", "dns2": "DNS 2",
          "http": "Porta web (HTTP)", "tcp": "Porta SDK (TCP)", "https": "Porta HTTPS", "rtsp": "Porta de vídeo (RTSP)"}
 PORTAS = ("http", "tcp", "https", "rtsp")
@@ -60,8 +63,14 @@ def _so_intelbras(g: Gravador) -> None:
 def ler_rede(g: Gravador) -> Dict[str, str]:
     """IP, mascara, gateway, DNS, MAC, DHCP e portas, como o gravador diz."""
     _so_intelbras(g)
-    p = _pares(g._get("/cgi-bin/configManager.cgi?action=getConfig&name=Network"))
-    if not p:
+    p: Dict[str, str] = {}
+    for tabela in TABELAS:
+        try:
+            p.update(_pares(g._get(f"/cgi-bin/configManager.cgi?action=getConfig&name={tabela}")))
+        except ErroDriver:
+            if tabela == "Network":
+                raise
+    if not p.get("Network.eth0.IPAddress"):
         raise ErroDriver("o gravador nao devolveu a configuracao de rede")
     out = {k: str(p.get(chave, "")).strip() for k, chave in CAMPOS.items()}
     out["mac"] = str(p.get("Network.eth0.PhysicalAddress", "")).strip()
@@ -128,6 +137,12 @@ def conferir(atual: Dict[str, str], novo: Dict[str, str], conector: str = "",
          else "Mesma porta em dois serviços — " + "; ".join(repetidas))
 
     mudou_ip = ip and str(ip) != str(atual.get("ip") or "")
+    mudou_web = str(novo.get("http") or "").strip() not in ("", str(atual.get("http") or ""))
+    if mudou_ip and mudou_web:
+        # Cada tabela e um pedido: depois do primeiro o SightOps ja nao alcanca
+        # o gravador para mandar o segundo.
+        item(False, "IP e porta web em vezes separadas",
+             "Trocar o IP e a porta web juntos deixaria o gravador pela metade. Troque um, confira, depois o outro.")
     if conector and ip:
         redes = _redes_do_conector(conector) if redes is None else redes
         if redes:
@@ -270,19 +285,28 @@ def iniciar_aplicacao(g: Gravador, novo: Dict[str, str], conector: str, base_reg
     porta_nova = int(novo.get("http") or atual.get("http") or porta_atual or 80)
     ctx = contextvars.copy_context()
 
+    # A Intelbras aplica so a PRIMEIRA tabela de cada setConfig: um pedido por
+    # tabela. O que corta o acesso do SightOps (IP na Network, porta na Web) vai
+    # por ultimo -- depois dele nao ha mais por onde mandar o resto.
+    def corta(tabela: str) -> bool:
+        return any(m["campo"] in ("ip", "mascara", "http") for m in mud if m["chave"].split(".", 1)[0] == tabela)
+    tabelas = sorted({m["chave"].split(".", 1)[0] for m in mud}, key=lambda t: (corta(t), TABELAS.index(t)))
+
     def trabalho():
-        qs = "&".join(f"{quote(m['chave'], safe='[]._')}={quote(m['para'], safe='')}" for m in mud)
         try:
-            try:
-                txt = g._get(f"/cgi-bin/configManager.cgi?action=setConfig&{qs}")
-                if txt.strip() and not txt.strip().upper().startswith("OK"):
-                    raise ErroDriver(f"o gravador recusou: {txt.strip()[:120]}")
-                _passo(job, "Mudança gravada no gravador", "OK")
-            except ErroDriver as exc:
-                # Trocar IP/porta pode cortar a resposta no meio: nao e prova de falha.
-                if "recusou" in str(exc):
-                    raise
-                _passo(job, "Gravador parou de responder logo depois de gravar", "esperado ao trocar endereço")
+            for tabela in tabelas:
+                grupo = [m for m in mud if m["chave"].split(".", 1)[0] == tabela]
+                qs = "&".join(f"{quote(m['chave'], safe='[]._')}={quote(m['para'], safe='')}" for m in grupo)
+                try:
+                    txt = g._get(f"/cgi-bin/configManager.cgi?action=setConfig&{qs}")
+                    if txt.strip() and not txt.strip().upper().startswith("OK"):
+                        raise ErroDriver(f"o gravador recusou {tabela}: {txt.strip()[:120]}")
+                    _passo(job, "Gravado: " + ", ".join(m["o"] for m in grupo), "OK")
+                except ErroDriver as exc:
+                    # Trocar IP/porta corta a resposta no meio: nao e prova de falha.
+                    if "recusou" in str(exc) or not corta(tabela):
+                        raise
+                    _passo(job, "Gravador parou de responder logo depois de gravar", "esperado ao trocar endereço")
             achou = _procurar(lambda: abrir_novo(host_novo, porta_nova), espera_s)
             if not achou and (host_novo, porta_nova) != (atual["ip"], int(porta_atual)):
                 # Nao apareceu no novo: se ainda responde no antigo, a mudanca

@@ -65,17 +65,24 @@ class GravadorDeRede:
         self.estado = {rr.CAMPOS[k]: v for k, v in ATUAL.items() if k in rr.CAMPOS}
         self.estado["Network.eth0.PhysicalAddress"] = ATUAL["mac"]
         self.pedidos = []
+        self.sets = []
 
     def __call__(self, url):
         caminho = url.split("://", 1)[1].split("/", 1)[1]
         self.pedidos.append(caminho)
-        if "getConfig&name=Network" in caminho:
-            return 200, "\n".join(f"table.{k}={v}" for k, v in self.estado.items())
+        if "action=getConfig" in caminho:
+            nome = caminho.split("name=", 1)[1]
+            return 200, "\n".join(f"table.{k}={v}" for k, v in self.estado.items() if k.split(".", 1)[0] == nome)
         if "setConfig" in caminho:
-            for k, v in parse_qsl(caminho.split("?", 1)[1]):
-                if k != "action":
-                    self.estado[unquote(k)] = v
-            return None, "conexao cortada"   # o gravador muda de IP no meio da resposta
+            qs = [(unquote(k), v) for k, v in parse_qsl(caminho.split("?", 1)[1]) if k != "action"]
+            self.sets.append([k for k, _ in qs])
+            primeira = qs[0][0].split(".", 1)[0]
+            for k, v in qs:
+                if k.split(".", 1)[0] == primeira:   # como a Intelbras: so a 1a tabela
+                    self.estado[k] = v
+            if any(k in ("Network.eth0.IPAddress", "Web.Port") for k, _ in qs):
+                return None, "conexao cortada"   # muda de endereco no meio da resposta
+            return 200, "OK"
         if "getCurrentTime" in caminho:
             return 200, f"result={time.strftime('%Y-%m-%d %H:%M:%S')}"
         return 404, ""
@@ -185,3 +192,30 @@ def test_mesmo_ip_em_outro_site_nao_muda_e_senha_fica(monkeypatch):
 def test_campo_vazio_nao_vira_mudanca():
     m = rr.mudancas(ATUAL, novo(gateway="", http="", dns1=""))
     assert m == []
+
+
+def test_le_portas_das_tabelas_proprias():
+    falso = GravadorDeRede()
+    r = rr.ler_rede(_g(falso))
+    assert (r["http"], r["rtsp"], r["tcp"], r["https"]) == ("8081", "554", "37777", "443")
+    assert {p.split("name=")[1] for p in falso.pedidos if "getConfig" in p} == set(rr.TABELAS)
+    assert rr.CAMPOS["http"] == "Web.Port" and rr.CAMPOS["tcp"] == "DVRIP.TCPPort"
+
+
+def test_ip_e_porta_web_juntos_trava():
+    c = rr.conferir(ATUAL, novo(ip="10.10.10.121", http="8082"), "c1", arp=[], redes=REDES)
+    assert "IP e porta web em vezes separadas" in grave(c)
+
+
+def test_um_pedido_por_tabela_e_o_que_corta_acesso_por_ultimo(tmp_path, monkeypatch):
+    falso = GravadorDeRede()
+    monkeypatch.setattr(rr, "atualizar_inventario", lambda *a: {"nvr": 1, "dvr": 0})
+    monkeypatch.setattr("app.services.recorder_xray._arp_do_conector", lambda c: [])
+    monkeypatch.setattr(rr, "_redes_do_conector", lambda c: REDES)
+    job = rr.iniciar_aplicacao(_g(falso), novo(ip="10.10.10.121", rtsp="5554", dns1="1.1.1.1"), "c1", tmp_path, "t1", "",
+                               8081, lambda h, p: _g(falso, h, p), lambda r: None, espera_s=2)
+    j = _esperar(job["id"])
+    assert j["estado"] == "pronto", j
+    assert [sorted({k.split(".")[0] for k in s}) for s in falso.sets] == [["RTSP"], ["Network"]]
+    assert falso.estado["RTSP.Port"] == "5554" and falso.estado["Network.eth0.IPAddress"] == "10.10.10.121"
+    assert falso.estado["Network.eth0.DnsServers[0]"] == "1.1.1.1"
