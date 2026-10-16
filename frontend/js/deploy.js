@@ -4329,7 +4329,7 @@ let _recCols = '4';
 let _recEdit = null;   // canal em edicao
 
 const _REC_SECOES = [
-  ['vivo', 'Ao vivo'], ['achados', 'Achados'], ['canais', 'Canais'],
+  ['vivo', 'Ao vivo'], ['achados', 'Avisos e correções'], ['canais', 'Canais'],
   ['discos', 'Discos'], ['deteccao', 'Deteccao'], ['rede', 'Rede'], ['equip', 'Equipamento'],
 ];
 
@@ -4433,17 +4433,178 @@ function recSecVivo(d) {
   </div>`;
 }
 
+// ---- Avisos e correcoes -------------------------------------------------
+// Duas fontes: o raio-x (o que a tela ja lia, sem correcao automatica) e
+// /api/nvr/driver/avisos, que le a configuracao e devolve cada aviso com a
+// mudanca exata. O valor novo nunca sai daqui: "corrigir" manda so o id do
+// aviso, e o servidor rele o gravador antes de gravar. Equipamento de cliente
+// e vivo -- nada e escrito sem o clique de confirmar.
+let _recAv = null;   // {host, carregando, erro, dados, aberto, feitos:{id:{...}}, trabalhando}
+
+function recAvAlvo() {
+  const d = _deployRecorderXray || {};
+  const p = deployStandaloneRecorderPayload();
+  return { host: d.host || p.recorder_host, http_port: p.recorder_http_port || 80, connector_id: p.connector_id || '' };
+}
+
+async function recAvCarregar(forcar = false) {
+  const alvo = recAvAlvo();
+  if (!alvo.host) return;
+  if (!forcar && _recAv && _recAv.host === alvo.host && (_recAv.dados || _recAv.carregando || _recAv.erro)) return;
+  const feitos = _recAv?.host === alvo.host ? _recAv.feitos : {};
+  // O aviso corrigido sai da lista do servidor; o cartao fica, com "Corrigido"
+  // e o Desfazer, ate o operador conferir de novo.
+  const corrigidos = (_recAv?.host === alvo.host ? _recAv.dados?.avisos || [] : []).filter(a => feitos[a.id]);
+  _recAv = { host: alvo.host, carregando: true, erro: '', dados: null, aberto: null, feitos, trabalhando: '' };
+  if (_recSec === 'achados') recPintarApp();
+  try {
+    const q = new URLSearchParams({ host: alvo.host, http_port: alvo.http_port, connector_id: alvo.connector_id });
+    const res = await api(`/api/nvr/driver/avisos?${q}`);
+    const corpo = await res.json().catch(() => ({}));
+    if (_recAv?.host !== alvo.host) return;   // trocou de gravador no meio
+    if (!res.ok) _recAv.erro = corpo.detail === 'SEM_CREDENCIAL' ? 'Sem senha salva deste gravador.' : (corpo.detail || `HTTP ${res.status}`);
+    else {
+      const ids = new Set((corpo.avisos || []).map(x => x.id));
+      corpo.avisos = [...(corpo.avisos || []), ...corrigidos.filter(x => !ids.has(x.id))];
+      _recAv.dados = corpo;
+    }
+  } catch (e) {
+    if (_recAv?.host === alvo.host) _recAv.erro = e.message;
+  }
+  if (_recAv?.host === alvo.host) _recAv.carregando = false;
+  recPintarApp();
+}
+
+// O NTP do raio-x sai quando o servidor ja conferiu a configuracao: ou virou
+// aviso com correcao, ou nao ha o que corrigir.
+function recAvManuais(d) {
+  const av = _recAv && _recAv.host === d.host ? _recAv : null;
+  return recAchadosLista(d).filter(x => !(x[3] === 'ntp' && av?.dados && !av.dados.parcial));
+}
+
+// Erros que contam no numero da secao e na barra: os do raio-x mais os do
+// servidor ainda nao corrigidos.
+function recAvErros(d) {
+  const av = _recAv && _recAv.host === d.host ? _recAv : null;
+  const servidor = (av?.dados?.avisos || []).filter(a => a.nivel === 'erro' && !av.feitos[a.id]?.ok);
+  return recAvManuais(d).filter(x => x[0] === 'erro').length + servidor.length;
+}
+
 function recSecAchados(d) {
-  const itens = recAchadosLista(d);
-  if (!itens.length) return `<div class="bloco"><div class="bloco-cab">
-    <div><h2>Nada fora do lugar</h2><p>Servicos, deteccao e discos conferidos, sem achado.</p></div></div></div>`;
-  return `<div class="bloco">
-    <div class="bloco-cab"><div><h2>O que precisa de voce</h2><p>Em ordem de impacto</p></div></div>
-    ${itens.map(([sev, tit, txt]) => `<div class="achado ${esc(sev)}">
+  if (!_recAv || _recAv.host !== d.host) setTimeout(() => recAvCarregar(), 0);
+  const av = _recAv && _recAv.host === d.host ? _recAv : { carregando: true, feitos: {} };
+  const doServidor = av.dados?.avisos || [];
+  const manuais = recAvManuais(d);
+  const seguros = doServidor.filter(a => a.seguro && !a.manual && !av.feitos[a.id]);
+  const registros = av.dados?.registros || [];
+
+  const cartao = a => {
+    const feito = av.feitos[a.id];
+    const aberto = av.aberto === a.id && !feito;
+    const ocupado = av.trabalhando === a.id;
+    const mud = (a.mudancas || []).map(m => `<div class="av-mud"><span>${esc(m.o)}</span>
+      <span class="de">${esc(m.de)}</span><span class="para">→ ${esc(m.para)}</span></div>`).join('');
+    return `<div class="achado ${esc(a.nivel)} av ${aberto ? 'aberto' : ''}">
       <span class="sev"></span>
-      <div class="achado-txt"><b>${esc(tit)}</b><span>${esc(txt)}</span></div>
+      <div class="achado-txt">
+        <b>${esc(a.titulo)}</b>
+        <span><i>Lido:</i> ${esc(a.lido)}</span>
+        <span><i>O que causa:</i> ${esc(a.causa)}</span>
+        ${aberto ? `<div class="av-detalhe">
+          <div class="av-mud-tit">O que vai mudar no gravador</div>${mud}
+          ${a.alerta ? `<div class="av-alerta">${esc(a.alerta)}</div>` : ''}
+          <div class="av-botoes">
+            <button class="acao" type="button" data-av-fechar ${ocupado ? 'disabled' : ''}>Cancelar</button>
+            <button class="acao forte" type="button" data-av-aplicar="${esc(a.id)}" ${ocupado ? 'disabled' : ''}>${ocupado ? 'Gravando e conferindo…' : esc(a.confirmar)}</button>
+          </div></div>` : ''}
+        ${ocupado && !aberto ? '<div class="av-carregando">Gravando e conferindo…</div>' : ''}
+        ${feito ? `<div class="av-feito ${feito.ok ? 'ok' : 'erro'}">${feito.ok
+          ? `${feito.ja_estava ? 'Já estava certo no gravador' : 'Corrigido e conferido no gravador'}${feito.registro && a.id !== 'relogio' ? ` <button class="acao" type="button" data-av-desfazer="${esc(feito.registro)}">Desfazer</button>` : ''}`
+          : `Não pegou: ${esc((feito.nao_pegaram || []).join(', ') || feito.erro || 'o gravador recusou')}`}</div>` : ''}
+      </div>
+      ${!feito && !aberto && !ocupado && !a.manual ? `<button class="acao ${a.seguro ? 'forte' : ''}" type="button" data-av-abrir="${esc(a.id)}">${a.seguro ? 'Corrigir' : 'Ver a troca'}</button>` : ''}
+    </div>`;
+  };
+
+  const estado = av.carregando
+    ? '<div class="av-carregando">Conferindo a configuração do gravador…</div>'
+    : (av.erro ? `<div class="av-feito erro">Não consegui conferir a configuração: ${esc(av.erro)}</div>` : '');
+  const parcial = av.dados?.parcial
+    ? `<div class="av-carregando">Correção automática ainda só em Intelbras; em ${esc(av.dados.marca)} o SightOps só confere o relógio.</div>` : '';
+  const nada = !av.carregando && !av.erro && !doServidor.length && !manuais.length;
+
+  return `<div class="bloco">
+    <div class="bloco-cab"><div><h2>Avisos e correções</h2>
+      <p>Cada aviso diz o que foi lido e o que causa. Nada é gravado no gravador sem você confirmar, e o valor anterior fica guardado para desfazer.</p></div>
+      <div class="bloco-dir">
+        <button class="acao" type="button" data-av-reler ${av.carregando || av.trabalhando ? 'disabled' : ''}>Conferir de novo</button>
+        ${seguros.length ? `<button class="acao forte" type="button" data-av-seguros ${av.trabalhando ? 'disabled' : ''}>Corrigir os ${seguros.length} seguros</button>` : ''}
+      </div></div>
+    ${estado}${parcial}
+    ${nada ? '<div class="achado info"><span class="sev"></span><div class="achado-txt"><b>Nada fora do lugar</b><span>Configuração, relógio, detecção e discos conferidos.</span></div></div>' : ''}
+    ${doServidor.map(cartao).join('')}
+    ${manuais.map(([sev, tit, txt]) => `<div class="achado ${esc(sev)}">
+      <span class="sev"></span>
+      <div class="achado-txt"><b>${esc(tit)}</b><span>${esc(txt)}</span><span class="av-manual">Resolver no próprio gravador.</span></div>
     </div>`).join('')}
+    ${registros.length ? `<div class="av-hist"><div class="av-mud-tit">Correções feitas neste gravador</div>${registros.slice(0, 8).map(r => `
+      <div class="av-hist-linha"><span class="n">${esc(String(r.quando || '').replace('T', ' ').slice(0, 16))}</span>
+        <span>${esc(r.titulo)}${r.por ? ` · ${esc(r.por)}` : ''}${r.desfeito_em ? ' · <i>desfeito</i>' : (r.ok ? '' : ' · <i>não pegou</i>')}</span>
+        ${r.desfazivel && r.ok && !r.desfeito_em ? `<button class="acao" type="button" data-av-desfazer="${esc(r.id)}">Desfazer</button>` : ''}
+      </div>`).join('')}</div>` : ''}
   </div>`;
+}
+
+async function recAvPost(rota, corpo) {
+  const res = await api(`/api/nvr/driver/${rota}`, { method: 'POST', body: JSON.stringify({ ...recAvAlvo(), ...corpo }) });
+  const j = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(j.detail || `HTTP ${res.status}`);
+  return j;
+}
+
+async function recAvAplicar(id) {
+  if (!_recAv || _recAv.trabalhando) return;
+  _recAv.trabalhando = id;
+  _recAv.aberto = null;
+  recPintarApp();
+  try {
+    _recAv.feitos[id] = await recAvPost('corrigir', { aviso: id });
+  } catch (e) {
+    _recAv.feitos[id] = { ok: false, erro: e.message };
+  }
+  _recAv.trabalhando = '';
+  recPintarApp();
+}
+
+async function recAvSeguros() {
+  const lista = (_recAv?.dados?.avisos || []).filter(a => a.seguro && !a.manual && !_recAv.feitos[a.id]);
+  // Um de cada vez: o gravador e um so, e cada correcao rele e confere.
+  for (const a of lista) await recAvAplicar(a.id);
+  recAvCarregar(true);
+}
+
+async function recAvDesfazer(reg, botao) {
+  if (botao) { botao.disabled = true; botao.textContent = 'Desfazendo…'; }
+  try {
+    const r = await recAvPost('desfazer', { registro: reg });
+    showToast(r.ok ? 'Desfeito: o gravador voltou aos valores de antes.' : `Não voltou: ${(r.nao_pegaram || []).join(', ')}`, !r.ok);
+    Object.keys(_recAv?.feitos || {}).forEach(k => { if (_recAv.feitos[k]?.registro === reg) delete _recAv.feitos[k]; });
+  } catch (e) {
+    showToast(`Não consegui desfazer: ${e.message}`, true);
+  }
+  recAvCarregar(true);
+}
+
+function recLigarAvisos(app) {
+  app.querySelectorAll('[data-av-abrir]').forEach(b => b.addEventListener('click', () => {
+    if (_recAv) { _recAv.aberto = b.dataset.avAbrir; recPintarApp(); }
+  }));
+  app.querySelector('[data-av-fechar]')?.addEventListener('click', () => { if (_recAv) { _recAv.aberto = null; recPintarApp(); } });
+  app.querySelector('[data-av-aplicar]')?.addEventListener('click', ev =>
+    recAvAplicar(ev.currentTarget.dataset.avAplicar).then(() => recAvCarregar(true)));
+  app.querySelector('[data-av-seguros]')?.addEventListener('click', () => recAvSeguros());
+  app.querySelector('[data-av-reler]')?.addEventListener('click', () => { if (_recAv) _recAv.feitos = {}; recAvCarregar(true); });
+  app.querySelectorAll('[data-av-desfazer]').forEach(b => b.addEventListener('click', ev => recAvDesfazer(b.dataset.avDesfazer, ev.currentTarget)));
 }
 
 function recSecCanais(d) {
@@ -4562,7 +4723,7 @@ const _REC_SEC_RENDER = { vivo: recSecVivo, achados: recSecAchados, canais: recS
 
 function recContagem(d, id) {
   const z = d.resumo || {};
-  if (id === 'achados') { const n = recAchadosLista(d).filter(x => x[0] === 'erro').length; return n || null; }
+  if (id === 'achados') { const n = recAvErros(d); return n || null; }
   if (id === 'canais') return z.canais_total || null;
   if (id === 'discos') return z.discos || null;
   return null;
@@ -4624,6 +4785,7 @@ function recSair() {
   // tinha nenhuma saida.
   recFecharVivo();
   _deployRecorderXray = null;
+  _recAv = null;
   _deployStandaloneRecorderProbe = null;
   _deployStandaloneRecorderNetworkLoaded = false;
   _recProgresso = null;
@@ -5188,7 +5350,7 @@ function recPintarApp() {
   }
   const eq = d.equipamento || {}, z = d.resumo || {};
   const cap = (d.discos || []).reduce((s, x) => s + (Number(x.total_tb) || 0), 0);
-  const criticos = recAchadosLista(d).filter(x => x[0] === 'erro').length;
+  const criticos = recAvErros(d);
 
   app.innerHTML = `
     <div class="barra">
@@ -5232,6 +5394,7 @@ function recPintarApp() {
   app.querySelectorAll('[data-rec-vivo]').forEach(el =>
     el.addEventListener('click', () => recAbrirVivo(Number(el.dataset.recVivo))));
   app.querySelector('[data-rec-trocar]')?.addEventListener('click', () => recAbrirSeletor());
+  recLigarAvisos(app);
   app.querySelectorAll('[data-rec-editar]').forEach(b =>
     b.addEventListener('click', () => recAbrirEdicao('editar', Number(b.dataset.recEditar))));
   app.querySelector('[data-rec-buscar]')?.addEventListener('click', () => recBuscarCameras());

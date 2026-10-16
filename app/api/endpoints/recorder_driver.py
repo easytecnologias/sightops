@@ -16,7 +16,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from app.core.tenant_context import tenant_scoped_path
@@ -469,3 +469,64 @@ def api_casos_item_remover(caso_id: str, item_id: str) -> Dict[str, Any]:
 def api_casos_notas(caso_id: str, req: CasoNotas) -> Dict[str, Any]:
     from app.services import investigation_cases as ic
     return _caso(ic.atualizar, caso_id, req.notas, req.item_id, req.nota_item)
+
+
+# --------------------------------------------------- avisos e correcoes (tela)
+# Ver app/services/recorder_avisos.py. O valor novo nunca vem do navegador: o
+# servidor rele o gravador e remonta o aviso antes de aplicar.
+def _quem(request: Request) -> str:
+    u = getattr(request.state, "current_user", None) or {}
+    return str(u.get("username") or "") if isinstance(u, dict) else ""
+
+
+def _base_registros() -> Path:
+    return tenant_scoped_path("gravador_backups")
+
+
+@router.get("/avisos")
+def api_driver_avisos(host: str, http_port: int = 80, connector_id: str = "") -> Dict[str, Any]:
+    from app.services.recorder_avisos import avisos_do_gravador, registros_do_host
+    g = _abrir(host, http_port, connector_id)
+    try:
+        out = avisos_do_gravador(g)
+    except ErroDriver as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    out["registros"] = registros_do_host(_base_registros(), g.host, limite=20,
+                                         conector=connector_id or _conector(host))
+    return out
+
+
+class CorrigirRequest(BaseModel):
+    host: str
+    http_port: int = Field(default=80, ge=1, le=65535)
+    connector_id: str = ""
+    aviso: str = Field(pattern=r"^[a-z_]{2,20}$")
+
+
+@router.post("/corrigir")
+def api_driver_corrigir(req: CorrigirRequest, request: Request) -> Dict[str, Any]:
+    from app.services.recorder_avisos import corrigir
+    g = _abrir(req.host, req.http_port, req.connector_id)
+    try:
+        return corrigir(g, req.aviso, _base_registros(), por=_quem(request),
+                        conector=req.connector_id or _conector(req.host))
+    except ErroDriver as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+class DesfazerRequest(BaseModel):
+    host: str
+    http_port: int = Field(default=80, ge=1, le=65535)
+    connector_id: str = ""
+    registro: str = Field(pattern=r"^[0-9a-f]{12}$")
+
+
+@router.post("/desfazer")
+def api_driver_desfazer(req: DesfazerRequest, request: Request) -> Dict[str, Any]:
+    from app.services.recorder_avisos import desfazer
+    g = _abrir(req.host, req.http_port, req.connector_id)
+    try:
+        return desfazer(g, req.registro, _base_registros(), por=_quem(request),
+                        conector=req.connector_id or _conector(req.host))
+    except ErroDriver as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
