@@ -22,7 +22,7 @@ let _g5 = null;   // {chave, busca:{...}, hist:{...}, renomeando, armado, trabal
 function g5Estado() {
   const chave = recChave();
   if (!_g5 || _g5.chave !== chave) {
-    _g5 = { chave, busca: null, hist: null, renomeando: 0, armado: '', trabalhando: '', senhaPara: 0 };
+    _g5 = { chave, busca: null, hist: null, macs: null, renomeando: 0, armado: '', trabalhando: '', senhaPara: 0 };
   }
   return _g5;
 }
@@ -56,19 +56,39 @@ function g5Imagem(c, inv) {
   return 'semleitura';
 }
 
+// MAC de cada camera pelo INVENTARIO DE CAMERAS (pelo IP do canal). O
+// camera_mac das linhas do gravador estava errado em 30 de 31 canais no
+// gravador de teste (16/10/2026): com ele, um canal sem imagem seria apontado
+// para a camera de OUTRO canal.
+async function g5Macs(d) {
+  const g = g5Estado();
+  if (g.macs) return;
+  g.macs = { carregando: true, mapa: {} };
+  try {
+    const ips = (d.canais || []).map(c => c.ip).filter(Boolean).join(',');
+    const res = await api(`/api/deployments/recorder-macs?${new URLSearchParams({ ips })}`);
+    const j = await res.json().catch(() => ({}));
+    if (_g5 === g) g.macs = { carregando: false, mapa: (res.ok && j.macs) || {} };
+  } catch (e) {
+    if (_g5 === g) g.macs = { carregando: false, mapa: {}, erro: e.message };
+  }
+  if (_recSec === 'canais') recPintarApp();
+}
+
 // Canal sem imagem cuja camera (pelo MAC) responde em outro IP na rede.
 function g5Mudaram(d) {
   const g = g5Estado();
   const achadas = g.busca?.cameras || [];
-  if (!achadas.length) return [];
+  if (!achadas.length || !g.macs || g.macs.carregando) return [];
   const inv = g5Inventario(d);
   const porMac = new Map(achadas.filter(a => g5Mac(a.mac)).map(a => [g5Mac(a.mac), a]));
   const saida = [];
   (d.canais || []).forEach(c => {
     if (!c.ip || g5Imagem(c, inv[c.canal]) !== 'sem') return;
-    const mac = g5Mac(inv[c.canal]?.camera_mac || inv[c.canal]?.mac);
+    const macTxt = g.macs.mapa[c.ip] || '';
+    const mac = g5Mac(macTxt);
     const achou = mac && porMac.get(mac);
-    if (achou && achou.ip && achou.ip !== c.ip) saida.push({ canal: c, mac: inv[c.canal]?.camera_mac || achou.mac, ip: achou.ip, cam: achou });
+    if (achou && achou.ip && achou.ip !== c.ip) saida.push({ canal: c, mac: macTxt, ip: achou.ip, cam: achou });
   });
   return saida;
 }
@@ -398,6 +418,7 @@ async function g5Desfazer(d, regId, tipo) {
 // ---------------------------------------------------------------- ligar
 function g5Ligar(app, d) {
   const g = g5Estado();
+  if (_recSec === 'canais') g5Macs(d);
   if (_recSec === 'discos' && typeof recResCarregar === 'function') recResCarregar();
   if (_recSec === 'historico') {
     if (typeof recResCarregar === 'function') recResCarregar();

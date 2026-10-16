@@ -1950,3 +1950,53 @@ def api_deployments_recorder_historico(host: str, connector_id: str = "", ips: s
     registros = registros_do_host(RC.base_registros(), host, limite=60, conector=_text(connector_id) or _conector_efetivo(host))
     eventos = RC.eventos_das_cameras([x for x in _text(ips).split(",") if x], dias=dias)
     return {"ok": True, "registros": registros, "eventos": eventos}
+
+
+@router.get("/recorder-rede")
+def api_deployments_recorder_rede(host: str, http_port: int = 80, connector_id: str = "", canais: str = "") -> Dict[str, Any]:
+    """Gravador aberto > Rede, abas de leitura: caminho (conector, IP virtual,
+    tempo de resposta), portas e acessos, onde cada camera esta ligada e as
+    ultimas quedas do gravador e do conector. So leitura -- nada e escrito.
+
+    `canais` vem da tela (que ja leu o raio-x): "1:10.10.10.51,2:10.10.10.52".
+    """
+    from app.api.endpoints.nvr import _read_rows
+    from app.api.endpoints.recorder_driver import _abrir
+    from app.services import recorder_rede_leitura as RL
+    host = _text(host)
+    if not host:
+        raise HTTPException(status_code=400, detail="host do gravador obrigatorio")
+    conector = _text(connector_id) or _conector_efetivo(host)
+    con = get_connector(conector, enforce_tenant=True) if conector else None
+    if conector and not con:
+        raise HTTPException(status_code=404, detail="conector nao encontrado neste cliente")
+    g = _abrir(host, http_port, conector)
+    lista = []
+    for par in _text(canais).split(","):
+        n, _, ip = par.partition(":")
+        if n.strip().isdigit() and re.fullmatch(r"[0-9.]{7,15}", ip.strip()):
+            lista.append({"canal": int(n), "ip": ip.strip()})
+    saida: Dict[str, Any] = {
+        "ok": True, "marca": g.marca, "host": host, "alcance": g.alcance, "porta": http_port,
+        "conector": ({"id": con.get("id"), "nome": con.get("name"), "status": con.get("status"),
+                      "ultimo_contato": con.get("last_seen"), "versao": con.get("version")} if con else None),
+        "resposta": RL.medir_resposta(g),
+        "cameras": RL.onde_estao(lista[:256], _read_rows(), host),
+        "quedas": RL.quedas_recentes(host, conector),
+    }
+    try:
+        saida["portas"] = RL.portas_intelbras(g) if g.marca == "intelbras" else None
+    except Exception as exc:
+        logger.warning("Portas do gravador %s nao lidas: %s", host, exc)
+        saida["portas"] = None
+    return saida
+
+
+@router.get("/recorder-macs")
+def api_deployments_recorder_macs(ips: str = "") -> Dict[str, Any]:
+    """IP -> MAC das cameras pelo inventario de cameras do cliente. A aba Canais
+    usa para achar, na busca do gravador, para onde foi a camera de um canal
+    sem imagem. So leitura."""
+    from app.services import recorder_canais as RC
+    lista = [x for x in (_text(ips).split(",")) if re.fullmatch(r"[0-9.]{7,15}", x.strip())][:256]
+    return {"ok": True, "macs": RC.macs_por_ip([x.strip() for x in lista]) if lista else {}}

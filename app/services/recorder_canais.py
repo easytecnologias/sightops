@@ -44,11 +44,34 @@ def _mac(v: Any) -> str:
     return re.sub(r"[^0-9a-f]", "", _t(v).lower())
 
 
+def macs_por_ip(ips: Optional[List[str]] = None) -> Dict[str, str]:
+    """IP -> MAC pelo INVENTARIO DE CAMERAS do cliente (olt, switch, basico).
+
+    NAO usar o camera_mac das linhas do gravador: no NVD 7132 10.10.10.120
+    (16/10/2026) ele batia com o MAC real em 1 de 31 canais, contra 31 de 31
+    do inventario de cameras (conferido pela busca do proprio gravador)."""
+    from app.services.inventory_json import load_inventory_json
+    alvo = {_t(i) for i in ips} if ips else None
+    saida: Dict[str, str] = {}
+    for modo in ("olt", "switch", "basic"):
+        try:
+            linhas = load_inventory_json(mode=modo) or []
+        except Exception:
+            continue
+        for c in linhas:
+            if not isinstance(c, dict):
+                continue
+            ip, mac = _t(c.get("ip") or c.get("camera_ip")), _t(c.get("mac"))
+            if ip and mac and (alvo is None or ip in alvo):
+                saida.setdefault(ip, mac)
+    return saida
+
+
 def canal_no_inventario(host: str, canal: int) -> Dict[str, str]:
-    """MAC e site que o inventario do SightOps (deste cliente) tem para o canal
-    deste gravador. E o que autoriza usar a senha salva: o MAC e o site vem
-    daqui, nao da tela (senao um operador faria o gravador entregar a senha de
-    uma camera a um IP qualquer da rede)."""
+    """MAC e site da camera deste canal deste gravador. E o que autoriza usar a
+    senha salva: o MAC e o site vem daqui, nao da tela (senao um operador faria
+    o gravador entregar a senha de uma camera a um IP qualquer da rede). O IP
+    do canal vem das linhas do gravador; o MAC, do inventario de cameras."""
     try:
         from app.api.endpoints.nvr import _read_rows
         linhas = _read_rows()
@@ -60,7 +83,8 @@ def canal_no_inventario(host: str, canal: int) -> Dict[str, str]:
         except (TypeError, ValueError):
             continue
         if _t(r.get("host")) == _t(host) and ch == int(canal):
-            return {"mac": _t(r.get("camera_mac") or r.get("mac")), "site": _t(r.get("site") or r.get("local"))}
+            ip = _t(r.get("camera_ip"))
+            return {"mac": macs_por_ip([ip]).get(ip, "") if ip else "", "site": _t(r.get("site") or r.get("local"))}
     return {"mac": "", "site": ""}
 
 
