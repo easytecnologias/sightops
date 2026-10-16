@@ -12373,3 +12373,38 @@ table.recorder-tabela tbody tr:hover { background: var(--surface-soft); }
 #deployRecorderApp .cam .cam-caiu{z-index:1;padding:18px 6px 20px;gap:5px}
 #deployRecorderApp .mosaico[data-col="6"] .cam .cam-caiu .acao{display:none}
 #deployRecorderApp .mosaico[data-col="6"] .cam .cam-caiu{font-size:10.5px}
+/* ── Gravador: Gravacoes (gravador-gravacoes.js, parte 4) ── */
+#deployRecorderApp .grv-dia{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted)}
+#deployRecorderApp .grv-dia input{height:34px;border:1px solid var(--border);border-radius:7px;padding:0 8px;font:inherit;font-size:13px;color:var(--text);background:var(--surface)}
+#deployRecorderApp .grv-player{padding:12px 15px;display:flex;flex-direction:column;gap:8px;border-bottom:1px solid var(--border)}
+#deployRecorderApp .grv-palco{position:relative;aspect-ratio:16/7;max-height:460px;background:#0d171c;border-radius:9px;overflow:hidden}
+#deployRecorderApp .grv-palco video{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#0d171c}
+#deployRecorderApp .grv-aviso{position:absolute;inset:0;display:grid;place-items:center;color:rgba(255,255,255,.75);font-size:13px;text-align:center;padding:16px}
+#deployRecorderApp .grv-id{position:absolute;left:10px;top:8px;color:#fff;font-size:12.5px;text-shadow:0 1px 3px rgba(0,0,0,.9)}
+#deployRecorderApp .grv-id .n{font-family:'IBM Plex Mono',monospace}
+#deployRecorderApp .grv-ctrl{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+#deployRecorderApp .grv-ctrl .acao{min-height:36px;padding:0 13px;font-size:13px}
+#deployRecorderApp .grv-ctrl .acao:disabled{opacity:.5;cursor:not-allowed}
+#deployRecorderApp .grv-espaco{flex:1 1 20px}
+#deployRecorderApp .grv-status{font-size:12.5px;color:var(--primary);min-height:16px}
+#deployRecorderApp .grv-status.erro{color:var(--danger)}
+#deployRecorderApp .grv-regua{display:grid;grid-template-columns:minmax(0,170px) 1fr;gap:8px;padding:10px 15px 2px;font-size:11px;color:var(--muted)}
+#deployRecorderApp .grv-regua > div{display:flex;justify-content:space-between}
+#deployRecorderApp .grv-linhas{display:flex;flex-direction:column;gap:3px;padding:2px 15px 10px}
+#deployRecorderApp .grv-linha{display:grid;grid-template-columns:minmax(0,170px) 1fr;gap:8px;align-items:center;border-radius:6px;padding:2px 4px}
+#deployRecorderApp .grv-linha.on{background:var(--blue-soft)}
+#deployRecorderApp .grv-nome{border:0;background:transparent;font:inherit;font-size:12px;color:var(--text);text-align:left;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-height:28px;padding:0 4px}
+#deployRecorderApp .grv-linha.on .grv-nome{font-weight:600}
+#deployRecorderApp .grv-trilha{position:relative;height:20px;background:var(--surface-soft);border:1px solid var(--border);border-radius:4px;overflow:hidden;cursor:pointer}
+#deployRecorderApp .grv-trilha:focus-visible{outline:2px solid var(--blue);outline-offset:1px}
+#deployRecorderApp .grv-trilha i{position:absolute;top:0;bottom:0}
+#deployRecorderApp .grv-trilha i.grav{background:#8fa3ad}
+#deployRecorderApp .grv-trilha i.mov{background:var(--amber)}
+#deployRecorderApp .grv-trilha i.buraco{background:var(--danger)}
+#deployRecorderApp .grv-trilha i.futuro{background:transparent}
+#deployRecorderApp .grv-trilha i.cursor{width:2px;background:var(--blue);z-index:2}
+#deployRecorderApp .grv-trilha.carregando{background:linear-gradient(90deg,var(--surface-soft),var(--border),var(--surface-soft));background-size:200% 100%;animation:recTrilhaPulso 1.4s linear infinite;cursor:default}
+#deployRecorderApp .grv-trilha.erro{display:flex;align-items:center;padding-left:6px;font-size:10.5px;color:var(--muted);cursor:default}
+@media (prefers-reduced-motion: reduce){#deployRecorderApp .grv-trilha.carregando{animation:none}}
+#deployRecorderApp .grv-leg{padding:0 15px 12px}
+@media(max-width:700px){#deployRecorderApp .grv-regua,#deployRecorderApp .grv-linha{grid-template-columns:minmax(0,96px) 1fr}}
