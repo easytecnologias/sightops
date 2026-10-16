@@ -200,3 +200,19 @@ def test_resumo_guarda_a_retencao_por_cliente(pares):
     n = len(falso.pedidos)
     ra.resumo_do_gravador(_g(falso), 1)
     assert not any("mediaFileFind" in p for p in falso.pedidos[n:])
+
+
+def test_dns_vazio_e_alarmes_de_rede(pares, tmp_path):
+    pares["Network.eth0.IPAddress"] = "10.10.9.120"
+    pares["Network.eth0.DnsServers[0]"] = ""
+    pares["Network.eth0.DnsServers[1]"] = ""
+    pares["NetAbort.Enable"] = "false"
+    pares["LoginFailureAlarm.Enable"] = "true"
+    av = {a["id"]: a for a in ra.montar_avisos(pares)}
+    assert av["dns"]["seguro"] and [m["para"] for m in av["dns"]["_mudancas"]] == ["1.1.1.1", "8.8.8.8"]
+    assert av["alarme_rede"]["titulo"] == "Alarme de rede caiu desligado"
+    falso = GravadorComRelogio(pares)
+    assert ra.corrigir(_g(falso), "dns", tmp_path)["ok"]
+    assert falso.estado["Network.eth0.DnsServers[0]"] == "1.1.1.1"
+    # o endereco do gravador nao muda com o DNS
+    assert falso.estado["Network.eth0.IPAddress"] == "10.10.9.120"

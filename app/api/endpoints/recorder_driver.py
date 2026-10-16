@@ -542,3 +542,118 @@ def api_driver_resumo(host: str, canal: int = 1, http_port: int = 80, connector_
         return resumo_do_gravador(g, max(1, int(canal)))
     except ErroDriver as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+# ------------------------------------------------- rede do gravador (escrita)
+# Ver app/services/recorder_rede.py. Trocar IP/porta e a unica mudanca sem
+# volta: o servidor confere de novo, exige o IP novo digitado e procura o
+# gravador no endereco novo antes de dizer "pronto".
+class RedeNova(BaseModel):
+    ip: str = ""
+    mascara: str = ""
+    gateway: str = ""
+    dns1: str = ""
+    dns2: str = ""
+    http: str = ""
+    tcp: str = ""
+    https: str = ""
+    rtsp: str = ""
+
+
+class RedeRequest(BaseModel):
+    host: str
+    http_port: int = Field(default=80, ge=1, le=65535)
+    connector_id: str = ""
+    novo: RedeNova = Field(default_factory=RedeNova)
+    confirmar: str = ""
+
+
+def _registrar_rede(g: Gravador, conector: str, por: str, tipo: str):
+    from app.services.recorder_avisos import _gravar_registro
+
+    def registrar(dados: Dict[str, Any]) -> None:
+        reg = {"id": uuid.uuid4().hex[:12], "host": g.host, "conector": conector or "", "tipo": tipo,
+               "quando": datetime.now().isoformat(timespec="seconds"), "por": por, "desfazivel": False,
+               "titulo": dados.get("titulo", ""), "ok": bool(dados.get("ok")),
+               "mudancas": dados.get("mudancas", [])}
+        _gravar_registro(_base_registros(), reg)
+    return registrar
+
+
+@router.get("/rede")
+def api_driver_rede(host: str, http_port: int = 80, connector_id: str = "") -> Dict[str, Any]:
+    from app.services.recorder_rede import _redes_do_conector, ler_rede
+    from app.services.recorder_xray import _arp_do_conector
+    g = _abrir(host, http_port, connector_id)
+    conector = connector_id or _conector(host)
+    try:
+        rede = ler_rede(g)
+    except ErroDriver as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return {"marca": g.marca, "rede": rede, "conector": conector,
+            "redes_conector": [str(r) for r in _redes_do_conector(conector)],
+            "arp_disponivel": bool(_arp_do_conector(conector)) if conector else False}
+
+
+@router.post("/rede/conferir")
+def api_driver_rede_conferir(req: RedeRequest) -> Dict[str, Any]:
+    from app.services.recorder_rede import conferir, ler_rede, mudancas
+    from app.services.recorder_xray import _arp_do_conector
+    g = _abrir(req.host, req.http_port, req.connector_id)
+    conector = req.connector_id or _conector(req.host)
+    try:
+        atual = ler_rede(g)
+    except ErroDriver as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    novo = {k: v for k, v in req.novo.model_dump().items()}
+    return {"atual": atual, "conferencias": conferir(atual, novo, conector, arp=_arp_do_conector(conector) if conector else None),
+            "mudancas": mudancas(atual, novo)}
+
+
+@router.post("/rede/aplicar")
+def api_driver_rede_aplicar(req: RedeRequest, request: Request) -> Dict[str, Any]:
+    from app.core.tenant_context import get_current_tenant_slug
+    from app.services.recorder_rede import iniciar_aplicacao, ler_rede
+    g = _abrir(req.host, req.http_port, req.connector_id)
+    conector = req.connector_id or _conector(req.host)
+    try:
+        atual = ler_rede(g)
+    except ErroDriver as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    novo = req.novo.model_dump()
+    alvo = (novo.get("ip") or atual.get("ip") or "").strip()
+    if req.confirmar.strip() != alvo:
+        raise HTTPException(status_code=400, detail="para confirmar, digite o IP novo do gravador")
+    try:
+        return iniciar_aplicacao(
+            g, novo, conector, _base_registros(), get_current_tenant_slug() or "default", _quem(request),
+            int(req.http_port), lambda h, p: Gravador(h, g.user, g.password, p, conector),
+            _registrar_rede(g, conector, _quem(request), "rede"))
+    except ErroDriver as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.post("/reiniciar")
+def api_driver_reiniciar(req: RedeRequest, request: Request) -> Dict[str, Any]:
+    from app.core.tenant_context import get_current_tenant_slug
+    from app.services.recorder_rede import iniciar_reinicio
+    if req.confirmar.strip().lower() != "reiniciar":
+        raise HTTPException(status_code=400, detail="para confirmar, digite REINICIAR")
+    g = _abrir(req.host, req.http_port, req.connector_id)
+    conector = req.connector_id or _conector(req.host)
+    try:
+        return iniciar_reinicio(g, get_current_tenant_slug() or "default",
+                                lambda: Gravador(g.host, g.user, g.password, req.http_port, conector),
+                                _registrar_rede(g, conector, _quem(request), "reinicio"))
+    except ErroDriver as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.get("/rede/situacao")
+def api_driver_rede_situacao(job_id: str) -> Dict[str, Any]:
+    from app.core.tenant_context import get_current_tenant_slug
+    from app.services.recorder_rede import situacao
+    job = situacao(job_id, get_current_tenant_slug() or "default")
+    if not job:
+        raise HTTPException(status_code=404, detail="tarefa nao encontrada")
+    return job

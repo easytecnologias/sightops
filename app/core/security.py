@@ -109,6 +109,10 @@ class ApiAuthMiddleware(BaseHTTPMiddleware):
             # so POST quebraria o acesso web a camera/gravador.
             (("POST", "PUT", "PATCH", "DELETE"), "/api/maintenance/", "operator"),
             (("POST",), "/api/dvr/", "operator"),
+            # Trocar IP/porta e reiniciar gravador: a mudanca sem volta pelo
+            # SightOps (ver recorder_rede.py). Antes da regra geral de /api/nvr/.
+            (("POST",), "/api/nvr/driver/rede/aplicar", "admin"),
+            (("POST",), "/api/nvr/driver/reiniciar", "admin"),
             (("POST",), "/api/nvr/", "operator"),
             (("POST",), "/api/ia/", "operator"),
             (("POST", "DELETE"), "/api/alert/members", "operator"),

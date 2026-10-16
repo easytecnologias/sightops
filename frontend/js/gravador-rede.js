@@ -11,7 +11,7 @@
 
 const _REDE_ABAS = [];
 const _REDE_RODAPES = [];
-let _redeAba = '';
+let _grRedeAba = '';
 
 function recRegistrarAbaRede(id, rotulo, render, ligar, ordem = 50) {
   const i = _REDE_ABAS.findIndex(a => a.id === id);
@@ -28,7 +28,7 @@ function recRegistrarRodapeRede(id, render, ligar, ordem = 50) {
 }
 
 function redeAbaAtual() {
-  return _REDE_ABAS.find(a => a.id === _redeAba) || _REDE_ABAS[0] || null;
+  return _REDE_ABAS.find(a => a.id === _grRedeAba) || _REDE_ABAS[0] || null;
 }
 
 function recSecRedeAbas(d) {
@@ -36,9 +36,9 @@ function recSecRedeAbas(d) {
   if (!aba) return recSecRede(d);
   const corpo = (() => { try { return aba.render(d); } catch (e) { console.error('aba de rede', e); return `<div class="bloco"><p class="rec-muted" style="padding:12px 15px">Não consegui montar esta aba: ${esc(e.message)}</p></div>`; } })();
   const rodapes = _REDE_RODAPES.map(r => { try { return r.render(d) || ''; } catch (e) { console.error('rodape de rede', e); return ''; } }).join('');
-  return `<div class="rede">
-    <div class="rede-abas" role="tablist" aria-label="Rede do gravador">${_REDE_ABAS.map(a =>
-      `<button type="button" role="tab" data-rede-aba="${esc(a.id)}" aria-selected="${a === aba}">${esc(a.rotulo)}</button>`).join('')}</div>
+  return `<div class="gr-rede">
+    <div class="gr-abas" role="tablist" aria-label="Rede do gravador">${_REDE_ABAS.map(a =>
+      `<button type="button" role="tab" data-gr-aba="${esc(a.id)}" aria-selected="${a === aba}">${esc(a.rotulo)}</button>`).join('')}</div>
     ${corpo}
     ${rodapes}
   </div>`;
@@ -46,8 +46,8 @@ function recSecRedeAbas(d) {
 
 function recLigarRede(app, d) {
   if (_recSec !== 'rede') return;
-  app.querySelectorAll('[data-rede-aba]').forEach(b => b.addEventListener('click', () => {
-    _redeAba = b.dataset.redeAba;
+  app.querySelectorAll('[data-gr-aba]').forEach(b => b.addEventListener('click', () => {
+    _grRedeAba = b.dataset.grAba;
     recPintarApp();
   }));
   const aba = redeAbaAtual();

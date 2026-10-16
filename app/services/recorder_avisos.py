@@ -149,6 +149,31 @@ def montar_avisos(pares: Dict[str, str], relogio: Optional[Dict[str, Any]] = Non
             "_mudancas": perda,
         })
 
+    # Rede: DNS vazio e alarmes de rede desligados (secao Rede do gravador).
+    if "Network.eth0.IPAddress" in pares and not str(pares.get("Network.eth0.DnsServers[0]", "")).strip():
+        dns = [{"chave": "Network.eth0.DnsServers[0]", "de": "", "para": DNS_PADRAO[0]}]
+        if not str(pares.get("Network.eth0.DnsServers[1]", "")).strip():
+            dns.append({"chave": "Network.eth0.DnsServers[1]", "de": "", "para": DNS_PADRAO[1]})
+        avisos.append({
+            "id": "dns", "nivel": "aviso", "grupo": "rede", "titulo": "DNS não configurado",
+            "lido": "O gravador está sem servidor DNS.",
+            "causa": "Sem DNS ele não resolve nome nenhum: NTP por nome, e-mail e nuvem não funcionam.",
+            "mudancas": [{"o": x["chave"].replace("Network.eth0.", ""), "de": "(vazio)", "para": x["para"], "chave": x["chave"]} for x in dns],
+            "confirmar": "Configurar DNS", "seguro": True, "alerta": "", "_mudancas": dns,
+        })
+    alarmes = [(t, n) for t, n in (("NetAbort", "rede caiu"), ("LoginFailureAlarm", "login errado"))
+               if f"{t}.Enable" in pares and str(pares[f"{t}.Enable"]).lower() != "true"]
+    if alarmes:
+        avisos.append({
+            "id": "alarme_rede", "nivel": "aviso", "grupo": "rede",
+            "titulo": f"Alarme de {' e '.join(n for _, n in alarmes)} desligado",
+            "lido": "; ".join(f"{t}.Enable = {pares[f'{t}.Enable']}" for t, _ in alarmes) + ".",
+            "causa": "Queda do cabo do gravador e tentativa de senha não geram evento nenhum.",
+            "mudancas": [{"o": f"Alarme de {n}", "de": "desligado", "para": "ligado", "chave": f"{t}.Enable"} for t, n in alarmes],
+            "confirmar": "Ligar alarmes", "seguro": True, "alerta": "",
+            "_mudancas": [{"chave": f"{t}.Enable", "de": pares[f"{t}.Enable"], "para": "true"} for t, _ in alarmes],
+        })
+
     if grupos.get("ntp"):
         lista = grupos["ntp"]
         avisos.append({
@@ -228,7 +253,11 @@ def _publico(aviso: Dict[str, Any]) -> Dict[str, Any]:
     return {k: v for k, v in aviso.items() if not k.startswith("_")}
 
 
-_TABELAS_AVISOS = Gravador._TABELAS + ("LossDetect",)
+_TABELAS_AVISOS = Gravador._TABELAS + ("LossDetect", "Network", "NetAbort", "LoginFailureAlarm")
+
+# DNS publico para gravador sem DNS: so resolve nome (NTP por nome, nuvem).
+# Mudar DNS nao mexe no endereco do gravador: o acesso pelo conector continua.
+DNS_PADRAO = ("1.1.1.1", "8.8.8.8")
 
 
 def canais_com_camera(g: Gravador) -> Optional[set]:

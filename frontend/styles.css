@@ -12438,7 +12438,43 @@ table.recorder-tabela tbody tr:hover { background: var(--surface-soft); }
 #deployRecorderApp .g5-h-sightops{border-left:3px solid var(--primary);padding-left:8px}
 @media (max-width:640px){#deployRecorderApp .g5-hist li{grid-template-columns:1fr auto}#deployRecorderApp .g5-h-quando{grid-column:1/-1}}
 /* ── Gravador: Rede, esqueleto das abas (gravador-rede.js) ── */
-#deployRecorderApp .rede{display:flex;flex-direction:column;gap:12px}
-#deployRecorderApp .rede-abas{display:flex;flex-wrap:wrap;gap:4px;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:4px}
-#deployRecorderApp .rede-abas button{min-height:38px;padding:0 14px;border:0;border-radius:7px;background:transparent;color:var(--text);font:inherit;font-size:13px;cursor:pointer}
-#deployRecorderApp .rede-abas button[aria-selected="true"]{background:var(--primary);color:#fff;font-weight:600}
+#deployRecorderApp .gr-rede{display:flex;flex-direction:column;gap:12px}
+#deployRecorderApp .gr-abas{display:flex;flex-wrap:wrap;gap:4px;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:4px}
+#deployRecorderApp .gr-abas button{min-height:38px;padding:0 14px;border:0;border-radius:7px;background:transparent;color:var(--text);font:inherit;font-size:13px;cursor:pointer}
+#deployRecorderApp .gr-abas button[aria-selected="true"]{background:var(--primary);color:#fff;font-weight:600}
+/* ── Gravador: Rede > Editar rede, Reiniciar, Correcoes (gravador-rede-editar.js) ── */
+#deployRecorderApp .re-corpo{padding:12px 15px;display:flex;flex-direction:column;gap:12px}
+#deployRecorderApp .re-etapas{display:flex;flex-wrap:wrap;gap:6px}
+#deployRecorderApp .re-etapa{display:inline-flex;gap:6px;align-items:center;font-size:12px;border-radius:99px;padding:4px 10px;background:var(--surface-soft);color:var(--muted)}
+#deployRecorderApp .re-etapa.on{background:var(--primary);color:#fff}
+#deployRecorderApp .re-etapa.feita{background:var(--primary-soft);color:var(--primary)}
+#deployRecorderApp .re-grade{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px}
+#deployRecorderApp .re-grupo{border:1px solid var(--border);border-radius:10px;padding:10px 12px;margin:0;display:flex;flex-direction:column;gap:8px}
+#deployRecorderApp .re-grupo legend{padding:0 6px;font-weight:600;font-size:13px}
+#deployRecorderApp .re-campo{display:grid;grid-template-columns:110px 1fr;gap:8px;align-items:center;font-size:12.5px;color:var(--muted)}
+#deployRecorderApp .re-campo.largo{grid-template-columns:1fr;max-width:420px}
+#deployRecorderApp .re-campo input{height:38px;border:1px solid var(--border);border-radius:8px;padding:0 10px;font-family:'IBM Plex Mono',monospace;font-size:13.5px;color:var(--text);background:var(--surface)}
+#deployRecorderApp .re-campo input.mudou{border-color:var(--blue);background:var(--blue-soft)}
+#deployRecorderApp .re-campo input:focus{outline:2px solid var(--primary);outline-offset:0}
+#deployRecorderApp .re-nota{margin:0;font-size:12px;color:var(--muted)}
+#deployRecorderApp .re-nota.aviso{color:#7a4800;background:var(--amber-soft);border-radius:7px;padding:7px 9px}
+#deployRecorderApp .re-conf{display:flex;flex-direction:column;gap:6px;font-size:13px}
+#deployRecorderApp .re-check{display:flex;gap:9px;align-items:flex-start;font-size:12.5px;border-radius:8px;padding:7px 10px;background:var(--surface-soft)}
+#deployRecorderApp .re-check.ok{background:var(--primary-soft)}
+#deployRecorderApp .re-check.ok > b{color:var(--primary)}
+#deployRecorderApp .re-check.aviso{background:var(--amber-soft);color:#7a4800}
+#deployRecorderApp .re-check.grave{background:var(--danger-soft);color:var(--danger)}
+#deployRecorderApp .re-check.espera{color:var(--muted)}
+#deployRecorderApp .re-botoes{display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap}
+#deployRecorderApp .re-botoes .acao,#deployRecorderApp .re-reiniciar .acao{min-height:40px;padding:0 16px;font-size:13px}
+#deployRecorderApp .re-botoes .acao:disabled,#deployRecorderApp .re-reiniciar .acao:disabled{opacity:.5;cursor:not-allowed}
+#deployRecorderApp .re-como{display:flex;flex-direction:column;gap:3px;font-size:12.5px;background:var(--amber-soft);color:#7a4800;border-radius:8px;padding:9px 11px}
+#deployRecorderApp .re-passos{display:flex;flex-direction:column;gap:6px;font-size:13px}
+#deployRecorderApp .re-passos > div{display:flex;gap:9px;align-items:center}
+#deployRecorderApp .re-passos > div > b{color:var(--primary);width:16px}
+#deployRecorderApp .re-passos > div > span:nth-child(2){flex:1}
+#deployRecorderApp .re-passos .n{font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--muted)}
+#deployRecorderApp .re-passos .espera{color:var(--muted)}
+#deployRecorderApp .re-reiniciar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;font-size:13px}
+#deployRecorderApp .re-reiniciar > span{flex:1 1 260px;color:var(--muted)}
+#deployRecorderApp .re-reiniciar .re-campo{grid-template-columns:auto 140px}
