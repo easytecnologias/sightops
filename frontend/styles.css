@@ -12408,3 +12408,32 @@ table.recorder-tabela tbody tr:hover { background: var(--surface-soft); }
 @media (prefers-reduced-motion: reduce){#deployRecorderApp .grv-trilha.carregando{animation:none}}
 #deployRecorderApp .grv-leg{padding:0 15px 12px}
 @media(max-width:700px){#deployRecorderApp .grv-regua,#deployRecorderApp .grv-linha{grid-template-columns:minmax(0,96px) 1fr}}
+
+/* ---- Gravador aberto: Canais, Discos e Historico (parte 5, js/gravador-canais.js) ---- */
+#deployRecorderApp .g5-aviso{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin:0 16px 12px;padding:12px 14px;border:1px solid var(--border);border-radius:10px;background:var(--surface-soft);font-size:13px}
+#deployRecorderApp .g5-aviso.erro{border-color:color-mix(in srgb,var(--danger) 35%,transparent);color:var(--danger)}
+#deployRecorderApp .g5-cartao{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin:0 16px 10px;padding:12px 14px;border:1px solid color-mix(in srgb,var(--amber,#d97706) 45%,transparent);border-left:4px solid var(--amber,#d97706);border-radius:10px;background:color-mix(in srgb,var(--amber,#d97706) 6%,transparent)}
+#deployRecorderApp .g5-cartao-txt{display:flex;flex-direction:column;gap:3px;font-size:13px;min-width:0}
+#deployRecorderApp .g5-senha input{margin-left:6px;padding:4px 8px;border:1px solid var(--border);border-radius:6px;width:160px}
+#deployRecorderApp .g5-fora{margin:0 16px 12px;border:1px solid var(--border);border-radius:10px;padding:8px 12px}
+#deployRecorderApp .g5-fora summary{cursor:pointer;font-weight:600;font-size:13px}
+#deployRecorderApp .g5-linha-ruim td{background:color-mix(in srgb,var(--danger) 4%,transparent)}
+#deployRecorderApp .g5-ruim{color:var(--danger)}
+#deployRecorderApp .g5-ren{display:inline-flex;gap:6px;align-items:center}
+#deployRecorderApp .g5-ren input{padding:4px 8px;border:1px solid var(--border);border-radius:6px;width:200px}
+#deployRecorderApp .g5-previsao{margin:0 16px 12px;padding:12px 14px;border-radius:10px;background:var(--surface-soft);font-size:13.5px;line-height:1.5}
+#deployRecorderApp .g5-previsao small{display:block;color:var(--muted);margin-top:4px}
+#deployRecorderApp .g5-uso{display:inline-flex;align-items:center;gap:8px;min-width:140px}
+#deployRecorderApp .g5-trilho{flex:1;height:7px;border-radius:4px;background:var(--border);overflow:hidden}
+#deployRecorderApp .g5-trilho i{display:block;height:100%;background:var(--primary)}
+#deployRecorderApp .g5-vazio{padding:16px;color:var(--muted)}
+#deployRecorderApp .g5-hist{list-style:none;margin:0;padding:0 16px 12px}
+#deployRecorderApp .g5-hist li{display:grid;grid-template-columns:96px 1fr auto;gap:12px;align-items:center;padding:9px 0;border-top:1px solid var(--border);font-size:13px}
+#deployRecorderApp .g5-hist li:first-child{border-top:0}
+#deployRecorderApp .g5-h-txt{display:flex;flex-direction:column;min-width:0}
+#deployRecorderApp .g5-h-txt small{color:var(--muted)}
+#deployRecorderApp .g5-h-quando{color:var(--muted);font-size:12px}
+#deployRecorderApp .g5-h-ruim .g5-h-txt b{color:var(--danger)}
+#deployRecorderApp .g5-h-bom .g5-h-txt b{color:var(--primary)}
+#deployRecorderApp .g5-h-sightops{border-left:3px solid var(--primary);padding-left:8px}
+@media (max-width:640px){#deployRecorderApp .g5-hist li{grid-template-columns:1fr auto}#deployRecorderApp .g5-h-quando{grid-column:1/-1}}

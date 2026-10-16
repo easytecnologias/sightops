@@ -11,7 +11,7 @@ from typing import Any, Dict, List, Tuple
 from urllib.parse import urlencode
 
 import requests
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from requests.auth import HTTPBasicAuth, HTTPDigestAuth
 
 from app.core.tenant_context import tenant_recorder_inventory_path, tenant_scoped_path, tenant_snapshot_dir
@@ -1800,8 +1800,20 @@ def api_deployments_recorder_buscar_cameras(payload: Dict[str, Any]) -> Dict[str
     return dados
 
 
+def _conector_efetivo(host: str) -> str:
+    try:
+        return _text(_recorder_connector_for_host(host))
+    except Exception:
+        return ""
+
+
+def _quem(request: Request | None) -> str:
+    u = getattr(getattr(request, "state", None), "current_user", None) or {}
+    return str(u.get("username") or "") if isinstance(u, dict) else ""
+
+
 @router.post("/recorder-edit")
-def api_deployments_recorder_edit(payload: Dict[str, Any]) -> Dict[str, Any]:
+def api_deployments_recorder_edit(payload: Dict[str, Any], request: Request) -> Dict[str, Any]:
     """Adicionar, editar, excluir ou renomear um canal do gravador.
 
     EQUIPAMENTO VIVO: cada acao daqui muda o gravador do cliente de verdade.
@@ -1827,15 +1839,27 @@ def api_deployments_recorder_edit(payload: Dict[str, Any]) -> Dict[str, Any]:
         raise HTTPException(status_code=400, detail="informe o canal")
 
     from app.services.recorder_write import ErroGravador, executar
+    from app.services import recorder_canais as RC
+    conector = _text(payload.get("connector_id") or payload.get("remote_connector_id"))
+    # Registro com o conector EFETIVO (o mesmo de recorder_driver: o da tela ou
+    # o do gravador no inventario), para a lista de correcoes achar os dois tipos.
+    conector_reg = conector or _conector_efetivo(host)
+    # Sem senha da camera na tela (ex.: "a camera mudou de IP, apontar o canal"),
+    # vale a senha salva da camera pelo MAC, ou a do site.
+    cam_user, cam_senha = RC.senha_autorizada(
+        host, canal, _text(payload.get("camera_mac")),
+        _text(payload.get("camera_user")), _text(payload.get("camera_password")))
+    if acao in ("adicionar", "editar") and not cam_senha:
+        raise HTTPException(status_code=400, detail="Informe a senha da camera (nao ha senha salva para ela nem para o site).")
     try:
         resultado = executar(
             acao,
             host=host, user=user, password=password, canal=canal,
             porta_gravador=payload.get("recorder_http_port") or payload.get("http_port"),
-            connector_id=_text(payload.get("connector_id") or payload.get("remote_connector_id")),
+            connector_id=conector,
             ip=_text(payload.get("camera_ip")),
-            cam_user=_text(payload.get("camera_user") or "admin"),
-            cam_senha=_text(payload.get("camera_password")),
+            cam_user=cam_user,
+            cam_senha=cam_senha,
             nome=_text(payload.get("nome") or payload.get("title")),
             protocolo=_text(payload.get("protocolo")),
             porta=payload.get("camera_port"),
@@ -1848,6 +1872,18 @@ def api_deployments_recorder_edit(payload: Dict[str, Any]) -> Dict[str, Any]:
         logger.exception("Erro ao editar o gravador %s canal %s", host, canal)
         raise HTTPException(status_code=500, detail=f"Erro no gravador: {exc}") from exc
 
+    # Historico do gravador: quem mudou o que, e como voltar.
+    try:
+        reg = RC.registrar(
+            acao, host=host, conector=conector_reg, canal=canal, por=_quem(request),
+            antes=payload.get("antes") if isinstance(payload.get("antes"), dict) else None,
+            depois={"ip": payload.get("camera_ip"), "nome": payload.get("nome") or payload.get("title"),
+                    "mac": payload.get("camera_mac"), "user": cam_user, "protocolo": payload.get("protocolo")},
+            ok=resultado.get("ok", True) is not False)
+        resultado["registro"] = reg["id"]
+    except Exception:
+        logger.exception("Nao consegui registrar a edicao do canal %s em %s", canal, host)
+
     log_onu_action(
         f"recorder_{acao}", olt_id=None, olt_ip=host,
         site=_text(payload.get("site")), pon=0, onu=canal,
@@ -1855,3 +1891,62 @@ def api_deployments_recorder_edit(payload: Dict[str, Any]) -> Dict[str, Any]:
         detail=_text(resultado.get("comando"))[:200],
     ) if "log_onu_action" in globals() else None
     return resultado
+
+
+@router.post("/recorder-canal-desfazer")
+def api_deployments_recorder_canal_desfazer(payload: Dict[str, Any], request: Request) -> Dict[str, Any]:
+    """Volta um canal ao que era antes de uma edicao feita pelo SightOps.
+
+    EQUIPAMENTO VIVO: reedita o canal no gravador do cliente. So para registro
+    de canal deste mesmo gravador (host + conector) que guardou o estado
+    anterior; a tela pede confirmacao antes.
+    """
+    from app.services import recorder_canais as RC
+    from app.services.recorder_write import ErroGravador, executar
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="payload invalido")
+    host = _text(payload.get("recorder_host") or payload.get("host"))
+    conector = _text(payload.get("connector_id"))
+    try:
+        reg = RC.ler(_text(payload.get("registro")))
+        plano = RC.plano_desfazer(reg, host, conector or _conector_efetivo(host))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    user, password = _credencial_gravador(payload)
+    if not password:
+        raise HTTPException(status_code=428, detail="SEM_CREDENCIAL")
+    cam_user, cam_senha = RC.senha_autorizada(host, plano["canal"], plano.get("mac", ""),
+                                              plano.get("user", ""), _text(payload.get("camera_password")))
+    if plano["acao"] in ("adicionar", "editar") and not cam_senha:
+        raise HTTPException(status_code=400, detail="Informe a senha da camera (nao ha senha salva para ela nem para o site).")
+    try:
+        resultado = executar(
+            plano["acao"], host=host, user=user, password=password, canal=plano["canal"],
+            porta_gravador=payload.get("recorder_http_port") or payload.get("http_port"),
+            connector_id=conector, ip=plano.get("ip", ""), cam_user=cam_user, cam_senha=cam_senha,
+            nome=plano.get("nome", ""), protocolo=plano.get("protocolo", ""),
+        )
+    except ErroGravador as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("Erro ao desfazer canal %s em %s", plano["canal"], host)
+        raise HTTPException(status_code=500, detail=f"Erro no gravador: {exc}") from exc
+    if resultado.get("ok", True) is not False:
+        RC.marcar_desfeito(reg, _quem(request))
+    logger.info("canal %s de %s desfeito (registro %s) por %s", plano["canal"], host, reg["id"], _quem(request))
+    return {**resultado, "registro": reg["id"], "acao": plano["acao"]}
+
+
+@router.get("/recorder-historico")
+def api_deployments_recorder_historico(host: str, connector_id: str = "", ips: str = "", dias: int = 7) -> Dict[str, Any]:
+    """Historico do gravador aberto: o que o SightOps mudou nele (correcoes de
+    configuracao e edicoes de canal, com quem e quando) e as quedas e voltas
+    das cameras dos canais no monitoramento. So leitura."""
+    from app.services import recorder_canais as RC
+    from app.services.recorder_avisos import registros_do_host
+    host = _text(host)
+    if not host:
+        raise HTTPException(status_code=400, detail="host do gravador obrigatorio")
+    registros = registros_do_host(RC.base_registros(), host, limite=60, conector=_text(connector_id) or _conector_efetivo(host))
+    eventos = RC.eventos_das_cameras([x for x in _text(ips).split(",") if x], dias=dias)
+    return {"ok": True, "registros": registros, "eventos": eventos}
