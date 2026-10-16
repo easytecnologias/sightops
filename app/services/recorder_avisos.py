@@ -91,9 +91,21 @@ def _sem_continua(pares: Dict[str, str]) -> List[Dict[str, str]]:
     return mud
 
 
+def _sem_perda_video(pares: Dict[str, str], com_camera: Optional[set]) -> List[Dict[str, str]]:
+    """Canais COM camera sem alarme de perda de video. Canal livre fica de
+    fora: ligar nele dispararia o alarme o tempo todo."""
+    if not com_camera:
+        return []
+    mud = []
+    for i, v in sorted(_indices(pares, "LossDetect", "Enable").items()):
+        if (i + 1) in com_camera and v.lower() != "true":
+            mud.append({"chave": f"LossDetect[{i}].Enable", "de": v, "para": "true"})
+    return mud
+
+
 def montar_avisos(pares: Dict[str, str], relogio: Optional[Dict[str, Any]] = None,
-                  perfil: Dict[str, Any] = PERFIL) -> List[Dict[str, Any]]:
-    """Funcao pura: configuracao lida (+ relogio) -> avisos com correcao."""
+                  perfil: Dict[str, Any] = PERFIL, com_camera: Optional[set] = None) -> List[Dict[str, Any]]:
+    """Funcao pura: configuracao lida (+ relogio, canais com camera) -> avisos."""
     mudancas, _alertas = diagnosticar_intelbras(pares, perfil)
     grupos: Dict[str, List[Dict[str, str]]] = {}
     for m in mudancas:
@@ -122,6 +134,19 @@ def montar_avisos(pares: Dict[str, str], relogio: Optional[Dict[str, Any]] = Non
             "confirmar": "Acertar a hora agora", "seguro": True,
             "alerta": ("Hora voltando para trás faz o gravador ter dois trechos com o mesmo horário "
                        "nesse intervalo." if dif > 0 else ""),
+        })
+
+    perda = _sem_perda_video(pares, com_camera)
+    if perda:
+        cs = canais(perda)
+        avisos.append({
+            "id": "perda_video", "nivel": "erro",
+            "titulo": f"{len(cs)} canal(is) não avisam se a câmera cair",
+            "lido": f"Alarme de perda de vídeo desligado nos canais {_faixas(cs)}, que têm câmera.",
+            "causa": "A câmera pode sumir sem gerar evento nenhum: ninguém fica sabendo até precisar do gravado.",
+            "mudancas": [{"o": f"Canais {_faixas(cs)} · perda de vídeo", "de": "sem aviso", "para": "avisa"}],
+            "confirmar": f"Ligar em {len(cs)} canal(is)", "seguro": True, "alerta": "",
+            "_mudancas": perda,
         })
 
     if grupos.get("ntp"):
@@ -201,6 +226,34 @@ def _publico(aviso: Dict[str, Any]) -> Dict[str, Any]:
     return {k: v for k, v in aviso.items() if not k.startswith("_")}
 
 
+_TABELAS_AVISOS = Gravador._TABELAS + ("LossDetect",)
+
+
+def canais_com_camera(g: Gravador) -> Optional[set]:
+    """Canais (1..N) que tem camera, pelo getCameraAll. None se nao der para ler."""
+    from app.services.recorder_xray import _endereco_de_canal
+    try:
+        txt = g._get("/cgi-bin/LogicDeviceManager.cgi?action=getCameraAll")
+    except ErroDriver:
+        return None
+    cams: Dict[int, Dict[str, str]] = {}
+    for idx, chave, valor in re.findall(r"camera\[(\d+)\]\.([^=\r\n]+)=([^\r\n]*)", txt):
+        cams.setdefault(int(idx), {})[chave.strip()] = valor.strip()
+    return {i + 1 for i, c in cams.items()
+            if str(c.get("Type", "")).lower() != "compose" and _endereco_de_canal(c.get("DeviceInfo.Address"))}
+
+
+def _ler(g: Gravador):
+    pares = g.ler_config(*_TABELAS_AVISOS)
+    if not pares:
+        raise ErroDriver("o gravador nao devolveu a configuracao")
+    try:
+        relogio = g.relogio()
+    except ErroDriver:
+        relogio = None
+    return pares, relogio, canais_com_camera(g)
+
+
 def avisos_do_gravador(g: Gravador) -> Dict[str, Any]:
     if g.marca != "intelbras":
         try:
@@ -214,14 +267,8 @@ def avisos_do_gravador(g: Gravador) -> Dict[str, Any]:
             a["seguro"] = False
             a["manual"] = True
         return {"marca": g.marca, "avisos": [_publico(a) for a in avisos], "parcial": True}
-    pares = g.ler_config(*Gravador._TABELAS)
-    if not pares:
-        raise ErroDriver("o gravador nao devolveu a configuracao")
-    try:
-        relogio = g.relogio()
-    except ErroDriver:
-        relogio = None
-    return {"marca": g.marca, "avisos": [_publico(a) for a in montar_avisos(pares, relogio)],
+    pares, relogio, com_camera = _ler(g)
+    return {"marca": g.marca, "avisos": [_publico(a) for a in montar_avisos(pares, relogio, com_camera=com_camera)],
             "parcial": False, "relogio": relogio}
 
 
@@ -283,12 +330,8 @@ def corrigir(g: Gravador, aviso_id: str, base: Path, por: str = "", conector: st
     """Rele o gravador, remonta o aviso e aplica so o que ainda esta fora."""
     if g.marca != "intelbras":
         raise ErroDriver(f"correcao ainda nao esta disponivel para {g.marca}")
-    pares = g.ler_config(*Gravador._TABELAS)
-    try:
-        relogio = g.relogio()
-    except ErroDriver:
-        relogio = None
-    aviso = next((a for a in montar_avisos(pares, relogio) if a["id"] == aviso_id), None)
+    pares, relogio, com_camera = _ler(g)
+    aviso = next((a for a in montar_avisos(pares, relogio, com_camera=com_camera) if a["id"] == aviso_id), None)
     if not aviso:
         return {"ok": True, "ja_estava": True, "aplicadas": 0, "nao_pegaram": []}
 
@@ -322,3 +365,123 @@ def desfazer(g: Gravador, reg_id: str, base: Path, por: str = "", conector: str 
         _gravar_registro(base, reg)
     r.pop("backup", None)
     return {**r, "registro": reg_id}
+
+
+# ------------------------------------------------------------------ resumo
+def _primeiro_no_dia(g: Gravador, canal: int, fim: datetime) -> Optional[str]:
+    """Inicio do primeiro arquivo nas 24 h que terminam em `fim`, ou None.
+
+    A Intelbras responde 400 no findFile quando a janela nao tem gravacao
+    (visto no NVD 7132) -- isso e "nada", nao falha.
+    """
+    from datetime import timedelta
+
+    from app.services.recorder_driver import parse_indice
+    inicio = fim - timedelta(days=1)
+    txt = g._get("/cgi-bin/mediaFileFind.cgi?action=factory.create")
+    m = re.search(r"result=(\d+)", txt)
+    if not m:
+        raise ErroDriver("o gravador nao abriu a busca no indice")
+    obj = m.group(1)
+    try:
+        cod, corpo = g._pedir(f"{g.base}/cgi-bin/mediaFileFind.cgi?action=findFile&object={obj}"
+                              f"&condition.Channel={int(canal)}&condition.StartTime={quote(inicio.strftime(FMT))}"
+                              f"&condition.EndTime={quote(fim.strftime(FMT))}&condition.Types[0]=dav")
+        if cod == 400:
+            return None
+        if not cod or cod >= 400:
+            raise ErroDriver(f"o gravador nao respondeu ({cod or str(corpo)[:80]})")
+        segs = parse_indice(g._get(f"/cgi-bin/mediaFileFind.cgi?action=findNextFile&object={obj}&count=1"))
+    finally:
+        for acao in ("close", "destroy"):
+            try:
+                g._get(f"/cgi-bin/mediaFileFind.cgi?action={acao}&object={obj}")
+            except ErroDriver:
+                pass
+    return min((x.inicio for x in segs), default=None)
+
+
+_DEGRAUS = (1, 3, 7, 14, 21, 30, 45, 60, 90, 120, 180, 270, 365)
+
+
+def gravacao_mais_antiga(g: Gravador, canal: int, agora: Optional[datetime] = None) -> Optional[str]:
+    """Inicio do arquivo mais antigo do canal ainda no disco (= retencao).
+
+    Buscar 400 dias de uma vez estoura o tempo do gravador (13 s no NVD 7132).
+    Busca de 1 dia leva 0,5 s: sobe em degraus ate achar dia sem gravacao e
+    refina por bissecao -- uns 15 pedidos pequenos. Gravador em sobrescrita
+    grava continuo do mais antigo ate agora, entao a borda e uma so.
+    """
+    from datetime import timedelta
+
+    agora = agora or datetime.now()
+    if g.marca == "hikvision":
+        from app.services.recorder_driver import _HIK_NS, parse_indice_hik
+        inicio = agora - timedelta(days=400)
+        corpo = (
+            '<?xml version="1.0" encoding="utf-8"?>'
+            f'<CMSearchDescription version="1.0" xmlns="{_HIK_NS}">'
+            f'<searchID>{uuid.uuid4()}</searchID>'
+            f'<trackList><trackID>{int(canal)}01</trackID></trackList>'
+            '<timeSpanList><timeSpan>'
+            f'<startTime>{inicio:%Y-%m-%dT%H:%M:%SZ}</startTime><endTime>{agora:%Y-%m-%dT%H:%M:%SZ}</endTime>'
+            '</timeSpan></timeSpanList><maxResults>1</maxResults><searchResultPostion>0</searchResultPostion>'
+            '</CMSearchDescription>')
+        segs, _ = parse_indice_hik(g._post("/ISAPI/ContentMgmt/search", corpo))
+        return min((x.inicio for x in segs), default=None)
+
+    def dia(d: int) -> Optional[str]:
+        return _primeiro_no_dia(g, canal, agora - timedelta(days=d))
+
+    achado = dia(0)
+    if achado is None:
+        return None
+    sim, nao = 0, None
+    for d in _DEGRAUS:
+        r = dia(d)
+        if r is None:
+            nao = d
+            break
+        sim, achado = d, r
+    if nao is None:
+        return achado   # grava ha mais de um ano: o degrau mais alto basta
+    while nao - sim > 1:
+        meio = (sim + nao) // 2
+        r = dia(meio)
+        if r is None:
+            nao = meio
+        else:
+            sim, achado = meio, r
+    return achado
+
+
+# Retencao muda devagar e custa ~15 pedidos ao gravador: guarda por 6 h.
+# Chave com o cliente, porque o mesmo IP existe em clientes diferentes.
+_RETENCAO_CACHE: Dict[tuple, tuple] = {}
+_RETENCAO_TTL_S = 6 * 3600
+
+
+def resumo_do_gravador(g: Gravador, canal: int) -> Dict[str, Any]:
+    import time as _t
+    t = _t.monotonic()
+    try:
+        relogio = g.relogio()
+    except ErroDriver:
+        relogio = None
+    latencia = int((_t.monotonic() - t) * 1000)
+    import time as _tm
+    from app.core.tenant_context import get_current_tenant_slug
+    chave = (get_current_tenant_slug() or "default", g.host, g.base, int(canal))
+    guardado = _RETENCAO_CACHE.get(chave)
+    if guardado and _tm.time() - guardado[0] < _RETENCAO_TTL_S:
+        return {"marca": g.marca, "relogio": relogio, "latencia_ms": latencia, "retencao": guardado[1]}
+    retencao = None
+    try:
+        antiga = gravacao_mais_antiga(g, canal)
+        if antiga:
+            dias = (datetime.now() - datetime.strptime(antiga, FMT)).total_seconds() / 86400
+            retencao = {"canal": canal, "mais_antiga": antiga, "dias": round(dias, 1)}
+        _RETENCAO_CACHE[chave] = (_tm.time(), retencao)
+    except ErroDriver as exc:
+        retencao = {"canal": canal, "erro": str(exc)}
+    return {"marca": g.marca, "relogio": relogio, "latencia_ms": latencia, "retencao": retencao}

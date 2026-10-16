@@ -530,3 +530,15 @@ def api_driver_desfazer(req: DesfazerRequest, request: Request) -> Dict[str, Any
                         conector=req.connector_id or _conector(req.host))
     except ErroDriver as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@router.get("/resumo")
+def api_driver_resumo(host: str, canal: int = 1, http_port: int = 80, connector_id: str = "") -> Dict[str, Any]:
+    """Topo da tela do gravador: retencao (gravacao mais antiga do canal),
+    relogio e quanto o gravador demora a responder. So leitura."""
+    from app.services.recorder_avisos import resumo_do_gravador
+    g = _abrir(host, http_port, connector_id)
+    try:
+        return resumo_do_gravador(g, max(1, int(canal)))
+    except ErroDriver as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc

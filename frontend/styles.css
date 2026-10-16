@@ -12303,3 +12303,52 @@ table.recorder-tabela tbody tr:hover { background: var(--surface-soft); }
 #deployRecorderApp .av-hist-linha{display:flex;align-items:center;gap:10px;font-size:12.5px;flex-wrap:wrap}
 #deployRecorderApp .av-hist-linha .n{font-family:'IBM Plex Mono',monospace;color:var(--muted)}
 #deployRecorderApp .av-hist-linha span:nth-child(2){flex:1 1 220px}
+/* ── Gravador: topo com 5 numeros e Visao geral (deploy.js, recSinais/recSecGeral) ── */
+#deployRecorderApp .rec-sinais{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin:12px 0 4px}
+#deployRecorderApp .rec-sinal{display:flex;flex-direction:column;gap:2px;text-align:left;border:1px solid var(--border);border-radius:10px;padding:10px 14px;background:var(--surface);cursor:pointer;min-height:44px;font:inherit;color:var(--text)}
+#deployRecorderApp .rec-sinal:hover{border-color:var(--primary)}
+#deployRecorderApp .rec-sinal .rot{font-size:12px;color:var(--muted)}
+#deployRecorderApp .rec-sinal .val{font-size:20px;font-weight:700;font-variant-numeric:tabular-nums;line-height:1.2}
+#deployRecorderApp .rec-sinal .sub{font-size:12px;color:var(--muted)}
+#deployRecorderApp .rec-sinal.ok .val{color:var(--primary)}
+#deployRecorderApp .rec-sinal.aviso .val{color:var(--amber)}
+#deployRecorderApp .rec-sinal.erro .val{color:var(--danger)}
+#deployRecorderApp .rec-sinal.erro{border-color:color-mix(in srgb,var(--danger) 35%,var(--border))}
+#deployRecorderApp .nav button{min-height:40px;font-size:13.5px}
+#deployRecorderApp .rec-geral{display:flex;flex-direction:column;gap:14px}
+#deployRecorderApp .rec-geral-cab{display:flex;align-items:center;gap:12px;flex-wrap:wrap;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 16px}
+#deployRecorderApp .rec-geral-cab > div{flex:1 1 300px}
+#deployRecorderApp .rec-geral-cab h2{margin:0;font-size:19px;font-weight:700}
+#deployRecorderApp .rec-geral-cab p{margin:3px 0 0;font-size:13px;color:var(--muted)}
+#deployRecorderApp .acao.grande{min-height:42px;padding:0 18px;font-size:13.5px;font-weight:600}
+#deployRecorderApp .acao.perigo{background:var(--danger);border-color:var(--danger);color:#fff}
+#deployRecorderApp .rec-geral-grade{display:grid;grid-template-columns:repeat(auto-fit,minmax(290px,1fr));gap:12px}
+#deployRecorderApp .rec-cartao{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 16px;display:flex;flex-direction:column;gap:9px;min-width:0}
+#deployRecorderApp .rec-cartao h3{margin:0;font-size:14px;font-weight:600}
+#deployRecorderApp .rec-cartao > .acao{align-self:flex-start;min-height:34px}
+#deployRecorderApp .rec-muted{margin:0;font-size:12.5px;color:var(--muted)}
+#deployRecorderApp .rec-grande{font-size:30px;font-weight:700;line-height:1.1}
+#deployRecorderApp .rec-trilha-linha{display:grid;grid-template-columns:minmax(0,120px) 1fr;gap:8px;align-items:center;font-size:12px}
+#deployRecorderApp .rec-trilha-linha > span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#deployRecorderApp .rec-trilha{position:relative;height:14px;background:var(--surface-soft);border:1px solid var(--border);border-radius:4px;overflow:hidden}
+#deployRecorderApp .rec-trilha i{position:absolute;top:0;bottom:0}
+#deployRecorderApp .rec-trilha i.grav{background:#8fa3ad}
+#deployRecorderApp .rec-trilha i.mov{background:var(--amber)}
+#deployRecorderApp .rec-trilha i.buraco{background:var(--danger)}
+#deployRecorderApp .rec-trilha.carregando{background:linear-gradient(90deg,var(--surface-soft),var(--border),var(--surface-soft));background-size:200% 100%;animation:recTrilhaPulso 1.4s linear infinite}
+#deployRecorderApp .rec-trilha.erro{display:flex;align-items:center;padding-left:6px;font-size:10.5px;color:var(--muted)}
+@keyframes recTrilhaPulso{from{background-position:200% 0}to{background-position:0 0}}
+@media (prefers-reduced-motion: reduce){#deployRecorderApp .rec-trilha.carregando{animation:none}}
+#deployRecorderApp .rec-legenda{display:flex;gap:12px;flex-wrap:wrap;font-size:11.5px;color:var(--muted)}
+#deployRecorderApp .rec-legenda i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:4px;vertical-align:-1px}
+#deployRecorderApp .rec-legenda i.grav{background:#8fa3ad}
+#deployRecorderApp .rec-legenda i.mov{background:var(--amber)}
+#deployRecorderApp .rec-legenda i.buraco{background:var(--danger)}
+#deployRecorderApp .rec-disco{display:grid;grid-template-columns:auto 1fr auto;gap:8px;align-items:center;font-size:12.5px}
+#deployRecorderApp .rec-disco .erro{color:var(--danger)}
+#deployRecorderApp .rec-barra{height:8px;background:var(--surface-soft);border:1px solid var(--border);border-radius:99px;overflow:hidden}
+#deployRecorderApp .rec-barra i{display:block;height:100%;background:var(--primary)}
+#deployRecorderApp .rec-barra i.cheio{background:#8fa3ad}
+#deployRecorderApp .rec-barra i.erro{background:var(--danger)}
+#deployRecorderApp .rec-reg{display:flex;gap:10px;font-size:12.5px}
+#deployRecorderApp .rec-reg .n,#deployRecorderApp .rec-disco .n{font-family:'IBM Plex Mono',monospace;color:var(--muted);white-space:nowrap}

@@ -135,3 +135,67 @@ def test_hikvision_so_mostra_relogio_sem_corrigir(pares, tmp_path):
     g = rd.Gravador("10.0.0.9", "admin", "x", 80, pedir=falso, marca="hikvision")
     with pytest.raises(rd.ErroDriver):
         ra.corrigir(g, "movimento", tmp_path)
+
+
+def test_perda_de_video_so_nos_canais_com_camera(pares, tmp_path):
+    for i in range(4):
+        pares[f"LossDetect[{i}].Enable"] = "false"
+    pares["LossDetect[1].Enable"] = "true"
+    a = {x["id"]: x for x in ra.montar_avisos(pares, com_camera={1, 2, 3})}["perda_video"]
+    # canal 2 ja avisa; canal 4 e livre (ligar ali disparava alarme sem parar)
+    assert a["seguro"] and "01, 03" in a["lido"]
+    assert [m["chave"] for m in a["_mudancas"]] == ["LossDetect[0].Enable", "LossDetect[2].Enable"]
+    # sem saber quais canais tem camera, nao sugere nada
+    assert "perda_video" not in {x["id"] for x in ra.montar_avisos(pares)}
+
+
+class GravadorComIndice(GravadorComRelogio):
+    """Disco com gravacao continua de `mais_antiga` ate agora."""
+
+    def __init__(self, pares, mais_antiga, **kw):
+        super().__init__(pares, **kw)
+        self.mais_antiga = mais_antiga
+        self.janela = None
+
+    def __call__(self, url):
+        from urllib.parse import parse_qs
+        caminho = url.split("://", 1)[1].split("/", 1)[1]
+        if "mediaFileFind" in caminho:
+            self.pedidos.append(caminho)
+            q = {k: v[0] for k, v in parse_qs(caminho.split("?", 1)[1]).items()}
+            if "factory.create" in caminho:
+                return 200, "result=77"
+            if q.get("action") == "findFile":
+                ini = datetime.strptime(q["condition.StartTime"], "%Y-%m-%d %H:%M:%S")
+                fim = datetime.strptime(q["condition.EndTime"], "%Y-%m-%d %H:%M:%S")
+                if fim < self.mais_antiga:
+                    return 400, "Error"
+                self.janela = max(ini, self.mais_antiga)
+                return 200, "OK"
+            if "findNextFile" in caminho:
+                assert "count=1" in caminho
+                return 200, (f"found=1\r\nitems[0].Channel=0\r\nitems[0].StartTime={self.janela:%Y-%m-%d %H:%M:%S}\r\n"
+                             f"items[0].EndTime={self.janela + timedelta(hours=1):%Y-%m-%d %H:%M:%S}\r\n"
+                             "items[0].Flags[0]=Timing\r\nitems[0].Length=1024\r\n")
+            return 200, "OK"
+        return super().__call__(url)
+
+
+def test_retencao_acha_a_borda_em_poucos_pedidos(pares):
+    agora = datetime(2026, 10, 16, 0, 0, 0)
+    falso = GravadorComIndice(pares, datetime(2026, 9, 22, 3, 14, 0))
+    assert ra.gravacao_mais_antiga(_g(falso), 1, agora=agora) == "2026-09-22 03:14:00"
+    buscas = [p for p in falso.pedidos if "action=findFile" in p]
+    assert len(buscas) <= 15
+    # toda busca aberta e fechada
+    assert len([p for p in falso.pedidos if "action=destroy" in p]) == len(buscas)
+
+
+def test_resumo_guarda_a_retencao_por_cliente(pares):
+    ra._RETENCAO_CACHE.clear()
+    falso = GravadorComIndice(pares, datetime.now() - timedelta(days=23, hours=5))
+    r = ra.resumo_do_gravador(_g(falso), 1)
+    assert 22.5 < r["retencao"]["dias"] < 24
+    n = len(falso.pedidos)
+    ra.resumo_do_gravador(_g(falso), 1)
+    assert not any("mediaFileFind" in p for p in falso.pedidos[n:])

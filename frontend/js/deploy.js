@@ -4324,12 +4324,12 @@ function deployRecorderRotulo(chave) {
 //   - navegacao vertical com contador por secao, em vez de pilulas grandes;
 //   - o mosaico ocupa a tela, imagens coladas e sem moldura, como mural de
 //     CFTV.
-let _recSec = 'vivo';
+let _recSec = 'geral';
 let _recCols = '4';
 let _recEdit = null;   // canal em edicao
 
 const _REC_SECOES = [
-  ['vivo', 'Ao vivo'], ['achados', 'Avisos e correções'], ['canais', 'Canais'],
+  ['geral', 'Visão geral'], ['vivo', 'Ao vivo'], ['achados', 'Avisos e correções'], ['canais', 'Canais'],
   ['discos', 'Discos'], ['deteccao', 'Deteccao'], ['rede', 'Rede'], ['equip', 'Equipamento'],
 ];
 
@@ -4355,7 +4355,7 @@ function recAchadosLista(d) {
   const pv = det.perda_video || det.videoloss;
   if (pv && pv.total && pv.ligados < pv.total) out.push(['erro',
     `${pv.total - pv.ligados} canais nao avisam se a camera cair`,
-    `Perda de video esta ligada em ${pv.ligados} de ${pv.total}. Nos outros, a camera pode sumir sem gerar evento nenhum.`, '']);
+    `Perda de video esta ligada em ${pv.ligados} de ${pv.total}. Nos outros, a camera pode sumir sem gerar evento nenhum.`, 'perda_video']);
   if (z.offline) out.push(['erro', `${z.offline} canal(is) sem imagem`,
     'A camera esta no canal mas nao responde.', '']);
   (d.discos || []).forEach(x => { if (x.erro) out.push(['erro', `Disco ${x.id} com falha`,
@@ -4433,6 +4433,169 @@ function recSecVivo(d) {
   </div>`;
 }
 
+// ---- Topo (5 numeros) e Visao geral -------------------------------------
+// O que a pessoa quer saber ao entrar num gravador: esta gravando tudo?
+// quantos dias guarda? o relogio esta certo? os discos? ele responde?
+// Retencao e trilhas de 24 h vem do driver (/api/nvr/driver/resumo e
+// /indice); o resto ja esta no raio-x. Tudo lido, nada estimado.
+let _recRes = null;   // {host, carregando, erro, dados, trilhas:{canal:{segs, erro}}}
+
+function recResCanalBase(d) {
+  const c = (d.canais || []).find(x => x.ip && x.online !== false) || (d.canais || []).find(x => x.ip);
+  return c ? Number(c.canal) : 1;
+}
+
+// Canais para a trilha de 24 h: os com problema primeiro, depois os primeiros.
+function recResCanaisTrilha(d) {
+  const usados = (d.canais || []).filter(c => c.ip);
+  const ruins = usados.filter(c => c.online === false);
+  const resto = usados.filter(c => c.online !== false);
+  return [...ruins, ...resto].slice(0, 6).map(c => Number(c.canal));
+}
+
+async function recResCarregar(forcar = false) {
+  const d = _deployRecorderXray;
+  const alvo = recAvAlvo();
+  if (!d || !alvo.host) return;
+  if (!forcar && _recRes && _recRes.host === alvo.host) return;
+  _recRes = { host: alvo.host, chave: recChave(), carregando: true, erro: '', dados: null, trilhas: {} };
+  const base = { host: alvo.host, http_port: alvo.http_port, connector_id: alvo.connector_id };
+  const ainda = () => _recRes?.host === alvo.host;
+  try {
+    const q = new URLSearchParams({ ...base, canal: recResCanalBase(d) });
+    const res = await api(`/api/nvr/driver/resumo?${q}`);
+    const j = await res.json().catch(() => ({}));
+    if (!ainda()) return;
+    if (res.ok) _recRes.dados = j; else _recRes.erro = j.detail === 'SEM_CREDENCIAL' ? 'Sem senha salva deste gravador.' : (j.detail || `HTTP ${res.status}`);
+  } catch (e) { if (ainda()) _recRes.erro = e.message; }
+  if (!ainda()) return;
+  _recRes.carregando = false;
+  recPintarApp();
+  // Uma trilha por vez: o gravador e um so.
+  for (const canal of recResCanaisTrilha(d)) {
+    if (!ainda()) return;
+    _recRes.trilhas[canal] = { carregando: true };
+    try {
+      const res = await api(`/api/nvr/driver/indice?${new URLSearchParams({ ...base, canal })}`);
+      const j = await res.json().catch(() => ({}));
+      if (!ainda()) return;
+      _recRes.trilhas[canal] = res.ok ? { segs: j.segmentos || [], ini: j.inicio, fim: j.fim } : { erro: j.detail || `HTTP ${res.status}` };
+    } catch (e) { if (ainda()) _recRes.trilhas[canal] = { erro: e.message }; }
+    if (_recSec === 'geral') recPintarApp();
+  }
+}
+
+function recFmtData(s) {
+  const m = String(s || '').match(/^(\d{4})-(\d\d)-(\d\d)[ T](\d\d):(\d\d)/);
+  return m ? `${m[3]}/${m[2]} ${m[4]}:${m[5]}` : '';
+}
+
+function recFmtDif(seg) {
+  const a = Math.abs(seg), h = Math.floor(a / 3600), m = Math.floor((a % 3600) / 60), s = a % 60;
+  return `${seg > 0 ? '+' : '−'}${h ? h + ' h ' : ''}${m ? m + ' min ' : ''}${!h ? s + ' s' : ''}`.trim();
+}
+
+function recSinais(d) {
+  const usados = (d.canais || []).filter(c => c.ip);
+  const caidos = usados.filter(c => c.online === false);
+  const av = _recAv && _recAv.host === d.host ? _recAv : null;
+  const ids = new Set((av?.dados?.avisos || []).filter(a => !av.feitos[a.id]?.ok).map(a => a.id));
+  const res = _recRes && _recRes.host === d.host ? _recRes : null;
+  const rel = res?.dados?.relogio || av?.dados?.relogio;
+  const ret = res?.dados?.retencao;
+  const discos = d.discos || [];
+  const cap = discos.reduce((s, x) => s + (Number(x.total_tb) || 0), 0);
+  const ruins = discos.filter(x => x.erro).length;
+  const ms = res?.dados?.latencia_ms;
+
+  const sinais = [
+    { ir: 'canais', rot: 'Com imagem', cor: caidos.length ? 'erro' : 'ok',
+      val: `${usados.length - caidos.length} de ${usados.length}`,
+      sub: caidos.length ? `canal ${caidos.slice(0, 3).map(c => String(c.canal).padStart(2, '0')).join(', ')}${caidos.length > 3 ? '…' : ''} sem imagem` : 'todos respondendo' },
+    { ir: 'discos', rot: 'Retenção', cor: ret?.dias != null ? (ret.dias < 7 ? 'erro' : (ret.dias < 30 ? 'aviso' : 'ok')) : '',
+      val: res?.carregando ? '…' : (ret?.dias != null ? `${Math.floor(ret.dias)} dias` : '—'),
+      sub: ret?.mais_antiga ? `desde ${recFmtData(ret.mais_antiga)}` : (ret?.erro ? 'não consegui ler o índice' : (res?.carregando ? 'lendo o índice' : 'sem gravação')) },
+    { ir: 'achados', rot: 'Relógio', cor: rel ? (Math.abs(rel.diferenca_s) > 60 ? 'erro' : 'ok') : '',
+      val: rel ? (Math.abs(rel.diferenca_s) > 60 ? recFmtDif(rel.diferenca_s) : 'certo') : '…',
+      sub: rel ? (ids.has('ntp') ? 'NTP desligado' : (av?.dados && !av.dados.parcial ? 'NTP ligado' : `diferença ${rel.diferenca_s} s`)) : 'conferindo' },
+    { ir: 'discos', rot: 'Discos', cor: ruins ? 'erro' : (discos.length ? 'ok' : 'erro'),
+      val: discos.length ? `${discos.length - ruins} de ${discos.length} ok` : 'sem disco',
+      sub: cap ? `${cap.toFixed(1)} TB` : 'não grava' },
+    { ir: 'rede', rot: 'Resposta', cor: ms == null ? '' : (ms > 1500 ? 'aviso' : 'ok'),
+      val: ms == null ? '…' : `${ms} ms`, sub: recAvAlvo().connector_id ? 'pelo conector' : 'rede direta' },
+  ];
+  return `<div class="rec-sinais">${sinais.map(s => `<button type="button" class="rec-sinal ${s.cor}" data-rec-sec="${s.ir}">
+    <span class="rot">${esc(s.rot)}</span><span class="val">${esc(s.val)}</span><span class="sub">${esc(s.sub)}</span>
+  </button>`).join('')}</div>`;
+}
+
+function recTrilha(t) {
+  if (!t || t.carregando) return '<div class="rec-trilha carregando"></div>';
+  if (t.erro) return `<div class="rec-trilha erro" title="${esc(t.erro)}"><span>não li o índice</span></div>`;
+  const ini = new Date(String(t.ini).replace(' ', 'T')).getTime(), fim = new Date(String(t.fim).replace(' ', 'T')).getTime();
+  const tot = fim - ini || 1;
+  const pos = s => Math.max(0, Math.min(100, ((new Date(String(s).replace(' ', 'T')).getTime() - ini) / tot) * 100));
+  // buracos: o que nao esta coberto por segmento nenhum
+  const segs = (t.segs || []).map(s => [pos(s.inicio), pos(s.fim), s.tipo]).sort((a, b) => a[0] - b[0]);
+  const blocos = [];
+  let cursor = 0;
+  segs.forEach(([a, b]) => { if (a - cursor > 0.4) blocos.push(['buraco', cursor, a]); cursor = Math.max(cursor, b); });
+  if (100 - cursor > 0.4) blocos.push(['buraco', cursor, 100]);
+  segs.forEach(([a, b, tipo]) => blocos.push([tipo === 'movimento' ? 'mov' : 'grav', a, b]));
+  const ordem = { grav: 0, mov: 1, buraco: 2 };
+  blocos.sort((x, y) => ordem[x[0]] - ordem[y[0]]);
+  return `<div class="rec-trilha">${blocos.map(([k, a, b]) =>
+    `<i class="${k}" style="left:${a.toFixed(2)}%;width:${Math.max(0.3, b - a).toFixed(2)}%"></i>`).join('')}</div>`;
+}
+
+function recSecGeral(d) {
+  const erros = recAvErros(d);
+  const av = _recAv && _recAv.host === d.host ? _recAv : null;
+  const res = _recRes && _recRes.host === d.host ? _recRes : null;
+  const ret = res?.dados?.retencao;
+  const canais = recResCanaisTrilha(d);
+  const nomes = Object.fromEntries((d.canais || []).map(c => [Number(c.canal), c.nome || c.ip]));
+  const discos = d.discos || [];
+  const regs = (av?.dados?.registros || []).slice(0, 4);
+  const carregando = (av?.carregando || !av) ? ' · conferindo a configuração…' : '';
+
+  return `<div class="rec-geral">
+    <div class="rec-geral-cab">
+      <div><h2>${erros ? `${erros} problema${erros > 1 ? 's' : ''} pede${erros > 1 ? 'm' : ''} você neste gravador` : 'Gravador em ordem'}</h2>
+        <p>Tudo aqui foi lido do gravador agora — nada é estimado${carregando}.</p></div>
+      ${erros ? '<button class="acao perigo grande" type="button" data-rec-sec="achados">Ver avisos e corrigir</button>' : ''}
+    </div>
+    <div class="rec-geral-grade">
+      <section class="rec-cartao">
+        <h3>Gravação nas últimas 24 h</h3>
+        ${canais.length ? canais.map(c => `<div class="rec-trilha-linha">
+          <span title="${esc(nomes[c] || '')}">${esc(String(c).padStart(2, '0'))} · ${esc(nomes[c] || '')}</span>
+          ${recTrilha(res?.trilhas?.[c])}</div>`).join('') : '<p class="rec-muted">Nenhum canal com câmera.</p>'}
+        <div class="rec-legenda"><span><i class="grav"></i>gravado</span><span><i class="mov"></i>movimento</span><span><i class="buraco"></i>buraco</span></div>
+      </section>
+      <section class="rec-cartao">
+        <h3>Retenção</h3>
+        <div class="rec-grande">${ret?.dias != null ? `${Math.floor(ret.dias)} dias` : (res?.carregando || !res ? '…' : '—')}</div>
+        <p class="rec-muted">${ret?.mais_antiga ? `Gravação mais antiga no disco: ${esc(recFmtData(ret.mais_antiga))} (canal ${esc(String(ret.canal).padStart(2, '0'))}).`
+          : (ret?.erro ? `Não consegui ler o índice: ${esc(ret.erro)}` : (res?.erro ? esc(res.erro) : 'Lendo o índice do gravador…'))}</p>
+        ${discos.map(x => {
+          const pct = x.total_tb ? Math.round((Number(x.usado_tb) || 0) / x.total_tb * 100) : 0;
+          return `<div class="rec-disco"><span>Disco ${esc(x.id)}${x.erro ? ' · <b class="erro">com falha</b>' : ''}</span>
+            <div class="rec-barra"><i style="width:${pct}%" class="${x.erro ? 'erro' : (pct >= 99 ? 'cheio' : '')}"></i></div>
+            <span class="n">${esc(x.total_tb)} TB · ${pct}%</span></div>`;
+        }).join('')}
+      </section>
+      <section class="rec-cartao">
+        <h3>Correções feitas aqui</h3>
+        ${regs.length ? regs.map(r => `<div class="rec-reg"><span class="n">${esc(recFmtData(r.quando))}</span>
+          <span>${esc(r.titulo)}${r.por ? ` · ${esc(r.por)}` : ''}${r.desfeito_em ? ' · desfeito' : ''}</span></div>`).join('')
+          : '<p class="rec-muted">Nenhuma correção feita pelo SightOps neste gravador ainda.</p>'}
+        <button class="acao" type="button" data-rec-sec="achados">Avisos e correções</button>
+      </section>
+    </div>
+  </div>`;
+}
+
 // ---- Avisos e correcoes -------------------------------------------------
 // Duas fontes: o raio-x (o que a tela ja lia, sem correcao automatica) e
 // /api/nvr/driver/avisos, que le a configuracao e devolve cada aviso com a
@@ -4440,6 +4603,14 @@ function recSecVivo(d) {
 // aviso, e o servidor rele o gravador antes de gravar. Equipamento de cliente
 // e vivo -- nada e escrito sem o clique de confirmar.
 let _recAv = null;   // {host, carregando, erro, dados, aberto, feitos:{id:{...}}, trabalhando}
+
+// Mesmo IP pode existir atras de outro conector (ou em outro cliente, se a
+// troca de cliente nao recarregar a pagina): o que foi lido fica preso a
+// host + conector, nunca so ao host.
+function recChave() {
+  const a = recAvAlvo();
+  return `${a.host}|${a.connector_id}|${a.http_port}`;
+}
 
 function recAvAlvo() {
   const d = _deployRecorderXray || {};
@@ -4455,7 +4626,7 @@ async function recAvCarregar(forcar = false) {
   // O aviso corrigido sai da lista do servidor; o cartao fica, com "Corrigido"
   // e o Desfazer, ate o operador conferir de novo.
   const corrigidos = (_recAv?.host === alvo.host ? _recAv.dados?.avisos || [] : []).filter(a => feitos[a.id]);
-  _recAv = { host: alvo.host, carregando: true, erro: '', dados: null, aberto: null, feitos, trabalhando: '' };
+  _recAv = { host: alvo.host, chave: recChave(), carregando: true, erro: '', dados: null, aberto: null, feitos, trabalhando: '' };
   if (_recSec === 'achados') recPintarApp();
   try {
     const q = new URLSearchParams({ host: alvo.host, http_port: alvo.http_port, connector_id: alvo.connector_id });
@@ -4479,7 +4650,7 @@ async function recAvCarregar(forcar = false) {
 // aviso com correcao, ou nao ha o que corrigir.
 function recAvManuais(d) {
   const av = _recAv && _recAv.host === d.host ? _recAv : null;
-  return recAchadosLista(d).filter(x => !(x[3] === 'ntp' && av?.dados && !av.dados.parcial));
+  return recAchadosLista(d).filter(x => !(['ntp', 'perda_video'].includes(x[3]) && av?.dados && !av.dados.parcial));
 }
 
 // Erros que contam no numero da secao e na barra: os do raio-x mais os do
@@ -4718,7 +4889,7 @@ function recSecEquip(d) {
   ].filter(([, v]) => String(v || '').trim()).map(([k, v]) => [k, v, '']));
 }
 
-const _REC_SEC_RENDER = { vivo: recSecVivo, achados: recSecAchados, canais: recSecCanais,
+const _REC_SEC_RENDER = { geral: recSecGeral, vivo: recSecVivo, achados: recSecAchados, canais: recSecCanais,
   discos: recSecDiscos, deteccao: recSecDeteccao, rede: recSecRede, equip: recSecEquip };
 
 function recContagem(d, id) {
@@ -4786,10 +4957,11 @@ function recSair() {
   recFecharVivo();
   _deployRecorderXray = null;
   _recAv = null;
+  _recRes = null;
   _deployStandaloneRecorderProbe = null;
   _deployStandaloneRecorderNetworkLoaded = false;
   _recProgresso = null;
-  _recSec = 'vivo';
+  _recSec = 'geral';
   deployStandaloneRecorderRenderProbe(null);
   deployStandaloneRecorderClearRecorderFields();
   recPintarApp();
@@ -5350,6 +5522,13 @@ function recPintarApp() {
   }
   const eq = d.equipamento || {}, z = d.resumo || {};
   const cap = (d.discos || []).reduce((s, x) => s + (Number(x.total_tb) || 0), 0);
+  if (_recAv && _recAv.chave !== recChave()) _recAv = null;
+  if (_recRes && _recRes.chave !== recChave()) _recRes = null;
+  if (!_recAv || _recAv.host !== d.host) {
+    setTimeout(() => recAvCarregar().then(() => recResCarregar()), 0);
+  } else if (!_recRes || _recRes.host !== d.host) {
+    setTimeout(() => recResCarregar(), 0);
+  }
   const criticos = recAvErros(d);
 
   app.innerHTML = `
@@ -5373,6 +5552,7 @@ function recPintarApp() {
         <button class="acao" type="button" data-rec-sair="1" title="Fechar o gravador e voltar">Sair</button>
       </div>
     </div>
+    ${recSinais(d)}
     <div class="corpo">
       <nav class="nav" aria-label="Secoes">${_REC_SECOES.map(([id, rot]) => {
         const n = recContagem(d, id);
@@ -5388,7 +5568,7 @@ function recPintarApp() {
     b.addEventListener('click', () => { _recSec = b.dataset.recSec; recPintarApp(); }));
   app.querySelectorAll('[data-rec-col]').forEach(b =>
     b.addEventListener('click', () => { _recCols = b.dataset.recCol; recPintarApp(); }));
-  app.querySelector('[data-rec-reler]')?.addEventListener('click', () => deployRecorderCarregarXray());
+  app.querySelector('[data-rec-reler]')?.addEventListener('click', () => { _recAv = null; _recRes = null; deployRecorderCarregarXray(); });
   app.querySelector('[data-rec-sair]')?.addEventListener('click', () => recSair());
   app.querySelector('[data-rec-salvar]')?.addEventListener('click', ev => recSalvarInventario(ev.target));
   app.querySelectorAll('[data-rec-vivo]').forEach(el =>
