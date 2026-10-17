@@ -112,6 +112,44 @@ def _p(value: Any, style: ParagraphStyle, fallback: str = "-", color: Optional[c
 
 LINK = colors.HexColor("#0B5CAD")
 
+# Toda foto de galeria ocupa o MESMO quadro 16:9. Camera 4:3 (ou retrato) saia
+# mais alta e desalinhava a grade inteira. A imagem e encaixada sem cortar --
+# hora e nome da camera ficam nas bordas e nao podem sumir -- e a sobra fica
+# preta, como numa tela de video.
+PROPORCAO_FOTO = 9 / 16
+_FUNDO_FOTO = (0, 0, 0)
+
+
+def _foto_padronizada(caminho: Any, largura_pt: float):
+    """JPEG em memoria no quadro 16:9, do tamanho em que sera exibido.
+
+    `largura_pt` esta em pontos; o dobro em pixels mantem o zoom nitido e ainda
+    e uma fracao do original (o relatorio de gravadores embutia a foto inteira).
+    Devolve o buffer (o RLImage aceita qualquer objeto com .read()) ou None.
+    """
+    from io import BytesIO
+
+    from PIL import Image as PILImage
+
+    try:
+        alvo_w = max(320, int(largura_pt * 2))
+        alvo_h = max(1, round(alvo_w * PROPORCAO_FOTO))
+        with PILImage.open(caminho) as im:
+            im = im.convert("RGB")
+            if not im.width or not im.height:
+                return None
+            escala = min(alvo_w / im.width, alvo_h / im.height)
+            nova = (max(1, round(im.width * escala)), max(1, round(im.height * escala)))
+            im = im.resize(nova, PILImage.LANCZOS)
+            quadro = PILImage.new("RGB", (alvo_w, alvo_h), _FUNDO_FOTO)
+            quadro.paste(im, ((alvo_w - nova[0]) // 2, (alvo_h - nova[1]) // 2))
+        buf = BytesIO()
+        quadro.save(buf, "JPEG", quality=72, optimize=True)
+        buf.seek(0)
+        return buf
+    except Exception:
+        return None
+
 
 def _coordenadas(row: Dict[str, Any]) -> Optional[tuple]:
     """(lat, lon) da linha, ou None. Aceita lat/lon, latitude/longitude e lat/lng.
@@ -144,16 +182,69 @@ def _p_localizacao(row: Dict[str, Any], style: ParagraphStyle) -> Paragraph:
                      f'<link href="{url}" color="{cor}">{lon:.6f}</link>', style)
 
 
+def _coordenadas_do_mapa() -> Dict[str, tuple]:
+    """nome do ponto (minusculo) -> (lat, lon), das camadas do Mapa do cliente atual.
+
+    E onde o operador posiciona as cameras (arrasta o pino) -- o campo lat/lon
+    do inventario so existe para parte delas e envelhece. Na SIERRA eram 29 de
+    70 no inventario e 70 no mapa. O casamento e pelo NOME, como a tela do Mapa
+    faz: a descricao dos pontos guarda o IP de quando o KMZ foi gerado, e depois
+    de uma troca de IP ele aponta para outra camera. Nome repetido com posicoes
+    diferentes fica de fora -- nao da para saber qual e.
+    """
+    import json as _json
+
+    from app.core.tenant_context import get_current_tenant_slug, tenant_kmz_input_dir
+
+    if not get_current_tenant_slug():
+        return {}
+    pasta = tenant_kmz_input_dir().parent / "kmz_layers"
+    achados: Dict[str, set] = {}
+    for geo in sorted(pasta.glob("*.geojson")):
+        # mesma regra da listagem de camadas: so conta camada inteira
+        if not (pasta / f"{geo.stem}.meta.json").exists() or not (pasta / f"{geo.stem}.kmz").exists():
+            continue
+        try:
+            dados = _json.loads(geo.read_text(encoding="utf-8") or "{}")
+        except (OSError, ValueError):
+            continue
+        for f in dados.get("features") or []:
+            g = (f or {}).get("geometry") or {}
+            if g.get("type") != "Point" or len(g.get("coordinates") or []) < 2:
+                continue
+            nome = _to_text(((f or {}).get("properties") or {}).get("name")).strip().lower()
+            c = _coordenadas({"lat": g["coordinates"][1], "lon": g["coordinates"][0]})
+            if nome and c:
+                achados.setdefault(nome, set()).add((round(c[0], 7), round(c[1], 7)))
+    return {nome: next(iter(cs)) for nome, cs in achados.items() if len(cs) == 1}
+
+
+def _posicao_camera(cam: Dict[str, Any], mapa: Dict[str, tuple]) -> Optional[tuple]:
+    """Posicao do Mapa (pelo nome da camera); sem ponto no mapa, a do inventario."""
+    nome = _to_text(cam.get("titulo") or cam.get("title")).strip().lower()
+    return mapa.get(nome) if nome and nome in mapa else _coordenadas(cam)
+
+
+def _aplicar_posicoes(rows: List[Dict[str, Any]]) -> None:
+    """Grava em lat/lon de cada camera (copia do relatorio) a posicao que o Mapa mostra."""
+    mapa = _coordenadas_do_mapa()
+    for r in rows:
+        c = _posicao_camera(r, mapa)
+        if c:
+            r["lat"], r["lon"] = c
+
+
 def _coordenadas_das_cameras() -> Dict[tuple, tuple]:
     """(conector, ip) -> (lat, lon), do inventario de cameras do cliente ATUAL.
 
-    O canal do gravador guarda so o IP da camera; a coordenada mora no
-    inventario de cameras (e o que o Mapa usa). A chave leva o conector porque o
-    mesmo IP se repete em sites diferentes do mesmo cliente. A chave sem
-    conector ("", ip) so vale quando o IP tem uma coordenada so no cliente.
+    O canal do gravador guarda so o IP da camera; a posicao e a da camera (a do
+    Mapa, pelo nome dela; sem ponto no mapa, a do inventario). A chave leva o
+    conector porque o mesmo IP se repete em sites diferentes do mesmo cliente.
+    A chave sem conector ("", ip) so vale quando o IP tem uma posicao so.
     """
     from app.services.inventory_json import load_inventory_json
 
+    mapa = _coordenadas_do_mapa()
     idx: Dict[tuple, tuple] = {}
     por_ip: Dict[str, set] = {}
     for modo in ("olt", "basic", "switch"):
@@ -164,7 +255,7 @@ def _coordenadas_das_cameras() -> Dict[tuple, tuple]:
         for r in linhas:
             if not isinstance(r, dict):
                 continue
-            c = _coordenadas(r)
+            c = _posicao_camera(r, mapa)
             ip = _to_text(r.get("ip") or r.get("IP"))
             if not c or not ip:
                 continue
@@ -178,25 +269,29 @@ def _coordenadas_das_cameras() -> Dict[tuple, tuple]:
 
 
 def _completar_coordenadas(rows: List[Dict[str, Any]]) -> None:
-    """Poe lat/lon nos canais que tem camera com coordenada no inventario."""
-    if not rows or all(_coordenadas(r) for r in rows):
+    """Poe em lat/lon de cada canal a posicao da camera dele.
+
+    Ordem: a camera ligada ao canal (posicao do Mapa, ou do inventario); depois
+    a coordenada do proprio canal; por fim um ponto do Mapa com o nome do canal
+    (DVR analogico nao tem IP de camera para casar).
+    """
+    if not rows:
         return
     idx = _coordenadas_das_cameras()
-    if not idx:
-        return
+    mapa = _coordenadas_do_mapa()
     for r in rows:
-        if _coordenadas(r):
-            continue
         ip = _to_text(r.get("camera_ip"))
-        if not ip:
-            continue
         conn = _to_text(r.get("remote_connector_id") or r.get("connector_id"))
-        c = idx.get((conn, ip)) or idx.get(("", ip))
+        c = (idx.get((conn, ip)) or idx.get(("", ip))) if ip else None
+        c = c or _coordenadas(r) or mapa.get(_to_text(r.get("title") or r.get("titulo")).strip().lower())
         if c:
             r["lat"], r["lon"] = c
 
 
-def _header_footer_factory(title: str, accent: colors.Color, subtitle_right: str):
+def _header_footer_factory(title: str, accent: colors.Color, subtitle_right: str,
+                           cabecalho: str = "RELATORIO DE GRAVADORES"):
+    # `cabecalho` e o nome do relatorio no topo de cada pagina. Era fixo, e o
+    # relatorio de cameras, que reaproveita esta funcao, saia como "gravadores".
     def _draw(canvas, doc):
         canvas.saveState()
         width, height = landscape(A4)
@@ -206,7 +301,7 @@ def _header_footer_factory(title: str, accent: colors.Color, subtitle_right: str
         canvas.line(14 * mm, height - 14 * mm, width - 14 * mm, height - 14 * mm)
         canvas.setFont("Helvetica-Bold", 7.5)
         canvas.setFillColor(accent)
-        canvas.drawString(14 * mm, height - 11 * mm, "SIGHTOPS  -  RELATORIO DE GRAVADORES")
+        canvas.drawString(14 * mm, height - 11 * mm, f"SIGHTOPS  -  {cabecalho}")
         canvas.setFont("Helvetica", 7)
         canvas.setFillColor(MUTED)
         canvas.drawRightString(width - 14 * mm, height - 11 * mm, subtitle_right[:90])
@@ -347,15 +442,9 @@ def _photo_flowables(rows: List[Dict[str, Any]], styles: Dict[str, ParagraphStyl
         ch = int(r.get("channel") or 0)
         caption = f"{host} CH{ch:02d} - {_to_text(r.get('title') or r.get('titulo'))}"
         inner: List[Any] = [_p(caption, styles["cap"])]
-        if p is not None:
-            try:
-                from PIL import Image as PILImage
-                with PILImage.open(p) as im:
-                    ratio = (im.height / im.width) if im.width else 0.5625
-                img = RLImage(str(p), width=img_w, height=img_w * ratio)
-                inner.append(img)
-            except Exception:
-                inner.append(_p("sem imagem", styles["small"]))
+        foto = _foto_padronizada(p, img_w) if p is not None else None
+        if foto is not None:
+            inner.append(RLImage(foto, width=img_w, height=img_w * PROPORCAO_FOTO))
         else:
             inner.append(_p("sem imagem", styles["small"]))
         cards.append(inner)
