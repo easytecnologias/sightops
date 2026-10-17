@@ -1084,6 +1084,28 @@ def _aplica_ip_na_camera(
                      f"reiniciar, ela segue funcionando normalmente em {ip}.",
         }
 
+    # Mesma conferencia do caminho ISAPI. Sem ela, o "Deslocar IPs" gravou em
+    # 17/10/2026 o chute da tela (/24, gateway prefixo + .1) em 4 cameras da
+    # SIERRA, cuja rede e /23 com gateway 10.200.0.254: a camera aceita, responde
+    # OK, e fica inalcancavel para o roteador sem erro nenhum na hora.
+    atual = _dahua_rede_atual(ip, user, password)
+    divergentes = []
+    if atual.get("mask") and _as_str(mask) != atual["mask"]:
+        divergentes.append(f"mascara {_as_str(mask)} (a camera usa {atual['mask']})")
+    if atual.get("gateway") and _as_str(gateway) != atual["gateway"]:
+        divergentes.append(f"gateway {_as_str(gateway)} (a camera usa {atual['gateway']})")
+    if divergentes and not bool(forcar_rede):
+        return {
+            "ok": False, "ip": ip, "new_ip": new_ip, "via": "cgi",
+            "rede_atual": atual,
+            "precisa_confirmar": True,
+            "error": "Nao troquei ainda: " + " e ".join(divergentes)
+                     + ". Se a camera esta MUDANDO DE FAIXA de rede, isso e "
+                       "esperado -- marque \u201cEstou mudando a camera de faixa\u201d "
+                       "e confirme. Se nao for o caso, corrija os campos: gateway "
+                       "errado deixa a camera inalcancavel sem dar erro na hora.",
+        }
+
     # DhcpEnable=false PRIMEIRO: com DHCP ligado a camera aceita o IP fixo,
     # responde "OK" e volta para o endereco que o servidor DHCP entrega -- a
     # troca reportava sucesso e nada mudava. Em 28/09/2026 duas cameras do
@@ -3145,6 +3167,8 @@ def maintenance_batch_network_config(payload: Dict[str, Any]) -> Dict[str, Any]:
             dns2="",
             user=user,
             password=password,
+            # esta tela existe para mudar mascara/gateway de proposito
+            forcar_rede=True,
         )
         results.append(r)
 
@@ -3171,24 +3195,54 @@ def maintenance_batch_shift_ips(payload: Dict[str, Any]) -> Dict[str, Any]:
     # Shift up → highest first to avoid colisão; shift down → lowest first
     octets = sorted(octets, reverse=(delta > 0))
 
+    # Mascara/gateway digitados so valem se vierem OS DOIS; fora disso a rede de
+    # cada camera e lida dela. A tela mandava o chute "/24 com gateway .1" e em
+    # 17/10/2026 isso tirou do ar 4 cameras da SIERRA (rede /23, gateway .0.254).
+    rede_digitada = bool(mask and gateway)
+
     results = []
     for octet in octets:
         old_ip  = f"{prefix}{octet}"
         new_oct = octet + delta
         new_ip  = f"{prefix}{new_oct}"
         if new_oct < 1 or new_oct > 254:
-            results.append({"ip": old_ip, "new_ip": new_ip, "ok": False, "msg": "Octet fora do intervalo (1–254)"})
+            results.append({"ip": old_ip, "new_ip": new_ip, "ok": False, "error": "Octet fora do intervalo (1–254)"})
             continue
+        # Faixa com buraco: sem camera em old_ip nao ha o que trocar. Antes isso
+        # gastava ~45s de timeout por endereco vazio e estourava o nginx (60s).
+        if not _ip_responde(old_ip, portas=(80, 554), timeout=1.5):
+            results.append({"ip": old_ip, "new_ip": new_ip, "ok": False,
+                            "error": "nenhuma camera respondendo neste IP -- pulado"})
+            continue
+        # Destino ocupado (camera que nao saiu, equipamento fora da lista): duas
+        # cameras no mesmo IP ficam as duas inalcancaveis.
+        if _ip_responde(new_ip, portas=(80, 554), timeout=1.5):
+            results.append({"ip": old_ip, "new_ip": new_ip, "ok": False,
+                            "error": f"{new_ip} ja tem equipamento respondendo -- nao troquei"})
+            continue
+        use_mask, use_gateway = mask, gateway
+        if not rede_digitada:
+            rede = _hik_rede_atual(old_ip, user, password) if _camera_fala_isapi(old_ip) \
+                else _dahua_rede_atual(old_ip, user, password)
+            use_mask = _as_str((rede or {}).get("mask"))
+            use_gateway = _as_str((rede or {}).get("gateway"))
+            if not use_mask or not use_gateway:
+                results.append({"ip": old_ip, "new_ip": new_ip, "ok": False,
+                                "error": "nao consegui ler mascara/gateway desta camera -- nao vou chutar"})
+                continue
         r = _change_ip_one(
             ip=old_ip,
             new_ip=new_ip,
-            mask=mask,
-            gateway=gateway,
+            mask=use_mask,
+            gateway=use_gateway,
             dns1="",
             dns2="",
             user=user,
             password=password,
         )
+        r.setdefault("ip", old_ip)
+        r.setdefault("new_ip", new_ip)
+        r["rede_lida"] = {"mascara": use_mask, "gateway": use_gateway}
         results.append(r)
 
     ok_n   = sum(1 for r in results if r.get("ok"))

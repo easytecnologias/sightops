@@ -698,11 +698,11 @@ async function runMntShiftIp() {
   const delta   = parseInt(document.getElementById('mntShiftDelta')?.value || '0');
   const user    = document.getElementById('mntCamUser')?.value?.trim() || 'admin';
   const pass    = document.getElementById('mntCamPass')?.value || '';
-  const gateway0 = document.getElementById('mntShiftGateway')?.value?.trim() || '';
-  const mask    = document.getElementById('mntShiftMask')?.value?.trim() || '255.255.255.0';
-  // o backend exige mascara E gateway; sem os dois ele recusa antes de falar com
-  // a camera. Gateway vazio vira prefixo + 1, que e o que o rotulo do campo diz.
-  const gateway = gateway0 || `${prefix}1`;
+  // Vazio = o backend le mascara/gateway de CADA camera. Antes a tela chutava
+  // "/24 com gateway prefixo + 1" e isso tirou cameras do ar (SIERRA, 17/10/2026:
+  // rede /23 com gateway 10.200.0.254). So vale digitado se vierem os dois.
+  const gateway = document.getElementById('mntShiftGateway')?.value?.trim() || '';
+  const mask    = document.getElementById('mntShiftMask')?.value?.trim() || '';
 
   if (!prefix || isNaN(start) || isNaN(end) || isNaN(delta) || delta === 0 || start > end) {
     showToast('Preencha todos os campos corretamente', true); return;
@@ -722,7 +722,8 @@ async function runMntShiftIp() {
       // o backend devolve 'error' quando falha e nada quando da certo;
       // ler 'msg' fazia toda linha (sucesso ou erro) sair como undefined
       const detalhe = res.error || res.msg || (res.ok ? 'OK' : 'falha');
-      _mntLog(consoleId, bodyId, res.ip, `-> ${res.new_ip}  ${detalhe}`, res.ok);
+      const rede = res.rede_lida ? ` (mascara ${res.rede_lida.mascara}, gw ${res.rede_lida.gateway})` : '';
+      _mntLog(consoleId, bodyId, res.ip, `-> ${res.new_ip}${rede}  ${detalhe}`, res.ok);
     });
     _mntLog(consoleId, bodyId, null, 'Concluido. Aguarde as cameras reiniciarem (~30s).', true);
   } catch (e) {
