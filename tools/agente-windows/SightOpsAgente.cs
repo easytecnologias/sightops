@@ -28,7 +28,7 @@ using System.Windows.Forms;
 
 [assembly: System.Reflection.AssemblyTitle("SightOps - Agente de inventario")]
 [assembly: System.Reflection.AssemblyProduct("SightOps")]
-[assembly: System.Reflection.AssemblyVersion("2.1.0.0")]
+[assembly: System.Reflection.AssemblyVersion("2.2.0.0")]
 
 namespace SightOps
 {
@@ -92,6 +92,8 @@ namespace SightOps
         readonly ComboBox txtSite = new ComboBox();
         readonly TextBox txtSetor = new TextBox();
         readonly CheckBox chkAnyDesk = new CheckBox();
+        readonly TextBox txtSenha = new TextBox();
+        readonly TextBox txtSenha2 = new TextBox();
         readonly Button btn = new Button();
         readonly TextBox log = new TextBox();
         readonly Label status = new Label();
@@ -109,7 +111,7 @@ namespace SightOps
             FormBorderStyle = FormBorderStyle.FixedDialog;
             MaximizeBox = false;
             StartPosition = FormStartPosition.CenterScreen;
-            ClientSize = new Size(560, 520);
+            ClientSize = new Size(560, 640);
             BackColor = Color.White;
 
             var topo = new Panel { Dock = DockStyle.Top, Height = 78, BackColor = Escuro };
@@ -144,7 +146,23 @@ namespace SightOps
             chkAnyDesk.Checked = true;
             chkAnyDesk.Location = new Point(22, y); chkAnyDesk.AutoSize = true;
             Controls.Add(chkAnyDesk);
-            y += 38;
+            y += 34;
+
+            // Senha de acesso sem supervisao. Antes o instalador rodava o script em
+            // modo silencioso, que respondia "nao" a esta pergunta sozinho: nenhum
+            // computador instalado pelo .exe ficava acessivel sem alguem na frente.
+            // Vazio = nao mexe na senha que o AnyDesk ja tiver.
+            Controls.Add(new Label { Text = "Senha do AnyDesk para acesso sem supervisao (vazio = nao alterar)",
+                                     Location = new Point(22, y), AutoSize = true });
+            txtSenha.Location = new Point(22, y + 22); txtSenha.Size = new Size(252, 27);
+            txtSenha.UseSystemPasswordChar = true;
+            Controls.Add(txtSenha);
+            txtSenha2.Location = new Point(286, y + 22); txtSenha2.Size = new Size(252, 27);
+            txtSenha2.UseSystemPasswordChar = true;
+            Controls.Add(txtSenha2);
+            Controls.Add(new Label { Text = "senha", ForeColor = Cinza, Location = new Point(22, y + 50), AutoSize = true });
+            Controls.Add(new Label { Text = "repita a senha", ForeColor = Cinza, Location = new Point(286, y + 50), AutoSize = true });
+            y += 82;
 
             btn.Text = "Instalar";
             btn.Location = new Point(22, y); btn.Size = new Size(516, 42);
@@ -210,7 +228,21 @@ namespace SightOps
                 txtSite.Focus();
                 return;
             }
-            btn.Enabled = false; txtSite.Enabled = false; txtSetor.Enabled = false; chkAnyDesk.Enabled = false;
+            if (txtSenha.Text != txtSenha2.Text)
+            {
+                status.ForeColor = Color.FromArgb(201, 42, 42);
+                status.Text = "As duas senhas do AnyDesk nao conferem.";
+                txtSenha2.Focus();
+                return;
+            }
+            if (txtSenha.Text.Length > 0 && txtSenha.Text.Length < 8)
+            {
+                status.ForeColor = Color.FromArgb(201, 42, 42);
+                status.Text = "A senha do AnyDesk precisa ter pelo menos 8 caracteres.";
+                txtSenha.Focus();
+                return;
+            }
+            Travar(true);
             btn.Text = "Instalando...";
             status.ForeColor = Cinza;
             status.Text = "Coletando o inventario e enviando ao SightOps. Pode levar ate 1 minuto.";
@@ -227,6 +259,9 @@ namespace SightOps
                 RedirectStandardOutput = true, RedirectStandardError = true,
                 StandardOutputEncoding = Encoding.UTF8, StandardErrorEncoding = Encoding.UTF8
             };
+            // A senha vai por variavel de ambiente SO deste processo: na linha de
+            // comando ela apareceria para qualquer um que listasse os processos.
+            if (txtSenha.Text.Length > 0) psi.EnvironmentVariables["SIGHTOPS_ANYDESK_SENHA"] = txtSenha.Text;
             var proc = new Process { StartInfo = psi, EnableRaisingEvents = true };
             var saida = new StringBuilder();
             DataReceivedEventHandler escrever = (s, a) =>
@@ -261,6 +296,7 @@ namespace SightOps
         {
             if (enviado && agendado)
             {
+                txtSenha.Clear(); txtSenha2.Clear();
                 status.ForeColor = Verde;
                 status.Text = "Pronto! O computador ja aparece no SightOps e se atualiza a cada 15 min.";
                 btn.Text = "Fechar";
@@ -273,7 +309,13 @@ namespace SightOps
                 ? "Inventario enviado, mas a tarefa agendada nao foi criada. Veja o registro abaixo."
                 : "Nao deu certo. Veja o registro abaixo e tente de novo.";
             btn.Text = "Tentar de novo";
-            btn.Enabled = true; txtSite.Enabled = true; txtSetor.Enabled = true; chkAnyDesk.Enabled = true;
+            Travar(false);
+        }
+
+        void Travar(bool travado)
+        {
+            btn.Enabled = !travado; txtSite.Enabled = !travado; txtSetor.Enabled = !travado;
+            chkAnyDesk.Enabled = !travado; txtSenha.Enabled = !travado; txtSenha2.Enabled = !travado;
         }
     }
 }
