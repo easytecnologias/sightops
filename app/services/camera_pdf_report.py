@@ -51,10 +51,12 @@ from app.services.recorder_pdf_report import (
     OK,
     STRIPE,
     _accent,
+    _coordenadas,
     _header_footer_factory,
     _kpis,
     _kv_table,
     _p,
+    _p_localizacao,
     _styles,
 )
 
@@ -68,6 +70,7 @@ _PESOS: Dict[str, int] = {
     "Titulo": 46,
     "Status": 14,
     "Local": 22,
+    "Localizacao": 19,
     "Modelo": 26,
     "MAC": 30,
     "Switch": 26,
@@ -91,7 +94,7 @@ def _colunas(include_switch: bool, include_olt: bool, rows: List[Dict[str, Any]]
     Carregar quatro colunas de switch em branco num site que nao tem switch so
     espreme o resto da tabela.
     """
-    base = ["IP", "Titulo", "Status", "Local", "Modelo", "MAC", "Ocorrencia"]
+    base = ["IP", "Titulo", "Status", "Local", "Localizacao", "Modelo", "MAC", "Ocorrencia"]
     if include_switch:
         base += ["Switch", "Switch IP", "Porta", "VLAN"]
     elif include_olt:
@@ -99,7 +102,8 @@ def _colunas(include_switch: bool, include_olt: bool, rows: List[Dict[str, Any]]
     return [
         c for c in base
         if c in _FIXAS
-        or any(_to_text(_col_value(r, c)).strip().lower() not in _VAZIO for r in rows)
+        or (c == "Localizacao" and any(_coordenadas(r) for r in rows))
+        or (c != "Localizacao" and any(_to_text(_col_value(r, c)).strip().lower() not in _VAZIO for r in rows))
     ]
 
 
@@ -120,6 +124,9 @@ def _tabela_inventario(
         online = _camera_online(r)
         linha: List[Any] = []
         for c in colunas:
+            if c == "Localizacao":
+                linha.append(_p_localizacao(r, styles["mono"]))
+                continue
             val = _col_value(r, c)
             if c == "Status":
                 linha.append(_p((val or "-").upper(), styles["small_b"], color=OK if online else BAD))

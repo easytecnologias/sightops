@@ -110,6 +110,92 @@ def _p(value: Any, style: ParagraphStyle, fallback: str = "-", color: Optional[c
     return Paragraph(txt, style)
 
 
+LINK = colors.HexColor("#0B5CAD")
+
+
+def _coordenadas(row: Dict[str, Any]) -> Optional[tuple]:
+    """(lat, lon) da linha, ou None. Aceita lat/lon, latitude/longitude e lat/lng.
+
+    0,0 e descartado: e o valor que sobra de formulario vazio, e cairia no meio
+    do oceano -- pior que nao mostrar nada.
+    """
+    for k_lat, k_lon in (("lat", "lon"), ("latitude", "longitude"), ("lat", "lng")):
+        try:
+            lat = float(str(row.get(k_lat)).strip().replace(",", "."))
+            lon = float(str(row.get(k_lon)).strip().replace(",", "."))
+        except (TypeError, ValueError):
+            continue
+        if -90 <= lat <= 90 and -180 <= lon <= 180 and not (lat == 0 and lon == 0):
+            return lat, lon
+    return None
+
+
+def _p_localizacao(row: Dict[str, Any], style: ParagraphStyle) -> Paragraph:
+    """Coordenada da camera, clicavel: abre o ponto no Google Maps."""
+    c = _coordenadas(row)
+    if not c:
+        return _p("-", style)
+    lat, lon = c
+    url = f"https://www.google.com/maps?q={lat:.6f},{lon:.6f}"
+    # Latitude em cima, longitude embaixo: a coluna fica estreita e nao aperta
+    # as vizinhas. Cada linha leva o link inteiro -- clicar em qualquer uma abre.
+    cor = LINK.hexval()
+    return Paragraph(f'<link href="{url}" color="{cor}">{lat:.6f},</link><br/>'
+                     f'<link href="{url}" color="{cor}">{lon:.6f}</link>', style)
+
+
+def _coordenadas_das_cameras() -> Dict[tuple, tuple]:
+    """(conector, ip) -> (lat, lon), do inventario de cameras do cliente ATUAL.
+
+    O canal do gravador guarda so o IP da camera; a coordenada mora no
+    inventario de cameras (e o que o Mapa usa). A chave leva o conector porque o
+    mesmo IP se repete em sites diferentes do mesmo cliente. A chave sem
+    conector ("", ip) so vale quando o IP tem uma coordenada so no cliente.
+    """
+    from app.services.inventory_json import load_inventory_json
+
+    idx: Dict[tuple, tuple] = {}
+    por_ip: Dict[str, set] = {}
+    for modo in ("olt", "basic", "switch"):
+        try:
+            linhas = load_inventory_json(mode=modo) or []
+        except Exception:
+            continue
+        for r in linhas:
+            if not isinstance(r, dict):
+                continue
+            c = _coordenadas(r)
+            ip = _to_text(r.get("ip") or r.get("IP"))
+            if not c or not ip:
+                continue
+            conn = _to_text(r.get("remote_connector_id") or r.get("connector_id"))
+            idx.setdefault((conn, ip), c)
+            por_ip.setdefault(ip, set()).add(c)
+    for ip, coords in por_ip.items():
+        if len(coords) == 1:
+            idx.setdefault(("", ip), next(iter(coords)))
+    return idx
+
+
+def _completar_coordenadas(rows: List[Dict[str, Any]]) -> None:
+    """Poe lat/lon nos canais que tem camera com coordenada no inventario."""
+    if not rows or all(_coordenadas(r) for r in rows):
+        return
+    idx = _coordenadas_das_cameras()
+    if not idx:
+        return
+    for r in rows:
+        if _coordenadas(r):
+            continue
+        ip = _to_text(r.get("camera_ip"))
+        if not ip:
+            continue
+        conn = _to_text(r.get("remote_connector_id") or r.get("connector_id"))
+        c = idx.get((conn, ip)) or idx.get(("", ip))
+        if c:
+            r["lat"], r["lon"] = c
+
+
 def _header_footer_factory(title: str, accent: colors.Color, subtitle_right: str):
     def _draw(canvas, doc):
         canvas.saveState()
@@ -181,6 +267,16 @@ def _channel_table(rows: List[Dict[str, Any]], styles: Dict[str, ParagraphStyle]
                    accent: colors.Color, recorder_type: str, usable_w: float) -> LongTable:
     headers = ["HOST", "CH", "TITULO", "STATUS", "REC", "LOCAL", "IP CAM", "MODELO", "MAC", "FOTO", "ALERTAS"]
     weights = [22, 8, 44, 17, 11, 24, 21, 31, 34, 9, 33]
+    # Localizacao so entra se algum canal tiver: coluna de "-" so espreme o resto.
+    com_local = any(_coordenadas(r) for r in rows)
+    if com_local:
+        # O espaco vem do TITULO e dos ALERTAS, que tem folga; HOST e FOTO ja
+        # estao no limite (o IP do gravador quebrava e "FOTO" virava "FOT/O").
+        headers.insert(6, "LOCALIZACAO")
+        weights.insert(6, 21)
+        weights[2] -= 8    # TITULO
+        weights[-1] -= 5   # ALERTAS
+        weights[-2] += 1   # FOTO
     total = sum(weights)
     widths = [usable_w * w / total for w in weights]
     data: List[List[Any]] = [[_p(h, styles["th"]) for h in headers]]
@@ -201,7 +297,7 @@ def _channel_table(rows: List[Dict[str, Any]], styles: Dict[str, ParagraphStyle]
         st_color = OK if st == "online" else BAD
         rec_color = OK if rk == "sim" else (BAD if rk == "nao" else MUTED)
         ip_cam = _to_text(r.get("camera_ip")) if recorder_type == "nvr" else "analogico"
-        data.append([
+        linha = [
             _p(_recorder_host_text(r), styles["mono"]),
             _p(r.get("channel"), styles["mono"]),
             _p(r.get("title") or r.get("titulo"), styles["small_b"]),
@@ -213,7 +309,10 @@ def _channel_table(rows: List[Dict[str, Any]], styles: Dict[str, ParagraphStyle]
             _p(r.get("camera_mac") or r.get("mac"), styles["mono"]),
             _p("sim" if photo_ok else "nao", styles["small"]),
             _p("; ".join(alerts) if alerts else "ok", styles["small"]),
-        ])
+        ]
+        if com_local:
+            linha.insert(6, _p_localizacao(r, styles["mono"]))
+        data.append(linha)
     table = LongTable(data, colWidths=widths, repeatRows=1, splitByRow=1, hAlign="LEFT")
     cmds = [
         ("BACKGROUND", (0, 0), (-1, 0), accent),
@@ -291,6 +390,7 @@ def build_recorder_pdf_report(
     progress_cb: ProgressCb = None,
 ) -> Path:
     rows_list = _sort_recorder_rows([dict(r) for r in rows if isinstance(r, dict)])
+    _completar_coordenadas(rows_list)
     site_label = _to_text(site) or "Todos os sites"
     label = "NVR" if recorder_type == "nvr" else "DVR"
     accent = _accent(report_color)

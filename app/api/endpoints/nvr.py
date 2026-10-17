@@ -2542,10 +2542,24 @@ def _rows_for_pdf(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
 
 
 def _load_rows_for_report(site: str = "", mode: str = "", items: str = "") -> List[Dict[str, Any]]:
-    rows = legacy_rows_from_db("nvr", site=site)
-    if not rows:
+    if get_current_tenant_slug():
+        # Mesmo filtro de site da tela (api_nvr_list). O caminho legado
+        # (decorate_legacy_rows) so conhece os sites do cadastro do banco e
+        # devolve [] quando o site nao esta la: o relatorio da SIERRA filtrado
+        # por site saia vazio com os 48 canais cadastrados.
         rows = _read_rows()
-        rows = decorate_legacy_rows("nvr", rows, site=site)
+        site_norm = str(site or "").strip().lower()
+        if site_norm:
+            rows = [
+                r for r in rows
+                if isinstance(r, dict) and any(
+                    str(r.get(k) or "").strip().lower() == site_norm for k in ("site", "site_name", "local"))
+            ]
+    else:
+        rows = legacy_rows_from_db("nvr", site=site)
+        if not rows:
+            rows = _read_rows()
+            rows = decorate_legacy_rows("nvr", rows, site=site)
     mode_norm = _normalize_rec_inventory_mode(mode) if str(mode or "").strip() else ""
     if mode_norm:
         rows = [r for r in rows if isinstance(r, dict) and _rec_row_mode(r) == mode_norm]
