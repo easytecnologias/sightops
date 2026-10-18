@@ -561,22 +561,82 @@ function mapOutroRotulo(nome) {
 
 // Motivo de um ponto do mapa nao ter camera ("camera retirada", "previsto na
 // obra"). Vai para o relatorio do mapa no lugar do texto generico. Vazio apaga.
-async function informarMotivoPonto(def, nome, atual) {
+// Modal montado aqui (mesmas classes do "Editar nome da camada"), sem markup
+// no index.html. O prompt() do navegador destoava do resto do sistema.
+const MOTIVOS_PRONTOS = [
+  'Câmera retirada',
+  'Câmera prevista, ainda não instalada',
+  'Ponto duplicado',
+  'Câmera de outro sistema',
+  'Câmera em manutenção',
+];
+
+function informarMotivoPonto(def, nome, atual) {
   if (!def?.updateUrl || !nome) return;
-  const texto = window.prompt(`Motivo do ponto "${nome}" nao ter camera (vazio = apagar o motivo):`, atual || '');
-  if (texto === null) return;
-  try {
-    const res = await api(def.updateUrl, {
-      method: 'PATCH',
-      body: JSON.stringify({ motivo_ponto: { nome, motivo: texto.trim() } }),
-    });
-    const body = await res?.json().catch(() => ({}));
-    if (!res?.ok || body?.ok === false) throw new Error(body?.detail || 'Nao foi possivel salvar o motivo.');
-    showToast(texto.trim() ? 'Motivo salvo.' : 'Motivo apagado.');
-    await loadMapLayers();
-  } catch (err) {
-    showToast(err.message || 'Nao foi possivel salvar o motivo.', true);
+  document.getElementById('modalMotivoPonto')?.remove();
+  const fundo = document.createElement('div');
+  fundo.id = 'modalMotivoPonto';
+  fundo.className = 'modal-backdrop';
+  fundo.innerHTML = `
+    <div class="modal map-layer-rename-modal" role="dialog" aria-modal="true" aria-labelledby="motivoPontoTitulo">
+      <div class="modal-header">
+        <div>
+          <p class="eyebrow">Mapa</p>
+          <h2 id="motivoPontoTitulo">Motivo do ponto sem câmera</h2>
+          <p class="map-layer-rename-subtitle">${esc(nome)} — aparece no relatório do mapa, em Pendências.</p>
+        </div>
+        <button class="icon-button" type="button" data-fechar aria-label="Fechar"><i data-lucide="x"></i></button>
+      </div>
+      <div class="modal-body">
+        <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px">
+          ${MOTIVOS_PRONTOS.map(m => `<button type="button" class="secondary-action" data-pronto="${esc(m)}" style="font-size:12px;padding:4px 10px">${esc(m)}</button>`).join('')}
+        </div>
+        <label class="map-layer-rename-field">Motivo
+          <textarea id="motivoPontoTexto" rows="3" maxlength="300" style="width:100%;resize:vertical;font:inherit;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text)">${esc(atual || '')}</textarea>
+        </label>
+        <p class="map-layer-rename-hint">Deixe em branco e salve para apagar o motivo.</p>
+      </div>
+      <div class="modal-actions">
+        <button class="secondary-action" type="button" data-fechar>Cancelar</button>
+        <button class="primary-action" type="button" data-salvar><i data-lucide="check"></i> Salvar motivo</button>
+      </div>
+    </div>`;
+  document.body.appendChild(fundo);
+  lucide.createIcons();
+  const campo = fundo.querySelector('#motivoPontoTexto');
+  const fechar = () => { fundo.remove(); document.removeEventListener('keydown', teclas); };
+  const salvar = async () => {
+    const botao = fundo.querySelector('[data-salvar]');
+    const texto = campo.value.trim();
+    botao.disabled = true;
+    try {
+      const res = await api(def.updateUrl, {
+        method: 'PATCH',
+        body: JSON.stringify({ motivo_ponto: { nome, motivo: texto } }),
+      });
+      const body = await res?.json().catch(() => ({}));
+      if (!res?.ok || body?.ok === false) throw new Error(body?.detail || 'Nao foi possivel salvar o motivo.');
+      fechar();
+      showToast(texto ? 'Motivo salvo.' : 'Motivo apagado.');
+      await loadMapLayers();
+    } catch (err) {
+      botao.disabled = false;
+      showToast(err.message || 'Nao foi possivel salvar o motivo.', true);
+    }
+  };
+  function teclas(e) {
+    if (e.key === 'Escape') fechar();
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) salvar();
   }
+  document.addEventListener('keydown', teclas);
+  fundo.addEventListener('click', (e) => { if (e.target === fundo) fechar(); });
+  fundo.querySelectorAll('[data-fechar]').forEach(b => b.addEventListener('click', fechar));
+  fundo.querySelector('[data-salvar]').addEventListener('click', salvar);
+  fundo.querySelectorAll('[data-pronto]').forEach(b => b.addEventListener('click', () => {
+    campo.value = b.dataset.pronto;
+    campo.focus();
+  }));
+  setTimeout(() => { campo.focus(); campo.select(); }, 30);
 }
 
 // Cor dos pontos sem camera, por camada. Usa o seletor de cor do proprio
