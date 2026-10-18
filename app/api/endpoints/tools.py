@@ -16,7 +16,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi import APIRouter, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
 
 from app.core.paths import (
@@ -195,6 +195,7 @@ def _list_kmz_import_layers(include_features: bool = True) -> list[dict[str, Any
             # pontos seguem escondidas na tela)
             "origem": str(meta.get("origem") or ""),
             "cor_outros": str(meta.get("cor_outros") or ""),
+            "motivos": meta.get("motivos") if isinstance(meta.get("motivos"), dict) else {},
             **({"features": features, "type": geojson.get("type") or "FeatureCollection"} if include_features else {}),
         })
     return layers
@@ -1615,13 +1616,46 @@ def _editar_ponto_da_camada(layer_id: str, ponto: Dict[str, Any], generated: boo
 
 
 @router.patch("/kmz/import/layers/{layer_id}")
-async def api_kmz_import_layer_update(layer_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+async def api_kmz_import_layer_update(layer_id: str, payload: Dict[str, Any], request: Request) -> Dict[str, Any]:
     if isinstance(payload.get("ponto"), dict):
         return {"ok": True, **_editar_ponto_da_camada(layer_id, payload["ponto"])}
+    if isinstance(payload.get("motivo_ponto"), dict):
+        u = getattr(request.state, "current_user", None) or {}
+        por = str(u.get("username") or "") if isinstance(u, dict) else ""
+        return {"ok": True, "layer": _motivo_do_ponto(layer_id, payload["motivo_ponto"], por)}
     if "cor_outros" in payload:
         return {"ok": True, "layer": _cor_outros_da_camada(layer_id, payload.get("cor_outros"))}
     layer = _rename_kmz_layer(layer_id, str(payload.get("label") or ""))
     return {"ok": True, "layer": layer}
+
+
+def _motivo_do_ponto(layer_id: str, dados: Dict[str, Any], por: str = "") -> dict[str, Any]:
+    """Motivo de um ponto do mapa nao ter camera ("camera retirada", "previsto").
+
+    Guardado no meta da camada pelo NOME do ponto -- o mesmo jeito que o Mapa e
+    o relatorio casam ponto e camera -- sem mexer no KMZ. Motivo vazio apaga.
+    O relatorio do mapa mostra este texto em vez do generico.
+    """
+    nome = str(dados.get("nome") or "").strip()
+    if not nome:
+        raise HTTPException(400, "Informe o nome do ponto.")
+    motivo = " ".join(str(dados.get("motivo") or "").split())[:300]
+    kmz_path, geojson_path, meta_path = _kmz_layer_paths(layer_id)
+    if not kmz_path.exists() or not geojson_path.exists():
+        raise HTTPException(404, "Camada KMZ nao encontrada.")
+    meta = _read_kmz_layer_meta(meta_path)
+    motivos = meta.get("motivos") if isinstance(meta.get("motivos"), dict) else {}
+    if motivo:
+        motivos[nome.lower()] = {"nome": nome, "motivo": motivo, "por": por,
+                                 "em": datetime.now().isoformat(timespec="seconds")}
+    else:
+        motivos.pop(nome.lower(), None)
+    meta["id"] = layer_id
+    meta["motivos"] = motivos
+    meta["updated_at"] = datetime.now().isoformat(timespec="seconds")
+    _write_kmz_layer_meta(meta_path, meta)
+    layer = next((item for item in _list_kmz_import_layers(include_features=False) if item.get("id") == layer_id), None)
+    return layer or {"id": layer_id, "motivos": motivos}
 
 
 def _cor_outros_da_camada(layer_id: str, cor: Any) -> dict[str, Any]:

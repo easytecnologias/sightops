@@ -333,14 +333,16 @@ def _pontos_do_mapa() -> List[Dict[str, Any]]:
             continue
         cor = str(meta.get("cor_outros") or "") or COR_OUTROS
         camada = str(meta.get("label") or meta.get("original_name") or geo.stem)
+        motivos = meta.get("motivos") if isinstance(meta.get("motivos"), dict) else {}
         for f in dados.get("features") or []:
             g = (f or {}).get("geometry") or {}
             if g.get("type") != "Point" or len(g.get("coordinates") or []) < 2:
                 continue
             c = _coordenadas({"lat": g["coordinates"][1], "lon": g["coordinates"][0]})
             if c:
-                out.append({"nome": _to_text(((f or {}).get("properties") or {}).get("name")),
-                            "pos": c, "camada": camada, "cor": cor})
+                nome = _to_text(((f or {}).get("properties") or {}).get("name"))
+                out.append({"nome": nome, "pos": c, "camada": camada, "cor": cor,
+                            "motivo": motivos.get(nome.strip().lower()) or {}})
     return out
 
 
@@ -365,6 +367,20 @@ def _cameras_do_cliente(site: str = "") -> List[Dict[str, Any]]:
             vistas.add(chave)
             out.append(dict(r))
     return out
+
+
+def _texto_motivo(m: Dict[str, Any]) -> str:
+    """Motivo informado no Mapa ("camera retirada em 10/2026 - por joao em 17/10/2026")."""
+    motivo = _to_text((m or {}).get("motivo"))
+    if not motivo:
+        return "sem motivo informado: o nome do ponto nao corresponde a nenhuma camera do inventario"
+    quem = _to_text(m.get("por"))
+    try:
+        quando = datetime.fromisoformat(_to_text(m.get("em"))).strftime("%d/%m/%Y")
+    except ValueError:
+        quando = ""
+    extra = " ".join(x for x in (f"por {quem}" if quem else "", f"em {quando}" if quando else "") if x)
+    return f"{motivo} ({extra})" if extra else motivo
 
 
 def _status(c: Dict[str, Any]) -> str:
@@ -610,7 +626,7 @@ def build_map_pdf_report(site: str = "", company_name: str = "", report_color: s
         (f"Pontos do mapa sem camera cadastrada ({len(sem_camera)})", sem_camera,
          lambda p: [_p(p["nome"], styles["small_b"]), _p(p["camada"], styles["small"]),
                     _p_localizacao({"lat": p["pos"][0], "lon": p["pos"][1]}, styles["mono"]),
-                    _p("o nome do ponto nao corresponde a nenhuma camera do inventario", styles["small"])],
+                    _p(_texto_motivo(p["motivo"]), styles["small"])],
          ["PONTO", "CAMADA", "LOCALIZACAO", "MOTIVO"], [22, 22, 16, 40]),
         (f"Cameras sem posicao no mapa ({len(sem_pos)})", sem_pos,
          lambda c: [_p(c.get("titulo"), styles["small_b"]), _p(c.get("ip"), styles["mono"]),

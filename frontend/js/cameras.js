@@ -559,6 +559,26 @@ function mapOutroRotulo(nome) {
   return esc(m ? m[1] : s.slice(0, 3).toUpperCase());
 }
 
+// Motivo de um ponto do mapa nao ter camera ("camera retirada", "previsto na
+// obra"). Vai para o relatorio do mapa no lugar do texto generico. Vazio apaga.
+async function informarMotivoPonto(def, nome, atual) {
+  if (!def?.updateUrl || !nome) return;
+  const texto = window.prompt(`Motivo do ponto "${nome}" nao ter camera (vazio = apagar o motivo):`, atual || '');
+  if (texto === null) return;
+  try {
+    const res = await api(def.updateUrl, {
+      method: 'PATCH',
+      body: JSON.stringify({ motivo_ponto: { nome, motivo: texto.trim() } }),
+    });
+    const body = await res?.json().catch(() => ({}));
+    if (!res?.ok || body?.ok === false) throw new Error(body?.detail || 'Nao foi possivel salvar o motivo.');
+    showToast(texto.trim() ? 'Motivo salvo.' : 'Motivo apagado.');
+    await loadMapLayers();
+  } catch (err) {
+    showToast(err.message || 'Nao foi possivel salvar o motivo.', true);
+  }
+}
+
 // Cor dos pontos sem camera, por camada. Usa o seletor de cor do proprio
 // navegador e grava no meta da camada (PATCH cor_outros).
 function escolherCorOutros(def) {
@@ -763,6 +783,7 @@ async function loadMapLayers() {
     deleteUrl: `/api/kmz/import/layers/${encodeURIComponent(layer.id)}`,
     origem: layer.origem || '',
     corOutros: layer.cor_outros || '',
+    motivos: layer.motivos || {},
   }));
   const importedSignatures = new Set(importedLayers.map(layer => mapLayerSignature(layer.features)).filter(Boolean));
   const importedLayerIds = new Set(importedLayers.map(layer => layer.layerId).filter(Boolean));
@@ -1128,6 +1149,19 @@ function renderMapLayerGroup(id, def, skipFit = false) {
           <span style="font-size:12px;font-weight:500;word-break:break-all;${mono?'font-family:monospace;font-size:11px;':''}">${value}</span>
         </div>` : '';
 
+      // Ponto sem camera nao e "camera offline": o selo dizia OFFLINE e confundia.
+      const semCamera = !cam && pointType === 'other';
+      const motivoPonto = semCamera ? (def?.motivos || {})[String(name).trim().toLowerCase()] : null;
+      const seloTexto = semCamera ? 'SEM CAMERA' : (isOnlinePop ? 'ONLINE' : 'OFFLINE');
+      const seloCor = semCamera ? (def?.corOutros || '#d97706') : statusColor;
+      const motivoHtml = semCamera && def?.updateUrl ? `
+          <div style="margin-top:8px;padding:6px 8px;background:#f8f9fa;border:1px solid #e9ecef;border-radius:6px;font-size:11px;color:#495057">
+            <div style="font-weight:700;margin-bottom:2px">Motivo</div>
+            <div>${motivoPonto?.motivo ? esc(motivoPonto.motivo) : '<span style="color:#adb5bd">nenhum motivo informado</span>'}</div>
+            ${motivoPonto?.motivo && (motivoPonto.por || motivoPonto.em) ? `<div style="color:#868e96;margin-top:2px">${esc([motivoPonto.por, String(motivoPonto.em || '').slice(0, 10).split('-').reverse().join('/')].filter(Boolean).join(' - '))}</div>` : ''}
+            <button type="button" data-map-point-motivo style="margin-top:6px;width:100%;padding:5px;background:#fff;color:#495057;border-radius:6px;font-size:11px;font-weight:600;border:1px solid #ced4da;cursor:pointer">${motivoPonto?.motivo ? 'Alterar motivo' : 'Informar motivo'}</button>
+          </div>` : '';
+
       const snapHtml = cam?.snapshot_url
         ? `<div style="position:relative;overflow:hidden;border-radius:8px 8px 0 0;margin-bottom:12px">
             <img src="${API_BASE}${esc(cam.snapshot_url)}" style="width:100%;height:160px;object-fit:cover;display:block">
@@ -1138,7 +1172,7 @@ function renderMapLayerGroup(id, def, skipFit = false) {
           </div>`
         : `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;padding-bottom:8px;border-bottom:2px solid #f1f3f5">
             <strong style="font-size:14px">${esc(name)}</strong>
-            <span style="background:${statusColor}22;color:${statusColor};font-size:11px;font-weight:700;padding:2px 8px;border-radius:10px">${isOnlinePop?'ONLINE':'OFFLINE'}</span>
+            <span style="background:${seloCor}22;color:${seloCor};font-size:11px;font-weight:700;padding:2px 8px;border-radius:10px">${seloTexto}</span>
           </div>`;
 
       marker.bindPopup(`
@@ -1157,13 +1191,20 @@ function renderMapLayerGroup(id, def, skipFit = false) {
             <button type="button" data-mcp-abrir="aovivo" class="mcp-pop-btn">Ver ao vivo</button>
             <button type="button" data-mcp-abrir="dados" class="mcp-pop-btn mcp-pop-btn-pri">Editar ao lado</button>
           </div>` : ''}
-          ${!cam && pointType === 'other' && !podeEditarPonto ? `<div style="margin-top:8px;padding:6px 8px;background:#fff4e6;border:1px solid #ffd8a8;border-radius:6px;font-size:11px;color:#9a3412">Ponto sem camera cadastrada: nenhuma camera do inventario tem este nome. Se for uma camera, renomeie o ponto (Editar pontos) com o nome exato dela; se nao existir mais, apague o ponto.</div>` : ''}
+          ${!cam && pointType === 'other' && !podeEditarPonto ? `<div style="margin-top:8px;padding:6px 8px;background:#fff4e6;border:1px solid #ffd8a8;border-radius:6px;font-size:11px;color:#9a3412">Ponto sem camera cadastrada: nenhuma camera do inventario tem este nome. Se for uma camera, renomeie o ponto (Editar pontos) com o nome exato dela; se nao existir mais, apague o ponto ou informe o motivo abaixo.</div>` : ''}
+          ${motivoHtml}
           ${podeEditarPonto ? `${!cam ? `<div style="margin-top:8px;padding:6px 8px;background:#fff9db;border:1px solid #ffec99;border-radius:6px;font-size:11px;color:#997404">Este ponto nao casa com nenhuma camera do inventario. Renomeie com o nome exato da camera para ele passar a casar.</div>` : ''}
           <div style="margin-top:8px;display:flex;gap:6px">
             <button type="button" data-map-point-rename style="flex:1;text-align:center;padding:6px;background:#fff3bf;color:#997404;border-radius:6px;font-size:11px;font-weight:600;border:1px solid #ffe066;cursor:pointer">Renomear ponto</button>
             <button type="button" data-map-point-delete style="flex:1;text-align:center;padding:6px;background:#ffe3e3;color:#c92a2a;border-radius:6px;font-size:11px;font-weight:600;border:1px solid #ffc9c9;cursor:pointer">Excluir ponto</button>
           </div>` : (semNomeNaEdicao ? `<div style="margin-top:8px;padding:6px 8px;background:#fff9db;border:1px solid #ffec99;border-radius:6px;font-size:11px;color:#997404">Ponto sem nome no KMZ: nao da pra renomear nem excluir por aqui, porque e pelo nome que ele e localizado no arquivo.</div>` : '')}
         </div>`, { maxWidth: 320, className: 'sightops-popup' });
+      if (semCamera && def?.updateUrl) {
+        marker.on('popupopen', () => {
+          marker.getPopup()?.getElement()?.querySelector('[data-map-point-motivo]')
+            ?.addEventListener('click', () => informarMotivoPonto(def, mapFeatureName(f) || name, motivoPonto?.motivo || ''));
+        });
+      }
       if (podeEditarPonto) {
         marker.on('popupopen', () => {
           const el = marker.getPopup()?.getElement();

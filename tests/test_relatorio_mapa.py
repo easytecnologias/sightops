@@ -81,3 +81,27 @@ def test_rotas_antigas_do_relatorio_nao_entregam_job_do_mapa_nem_de_outro_client
     finally:
         tools._report_jobs.pop("mapa1", None)
         tools._report_jobs.pop("inv1", None)
+
+
+def test_motivo_do_ponto_e_gravado_por_nome_e_vazio_apaga(tmp_path, monkeypatch):
+    import json
+
+    from app.api.endpoints import tools
+    monkeypatch.setattr(tools, "_kmz_layers_dir", lambda: tmp_path)
+    (tmp_path / "c1.kmz").write_bytes(b"x")
+    (tmp_path / "c1.geojson").write_text('{"type": "FeatureCollection", "features": []}')
+    (tmp_path / "c1.meta.json").write_text("{}")
+    tools._motivo_do_ponto("c1", {"nome": "39 - QD. E - 01", "motivo": "  camera   retirada "}, por="joao")
+    meta = json.loads((tmp_path / "c1.meta.json").read_text())
+    assert meta["motivos"]["39 - qd. e - 01"]["motivo"] == "camera retirada"
+    assert meta["motivos"]["39 - qd. e - 01"]["por"] == "joao"
+    tools._motivo_do_ponto("c1", {"nome": "39 - QD. E - 01", "motivo": ""})
+    assert json.loads((tmp_path / "c1.meta.json").read_text())["motivos"] == {}
+    with pytest.raises(Exception):
+        tools._motivo_do_ponto("c1", {"nome": " ", "motivo": "x"})
+
+
+def test_texto_do_motivo_no_relatorio():
+    assert M._texto_motivo({}).startswith("sem motivo informado")
+    assert M._texto_motivo({"motivo": "camera retirada", "por": "joao", "em": "2026-10-17T21:30:00"}) ==         "camera retirada (por joao em 17/10/2026)"
+    assert M._texto_motivo({"motivo": "previsto"}) == "previsto"
