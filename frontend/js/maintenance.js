@@ -204,9 +204,63 @@ function _mntCamCardClick(card, event) {
   if (chk) { chk.checked = !chk.checked; _mntCamToggle(chk); }
 }
 
+// Ordem em que o operador MARCOU as cameras. O "Trocar IP" usa esta ordem: quem
+// marca 2, 4, 1, 3 quer o primeiro IP novo na 2, o segundo na 4... Antes a
+// lista do modal saia ordenada por IP e o "Preencher em sequencia" seguia ela.
+let _mntOrdemSel = [];
+
 function _mntCamToggle(chk) {
   chk.closest('.mnt-cam-card')?.classList.toggle('selected', chk.checked);
+  _mntOrdemSel = _mntOrdemSel.filter(ip => ip !== chk.value);
+  if (chk.checked) _mntOrdemSel.push(chk.value);
   _mntCamUpdateCount();
+}
+
+// Marcadas, na ordem do clique. Marcada que nao esta na lista (veio de
+// "Selecionar as N" ou de um redesenho) entra no fim, na ordem da grade.
+function _mntSelecionadasEmOrdem() {
+  const marcadas = [...document.querySelectorAll('.chk-mnt-cam:checked')].map(c => c.value);
+  const conjunto = new Set(marcadas);
+  const ordem = _mntOrdemSel.filter(ip => conjunto.has(ip));
+  marcadas.forEach(ip => { if (!ordem.includes(ip)) ordem.push(ip); });
+  _mntOrdemSel = ordem;
+  return ordem;
+}
+
+// Modal arrastavel pelo cabecalho (os botoes do cabecalho continuam clicaveis).
+// A posicao volta ao centro cada vez que o modal abre.
+function _mntModalArrastavel(fundoId) {
+  const fundo = document.getElementById(fundoId);
+  const modal = fundo?.querySelector('.modal');
+  const cab = modal?.querySelector('.modal-header');
+  if (!modal || !cab) return;
+  modal.style.transform = '';
+  if (cab.dataset.arrasta) return;
+  cab.dataset.arrasta = '1';
+  cab.style.cursor = 'move';
+  cab.title = 'Arraste para mover';
+  cab.addEventListener('pointerdown', (ev) => {
+    if (ev.button !== 0 || ev.target.closest('button, input, select, textarea, a')) return;
+    const m = /translate\((-?[\d.]+)px,\s*(-?[\d.]+)px\)/.exec(modal.style.transform || '');
+    const base = { x: m ? +m[1] : 0, y: m ? +m[2] : 0 };
+    const ini = { x: ev.clientX, y: ev.clientY };
+    const r = modal.getBoundingClientRect();
+    const mover = (e) => {
+      // nao deixa o cabecalho sair da tela (senao nao da pra pegar de volta)
+      const dx = Math.min(Math.max(e.clientX - ini.x, -r.left), window.innerWidth - r.right);
+      const dy = Math.min(Math.max(e.clientY - ini.y, -r.top), window.innerHeight - r.top - 48);
+      modal.style.transform = `translate(${base.x + dx}px, ${base.y + dy}px)`;
+    };
+    const soltar = () => {
+      document.removeEventListener('pointermove', mover);
+      document.removeEventListener('pointerup', soltar);
+      document.body.style.userSelect = '';
+    };
+    document.body.style.userSelect = 'none';
+    document.addEventListener('pointermove', mover);
+    document.addEventListener('pointerup', soltar);
+    ev.preventDefault();
+  });
 }
 
 function _mntCamUpdateCount() {
@@ -269,6 +323,7 @@ function _mntLigarChromeManutencao() {
   // acerta quem nao devia.
   document.getElementById('btnMntSelTodas')?.addEventListener('click', () => {
     document.querySelectorAll('.chk-mnt-cam').forEach(c => {
+      if (!c.checked && !_mntOrdemSel.includes(c.value)) _mntOrdemSel.push(c.value);
       c.checked = true;
       c.closest('.mnt-cam-card')?.classList.add('selected');
     });
@@ -280,6 +335,7 @@ function _mntLigarChromeManutencao() {
       c.checked = false;
       c.closest('.mnt-cam-card')?.classList.remove('selected');
     });
+    _mntOrdemSel = [];
     _mntCamUpdateCount();
   });
 
@@ -575,23 +631,27 @@ async function runMntQuality() {
 
 //  Configuracao de rede em lote
 function openMntNetworkModal() {
-  const ips = [...document.querySelectorAll('.chk-mnt-cam:checked')].map(c => c.value);
+  // Na ORDEM EM QUE FORAM MARCADAS: o "Preencher em sequencia" segue esta lista.
+  const ips = _mntSelecionadasEmOrdem();
   if (!ips.length) { showToast('Selecione ao menos uma camera', true); return; }
   const rows = document.getElementById('mntNetRows');
-  rows.innerHTML = ips.sort((a, b) => {
-    const pa = a.split('.').map(Number), pb = b.split('.').map(Number);
-    for (let i = 0; i < 4; i++) if (pa[i] !== pb[i]) return pa[i] - pb[i];
-    return 0;
-  }).map(ip => `
+  rows.innerHTML = ips.map((ip, i) => {
+    const titulo = document.querySelector(`.mnt-cam-card[data-ip="${CSS.escape(ip)}"]`)?.dataset.titulo || '';
+    return `
     <div style="display:flex;gap:8px;align-items:center">
-      <span style="font-size:11px;color:var(--muted);min-width:110px;font-family:monospace;flex-shrink:0">${esc(ip)}</span>
-      <span style="color:var(--muted)"></span>
+      <span style="font-size:11px;color:var(--muted);width:22px;text-align:right;flex-shrink:0">${i + 1}º</span>
+      <span style="min-width:150px;max-width:190px;flex-shrink:0;display:flex;flex-direction:column;line-height:1.2">
+        <span style="font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${esc(titulo)}">${esc(titulo || ip)}</span>
+        <span style="font-size:11px;color:var(--muted);font-family:monospace">${esc(ip)}</span>
+      </span>
       <input type="text" data-net-old="${esc(ip)}" value="${esc(ip)}"
         style="flex:1;border:1px solid var(--border);border-radius:6px;padding:5px 8px;font-size:13px;font-family:monospace;background:var(--surface)">
-    </div>`).join('');
+    </div>`;
+  }).join('');
   const ini = document.getElementById('mntNetStart');
   if (ini) ini.value = '';
   document.getElementById('modalMntNetwork').classList.remove('hidden');
+  _mntModalArrastavel('modalMntNetwork');
   lucide.createIcons();
 }
 
