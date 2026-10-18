@@ -3270,7 +3270,15 @@ async function salvarOcorrencia(limpar) {
 // Nenhum desses caminhos pede senha aqui: todos usam a senha guardada da
 // camera, conferida contra ela.
 // ============================================================================
-let _mcp = { key: null, aba: 'aovivo', drafts: {}, live: null, subtype: 1, movendo: null, salvando: false, rede: {} };
+let _mcp = { key: null, aba: 'aovivo', drafts: {}, live: null, subtype: 1, movendo: null, salvando: false, rede: {}, ipLivre: {} };
+
+function mcpResultadoIpLivre(e, v) {
+  const r = _mcp.ipLivre[e.key];
+  // resultado de outro IP (o operador mudou o campo depois) nao vale mais
+  if (!r || (r.ip && v.ip && r.ip !== v.ip && r.estado !== 'aviso')) return '<div id="mcpIpLivre" class="mcp-dica"></div>';
+  const cor = { livre: '#2b8a3e', ocupado: '#c92a2a', testando: 'var(--muted)', aviso: '#b45309' }[r.estado] || 'var(--muted)';
+  return `<div id="mcpIpLivre" class="mcp-dica" style="color:${cor};font-weight:${r.estado === 'testando' ? 400 : 600}">${esc(r.texto)}</div>`;
+}
 
 function mcpIpNum(ip) {
   const p = String(ip || '').trim().split('.');
@@ -3457,7 +3465,7 @@ function mcpCorpo(e, v) {
         : `<div class="mcp-aviso-azul">Ao salvar, o SightOps lê a máscara e o gateway <b>da própria câmera</b>, troca o IP nela e espera ela responder no endereço novo. Só então o inventário e o Zabbix mudam. Se ela não responder, nada é alterado.</div>`}
       <p class="mcp-dica">Hikvision só assume o IP novo depois de reiniciar: ao salvar, o SightOps pergunta se pode reiniciar e confere a volta no IP novo.</p>
       <button type="button" class="secondary-action" data-mcp-acao="iplivre">Ver se o IP novo está livre</button>
-      <div id="mcpIpLivre" class="mcp-dica"></div>`;
+      ${mcpResultadoIpLivre(e, v)}`;
   }
   if (_mcp.aba === 'acoes') {
     const acoes = [['foto', 'Tirar foto agora', 'Atualiza a miniatura do mapa'], ['web', 'Abrir página da câmera', 'Pelo SightOps Agent'],
@@ -3678,21 +3686,35 @@ function mcpAlternarMover(e) {
   renderMapCamPanel();
 }
 
+// O resultado mora no ESTADO do painel (_mcp.ipLivre), nao num elemento: o
+// teste leva ~13 s quando ninguem responde (o servidor ainda pergunta ao
+// MikroTik do cliente), e qualquer redesenho do painel nesse meio tempo -- o
+// proprio clique dispara o "change" do campo Novo IP -- trocava o quadro. A
+// resposta chegava e era escrita num elemento que ja nao estava na tela: o
+// operador ficava vendo "Testando..." para sempre.
 async function mcpTestarIpLivre(e) {
   const cam = e.cam;
-  const alvo = String(mcpValor(e).ip || '').trim();
-  const box = document.getElementById('mcpIpLivre');
-  const dizer = txt => { if (box) box.textContent = txt; };
-  if (!alvo || alvo === cam.ip) { dizer('Digite um IP novo diferente do atual.'); return; }
+  const campo = document.querySelector('#mapCamPanel [data-mcp-campo="ip"]');
+  const digitado = String(campo?.value || '').trim();
+  if (digitado && digitado !== mcpValor(e).ip) mcpSetDraft(e.key, { ip: digitado });
+  const alvo = String(digitado || mcpValor(e).ip || '').trim();
+  const marcar = (estado, texto) => {
+    _mcp.ipLivre[e.key] = { ip: alvo, estado, texto };
+    if (_mcp.key === e.key) renderMapCamPanel();
+  };
+  if (!alvo || alvo === cam.ip) { marcar('aviso', 'Digite um IP novo diferente do atual.'); return; }
   const doInventario = _mapCameraIndex.byIp[alvo];
-  if (doInventario) { dizer(`Esse IP já é de "${doInventario.titulo || alvo}" no inventário.`); return; }
-  dizer('Testando…');
+  if (doInventario) { marcar('ocupado', `Ocupado: esse IP já é de "${doInventario.titulo || alvo}" no inventário.`); return; }
+  marcar('testando', `Testando ${alvo}… (pode levar uns 15 s quando ninguém responde)`);
   // GET com force=1: o ping tem cache de 10 min, e aqui a pergunta e "agora".
   const qs = new URLSearchParams({ ip: alvo, force: '1', remote_connector_id: cam.remote_connector_id || cam.connector_id || '' });
   const d = await apiJson(`/api/cameras/ping?${qs}`, { cacheTtl: 0, forceRefresh: true }).catch(() => null);
-  if (!d) { dizer('Não consegui testar agora.'); return; }
+  if (_mcp.ipLivre[e.key]?.ip !== alvo) return;   // operador ja testou outro IP
+  if (!d) { marcar('aviso', 'Não consegui testar agora. Tente de novo.'); return; }
   const responde = d.reachable === true || d.online === true;
-  dizer(responde ? 'Ocupado: algum equipamento respondeu nesse IP.' : 'Livre: ninguém respondeu nesse IP.');
+  marcar(responde ? 'ocupado' : 'livre', responde
+    ? `Ocupado: algum equipamento respondeu em ${alvo}.`
+    : `Livre: ninguém respondeu em ${alvo}.`);
 }
 
 function mcpDescartar() {
