@@ -1306,6 +1306,8 @@ function renderMapLayerGroup(id, def, skipFit = false) {
   if (bounds.length > 0 && !skipFit) {
     try { _map.fitBounds(bounds, { padding: [40, 40], maxZoom: 16 }); } catch {}
   }
+  // Pinos recriados (recarga da camada): o destaque da camera aberta volta.
+  if (_mcp.key) mcpDestacarPino();
 }
 
 // Atualiza botao/contador visual de uma camada sem mexer nos marcadores --
@@ -3382,6 +3384,39 @@ function mcpCancelarMover() {
   _mcp.movendo = null;
 }
 
+// Destaque no mapa do pino da camera aberta no painel: com dezenas de pinos
+// juntos (entrada, portaria) o operador perdia qual estava editando. Anel azul
+// pulsando quando aberta; contorno amarelo piscando no modo "mover".
+let _mcpPinoDestacado = null;
+function mcpDestacarPino() {
+  if (!document.getElementById('mcpPinoEstilo')) {
+    const st = document.createElement('style');
+    st.id = 'mcpPinoEstilo';
+    st.textContent = `
+      .mcp-pino-sel > div { animation: mcpPulso 1.3s ease-out infinite; }
+      .mcp-pino-movendo > div { animation: mcpPisca .7s ease-in-out infinite !important; transform: scale(1.35); outline: 3px solid #facc15 !important; outline-offset: 2px !important; }
+      @keyframes mcpPulso { 0% { box-shadow: 0 0 0 0 rgba(37,99,235,.95), 0 2px 8px rgba(0,0,0,.45); }
+                            100% { box-shadow: 0 0 0 16px rgba(37,99,235,0), 0 2px 8px rgba(0,0,0,.45); } }
+      @keyframes mcpPisca { 0%, 100% { box-shadow: 0 0 0 4px rgba(250,204,21,.95), 0 0 18px 6px rgba(250,204,21,.7); }
+                            50% { box-shadow: 0 0 0 0 rgba(250,204,21,.2), 0 0 0 0 rgba(250,204,21,0); } }`;
+    document.head.appendChild(st);
+  }
+  if (_mcpPinoDestacado) {
+    try {
+      _mcpPinoDestacado.getElement()?.classList.remove('mcp-pino-sel', 'mcp-pino-movendo');
+      _mcpPinoDestacado.setZIndexOffset(0);
+    } catch (_) {}
+    _mcpPinoDestacado = null;
+  }
+  const e = _mcp.key ? mcpEntrada(_mcp.key) : null;
+  const el = e?.marker?.getElement?.();
+  if (!el) return;
+  el.classList.add('mcp-pino-sel');
+  el.classList.toggle('mcp-pino-movendo', _mcp.movendo?.key === e.key);
+  try { e.marker.setZIndexOffset(1000); } catch (_) {}
+  _mcpPinoDestacado = e.marker;
+}
+
 function openMapCamPanel(key, aba) {
   const e = mcpEntrada(key);
   if (!e) return;
@@ -3397,6 +3432,7 @@ function closeMapCamPanel() {
   mcpPararAoVivo();
   mcpCancelarMover();
   _mcp.key = null;
+  mcpDestacarPino();
   const el = document.getElementById('mapCamPanel');
   if (el) { el.classList.add('hidden'); el.innerHTML = ''; }
   setTimeout(() => { try { _map?.invalidateSize(); } catch (_) {} }, 60);
@@ -3536,6 +3572,7 @@ function renderMapCamPanel() {
 
   if (_mcp.aba === 'aovivo' && !_mcp.live) mcpLigarAoVivo(cam);
   if (_mcp.aba === 'rede' && !_mcp.rede[cam.ip]) mcpLerRede(cam);
+  mcpDestacarPino();
 }
 
 // `user`/`pass` so vem preenchidos quando o operador digita a senha no
