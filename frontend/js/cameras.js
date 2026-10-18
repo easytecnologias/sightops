@@ -3270,7 +3270,44 @@ async function salvarOcorrencia(limpar) {
 // Nenhum desses caminhos pede senha aqui: todos usam a senha guardada da
 // camera, conferida contra ela.
 // ============================================================================
-let _mcp = { key: null, aba: 'aovivo', drafts: {}, live: null, subtype: 1, movendo: null, salvando: false };
+let _mcp = { key: null, aba: 'aovivo', drafts: {}, live: null, subtype: 1, movendo: null, salvando: false, rede: {} };
+
+function mcpIpNum(ip) {
+  const p = String(ip || '').trim().split('.');
+  if (p.length !== 4 || p.some(x => !/^\d{1,3}$/.test(x) || +x > 255)) return null;
+  return ((+p[0] << 24) >>> 0) + (+p[1] << 16) + (+p[2] << 8) + (+p[3]);
+}
+function mcpIpTexto(n) {
+  return [n >>> 24, (n >>> 16) & 255, (n >>> 8) & 255, n & 255].join('.');
+}
+// O IP novo esta na mesma rede do gateway que a camera usa?
+function mcpMesmaRede(ip, gateway, mask) {
+  const a = mcpIpNum(ip), g = mcpIpNum(gateway), m = mcpIpNum(mask);
+  if (a === null || g === null || m === null) return true;   // sem dado: o backend confere
+  return ((a & m) >>> 0) === ((g & m) >>> 0);
+}
+function mcpFaixaDaRede(gateway, mask) {
+  const g = mcpIpNum(gateway), m = mcpIpNum(mask);
+  if (g === null || m === null) return '';
+  const rede = (g & m) >>> 0, broad = (rede | (~m >>> 0)) >>> 0;
+  return `${mcpIpTexto(rede + 1)} e ${mcpIpTexto(broad - 1)}`;
+}
+
+// Le mascara/gateway da propria camera (senha guardada) e guarda por IP.
+async function mcpLerRede(cam, forcar = false) {
+  if (!cam?.ip || (!forcar && _mcp.rede[cam.ip])) return;
+  _mcp.rede[cam.ip] = { estado: 'lendo' };
+  if (forcar) renderMapCamPanel();
+  try {
+    const r = await api(`/api/maintenance/camera-network/${encodeURIComponent(cam.ip)}`);
+    const d = await r?.json().catch(() => ({}));
+    _mcp.rede[cam.ip] = d?.ok ? { estado: 'ok', mask: d.mask, gateway: d.gateway }
+      : { estado: 'erro', erro: d?.error || 'não consegui ler a rede da câmera' };
+  } catch (err) {
+    _mcp.rede[cam.ip] = { estado: 'erro', erro: err.message || 'não consegui ler a rede da câmera' };
+  }
+  if (_mcp.aba === 'rede' && mcpEntrada(_mcp.key)?.cam?.ip === cam.ip) renderMapCamPanel();
+}
 
 function mcpEntradas() {
   const out = [];
@@ -3396,12 +3433,29 @@ function mcpCorpo(e, v) {
       </div>`;
   }
   if (_mcp.aba === 'rede') {
+    // A rede vem DA CAMERA, nao do inventario: e ela que vai receber o IP novo
+    // com a mesma mascara e gateway. Gravar mascara/gateway errados deixa a
+    // camera inalcancavel sem erro na hora (SIERRA, 17/10/2026).
+    const rede = _mcp.rede[cam.ip] || { estado: 'lendo' };
+    const ficha = rede.estado === 'ok'
+      ? `<span>IP</span><b class="mono">${esc(cam.ip)}</b>
+         <span>Máscara</span><b class="mono">${esc(rede.mask || '-')}</b>
+         <span>Gateway</span><b class="mono">${esc(rede.gateway || '-')}</b>`
+      : `<span>Rede</span><b>${rede.estado === 'lendo' ? 'lendo da câmera…' : esc(rede.erro || 'não consegui ler')}</b>`;
+    const mudouIp = v.ip && v.ip !== cam.ip;
+    const fora = mudouIp && rede.estado === 'ok' && !mcpMesmaRede(v.ip, rede.gateway, rede.mask);
+    const faixa = rede.estado === 'ok' ? mcpFaixaDaRede(rede.gateway, rede.mask) : '';
     return `
+      <div class="mcp-ficha">${ficha}</div>
+      <button type="button" class="secondary-action" data-mcp-acao="lerrede" style="margin-bottom:10px">Ler a rede da câmera de novo</button>
       <div class="mcp-grade">
         ${mcpCampo('IP atual', `<input class="mcp-input mono" value="${esc(cam.ip)}" readonly>`)}
         ${mcpCampo('Novo IP', `<input class="mcp-input mono" data-mcp-campo="ip" value="${esc(v.ip)}" inputmode="decimal">`)}
       </div>
-      <div class="mcp-aviso-azul">Ao salvar, o SightOps lê a máscara e o gateway <b>da própria câmera</b>, troca o IP nela e espera ela responder no endereço novo. Só então o inventário e o Zabbix mudam. Se ela não responder, nada é alterado.</div>
+      ${fora ? `<div class="mcp-aviso-azul" style="background:#fff5f5;border-color:#ffc9c9;color:#c92a2a"><b>${esc(v.ip)} fica fora da rede da câmera</b> (máscara ${esc(rede.mask)}, gateway ${esc(rede.gateway)}). Ela ficaria inalcançável. Use um IP entre ${esc(faixa)}.</div>`
+        : mudouIp && rede.estado === 'ok' ? `<div class="mcp-aviso-azul">Vai gravar na câmera: IP <b>${esc(v.ip)}</b>, máscara <b>${esc(rede.mask)}</b> e gateway <b>${esc(rede.gateway)}</b> (os dois lidos dela, sem mudança).</div>`
+        : `<div class="mcp-aviso-azul">Ao salvar, o SightOps lê a máscara e o gateway <b>da própria câmera</b>, troca o IP nela e espera ela responder no endereço novo. Só então o inventário e o Zabbix mudam. Se ela não responder, nada é alterado.</div>`}
+      <p class="mcp-dica">Hikvision só assume o IP novo depois de reiniciar: ao salvar, o SightOps pergunta se pode reiniciar e confere a volta no IP novo.</p>
       <button type="button" class="secondary-action" data-mcp-acao="iplivre">Ver se o IP novo está livre</button>
       <div id="mcpIpLivre" class="mcp-dica"></div>`;
   }
@@ -3473,6 +3527,7 @@ function renderMapCamPanel() {
   el.querySelector('[data-mcp-salvar]')?.addEventListener('click', mcpSalvar);
 
   if (_mcp.aba === 'aovivo' && !_mcp.live) mcpLigarAoVivo(cam);
+  if (_mcp.aba === 'rede' && !_mcp.rede[cam.ip]) mcpLerRede(cam);
 }
 
 // `user`/`pass` so vem preenchidos quando o operador digita a senha no
@@ -3583,6 +3638,7 @@ async function mcpAcao(acao, e) {
   if (acao === 'ping') { openPingTerminal(cam.ip, conector); return; }
   if (acao === 'mover') { mcpAlternarMover(e); return; }
   if (acao === 'iplivre') { await mcpTestarIpLivre(e); return; }
+  if (acao === 'lerrede') { await mcpLerRede(e.cam, true); return; }
   if (acao === 'foto') {
     showToast('Tirando foto…');
     const r = await api('/api/cameras/snapshot/capture', { method: 'POST', body: JSON.stringify({ ip: cam.ip, mode: cam._mode || 'olt', remote_connector_id: conector }) }).catch(() => null);
@@ -3653,19 +3709,59 @@ function mcpDescartar() {
   renderMapCamPanel();
 }
 
+async function mcpReiniciarParaIpNovo(cam, ipVelho, ipNovo, conector) {
+  const nome = cam.titulo || cam.nome || ipVelho;
+  const ok = await showConfirm({
+    title: 'Reiniciar a câmera para assumir o IP novo',
+    msg: `${nome} gravou o IP ${ipNovo}, mas Hikvision só passa a usá-lo depois de reiniciar. Enquanto não reiniciar, ela continua funcionando em ${ipVelho}. Reiniciar agora? Ela some por ~1 minuto e meio.`,
+    label: 'Reiniciar agora',
+  });
+  if (!ok) throw new Error(`a câmera gravou ${ipNovo} e assume ao reiniciar. Reinicie pela aba Ações quando puder; o inventário segue em ${ipVelho} até ela voltar no IP novo.`);
+  const rb = await api('/api/cameras/reboot', { method: 'POST', body: JSON.stringify({ ip: ipVelho, remote_connector_id: conector }) });
+  const rbd = await rb?.json().catch(() => ({}));
+  if (!rb?.ok || rbd?.ok === false) throw new Error(`não consegui reiniciar: ${rbd?.error || 'sem resposta'}`);
+  const inicio = Date.now();
+  // Ate 3 minutos: a Hikvision leva perto de 1 minuto e meio para voltar.
+  while (Date.now() - inicio < 180000) {
+    await new Promise(r => setTimeout(r, 10000));
+    const seg = Math.round((Date.now() - inicio) / 1000);
+    showToast(`Reiniciando ${nome}... aguardando em ${ipNovo} (${seg}s)`);
+    const c = await api('/api/maintenance/change_ip/confirmar', {
+      method: 'POST',
+      body: JSON.stringify({ ip: ipVelho, new_ip: ipNovo, user: 'admin', connector_id: conector }),
+    });
+    const cd = await c?.json().catch(() => ({}));
+    if (cd?.ok) { showToast(`Pronto: ${nome} voltou em ${ipNovo}.`); return; }
+    if (cd?.error && !cd?.aguardando) throw new Error(cd.error);
+  }
+  throw new Error(`${nome} ainda não respondeu em ${ipNovo} depois de 3 minutos. Ela pode estar demorando a subir; confira em alguns minutos.`);
+}
+
 async function mcpSalvarUma(e) {
   const o = mcpOriginal(e); const v = mcpValor(e); const cam = e.cam;
   const conector = cam.remote_connector_id || cam.connector_id || '';
   let ipAtual = o.ip;
   if (v.ip && v.ip !== o.ip) {
+    const rede = _mcp.rede[o.ip];
+    if (rede?.estado === 'ok' && !mcpMesmaRede(v.ip, rede.gateway, rede.mask)) {
+      throw new Error(`IP não trocado: ${v.ip} fica fora da rede da câmera (máscara ${rede.mask}, gateway ${rede.gateway}).`);
+    }
     const r = await api('/api/maintenance/batch/change_ips', {
       method: 'POST',
       body: JSON.stringify({ itens: [{ ip: o.ip, new_ip: v.ip, connector_id: conector }], user: 'admin' }),
     });
     const d = await r?.json().catch(() => ({}));
     const res = (d?.results || [])[0] || {};
-    if (!r?.ok || !res.ok) throw new Error(`IP não trocado: ${res.error || d?.error || 'sem resposta'}`);
+    if (res.pendente) {
+      // Hikvision: gravou o IP novo e so assume ao reiniciar. Antes isto virava
+      // "IP nao trocado" sem saida; agora o operador decide reiniciar e o
+      // SightOps confere a volta no IP novo (mesmo MAC) antes de gravar.
+      await mcpReiniciarParaIpNovo(cam, o.ip, v.ip, conector);
+    } else if (!r?.ok || !res.ok) {
+      throw new Error(`IP não trocado: ${res.error || d?.error || 'sem resposta'}`);
+    }
     ipAtual = v.ip;
+    delete _mcp.rede[o.ip];
   }
   if (v.nome && v.nome !== o.nome) {
     // O nome vai PRIMEIRO para a propria camera (titulo do canal/OSD). Se ela

@@ -1612,6 +1612,11 @@ def maintenance_change_ip_confirmar(payload: Dict[str, Any]) -> Dict[str, Any]:
     password = _as_str(payload.get("pass"))
     if not _valid_ipv4(ip) or not _valid_ipv4(new_ip) or ip == new_ip:
         return {"ok": False, "error": "ip e new_ip invalidos"}
+    if not password:
+        # Painel do Mapa nao pede senha: usa a GUARDADA da camera (MAC/site da
+        # linha antiga). Sem conferir no IP velho -- depois do reboot ela ja nao
+        # esta la; quem confere e a resposta no IP novo, mais abaixo.
+        user, password = resolve_camera_password(ip, user or "admin", "", _as_str(payload.get("connector_id")))
     if not user or not password:
         return {"ok": False, "error": "user e pass sao obrigatorios"}
 
@@ -1651,7 +1656,15 @@ def maintenance_change_ip_confirmar(payload: Dict[str, Any]) -> Dict[str, Any]:
         return {"ok": False, "aguardando": True, "ip": ip, "new_ip": new_ip}
 
     _persist_ip_change(ip, new_ip)
-    return {"ok": True, "ip": ip, "new_ip": new_ip}
+    # O mesmo que _change_ip_one faz na troca direta: sem isto a Hikvision que
+    # trocou por reboot ficava com o Zabbix pingando o IP velho.
+    out: Dict[str, Any] = {"ok": True, "ip": ip, "new_ip": new_ip}
+    try:
+        from app.services.zabbix_ip_rename_service import renomear_host_de_medicao
+        out["zabbix"] = renomear_host_de_medicao(ip, new_ip)
+    except Exception as exc:  # pragma: no cover - defensivo
+        out["zabbix"] = {"ok": False, "error": str(exc)}
+    return out
 
 
 @router.get("/maintenance/camera-network/{ip}")
