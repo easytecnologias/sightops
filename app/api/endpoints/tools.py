@@ -16,7 +16,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi import APIRouter, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
 
 from app.core.paths import (
@@ -194,6 +194,8 @@ def _list_kmz_import_layers(include_features: bool = True) -> list[dict[str, Any
             # camada criada no mapa aparece mesmo vazia (as outras com 0
             # pontos seguem escondidas na tela)
             "origem": str(meta.get("origem") or ""),
+            "cor_outros": str(meta.get("cor_outros") or ""),
+            "motivos": meta.get("motivos") if isinstance(meta.get("motivos"), dict) else {},
             **({"features": features, "type": geojson.get("type") or "FeatureCollection"} if include_features else {}),
         })
     return layers
@@ -1015,6 +1017,19 @@ async def _run_inventory_report_job(job_id: str, rows: list[dict[str, Any]], cfg
         job["error"] = str(exc) or repr(exc)
 
 
+def _inventory_report_job_do_cliente(job_id: str) -> dict[str, Any]:
+    """Job do relatorio de cameras, so para o cliente que pediu.
+
+    Antes bastava o job_id: o mesmo dicionario guarda os jobs do relatorio do
+    mapa, e por estas rotas dava para baixar o mapa de outro cliente sem a
+    checagem que as rotas do mapa fazem.
+    """
+    job = _report_jobs.get(job_id)
+    if not job or job.get("kind", "inventario") != "inventario"             or job.get("tenant", "") != (get_current_tenant_slug() or ""):
+        raise HTTPException(status_code=404, detail="job nao encontrado ou expirado")
+    return job
+
+
 @router.post("/inventory/report/job")
 async def api_inventory_report_job_start(site: str = "", company_name: str = "", report_color: str = "", mode: str = "", ips: str = "") -> Dict[str, Any]:
     _prune_report_jobs()
@@ -1026,6 +1041,8 @@ async def api_inventory_report_job_start(site: str = "", company_name: str = "",
         "total": 0,
         "stage": "preparando",
         "total_rows": len(rows),
+        "kind": "inventario",
+        "tenant": get_current_tenant_slug() or "",
         "_created": datetime.now(),
     }
     task = asyncio.create_task(_run_inventory_report_job(job_id, rows, cfg), name=f"inv-report-{job_id[:8]}")
@@ -1036,9 +1053,7 @@ async def api_inventory_report_job_start(site: str = "", company_name: str = "",
 
 @router.get("/inventory/report/job/{job_id}/status")
 def api_inventory_report_job_status(job_id: str) -> Dict[str, Any]:
-    job = _report_jobs.get(job_id)
-    if not job:
-        raise HTTPException(status_code=404, detail="job nao encontrado ou expirado")
+    job = _inventory_report_job_do_cliente(job_id)
     return {
         "ok": True,
         "status": job.get("status"),
@@ -1053,9 +1068,67 @@ def api_inventory_report_job_status(job_id: str) -> Dict[str, Any]:
 
 @router.get("/inventory/report/job/{job_id}/download")
 def api_inventory_report_job_download(job_id: str) -> FileResponse:
+    job = _inventory_report_job_do_cliente(job_id)
+    if job.get("status") != "done":
+        raise HTTPException(status_code=409, detail="relatorio ainda esta sendo gerado")
+    path = Path(job.get("path") or "")
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="arquivo do relatorio nao encontrado")
+    return FileResponse(path=path, media_type="application/pdf", filename=job.get("filename") or path.name)
+
+
+# ---- Relatorio do Mapa -------------------------------------------------------
+# Mesmo esquema de job do relatorio de cameras: baixar os tiles do mapa geral e
+# de cada area pode passar dos 60 s do nginx. O job guarda o cliente que pediu:
+# status e download so respondem para ele (o job_id sozinho nao basta).
+async def _run_map_report_job(job_id: str, cfg: Dict[str, Any]) -> None:
+    from app.services.map_pdf_report import build_map_pdf_report
+
+    job = _report_jobs[job_id]
+    job["status"] = "running"
+
+    def _cb(done: int, total: int, stage: str) -> None:
+        job["done"], job["total"], job["stage"] = int(done), int(total), stage
+
+    try:
+        pdf_path = await asyncio.to_thread(build_map_pdf_report, progress_cb=_cb, **cfg)
+        job["status"], job["path"], job["filename"] = "done", str(pdf_path), pdf_path.name
+    except Exception as exc:
+        job["status"], job["error"] = "error", str(exc) or repr(exc)
+
+
+def _map_report_job_do_cliente(job_id: str) -> dict[str, Any]:
     job = _report_jobs.get(job_id)
-    if not job:
+    if not job or job.get("kind") != "mapa" or job.get("tenant") != (get_current_tenant_slug() or ""):
         raise HTTPException(status_code=404, detail="job nao encontrado ou expirado")
+    return job
+
+
+@router.post("/kmz/report/job")
+async def api_map_report_job_start(site: str = "", company_name: str = "", report_color: str = "") -> Dict[str, Any]:
+    if not get_current_tenant_slug():
+        raise HTTPException(status_code=400, detail="relatorio do mapa precisa de um cliente selecionado")
+    _prune_report_jobs()
+    job_id = uuid.uuid4().hex
+    _report_jobs[job_id] = {"status": "queued", "done": 0, "total": 0, "stage": "preparando", "kind": "mapa",
+                            "tenant": get_current_tenant_slug() or "", "_created": datetime.now()}
+    cfg = {"site": site, "company_name": company_name, "report_color": report_color}
+    task = asyncio.create_task(_run_map_report_job(job_id, cfg), name=f"map-report-{job_id[:8]}")
+    _report_tasks.add(task)
+    task.add_done_callback(_report_tasks.discard)
+    return {"ok": True, "job_id": job_id}
+
+
+@router.get("/kmz/report/job/{job_id}/status")
+def api_map_report_job_status(job_id: str) -> Dict[str, Any]:
+    job = _map_report_job_do_cliente(job_id)
+    return {"ok": True, "status": job.get("status"), "done": job.get("done", 0), "total": job.get("total", 0),
+            "stage": job.get("stage", ""), "error": job.get("error"), "ready": job.get("status") == "done"}
+
+
+@router.get("/kmz/report/job/{job_id}/download")
+def api_map_report_job_download(job_id: str) -> FileResponse:
+    job = _map_report_job_do_cliente(job_id)
     if job.get("status") != "done":
         raise HTTPException(status_code=409, detail="relatorio ainda esta sendo gerado")
     path = Path(job.get("path") or "")
@@ -1543,11 +1616,68 @@ def _editar_ponto_da_camada(layer_id: str, ponto: Dict[str, Any], generated: boo
 
 
 @router.patch("/kmz/import/layers/{layer_id}")
-async def api_kmz_import_layer_update(layer_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+async def api_kmz_import_layer_update(layer_id: str, payload: Dict[str, Any], request: Request) -> Dict[str, Any]:
     if isinstance(payload.get("ponto"), dict):
         return {"ok": True, **_editar_ponto_da_camada(layer_id, payload["ponto"])}
+    if isinstance(payload.get("motivo_ponto"), dict):
+        u = getattr(request.state, "current_user", None) or {}
+        por = str(u.get("username") or "") if isinstance(u, dict) else ""
+        return {"ok": True, "layer": _motivo_do_ponto(layer_id, payload["motivo_ponto"], por)}
+    if "cor_outros" in payload:
+        return {"ok": True, "layer": _cor_outros_da_camada(layer_id, payload.get("cor_outros"))}
     layer = _rename_kmz_layer(layer_id, str(payload.get("label") or ""))
     return {"ok": True, "layer": layer}
+
+
+def _motivo_do_ponto(layer_id: str, dados: Dict[str, Any], por: str = "") -> dict[str, Any]:
+    """Motivo de um ponto do mapa nao ter camera ("camera retirada", "previsto").
+
+    Guardado no meta da camada pelo NOME do ponto -- o mesmo jeito que o Mapa e
+    o relatorio casam ponto e camera -- sem mexer no KMZ. Motivo vazio apaga.
+    O relatorio do mapa mostra este texto em vez do generico.
+    """
+    nome = str(dados.get("nome") or "").strip()
+    if not nome:
+        raise HTTPException(400, "Informe o nome do ponto.")
+    motivo = " ".join(str(dados.get("motivo") or "").split())[:300]
+    kmz_path, geojson_path, meta_path = _kmz_layer_paths(layer_id)
+    if not kmz_path.exists() or not geojson_path.exists():
+        raise HTTPException(404, "Camada KMZ nao encontrada.")
+    meta = _read_kmz_layer_meta(meta_path)
+    motivos = meta.get("motivos") if isinstance(meta.get("motivos"), dict) else {}
+    if motivo:
+        motivos[nome.lower()] = {"nome": nome, "motivo": motivo, "por": por,
+                                 "em": datetime.now().isoformat(timespec="seconds")}
+    else:
+        motivos.pop(nome.lower(), None)
+    meta["id"] = layer_id
+    meta["motivos"] = motivos
+    meta["updated_at"] = datetime.now().isoformat(timespec="seconds")
+    _write_kmz_layer_meta(meta_path, meta)
+    layer = next((item for item in _list_kmz_import_layers(include_features=False) if item.get("id") == layer_id), None)
+    return layer or {"id": layer_id, "motivos": motivos}
+
+
+def _cor_outros_da_camada(layer_id: str, cor: Any) -> dict[str, Any]:
+    """Cor dos pontos da camada que nao casam com nenhuma camera.
+
+    Antes eles saiam na cor da propria camada (verde quando quase tudo esta
+    online), sem rotulo -- um "tracinho" que ninguem sabia o que era. Vazio
+    volta ao laranja padrao, o mesmo da legenda "outros".
+    """
+    valor = str(cor or "").strip()
+    if valor and not re.fullmatch(r"#[0-9a-fA-F]{6}", valor):
+        raise HTTPException(400, "Cor invalida: use o formato #rrggbb.")
+    kmz_path, geojson_path, meta_path = _kmz_layer_paths(layer_id)
+    if not kmz_path.exists() or not geojson_path.exists():
+        raise HTTPException(404, "Camada KMZ nao encontrada.")
+    meta = _read_kmz_layer_meta(meta_path)
+    meta["id"] = layer_id
+    meta["cor_outros"] = valor.lower()
+    meta["updated_at"] = datetime.now().isoformat(timespec="seconds")
+    _write_kmz_layer_meta(meta_path, meta)
+    layer = next((item for item in _list_kmz_import_layers(include_features=False) if item.get("id") == layer_id), None)
+    return layer or {"id": layer_id, "cor_outros": meta["cor_outros"]}
 
 
 def _apagar_geradas_do_mapa(layer_id: str) -> list[str]:

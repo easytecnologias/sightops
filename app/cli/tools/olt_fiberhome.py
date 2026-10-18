@@ -1071,11 +1071,23 @@ def delete_onu_fiberhome(
             # gravada -- usar a versao em upper aqui faz a OLT recusar o
             # comando com "sn is wrong!" mesmo com o ONU certo selecionado.
             whitelist_serial = current.get("onu_serial_raw") or current["onu_serial"]
-            command = (
-                f"set whitelist phy_addr address {whitelist_serial} password null action delete "
-                f"slot {slot} link {int(pon)} onu {int(onu)} type {onu_type}"
-            )
-            output = client.command(command, prompt="Admin\\gpononu#", maximum=25)
+            # Nem sempre a caixa exibida e a gravada: a TP-Link 4/7 onu 60 da
+            # SIERRA aparece como "TPGe7bd9e800" e a OLT recusa esse texto com
+            # "sn is wrong!" (17/10/2026). So nesse erro, tenta as outras caixas
+            # do MESMO serial -- serial errado so devolve erro, nao apaga nada.
+            bruto = str(whitelist_serial)
+            candidatos = list(dict.fromkeys([
+                bruto, bruto[:4].upper() + bruto[4:].lower(), bruto.upper(), bruto.lower(),
+            ]))
+            command, output = "", ""
+            for tentativa in candidatos:
+                command = (
+                    f"set whitelist phy_addr address {tentativa} password null action delete "
+                    f"slot {slot} link {int(pon)} onu {int(onu)} type {onu_type}"
+                )
+                output = client.command(command, prompt="Admin\\gpononu#", maximum=25)
+                if "sn is wrong" not in output.lower():
+                    break
             if _command_failed(output):
                 raise RuntimeError(output.strip())
             time.sleep(2)

@@ -613,7 +613,7 @@ def _eventos_de_mudanca(antigo: Dict[str, Any], novo: Dict[str, Any]) -> List[st
     return ev
 
 
-AGENTE_VERSAO = "2.1"
+AGENTE_VERSAO = "2.2"
 # Instalador com janela (tools/agente-windows). O mesmo binario para todos os
 # clientes: a configuracao de cada um vai colada no fim, a cada download.
 AGENTE_EXE_BASE = Path(__file__).resolve().parent / "assets" / "SightOpsAgente.exe"
@@ -668,9 +668,18 @@ $SightOpsCopia = Join-Path $SightOpsDir "agente.ps1"
 $SightOpsCfg = Join-Path $SightOpsDir "agente.json"
 $SightOpsTarefa = "SightOps Inventario"
 
+# Senha do AnyDesk vinda do instalador .exe, por variavel de ambiente so deste
+# processo. Lida e apagada logo no inicio: nao vai para o inventario, para o
+# disco nem para o servidor.
+$AnyDeskSenha = [string]$env:SIGHTOPS_ANYDESK_SENHA
+Remove-Item Env:SIGHTOPS_ANYDESK_SENHA -ErrorAction SilentlyContinue
+
 Write-Host "Coletando inventario local para o SightOps..." -ForegroundColor Cyan
 $cfgSalva = $null
 if (Test-Path $SightOpsCfg) {{ try {{ $cfgSalva = Get-Content $SightOpsCfg -Raw | ConvertFrom-Json }} catch {{}} }}
+# O AnyDesk nao diz se tem senha; a tarefa de 15 em 15 min sabe pelo que a
+# instalacao anotou aqui, senao todo envio voltaria a dizer "sem senha".
+$AnyDeskSenhaDefinida = [bool]($cfgSalva -and $cfgSalva.anydesk_senha_definida)
 if (-not $Site -and $cfgSalva) {{ $Site = [string]$cfgSalva.site }}
 if (-not $Setor -and $cfgSalva) {{ $Setor = [string]$cfgSalva.setor }}
 if (-not $Silencioso) {{
@@ -691,7 +700,7 @@ function Register-SightOpsAgendamento {{
       Copy-Item -Path $PSCommandPath -Destination $SightOpsCopia -Force
     }}
     if (-not (Test-Path $SightOpsCopia)) {{ throw "rode o arquivo .ps1 (nao colado no console) para instalar a tarefa" }}
-    [PSCustomObject]@{{ site = $SightOpsSite; setor = $SightOpsSector }} | ConvertTo-Json | Set-Content -Path $SightOpsCfg -Encoding UTF8
+    [PSCustomObject]@{{ site = $SightOpsSite; setor = $SightOpsSector; anydesk_senha_definida = $AnyDeskSenhaDefinida }} | ConvertTo-Json | Set-Content -Path $SightOpsCfg -Encoding UTF8
     $argumento = '-NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -File "' + $SightOpsCopia + '" -Silencioso'
     $acao = New-ScheduledTaskAction -Execute "powershell.exe" -Argument $argumento
     $aCada15 = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(2) -RepetitionInterval (New-TimeSpan -Minutes 15) -RepetitionDuration (New-TimeSpan -Days 3650)
@@ -756,13 +765,47 @@ function Get-AnyDeskInventory {{
   }}
 }}
 
+function Set-AnyDeskInicioAutomatico {{
+  # Acesso sem supervisao so funciona se o AnyDesk for SERVICO e subir com o
+  # Windows. O agente so garantia isso quando ele mesmo instalava: um AnyDesk que
+  # ja estava no PC -- muitas vezes o "portatil", rodado de Downloads -- seguia
+  # sem servico e sumia no proximo reboot.
+  param([string]$ExePath, [bool]$PodeInstalar = $false)
+  if (-not $IsAdmin -or -not $ExePath) {{ return $ExePath }}
+  $service = Get-Service -Name AnyDesk -ErrorAction SilentlyContinue
+  if (-not $service -and $PodeInstalar) {{
+    Write-Host "AnyDesk sem servico: instalando para iniciar com o Windows..." -ForegroundColor Cyan
+    $installDir = "$env:ProgramFiles\AnyDesk"
+    Start-Process -FilePath $ExePath -ArgumentList @("--install", "`"$installDir`"", "--start-with-win", "--silent") -Wait | Out-Null
+    Start-Sleep -Seconds 8
+    $ExePath = Get-AnyDeskExecutable
+    $service = Get-Service -Name AnyDesk -ErrorAction SilentlyContinue
+  }}
+  if ($service) {{
+    if ($service.StartType -ne "Automatic") {{ Set-Service -Name AnyDesk -StartupType Automatic -ErrorAction SilentlyContinue }}
+    if ($service.Status -ne "Running") {{ Start-Service -Name AnyDesk -ErrorAction SilentlyContinue }}
+  }}
+  return $ExePath
+}}
+
+function Set-AnyDeskSenha {{
+  param([string]$ExePath, [string]$Senha)
+  if (-not $Senha -or -not $ExePath) {{ return $false }}
+  $Senha | & $ExePath --set-password | Out-Null
+  if ($LASTEXITCODE -ne 0) {{ throw "o AnyDesk recusou a senha (codigo $LASTEXITCODE)" }}
+  Write-Host "Senha de acesso sem supervisao definida no AnyDesk." -ForegroundColor Green
+  return $true
+}}
+
 function Install-And-Configure-AnyDesk {{
   $exe = Get-AnyDeskExecutable
-  $passwordConfigured = $false
+  $passwordConfigured = $AnyDeskSenhaDefinida
   $errorMessage = ""
-  if ($Silencioso -and -not $InstalarAnyDesk) {{
-    # Sem ninguem na frente e sem pedido de instalar: so le o que ja existe.
-    return Get-AnyDeskInventory -ExePath $exe -ConfiguredPassword $false -ErrorMessage ""
+  if ($Silencioso -and -not $InstalarAnyDesk -and -not $AnyDeskSenha) {{
+    # Sem ninguem na frente e sem pedido de instalar: so le o que ja existe e
+    # mantem o servico ligado e automatico (a tarefa roda como SYSTEM).
+    $exe = Set-AnyDeskInicioAutomatico -ExePath $exe
+    return Get-AnyDeskInventory -ExePath $exe -ConfiguredPassword $passwordConfigured -ErrorMessage ""
   }}
   try {{
     if (-not $Silencioso) {{
@@ -773,6 +816,10 @@ function Install-And-Configure-AnyDesk {{
     }}
     if (-not $IsAdmin) {{
       return Get-AnyDeskInventory -ExePath $exe -ConfiguredPassword $false -ErrorMessage "Execute como Administrador para instalar/configurar AnyDesk"
+    }}
+    if (-not $exe -and $Silencioso -and -not $InstalarAnyDesk) {{
+      # Veio so a senha, com "instalar" desmarcado: nao baixa nada por conta propria.
+      return Get-AnyDeskInventory -ExePath $exe -ConfiguredPassword $false -ErrorMessage "AnyDesk nao instalado: senha nao aplicada"
     }}
     if (-not $exe) {{
       $installer = Join-Path $env:TEMP "AnyDesk.exe"
@@ -786,20 +833,28 @@ function Install-And-Configure-AnyDesk {{
       $exe = Get-AnyDeskExecutable
     }}
     if ($exe -and (Test-Path $exe)) {{
-      $service = Get-Service -Name AnyDesk -ErrorAction SilentlyContinue
-      if ($service) {{
-        Set-Service -Name AnyDesk -StartupType Automatic -ErrorAction SilentlyContinue
-        Start-Service -Name AnyDesk -ErrorAction SilentlyContinue
-      }}
-      $setPass = if ($Silencioso) {{ "n" }} else {{ Read-Host "Definir senha para acesso nao supervisionado no AnyDesk? [s/N]" }}
-      if ($setPass -match '^[Ss]') {{
-        $securePass = Read-Host "Digite a senha do AnyDesk" -AsSecureString
-        $plainPass = Convert-SightOpsSecureStringToPlainText -SecureText $securePass
-        if ($plainPass) {{
-          $plainPass | & $exe --set-password | Out-Null
-          $passwordConfigured = $true
-          $plainPass = $null
+      $exe = Set-AnyDeskInicioAutomatico -ExePath $exe -PodeInstalar $true
+      # Senha: a do instalador .exe; rodando o .ps1 na mao, pergunta.
+      $plainPass = $AnyDeskSenha
+      if (-not $plainPass -and -not $Silencioso) {{
+        $setPass = Read-Host "Definir senha para acesso nao supervisionado no AnyDesk? [s/N]"
+        if ($setPass -match '^[Ss]') {{
+          $securePass = Read-Host "Digite a senha do AnyDesk" -AsSecureString
+          $plainPass = Convert-SightOpsSecureStringToPlainText -SecureText $securePass
         }}
+      }}
+      if ($plainPass) {{
+        try {{
+          if (Set-AnyDeskSenha -ExePath $exe -Senha $plainPass) {{
+            $passwordConfigured = $true
+            $script:AnyDeskSenhaDefinida = $true
+          }}
+        }} catch {{
+          $errorMessage = "Senha nao definida: " + $_.Exception.Message
+          Write-Host ("AnyDesk: " + $errorMessage) -ForegroundColor Yellow
+        }}
+        $plainPass = $null
+        $script:AnyDeskSenha = $null
       }}
     }} else {{
       $errorMessage = "AnyDesk nao encontrado apos instalacao"

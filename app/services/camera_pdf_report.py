@@ -49,12 +49,17 @@ from app.services.recorder_pdf_report import (
     BORDER,
     INK,
     OK,
+    PROPORCAO_FOTO,
     STRIPE,
     _accent,
+    _aplicar_posicoes,
+    _coordenadas,
+    _foto_padronizada,
     _header_footer_factory,
     _kpis,
     _kv_table,
     _p,
+    _p_localizacao,
     _styles,
 )
 
@@ -68,6 +73,7 @@ _PESOS: Dict[str, int] = {
     "Titulo": 46,
     "Status": 14,
     "Local": 22,
+    "Localizacao": 19,
     "Modelo": 26,
     "MAC": 30,
     "Switch": 26,
@@ -91,7 +97,7 @@ def _colunas(include_switch: bool, include_olt: bool, rows: List[Dict[str, Any]]
     Carregar quatro colunas de switch em branco num site que nao tem switch so
     espreme o resto da tabela.
     """
-    base = ["IP", "Titulo", "Status", "Local", "Modelo", "MAC", "Ocorrencia"]
+    base = ["IP", "Titulo", "Status", "Local", "Localizacao", "Modelo", "MAC", "Ocorrencia"]
     if include_switch:
         base += ["Switch", "Switch IP", "Porta", "VLAN"]
     elif include_olt:
@@ -99,7 +105,8 @@ def _colunas(include_switch: bool, include_olt: bool, rows: List[Dict[str, Any]]
     return [
         c for c in base
         if c in _FIXAS
-        or any(_to_text(_col_value(r, c)).strip().lower() not in _VAZIO for r in rows)
+        or (c == "Localizacao" and any(_coordenadas(r) for r in rows))
+        or (c != "Localizacao" and any(_to_text(_col_value(r, c)).strip().lower() not in _VAZIO for r in rows))
     ]
 
 
@@ -120,6 +127,9 @@ def _tabela_inventario(
         online = _camera_online(r)
         linha: List[Any] = []
         for c in colunas:
+            if c == "Localizacao":
+                linha.append(_p_localizacao(r, styles["mono"]))
+                continue
             val = _col_value(r, c)
             if c == "Status":
                 linha.append(_p((val or "-").upper(), styles["small_b"], color=OK if online else BAD))
@@ -148,34 +158,6 @@ def _tabela_inventario(
     return table
 
 
-def _miniatura(caminho, largura_pt: float):
-    """Snapshot reduzido para a largura em que sera exibido, em memoria.
-
-    `largura_pt` esta em pontos (1/72"). Multiplicamos por 2 para o zoom do
-    leitor continuar nitido -- e ainda assim e uma fracao do arquivo original.
-    Devolve (buffer JPEG, proporcao altura/largura) ou None se nao der. O
-    buffer vai direto para o RLImage, que aceita qualquer objeto com .read();
-    um ImageReader ele NAO aceita -- tenta fazer splitext no nome do arquivo.
-    """
-    from io import BytesIO
-
-    from PIL import Image as PILImage
-
-    try:
-        with PILImage.open(caminho) as im:
-            im = im.convert("RGB")
-            proporcao = (im.height / im.width) if im.width else 0.5625
-            alvo = max(320, int(largura_pt * 2))
-            if im.width > alvo:
-                im = im.resize((alvo, max(1, int(alvo * proporcao))), PILImage.LANCZOS)
-            buf = BytesIO()
-            im.save(buf, "JPEG", quality=72, optimize=True)
-        buf.seek(0)
-        return buf, proporcao
-    except Exception:
-        return None
-
-
 def _galeria(rows: List[Dict[str, Any]], styles: Dict[str, ParagraphStyle], usable_w: float) -> List[Any]:
     """Snapshot de cada camera, quatro por linha. Camera sem foto nao entra."""
     from reportlab.platypus import Image as RLImage
@@ -190,12 +172,12 @@ def _galeria(rows: List[Dict[str, Any]], styles: Dict[str, ParagraphStyle], usab
             continue
         legenda = f"{_to_text(r.get('titulo') or r.get('title'))} - {_to_text(r.get('ip'))}"
         inner: List[Any] = [_p(legenda, styles["cap"])]
-        mini = _miniatura(caminho, img_w)
-        if mini is None:
+        # Quadro fixo 16:9 para todas: camera 4:3 nao estica a linha da grade.
+        foto = _foto_padronizada(caminho, img_w)
+        if foto is None:
             inner.append(_p("sem imagem", styles["small"]))
         else:
-            buf, ratio = mini
-            inner.append(RLImage(buf, width=img_w, height=img_w * ratio))
+            inner.append(RLImage(foto, width=img_w, height=img_w * PROPORCAO_FOTO))
         cards.append(inner)
     if not cards:
         return []
@@ -230,6 +212,8 @@ def build_inventory_pdf_report(
 ) -> Path:
     """Mesma assinatura do gerador antigo, para ser troca direta no endpoint."""
     rows_list = _sort_inventory_rows([dict(r) for r in rows if isinstance(r, dict)])
+    # Posicao que o Mapa mostra (copia: o inventario nao e alterado).
+    _aplicar_posicoes(rows_list)
     site_label = _to_text(site) or "Todos os sites"
     accent = _accent(report_color)
 
@@ -247,6 +231,7 @@ def build_inventory_pdf_report(
     header = _header_footer_factory(
         module_label or "Cameras IP", accent,
         f"{site_label}  -  {datetime.now().strftime('%d/%m/%Y %H:%M')}",
+        cabecalho="RELATORIO DE CAMERAS",
     )
     doc = SimpleDocTemplate(
         str(out), pagesize=landscape(A4), leftMargin=margin, rightMargin=margin,

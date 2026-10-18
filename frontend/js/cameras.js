@@ -492,6 +492,178 @@ function mapLayerDownloadUrl(def) {
 
 let _mapLayerRenameTarget = null;
 
+// Relatorio do mapa (PDF para reuniao): mapa geral, um mapa por area, fotos e
+// pendencias. Gerado em job no servidor -- baixar o fundo do mapa leva mais que
+// os 60 s que o nginx espera numa requisicao unica.
+async function gerarRelatorioMapa(button) {
+  if (button?.disabled) return;
+  const original = button ? button.innerHTML : '';
+  if (button) {
+    button.disabled = true;
+    button.innerHTML = '<i data-lucide="loader-2" class="spin"></i> Gerando...';
+    lucide.createIcons();
+  }
+  try {
+    showToast('Preparando o relatorio do mapa...');
+    const start = await jsonOrReadableError(
+      await api('/api/kmz/report/job', { method: 'POST' }),
+      'Nao foi possivel iniciar o relatorio do mapa.'
+    );
+    const jobId = start?.job_id;
+    if (!jobId) throw new Error('Nao foi possivel iniciar o relatorio do mapa.');
+    const inicio = Date.now();
+    let st = null;
+    while (Date.now() - inicio < 15 * 60 * 1000) {
+      st = await jsonOrReadableError(await api(`/api/kmz/report/job/${jobId}/status`),
+        'Nao foi possivel acompanhar o relatorio do mapa.');
+      if (st?.status === 'done' || st?.status === 'error') break;
+      const etapa = {
+        preparando: 'Lendo cameras e mapa...',
+        mapas: `Desenhando mapas... ${st?.done ?? 0}/${st?.total ?? 0}`,
+        fotos: `Montando fotos... ${st?.done ?? 0}/${st?.total ?? 0}`,
+        finalizando: 'Finalizando PDF...',
+      }[st?.stage] || 'Gerando relatorio do mapa...';
+      if (button) button.title = etapa;
+      await new Promise(r => setTimeout(r, 900));
+    }
+    if (st?.status === 'error') throw new Error(st?.error || 'Falha ao gerar o relatorio do mapa.');
+    if (st?.status !== 'done') throw new Error('O relatorio do mapa esta demorando mais que o esperado. Tente de novo em instantes.');
+    const res = await api(`/api/kmz/report/job/${jobId}/download`);
+    if (!res || !res.ok) throw new Error('Nao foi possivel baixar o relatorio do mapa.');
+    const url = URL.createObjectURL(await res.blob());
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'relatorio-do-mapa.pdf';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    showToast('Relatorio do mapa gerado. O download foi iniciado.');
+  } catch (err) {
+    showToast(err?.message || 'Nao foi possivel gerar o relatorio do mapa.', true);
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.innerHTML = original;
+      button.title = 'Relatorio do mapa (PDF)';
+      lucide.createIcons();
+    }
+  }
+}
+
+// Rotulo do ponto sem camera: o numero do nome ("39 - QD. E - 01" -> "39"),
+// ou as 3 primeiras letras. Sem rotulo ele virava um "tracinho" mudo.
+function mapOutroRotulo(nome) {
+  const s = String(nome || '').trim();
+  const m = s.match(/^\s*(\d+)/);
+  return esc(m ? m[1] : s.slice(0, 3).toUpperCase());
+}
+
+// Motivo de um ponto do mapa nao ter camera ("camera retirada", "previsto na
+// obra"). Vai para o relatorio do mapa no lugar do texto generico. Vazio apaga.
+// Modal montado aqui (mesmas classes do "Editar nome da camada"), sem markup
+// no index.html. O prompt() do navegador destoava do resto do sistema.
+const MOTIVOS_PRONTOS = [
+  'Câmera retirada',
+  'Câmera prevista, ainda não instalada',
+  'Ponto duplicado',
+  'Câmera de outro sistema',
+  'Câmera em manutenção',
+];
+
+function informarMotivoPonto(def, nome, atual) {
+  if (!def?.updateUrl || !nome) return;
+  document.getElementById('modalMotivoPonto')?.remove();
+  const fundo = document.createElement('div');
+  fundo.id = 'modalMotivoPonto';
+  fundo.className = 'modal-backdrop';
+  fundo.innerHTML = `
+    <div class="modal map-layer-rename-modal" role="dialog" aria-modal="true" aria-labelledby="motivoPontoTitulo">
+      <div class="modal-header">
+        <div>
+          <p class="eyebrow">Mapa</p>
+          <h2 id="motivoPontoTitulo">Motivo do ponto sem câmera</h2>
+          <p class="map-layer-rename-subtitle">${esc(nome)} — aparece no relatório do mapa, em Pendências.</p>
+        </div>
+        <button class="icon-button" type="button" data-fechar aria-label="Fechar"><i data-lucide="x"></i></button>
+      </div>
+      <div class="modal-body">
+        <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px">
+          ${MOTIVOS_PRONTOS.map(m => `<button type="button" class="secondary-action" data-pronto="${esc(m)}" style="font-size:12px;padding:4px 10px">${esc(m)}</button>`).join('')}
+        </div>
+        <label class="map-layer-rename-field">Motivo
+          <textarea id="motivoPontoTexto" rows="3" maxlength="300" style="width:100%;resize:vertical;font:inherit;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text)">${esc(atual || '')}</textarea>
+        </label>
+        <p class="map-layer-rename-hint">Deixe em branco e salve para apagar o motivo.</p>
+      </div>
+      <div class="modal-actions">
+        <button class="secondary-action" type="button" data-fechar>Cancelar</button>
+        <button class="primary-action" type="button" data-salvar><i data-lucide="check"></i> Salvar motivo</button>
+      </div>
+    </div>`;
+  document.body.appendChild(fundo);
+  lucide.createIcons();
+  const campo = fundo.querySelector('#motivoPontoTexto');
+  const fechar = () => { fundo.remove(); document.removeEventListener('keydown', teclas); };
+  const salvar = async () => {
+    const botao = fundo.querySelector('[data-salvar]');
+    const texto = campo.value.trim();
+    botao.disabled = true;
+    try {
+      const res = await api(def.updateUrl, {
+        method: 'PATCH',
+        body: JSON.stringify({ motivo_ponto: { nome, motivo: texto } }),
+      });
+      const body = await res?.json().catch(() => ({}));
+      if (!res?.ok || body?.ok === false) throw new Error(body?.detail || 'Nao foi possivel salvar o motivo.');
+      fechar();
+      showToast(texto ? 'Motivo salvo.' : 'Motivo apagado.');
+      await loadMapLayers();
+    } catch (err) {
+      botao.disabled = false;
+      showToast(err.message || 'Nao foi possivel salvar o motivo.', true);
+    }
+  };
+  function teclas(e) {
+    if (e.key === 'Escape') fechar();
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) salvar();
+  }
+  document.addEventListener('keydown', teclas);
+  fundo.addEventListener('click', (e) => { if (e.target === fundo) fechar(); });
+  fundo.querySelectorAll('[data-fechar]').forEach(b => b.addEventListener('click', fechar));
+  fundo.querySelector('[data-salvar]').addEventListener('click', salvar);
+  fundo.querySelectorAll('[data-pronto]').forEach(b => b.addEventListener('click', () => {
+    campo.value = b.dataset.pronto;
+    campo.focus();
+  }));
+  setTimeout(() => { campo.focus(); campo.select(); }, 30);
+}
+
+// Cor dos pontos sem camera, por camada. Usa o seletor de cor do proprio
+// navegador e grava no meta da camada (PATCH cor_outros).
+function escolherCorOutros(def) {
+  if (!def?.updateUrl) return;
+  const input = document.createElement('input');
+  input.type = 'color';
+  input.value = /^#[0-9a-f]{6}$/i.test(def.corOutros || '') ? def.corOutros : '#d97706';
+  input.style.cssText = 'position:fixed;left:-100px;top:-100px;opacity:0';
+  document.body.appendChild(input);
+  input.addEventListener('change', async () => {
+    try {
+      const res = await api(def.updateUrl, { method: 'PATCH', body: JSON.stringify({ cor_outros: input.value }) });
+      const body = await res?.json().catch(() => ({}));
+      if (!res?.ok || body?.ok === false) throw new Error(body?.detail || 'Nao foi possivel salvar a cor.');
+      showToast('Cor dos pontos sem camera salva.');
+      await loadMapLayers();
+    } catch (err) {
+      showToast(err.message || 'Nao foi possivel salvar a cor.', true);
+    } finally {
+      input.remove();
+    }
+  }, { once: true });
+  input.click();
+}
+
 function openMapLayerRename(def) {
   if (!def?.updateUrl) return;
   _mapLayerRenameTarget = def;
@@ -670,6 +842,8 @@ async function loadMapLayers() {
     updateUrl: layer.update_url || `/api/kmz/import/layers/${encodeURIComponent(layer.id)}`,
     deleteUrl: `/api/kmz/import/layers/${encodeURIComponent(layer.id)}`,
     origem: layer.origem || '',
+    corOutros: layer.cor_outros || '',
+    motivos: layer.motivos || {},
   }));
   const importedSignatures = new Set(importedLayers.map(layer => mapLayerSignature(layer.features)).filter(Boolean));
   const importedLayerIds = new Set(importedLayers.map(layer => layer.layerId).filter(Boolean));
@@ -856,6 +1030,9 @@ async function loadMapLayers() {
     menu.appendChild(item('list', 'Detalhes', () => openMapLayerDetails(def)));
     if (def.updateUrl) {
       menu.appendChild(item('pencil', 'Renomear camada', () => openMapLayerRename(def)));
+      if (def.source === 'imported') {
+        menu.appendChild(item('palette', 'Cor dos pontos sem camera', () => escolherCorOutros(def)));
+      }
       menu.appendChild(item(
         mapEditIsActive(def.id) ? 'x' : 'move',
         mapEditIsActive(def.id) ? 'Sair do modo de edicao' : 'Editar / adicionar pontos',
@@ -984,7 +1161,11 @@ function renderMapLayerGroup(id, def, skipFit = false) {
         pole:   { bg: '#64748b', label: 'PT' },
         box:    { bg: '#f59e0b', label: 'CX' },
         fiber:  { bg: '#0ea5e9', label: 'FO' },
-        other:  { bg: def?.color || '#d97706', label: '' },
+        // Ponto que nao casa com nenhuma camera. Antes saia na cor da camada e
+        // sem rotulo: um "tracinho" verde que ninguem sabia o que era. Agora
+        // tem o numero do ponto e a cor escolhida na camada (laranja padrao,
+        // o mesmo da legenda "outros").
+        other:  { bg: def?.corOutros || '#d97706', label: mapOutroRotulo(name) },
       };
       const tc = typeConfig[pointType] || typeConfig.other;
       // Em modo de edicao, os pontos de camera ganham draggable: true (ver
@@ -1028,6 +1209,19 @@ function renderMapLayerGroup(id, def, skipFit = false) {
           <span style="font-size:12px;font-weight:500;word-break:break-all;${mono?'font-family:monospace;font-size:11px;':''}">${value}</span>
         </div>` : '';
 
+      // Ponto sem camera nao e "camera offline": o selo dizia OFFLINE e confundia.
+      const semCamera = !cam && pointType === 'other';
+      const motivoPonto = semCamera ? (def?.motivos || {})[String(name).trim().toLowerCase()] : null;
+      const seloTexto = semCamera ? 'SEM CAMERA' : (isOnlinePop ? 'ONLINE' : 'OFFLINE');
+      const seloCor = semCamera ? (def?.corOutros || '#d97706') : statusColor;
+      const motivoHtml = semCamera && def?.updateUrl ? `
+          <div style="margin-top:8px;padding:6px 8px;background:#f8f9fa;border:1px solid #e9ecef;border-radius:6px;font-size:11px;color:#495057">
+            <div style="font-weight:700;margin-bottom:2px">Motivo</div>
+            <div>${motivoPonto?.motivo ? esc(motivoPonto.motivo) : '<span style="color:#adb5bd">nenhum motivo informado</span>'}</div>
+            ${motivoPonto?.motivo && (motivoPonto.por || motivoPonto.em) ? `<div style="color:#868e96;margin-top:2px">${esc([motivoPonto.por, String(motivoPonto.em || '').slice(0, 10).split('-').reverse().join('/')].filter(Boolean).join(' - '))}</div>` : ''}
+            <button type="button" data-map-point-motivo style="margin-top:6px;width:100%;padding:5px;background:#fff;color:#495057;border-radius:6px;font-size:11px;font-weight:600;border:1px solid #ced4da;cursor:pointer">${motivoPonto?.motivo ? 'Alterar motivo' : 'Informar motivo'}</button>
+          </div>` : '';
+
       const snapHtml = cam?.snapshot_url
         ? `<div style="position:relative;overflow:hidden;border-radius:8px 8px 0 0;margin-bottom:12px">
             <img src="${API_BASE}${esc(cam.snapshot_url)}" style="width:100%;height:160px;object-fit:cover;display:block">
@@ -1038,7 +1232,7 @@ function renderMapLayerGroup(id, def, skipFit = false) {
           </div>`
         : `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;padding-bottom:8px;border-bottom:2px solid #f1f3f5">
             <strong style="font-size:14px">${esc(name)}</strong>
-            <span style="background:${statusColor}22;color:${statusColor};font-size:11px;font-weight:700;padding:2px 8px;border-radius:10px">${isOnlinePop?'ONLINE':'OFFLINE'}</span>
+            <span style="background:${seloCor}22;color:${seloCor};font-size:11px;font-weight:700;padding:2px 8px;border-radius:10px">${seloTexto}</span>
           </div>`;
 
       marker.bindPopup(`
@@ -1057,12 +1251,20 @@ function renderMapLayerGroup(id, def, skipFit = false) {
             <button type="button" data-mcp-abrir="aovivo" class="mcp-pop-btn">Ver ao vivo</button>
             <button type="button" data-mcp-abrir="dados" class="mcp-pop-btn mcp-pop-btn-pri">Editar ao lado</button>
           </div>` : ''}
+          ${!cam && pointType === 'other' && !podeEditarPonto ? `<div style="margin-top:8px;padding:6px 8px;background:#fff4e6;border:1px solid #ffd8a8;border-radius:6px;font-size:11px;color:#9a3412">Ponto sem camera cadastrada: nenhuma camera do inventario tem este nome. Se for uma camera, renomeie o ponto (Editar pontos) com o nome exato dela; se nao existir mais, apague o ponto ou informe o motivo abaixo.</div>` : ''}
+          ${motivoHtml}
           ${podeEditarPonto ? `${!cam ? `<div style="margin-top:8px;padding:6px 8px;background:#fff9db;border:1px solid #ffec99;border-radius:6px;font-size:11px;color:#997404">Este ponto nao casa com nenhuma camera do inventario. Renomeie com o nome exato da camera para ele passar a casar.</div>` : ''}
           <div style="margin-top:8px;display:flex;gap:6px">
             <button type="button" data-map-point-rename style="flex:1;text-align:center;padding:6px;background:#fff3bf;color:#997404;border-radius:6px;font-size:11px;font-weight:600;border:1px solid #ffe066;cursor:pointer">Renomear ponto</button>
             <button type="button" data-map-point-delete style="flex:1;text-align:center;padding:6px;background:#ffe3e3;color:#c92a2a;border-radius:6px;font-size:11px;font-weight:600;border:1px solid #ffc9c9;cursor:pointer">Excluir ponto</button>
           </div>` : (semNomeNaEdicao ? `<div style="margin-top:8px;padding:6px 8px;background:#fff9db;border:1px solid #ffec99;border-radius:6px;font-size:11px;color:#997404">Ponto sem nome no KMZ: nao da pra renomear nem excluir por aqui, porque e pelo nome que ele e localizado no arquivo.</div>` : '')}
         </div>`, { maxWidth: 320, className: 'sightops-popup' });
+      if (semCamera && def?.updateUrl) {
+        marker.on('popupopen', () => {
+          marker.getPopup()?.getElement()?.querySelector('[data-map-point-motivo]')
+            ?.addEventListener('click', () => informarMotivoPonto(def, mapFeatureName(f) || name, motivoPonto?.motivo || ''));
+        });
+      }
       if (podeEditarPonto) {
         marker.on('popupopen', () => {
           const el = marker.getPopup()?.getElement();
@@ -1104,6 +1306,8 @@ function renderMapLayerGroup(id, def, skipFit = false) {
   if (bounds.length > 0 && !skipFit) {
     try { _map.fitBounds(bounds, { padding: [40, 40], maxZoom: 16 }); } catch {}
   }
+  // Pinos recriados (recarga da camada): o destaque da camera aberta volta.
+  if (_mcp.key) mcpDestacarPino();
 }
 
 // Atualiza botao/contador visual de uma camada sem mexer nos marcadores --
@@ -3068,7 +3272,52 @@ async function salvarOcorrencia(limpar) {
 // Nenhum desses caminhos pede senha aqui: todos usam a senha guardada da
 // camera, conferida contra ela.
 // ============================================================================
-let _mcp = { key: null, aba: 'aovivo', drafts: {}, live: null, subtype: 1, movendo: null, salvando: false };
+let _mcp = { key: null, aba: 'aovivo', drafts: {}, live: null, subtype: 1, movendo: null, salvando: false, rede: {}, ipLivre: {} };
+
+function mcpResultadoIpLivre(e, v) {
+  const r = _mcp.ipLivre[e.key];
+  // resultado de outro IP (o operador mudou o campo depois) nao vale mais
+  if (!r || (r.ip && v.ip && r.ip !== v.ip && r.estado !== 'aviso')) return '<div id="mcpIpLivre" class="mcp-dica"></div>';
+  const cor = { livre: '#2b8a3e', ocupado: '#c92a2a', testando: 'var(--muted)', aviso: '#b45309' }[r.estado] || 'var(--muted)';
+  return `<div id="mcpIpLivre" class="mcp-dica" style="color:${cor};font-weight:${r.estado === 'testando' ? 400 : 600}">${esc(r.texto)}</div>`;
+}
+
+function mcpIpNum(ip) {
+  const p = String(ip || '').trim().split('.');
+  if (p.length !== 4 || p.some(x => !/^\d{1,3}$/.test(x) || +x > 255)) return null;
+  return ((+p[0] << 24) >>> 0) + (+p[1] << 16) + (+p[2] << 8) + (+p[3]);
+}
+function mcpIpTexto(n) {
+  return [n >>> 24, (n >>> 16) & 255, (n >>> 8) & 255, n & 255].join('.');
+}
+// O IP novo esta na mesma rede do gateway que a camera usa?
+function mcpMesmaRede(ip, gateway, mask) {
+  const a = mcpIpNum(ip), g = mcpIpNum(gateway), m = mcpIpNum(mask);
+  if (a === null || g === null || m === null) return true;   // sem dado: o backend confere
+  return ((a & m) >>> 0) === ((g & m) >>> 0);
+}
+function mcpFaixaDaRede(gateway, mask) {
+  const g = mcpIpNum(gateway), m = mcpIpNum(mask);
+  if (g === null || m === null) return '';
+  const rede = (g & m) >>> 0, broad = (rede | (~m >>> 0)) >>> 0;
+  return `${mcpIpTexto(rede + 1)} e ${mcpIpTexto(broad - 1)}`;
+}
+
+// Le mascara/gateway da propria camera (senha guardada) e guarda por IP.
+async function mcpLerRede(cam, forcar = false) {
+  if (!cam?.ip || (!forcar && _mcp.rede[cam.ip])) return;
+  _mcp.rede[cam.ip] = { estado: 'lendo' };
+  if (forcar) renderMapCamPanel();
+  try {
+    const r = await api(`/api/maintenance/camera-network/${encodeURIComponent(cam.ip)}`);
+    const d = await r?.json().catch(() => ({}));
+    _mcp.rede[cam.ip] = d?.ok ? { estado: 'ok', mask: d.mask, gateway: d.gateway }
+      : { estado: 'erro', erro: d?.error || 'não consegui ler a rede da câmera' };
+  } catch (err) {
+    _mcp.rede[cam.ip] = { estado: 'erro', erro: err.message || 'não consegui ler a rede da câmera' };
+  }
+  if (_mcp.aba === 'rede' && mcpEntrada(_mcp.key)?.cam?.ip === cam.ip) renderMapCamPanel();
+}
 
 function mcpEntradas() {
   const out = [];
@@ -3135,6 +3384,39 @@ function mcpCancelarMover() {
   _mcp.movendo = null;
 }
 
+// Destaque no mapa do pino da camera aberta no painel: com dezenas de pinos
+// juntos (entrada, portaria) o operador perdia qual estava editando. Anel azul
+// pulsando quando aberta; contorno amarelo piscando no modo "mover".
+let _mcpPinoDestacado = null;
+function mcpDestacarPino() {
+  if (!document.getElementById('mcpPinoEstilo')) {
+    const st = document.createElement('style');
+    st.id = 'mcpPinoEstilo';
+    st.textContent = `
+      .mcp-pino-sel > div { animation: mcpPulso 1.3s ease-out infinite; }
+      .mcp-pino-movendo > div { animation: mcpPisca .7s ease-in-out infinite !important; transform: scale(1.35); outline: 3px solid #facc15 !important; outline-offset: 2px !important; }
+      @keyframes mcpPulso { 0% { box-shadow: 0 0 0 0 rgba(37,99,235,.95), 0 2px 8px rgba(0,0,0,.45); }
+                            100% { box-shadow: 0 0 0 16px rgba(37,99,235,0), 0 2px 8px rgba(0,0,0,.45); } }
+      @keyframes mcpPisca { 0%, 100% { box-shadow: 0 0 0 4px rgba(250,204,21,.95), 0 0 18px 6px rgba(250,204,21,.7); }
+                            50% { box-shadow: 0 0 0 0 rgba(250,204,21,.2), 0 0 0 0 rgba(250,204,21,0); } }`;
+    document.head.appendChild(st);
+  }
+  if (_mcpPinoDestacado) {
+    try {
+      _mcpPinoDestacado.getElement()?.classList.remove('mcp-pino-sel', 'mcp-pino-movendo');
+      _mcpPinoDestacado.setZIndexOffset(0);
+    } catch (_) {}
+    _mcpPinoDestacado = null;
+  }
+  const e = _mcp.key ? mcpEntrada(_mcp.key) : null;
+  const el = e?.marker?.getElement?.();
+  if (!el) return;
+  el.classList.add('mcp-pino-sel');
+  el.classList.toggle('mcp-pino-movendo', _mcp.movendo?.key === e.key);
+  try { e.marker.setZIndexOffset(1000); } catch (_) {}
+  _mcpPinoDestacado = e.marker;
+}
+
 function openMapCamPanel(key, aba) {
   const e = mcpEntrada(key);
   if (!e) return;
@@ -3150,6 +3432,7 @@ function closeMapCamPanel() {
   mcpPararAoVivo();
   mcpCancelarMover();
   _mcp.key = null;
+  mcpDestacarPino();
   const el = document.getElementById('mapCamPanel');
   if (el) { el.classList.add('hidden'); el.innerHTML = ''; }
   setTimeout(() => { try { _map?.invalidateSize(); } catch (_) {} }, 60);
@@ -3194,14 +3477,31 @@ function mcpCorpo(e, v) {
       </div>`;
   }
   if (_mcp.aba === 'rede') {
+    // A rede vem DA CAMERA, nao do inventario: e ela que vai receber o IP novo
+    // com a mesma mascara e gateway. Gravar mascara/gateway errados deixa a
+    // camera inalcancavel sem erro na hora (SIERRA, 17/10/2026).
+    const rede = _mcp.rede[cam.ip] || { estado: 'lendo' };
+    const ficha = rede.estado === 'ok'
+      ? `<span>IP</span><b class="mono">${esc(cam.ip)}</b>
+         <span>Máscara</span><b class="mono">${esc(rede.mask || '-')}</b>
+         <span>Gateway</span><b class="mono">${esc(rede.gateway || '-')}</b>`
+      : `<span>Rede</span><b>${rede.estado === 'lendo' ? 'lendo da câmera…' : esc(rede.erro || 'não consegui ler')}</b>`;
+    const mudouIp = v.ip && v.ip !== cam.ip;
+    const fora = mudouIp && rede.estado === 'ok' && !mcpMesmaRede(v.ip, rede.gateway, rede.mask);
+    const faixa = rede.estado === 'ok' ? mcpFaixaDaRede(rede.gateway, rede.mask) : '';
     return `
+      <div class="mcp-ficha">${ficha}</div>
+      <button type="button" class="secondary-action" data-mcp-acao="lerrede" style="margin-bottom:10px">Ler a rede da câmera de novo</button>
       <div class="mcp-grade">
         ${mcpCampo('IP atual', `<input class="mcp-input mono" value="${esc(cam.ip)}" readonly>`)}
         ${mcpCampo('Novo IP', `<input class="mcp-input mono" data-mcp-campo="ip" value="${esc(v.ip)}" inputmode="decimal">`)}
       </div>
-      <div class="mcp-aviso-azul">Ao salvar, o SightOps lê a máscara e o gateway <b>da própria câmera</b>, troca o IP nela e espera ela responder no endereço novo. Só então o inventário e o Zabbix mudam. Se ela não responder, nada é alterado.</div>
+      ${fora ? `<div class="mcp-aviso-azul" style="background:#fff5f5;border-color:#ffc9c9;color:#c92a2a"><b>${esc(v.ip)} fica fora da rede da câmera</b> (máscara ${esc(rede.mask)}, gateway ${esc(rede.gateway)}). Ela ficaria inalcançável. Use um IP entre ${esc(faixa)}.</div>`
+        : mudouIp && rede.estado === 'ok' ? `<div class="mcp-aviso-azul">Vai gravar na câmera: IP <b>${esc(v.ip)}</b>, máscara <b>${esc(rede.mask)}</b> e gateway <b>${esc(rede.gateway)}</b> (os dois lidos dela, sem mudança).</div>`
+        : `<div class="mcp-aviso-azul">Ao salvar, o SightOps lê a máscara e o gateway <b>da própria câmera</b>, troca o IP nela e espera ela responder no endereço novo. Só então o inventário e o Zabbix mudam. Se ela não responder, nada é alterado.</div>`}
+      <p class="mcp-dica">Hikvision só assume o IP novo depois de reiniciar: ao salvar, o SightOps pergunta se pode reiniciar e confere a volta no IP novo.</p>
       <button type="button" class="secondary-action" data-mcp-acao="iplivre">Ver se o IP novo está livre</button>
-      <div id="mcpIpLivre" class="mcp-dica"></div>`;
+      ${mcpResultadoIpLivre(e, v)}`;
   }
   if (_mcp.aba === 'acoes') {
     const acoes = [['foto', 'Tirar foto agora', 'Atualiza a miniatura do mapa'], ['web', 'Abrir página da câmera', 'Pelo SightOps Agent'],
@@ -3271,6 +3571,8 @@ function renderMapCamPanel() {
   el.querySelector('[data-mcp-salvar]')?.addEventListener('click', mcpSalvar);
 
   if (_mcp.aba === 'aovivo' && !_mcp.live) mcpLigarAoVivo(cam);
+  if (_mcp.aba === 'rede' && !_mcp.rede[cam.ip]) mcpLerRede(cam);
+  mcpDestacarPino();
 }
 
 // `user`/`pass` so vem preenchidos quando o operador digita a senha no
@@ -3381,6 +3683,7 @@ async function mcpAcao(acao, e) {
   if (acao === 'ping') { openPingTerminal(cam.ip, conector); return; }
   if (acao === 'mover') { mcpAlternarMover(e); return; }
   if (acao === 'iplivre') { await mcpTestarIpLivre(e); return; }
+  if (acao === 'lerrede') { await mcpLerRede(e.cam, true); return; }
   if (acao === 'foto') {
     showToast('Tirando foto…');
     const r = await api('/api/cameras/snapshot/capture', { method: 'POST', body: JSON.stringify({ ip: cam.ip, mode: cam._mode || 'olt', remote_connector_id: conector }) }).catch(() => null);
@@ -3420,21 +3723,35 @@ function mcpAlternarMover(e) {
   renderMapCamPanel();
 }
 
+// O resultado mora no ESTADO do painel (_mcp.ipLivre), nao num elemento: o
+// teste leva ~13 s quando ninguem responde (o servidor ainda pergunta ao
+// MikroTik do cliente), e qualquer redesenho do painel nesse meio tempo -- o
+// proprio clique dispara o "change" do campo Novo IP -- trocava o quadro. A
+// resposta chegava e era escrita num elemento que ja nao estava na tela: o
+// operador ficava vendo "Testando..." para sempre.
 async function mcpTestarIpLivre(e) {
   const cam = e.cam;
-  const alvo = String(mcpValor(e).ip || '').trim();
-  const box = document.getElementById('mcpIpLivre');
-  const dizer = txt => { if (box) box.textContent = txt; };
-  if (!alvo || alvo === cam.ip) { dizer('Digite um IP novo diferente do atual.'); return; }
+  const campo = document.querySelector('#mapCamPanel [data-mcp-campo="ip"]');
+  const digitado = String(campo?.value || '').trim();
+  if (digitado && digitado !== mcpValor(e).ip) mcpSetDraft(e.key, { ip: digitado });
+  const alvo = String(digitado || mcpValor(e).ip || '').trim();
+  const marcar = (estado, texto) => {
+    _mcp.ipLivre[e.key] = { ip: alvo, estado, texto };
+    if (_mcp.key === e.key) renderMapCamPanel();
+  };
+  if (!alvo || alvo === cam.ip) { marcar('aviso', 'Digite um IP novo diferente do atual.'); return; }
   const doInventario = _mapCameraIndex.byIp[alvo];
-  if (doInventario) { dizer(`Esse IP já é de "${doInventario.titulo || alvo}" no inventário.`); return; }
-  dizer('Testando…');
+  if (doInventario) { marcar('ocupado', `Ocupado: esse IP já é de "${doInventario.titulo || alvo}" no inventário.`); return; }
+  marcar('testando', `Testando ${alvo}… (pode levar uns 15 s quando ninguém responde)`);
   // GET com force=1: o ping tem cache de 10 min, e aqui a pergunta e "agora".
   const qs = new URLSearchParams({ ip: alvo, force: '1', remote_connector_id: cam.remote_connector_id || cam.connector_id || '' });
   const d = await apiJson(`/api/cameras/ping?${qs}`, { cacheTtl: 0, forceRefresh: true }).catch(() => null);
-  if (!d) { dizer('Não consegui testar agora.'); return; }
+  if (_mcp.ipLivre[e.key]?.ip !== alvo) return;   // operador ja testou outro IP
+  if (!d) { marcar('aviso', 'Não consegui testar agora. Tente de novo.'); return; }
   const responde = d.reachable === true || d.online === true;
-  dizer(responde ? 'Ocupado: algum equipamento respondeu nesse IP.' : 'Livre: ninguém respondeu nesse IP.');
+  marcar(responde ? 'ocupado' : 'livre', responde
+    ? `Ocupado: algum equipamento respondeu em ${alvo}.`
+    : `Livre: ninguém respondeu em ${alvo}.`);
 }
 
 function mcpDescartar() {
@@ -3451,19 +3768,59 @@ function mcpDescartar() {
   renderMapCamPanel();
 }
 
+async function mcpReiniciarParaIpNovo(cam, ipVelho, ipNovo, conector) {
+  const nome = cam.titulo || cam.nome || ipVelho;
+  const ok = await showConfirm({
+    title: 'Reiniciar a câmera para assumir o IP novo',
+    msg: `${nome} gravou o IP ${ipNovo}, mas Hikvision só passa a usá-lo depois de reiniciar. Enquanto não reiniciar, ela continua funcionando em ${ipVelho}. Reiniciar agora? Ela some por ~1 minuto e meio.`,
+    label: 'Reiniciar agora',
+  });
+  if (!ok) throw new Error(`a câmera gravou ${ipNovo} e assume ao reiniciar. Reinicie pela aba Ações quando puder; o inventário segue em ${ipVelho} até ela voltar no IP novo.`);
+  const rb = await api('/api/cameras/reboot', { method: 'POST', body: JSON.stringify({ ip: ipVelho, remote_connector_id: conector }) });
+  const rbd = await rb?.json().catch(() => ({}));
+  if (!rb?.ok || rbd?.ok === false) throw new Error(`não consegui reiniciar: ${rbd?.error || 'sem resposta'}`);
+  const inicio = Date.now();
+  // Ate 3 minutos: a Hikvision leva perto de 1 minuto e meio para voltar.
+  while (Date.now() - inicio < 180000) {
+    await new Promise(r => setTimeout(r, 10000));
+    const seg = Math.round((Date.now() - inicio) / 1000);
+    showToast(`Reiniciando ${nome}... aguardando em ${ipNovo} (${seg}s)`);
+    const c = await api('/api/maintenance/change_ip/confirmar', {
+      method: 'POST',
+      body: JSON.stringify({ ip: ipVelho, new_ip: ipNovo, user: 'admin', connector_id: conector }),
+    });
+    const cd = await c?.json().catch(() => ({}));
+    if (cd?.ok) { showToast(`Pronto: ${nome} voltou em ${ipNovo}.`); return; }
+    if (cd?.error && !cd?.aguardando) throw new Error(cd.error);
+  }
+  throw new Error(`${nome} ainda não respondeu em ${ipNovo} depois de 3 minutos. Ela pode estar demorando a subir; confira em alguns minutos.`);
+}
+
 async function mcpSalvarUma(e) {
   const o = mcpOriginal(e); const v = mcpValor(e); const cam = e.cam;
   const conector = cam.remote_connector_id || cam.connector_id || '';
   let ipAtual = o.ip;
   if (v.ip && v.ip !== o.ip) {
+    const rede = _mcp.rede[o.ip];
+    if (rede?.estado === 'ok' && !mcpMesmaRede(v.ip, rede.gateway, rede.mask)) {
+      throw new Error(`IP não trocado: ${v.ip} fica fora da rede da câmera (máscara ${rede.mask}, gateway ${rede.gateway}).`);
+    }
     const r = await api('/api/maintenance/batch/change_ips', {
       method: 'POST',
       body: JSON.stringify({ itens: [{ ip: o.ip, new_ip: v.ip, connector_id: conector }], user: 'admin' }),
     });
     const d = await r?.json().catch(() => ({}));
     const res = (d?.results || [])[0] || {};
-    if (!r?.ok || !res.ok) throw new Error(`IP não trocado: ${res.error || d?.error || 'sem resposta'}`);
+    if (res.pendente) {
+      // Hikvision: gravou o IP novo e so assume ao reiniciar. Antes isto virava
+      // "IP nao trocado" sem saida; agora o operador decide reiniciar e o
+      // SightOps confere a volta no IP novo (mesmo MAC) antes de gravar.
+      await mcpReiniciarParaIpNovo(cam, o.ip, v.ip, conector);
+    } else if (!r?.ok || !res.ok) {
+      throw new Error(`IP não trocado: ${res.error || d?.error || 'sem resposta'}`);
+    }
     ipAtual = v.ip;
+    delete _mcp.rede[o.ip];
   }
   if (v.nome && v.nome !== o.nome) {
     // O nome vai PRIMEIRO para a propria camera (titulo do canal/OSD). Se ela

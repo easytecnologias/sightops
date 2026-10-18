@@ -171,6 +171,31 @@ def test_exe_leva_cliente_e_script_no_formato_do_instalador(monkeypatch):
     assert '$SightOpsUrl = "https://sightops.exemplo/v3-api"' in script and "[switch]$InstalarAnyDesk" in script
 
 
+def test_senha_do_anydesk_vem_do_instalador_e_nao_vai_ao_servidor(monkeypatch):
+    """O .exe roda o script em -Silencioso, que antes respondia "nao" sozinho a
+    pergunta da senha: nenhum PC instalado pelo .exe ficava sem supervisao."""
+    monkeypatch.setattr(W, "get_windows_agent_token", lambda tenant_slug="": "T" * 32)
+    script = W.build_windows_agent_script("https://sightops.exemplo/v3-api")
+    assert '$env:SIGHTOPS_ANYDESK_SENHA' in script
+    assert 'Remove-Item Env:SIGHTOPS_ANYDESK_SENHA' in script
+    assert '$setPass = if ($Silencioso) { "n" }' not in script
+    # a senha nunca entra no payload enviado; so a marcacao de que foi definida
+    payload = script.split("$payload = [PSCustomObject]@{", 1)[1].split("$json =", 1)[0]
+    assert "AnyDeskSenha" not in payload and "plainPass" not in payload
+    assert "anydesk_senha_definida = $AnyDeskSenhaDefinida" in script
+
+
+def test_anydesk_existente_passa_a_iniciar_com_o_windows(monkeypatch):
+    """AnyDesk que ja estava no PC (portatil, sem servico) sumia no reboot."""
+    monkeypatch.setattr(W, "get_windows_agent_token", lambda tenant_slug="": "T" * 32)
+    script = W.build_windows_agent_script("https://sightops.exemplo/v3-api")
+    funcao = script.split("function Set-AnyDeskInicioAutomatico {", 1)[1].split("\nfunction ", 1)[0]
+    assert '"--start-with-win"' in funcao and "-StartupType Automatic" in funcao
+    # a tarefa de 15 min (silenciosa) tambem mantem o servico ligado
+    silencioso = script.split("if ($Silencioso -and -not $InstalarAnyDesk -and -not $AnyDeskSenha) {", 1)[1].split("}", 1)[0]
+    assert "Set-AnyDeskInicioAutomatico" in silencioso
+
+
 def test_sites_do_cliente_herdam_o_conector_dos_equipamentos(monkeypatch, tmp_path):
     """No cliente default, RESERVA nao tem conector proprio: seus 185
     equipamentos sao alcancados pelo conector PERUCABA."""
