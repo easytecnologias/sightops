@@ -492,6 +492,98 @@ function mapLayerDownloadUrl(def) {
 
 let _mapLayerRenameTarget = null;
 
+// Relatorio do mapa (PDF para reuniao): mapa geral, um mapa por area, fotos e
+// pendencias. Gerado em job no servidor -- baixar o fundo do mapa leva mais que
+// os 60 s que o nginx espera numa requisicao unica.
+async function gerarRelatorioMapa(button) {
+  if (button?.disabled) return;
+  const original = button ? button.innerHTML : '';
+  if (button) {
+    button.disabled = true;
+    button.innerHTML = '<i data-lucide="loader-2" class="spin"></i> Gerando...';
+    lucide.createIcons();
+  }
+  try {
+    showToast('Preparando o relatorio do mapa...');
+    const start = await jsonOrReadableError(
+      await api('/api/kmz/report/job', { method: 'POST' }),
+      'Nao foi possivel iniciar o relatorio do mapa.'
+    );
+    const jobId = start?.job_id;
+    if (!jobId) throw new Error('Nao foi possivel iniciar o relatorio do mapa.');
+    const inicio = Date.now();
+    let st = null;
+    while (Date.now() - inicio < 15 * 60 * 1000) {
+      st = await jsonOrReadableError(await api(`/api/kmz/report/job/${jobId}/status`),
+        'Nao foi possivel acompanhar o relatorio do mapa.');
+      if (st?.status === 'done' || st?.status === 'error') break;
+      const etapa = {
+        preparando: 'Lendo cameras e mapa...',
+        mapas: `Desenhando mapas... ${st?.done ?? 0}/${st?.total ?? 0}`,
+        fotos: `Montando fotos... ${st?.done ?? 0}/${st?.total ?? 0}`,
+        finalizando: 'Finalizando PDF...',
+      }[st?.stage] || 'Gerando relatorio do mapa...';
+      if (button) button.title = etapa;
+      await new Promise(r => setTimeout(r, 900));
+    }
+    if (st?.status === 'error') throw new Error(st?.error || 'Falha ao gerar o relatorio do mapa.');
+    if (st?.status !== 'done') throw new Error('O relatorio do mapa esta demorando mais que o esperado. Tente de novo em instantes.');
+    const res = await api(`/api/kmz/report/job/${jobId}/download`);
+    if (!res || !res.ok) throw new Error('Nao foi possivel baixar o relatorio do mapa.');
+    const url = URL.createObjectURL(await res.blob());
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'relatorio-do-mapa.pdf';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    showToast('Relatorio do mapa gerado. O download foi iniciado.');
+  } catch (err) {
+    showToast(err?.message || 'Nao foi possivel gerar o relatorio do mapa.', true);
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.innerHTML = original;
+      button.title = 'Relatorio do mapa (PDF)';
+      lucide.createIcons();
+    }
+  }
+}
+
+// Rotulo do ponto sem camera: o numero do nome ("39 - QD. E - 01" -> "39"),
+// ou as 3 primeiras letras. Sem rotulo ele virava um "tracinho" mudo.
+function mapOutroRotulo(nome) {
+  const s = String(nome || '').trim();
+  const m = s.match(/^\s*(\d+)/);
+  return esc(m ? m[1] : s.slice(0, 3).toUpperCase());
+}
+
+// Cor dos pontos sem camera, por camada. Usa o seletor de cor do proprio
+// navegador e grava no meta da camada (PATCH cor_outros).
+function escolherCorOutros(def) {
+  if (!def?.updateUrl) return;
+  const input = document.createElement('input');
+  input.type = 'color';
+  input.value = /^#[0-9a-f]{6}$/i.test(def.corOutros || '') ? def.corOutros : '#d97706';
+  input.style.cssText = 'position:fixed;left:-100px;top:-100px;opacity:0';
+  document.body.appendChild(input);
+  input.addEventListener('change', async () => {
+    try {
+      const res = await api(def.updateUrl, { method: 'PATCH', body: JSON.stringify({ cor_outros: input.value }) });
+      const body = await res?.json().catch(() => ({}));
+      if (!res?.ok || body?.ok === false) throw new Error(body?.detail || 'Nao foi possivel salvar a cor.');
+      showToast('Cor dos pontos sem camera salva.');
+      await loadMapLayers();
+    } catch (err) {
+      showToast(err.message || 'Nao foi possivel salvar a cor.', true);
+    } finally {
+      input.remove();
+    }
+  }, { once: true });
+  input.click();
+}
+
 function openMapLayerRename(def) {
   if (!def?.updateUrl) return;
   _mapLayerRenameTarget = def;
@@ -670,6 +762,7 @@ async function loadMapLayers() {
     updateUrl: layer.update_url || `/api/kmz/import/layers/${encodeURIComponent(layer.id)}`,
     deleteUrl: `/api/kmz/import/layers/${encodeURIComponent(layer.id)}`,
     origem: layer.origem || '',
+    corOutros: layer.cor_outros || '',
   }));
   const importedSignatures = new Set(importedLayers.map(layer => mapLayerSignature(layer.features)).filter(Boolean));
   const importedLayerIds = new Set(importedLayers.map(layer => layer.layerId).filter(Boolean));
@@ -856,6 +949,9 @@ async function loadMapLayers() {
     menu.appendChild(item('list', 'Detalhes', () => openMapLayerDetails(def)));
     if (def.updateUrl) {
       menu.appendChild(item('pencil', 'Renomear camada', () => openMapLayerRename(def)));
+      if (def.source === 'imported') {
+        menu.appendChild(item('palette', 'Cor dos pontos sem camera', () => escolherCorOutros(def)));
+      }
       menu.appendChild(item(
         mapEditIsActive(def.id) ? 'x' : 'move',
         mapEditIsActive(def.id) ? 'Sair do modo de edicao' : 'Editar / adicionar pontos',
@@ -984,7 +1080,11 @@ function renderMapLayerGroup(id, def, skipFit = false) {
         pole:   { bg: '#64748b', label: 'PT' },
         box:    { bg: '#f59e0b', label: 'CX' },
         fiber:  { bg: '#0ea5e9', label: 'FO' },
-        other:  { bg: def?.color || '#d97706', label: '' },
+        // Ponto que nao casa com nenhuma camera. Antes saia na cor da camada e
+        // sem rotulo: um "tracinho" verde que ninguem sabia o que era. Agora
+        // tem o numero do ponto e a cor escolhida na camada (laranja padrao,
+        // o mesmo da legenda "outros").
+        other:  { bg: def?.corOutros || '#d97706', label: mapOutroRotulo(name) },
       };
       const tc = typeConfig[pointType] || typeConfig.other;
       // Em modo de edicao, os pontos de camera ganham draggable: true (ver
@@ -1057,6 +1157,7 @@ function renderMapLayerGroup(id, def, skipFit = false) {
             <button type="button" data-mcp-abrir="aovivo" class="mcp-pop-btn">Ver ao vivo</button>
             <button type="button" data-mcp-abrir="dados" class="mcp-pop-btn mcp-pop-btn-pri">Editar ao lado</button>
           </div>` : ''}
+          ${!cam && pointType === 'other' && !podeEditarPonto ? `<div style="margin-top:8px;padding:6px 8px;background:#fff4e6;border:1px solid #ffd8a8;border-radius:6px;font-size:11px;color:#9a3412">Ponto sem camera cadastrada: nenhuma camera do inventario tem este nome. Se for uma camera, renomeie o ponto (Editar pontos) com o nome exato dela; se nao existir mais, apague o ponto.</div>` : ''}
           ${podeEditarPonto ? `${!cam ? `<div style="margin-top:8px;padding:6px 8px;background:#fff9db;border:1px solid #ffec99;border-radius:6px;font-size:11px;color:#997404">Este ponto nao casa com nenhuma camera do inventario. Renomeie com o nome exato da camera para ele passar a casar.</div>` : ''}
           <div style="margin-top:8px;display:flex;gap:6px">
             <button type="button" data-map-point-rename style="flex:1;text-align:center;padding:6px;background:#fff3bf;color:#997404;border-radius:6px;font-size:11px;font-weight:600;border:1px solid #ffe066;cursor:pointer">Renomear ponto</button>
