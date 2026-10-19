@@ -58,6 +58,8 @@ def _is_online(row: Dict[str, Any]) -> bool:
             conectores_offline_cache(),
             # canal e reverificado pelo _nvr_status_loop (main.py) a cada ~40 min
             **({"limite_min": 120} if gravador else {}),
+            # camera sem data de medicao nunca foi medida (ver status_efetivo)
+            exigir_data=not gravador,
         )
         if motivo:
             return False
@@ -75,6 +77,9 @@ def _is_offline(row: Dict[str, Any]) -> bool:
         from app.services.status_efetivo import avaliar
         _efetivo, motivo = avaliar(status, "", row.get("status_checked_at"), (), limite_min=120)
         return bool(row.get("status_checked_at")) and not motivo
+    gravador = _lower(row.get("source")) in ("nvr", "dvr") or "channel" in row
+    if not gravador and not row.get("status_checked_at"):
+        return False   # camera nunca medida: nao verificado, nem online nem offline
     return status in ("offline", "down", "inativo", "inactive", "auth_failed", "timeout", "erro", "error")
 
 

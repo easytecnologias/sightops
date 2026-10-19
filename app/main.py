@@ -4,6 +4,7 @@ import asyncio
 import contextlib
 import logging
 import os
+import time
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -190,6 +191,10 @@ def _zabbix_status_tenant_slugs() -> list[str]:
         return ["default"]
 
 
+# (tenant, modo) -> momento da ultima criacao de hosts por falta parcial.
+_ZABBIX_BOOTSTRAP_PARCIAL: dict[tuple[str, str], float] = {}
+
+
 def _run_zabbix_status_sync_for_mode(mode: str, tenant_slug: str) -> dict:
     token = set_current_tenant_slug(tenant_slug)
     try:
@@ -210,18 +215,32 @@ def _run_zabbix_status_sync_for_mode(mode: str, tenant_slug: str) -> dict:
         # Aqui o caso e detectado e resolvido uma vez: cria os hosts que faltam
         # e refaz a leitura. Nos ciclos seguintes os hosts ja existem e o
         # caminho volta a ser o barato (ensure_hosts=False).
+        #
+        # O buraco tambem e parcial: na JANGADEIROS (19/10/2026) 3 de 41 cameras
+        # tinham host, matched > 0, e as outras 38 nunca foram criadas -- seguiam
+        # "online" da importacao, duas delas caidas. Por isso tambem cria quando
+        # falta host para alguma camera (`sem_host`), no maximo uma vez por hora
+        # por cliente/modo: camera que o Zabbix recusa nao pode virar criacao a
+        # cada ciclo.
         try:
             total = int(result.get("total") or 0)
             matched = int(result.get("matched") or 0)
+            sem_host = int(result.get("sem_host") or 0)
         except (TypeError, ValueError):
             return result
-        if result.get("ok") and total > 0 and matched == 0:
+        chave = (tenant_slug, mode)
+        agora = time.monotonic()
+        parcial = sem_host > 0 and agora - _ZABBIX_BOOTSTRAP_PARCIAL.get(chave, -1e9) > 3600
+        if result.get("ok") and total > 0 and (matched == 0 or parcial):
+            if parcial:
+                _ZABBIX_BOOTSTRAP_PARCIAL[chave] = agora
             logger.warning(
-                "zabbix status sync: %s/%s tem %s equipamento(s) no inventario e NENHUM host "
-                "no Zabbix -- criando os hosts agora (sem isso o status congela em silencio)",
+                "zabbix status sync: %s/%s tem %s camera(s) sem host no Zabbix (%s host(s) casados) "
+                "-- criando os hosts agora (sem isso o status congela em silencio)",
                 tenant_slug,
                 mode,
-                total,
+                sem_host or total,
+                matched,
             )
             result = scripts_zabbix_status_sync(
                 {"source": "ip", "mode": mode, "site": "", "ensure_hosts": True}

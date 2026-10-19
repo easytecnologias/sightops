@@ -424,7 +424,7 @@ def api_cameras(
     # dado de dias atras (ver app/services/status_efetivo.py).
     from app.services.status_efetivo import aplicar_em_linha, conectores_offline
     sem_caminho = conectores_offline()
-    saida = [aplicar_em_linha(cam, sem_caminho) for cam in by_key.values()]
+    saida = [aplicar_em_linha(cam, sem_caminho, exigir_data=True) for cam in by_key.values()]
     return {"cameras": saida}
 
 

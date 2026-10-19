@@ -3938,6 +3938,14 @@ def scripts_zabbix_status_sync(payload: Dict[str, Any]) -> Dict[str, Any]:
             "bootstrap_rows": bootstrap_rows,
             "total": sum(len(v) for v in ip_to_targets.values()),
             "matched": len(host_by_ip),
+            # Cameras do inventario sem host nenhum no Zabbix (nem pelo IP real
+            # nem pelo virtual). `total` conta alvos duplicados por IP e nao
+            # serve para isso; o loop de main.py usa este numero para criar os
+            # hosts que faltam.
+            "sem_host": len(
+                {alvo for alvos in ip_to_targets.values() for alvo in alvos}
+                - {alvo for ip in host_by_ip for alvo in ip_to_targets.get(ip, [])}
+            ),
             "updated": updated,
             "online": online,
             "offline": offline,

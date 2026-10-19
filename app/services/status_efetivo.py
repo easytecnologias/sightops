@@ -33,6 +33,7 @@ LIMITE_LEITURA_MIN = float(os.environ.get("SIGHTOPS_LEITURA_VALIDA_MIN", "30"))
 
 MOTIVO_CONECTOR = "conector offline"
 MOTIVO_VELHO = "sem leitura recente"
+MOTIVO_NUNCA = "nunca verificado"
 
 
 def _texto(valor: Any) -> str:
@@ -102,11 +103,18 @@ def avaliar(
     checado_em: Any = "",
     offline: Iterable[str] | None = None,
     limite_min: float | None = None,
+    exigir_data: bool = False,
 ) -> Tuple[str, str]:
     """Devolve (status, motivo). Motivo vazio quando o status lido vale.
 
     Nao normaliza o status de entrada: quem chama decide se trabalha com
     "online"/"offline" (inventario) ou "up"/"down" (monitoramento).
+
+    `exigir_data`: status sem carimbo de medicao vira unknown. Em 19/10/2026
+    38 das 41 cameras da JANGADEIROS nunca tinham sido medidas (sem host no
+    Zabbix) e seguiam "online" desde a importacao -- duas delas caidas. Fica
+    opcional porque OLT, gravador e conector ainda nao gravam a data em todo
+    caminho; ligar para eles apagaria status bom.
     """
     cid = _texto(connector_id)
     fora = set(offline or ())
@@ -115,6 +123,8 @@ def avaliar(
 
     limite = LIMITE_LEITURA_MIN if limite_min is None else float(limite_min)
     idade = idade_minutos(checado_em)
+    if idade is None and exigir_data and _texto(status):
+        return ("unknown", MOTIVO_NUNCA)
     if idade is not None and idade > limite:
         horas = idade / 60.0
         quanto = f"{idade:.0f} min" if idade < 90 else (
@@ -126,7 +136,7 @@ def avaliar(
 
 def aplicar_em_linha(linha: Dict[str, Any], offline: Iterable[str] | None = None,
                      campo_status: str = "status", campo_data: str = "status_checked_at",
-                     limite_min: float | None = None) -> Dict[str, Any]:
+                     limite_min: float | None = None, exigir_data: bool = False) -> Dict[str, Any]:
     """Marca a linha do inventario com o status efetivo, sem perder o lido.
 
     Mantem o valor original em `status_lido` para quem precisar auditar o que
@@ -145,6 +155,7 @@ def aplicar_em_linha(linha: Dict[str, Any], offline: Iterable[str] | None = None
         linha.get(campo_data),
         offline,
         limite_min=limite_min,
+        exigir_data=exigir_data,
     )
     if motivo:
         linha["status_lido"] = linha.get(campo_status)
@@ -279,6 +290,10 @@ def herdar_da_camera(linha: Dict[str, Any], medidas: Dict[str, Dict[str, Any]],
     """
     ip = _texto(linha.get(campo_ip))
     medida = medidas.get(ip) if ip else None
+    # Camera no inventario mas nunca medida (sem data) nao e medicao: o canal
+    # herdaria o "online" da importacao.
+    if medida and not _texto(medida.get("status_checked_at")):
+        medida = None
     linha["status_gravador"] = linha.get("status")   # o que a varredura catalogou
     # O MAC medido na rede vence o que o gravador informa: o Intelbras devolve
     # ff:ff:ff:ff:ff:ff em canal ONVIF, e no NVR 02 da SIERRA os canais 9-12
