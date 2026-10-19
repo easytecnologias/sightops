@@ -20,9 +20,10 @@ set -u
 PATH=/usr/sbin:/sbin:/usr/bin:/bin:$PATH
 IPT=$(command -v iptables || echo /usr/sbin/iptables)
 
-# Interfaces de tunel de cliente: WireGuard isolado (wgc+), OpenVPN do Ruijie
+# Interfaces de tunel de cliente: WireGuard isolado (wgc+), rede propria do
+# tunel Ruijie isolado (rjc+), OpenVPN do Ruijie antigo
 # (tun+) e a rede compartilhada antiga (wg-sightops).
-TUNEIS="wgc+ tun+ wg-sightops"
+TUNEIS="wgc+ rjc+ tun+ wg-sightops"
 
 $IPT -N SIGHTOPS-ISO 2>/dev/null || true
 $IPT -F SIGHTOPS-ISO

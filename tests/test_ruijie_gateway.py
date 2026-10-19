@@ -72,6 +72,10 @@ def conectores(tmp_path, monkeypatch):
     monkeypatch.setattr(cs, "DATA_DIR", tmp_path)
     monkeypatch.setattr(cs, "decrypt", lambda v: "senha")
     cs._ruijie_sessions.clear()
+    # Conector Ruijie com indice e isolado: so coleta pelo IP virtual.
+    from app.services import connector_routing_vnat as _vnat
+    monkeypatch.setattr(_vnat, "_load_map", lambda: {"gw1": [(
+        _vnat.ipaddress.ip_network("203.0.113.0/24"), _vnat.ipaddress.ip_network("10.210.0.0/24"))]})
     cs._save_connectors([{"id": "gw1", "type": "ruijie", "tenant_slug": "t1", "name": "GW", "site": "S",
                           "gateway_host": "203.0.113.10", "gateway_user": "admin", "password_enc": "x",
                           "last_seen": "", "inventory": {"known_targets": ["172.16.80.9"]}}])
@@ -238,6 +242,9 @@ def test_editar_conector_so_campos_de_cadastro_e_do_proprio_cliente(conectores, 
 
 
 def test_eweb_so_abre_gateway_ruijie_provado_do_proprio_cliente(conectores, monkeypatch):
+    # Caminho LEGADO (conector sem indice, tunel na tabela geral): sem mapa vnat.
+    from app.services import connector_routing_vnat as _vnat
+    monkeypatch.setattr(_vnat, "_load_map", lambda: {})
     agora = datetime.now(timezone.utc).isoformat()
     base = {"type": "ruijie", "password_enc": "x", "gateway_user": "admin", "last_seen": agora}
 

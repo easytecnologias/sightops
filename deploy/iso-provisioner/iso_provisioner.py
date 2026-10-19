@@ -350,6 +350,222 @@ def teardown(n):
     return "wgc%d: teardown (orfao removido)" % n
 
 
+# ---------------------------------------------------------------------------
+# Ruijie (OpenVPN): o tunel roda num container com rede Docker PROPRIA, bridge
+# rjc<N> no host, container em 10.203.N.2 (ver sightops_ruijie_vpn_sync.py). As
+# rotas que o gateway empurra ficam presas dentro do container. Aqui o host
+# ganha o mesmo modelo do wgc<N>: tabela 100N com as LANs via o container,
+# faixa virtual (NETMAP) no slice do indice e fwmark -> tabela. Nada na main.
+# ---------------------------------------------------------------------------
+
+def _rjc_peer(n):
+    return "10.203.%d.2" % n
+
+
+def _rjc_host_ip(n):
+    return "10.203.%d.1" % n
+
+
+# Faixas do PROPRIO servidor: o gateway do cliente nao pode declarar nenhuma
+# delas como LAN (tabela 100N + NETMAP apontariam para dentro do servidor).
+_FAIXAS_DO_SERVIDOR = [ipaddress.ip_network(c) for c in (
+    "10.201.0.0/24",   # transito dos tuneis wgc
+    "10.203.0.0/16",   # redes dos tuneis Ruijie (rjc)
+    "10.208.0.0/12",   # faixas virtuais
+    "10.250.0.0/24",   # wg-sightops antiga
+    "127.0.0.0/8", "169.254.0.0/16", "0.0.0.0/8", "224.0.0.0/4", "240.0.0.0/4",
+)]
+
+
+def _redes_locais():
+    """Redes das interfaces do host que nao sao de cliente (Docker, LAN do
+    servidor). Lidas na hora: as bridges do Docker mudam."""
+    rc, out = sh(["ip", "-4", "-o", "addr", "show"])
+    redes = []
+    if rc == 0:
+        for line in out.splitlines():
+            partes = line.split()
+            if len(partes) < 4:
+                continue
+            nome = partes[1]
+            if nome.startswith(("wgc", "rjc", "tun", "wg-sightops")):
+                continue
+            try:
+                redes.append(ipaddress.ip_network(partes[3], strict=False))
+            except ValueError:
+                continue
+    return redes
+
+
+def _lan_permitida(cidr, locais):
+    try:
+        net = ipaddress.ip_network(cidr, strict=False)
+    except ValueError:
+        return False
+    if net.version != 4 or not (net.is_private or net.subnet_of(ipaddress.ip_network("100.64.0.0/10"))):
+        return False
+    return not any(net.overlaps(x) for x in _FAIXAS_DO_SERVIDOR + list(locais))
+
+
+def _lans_ruijie(conn, locais=()):
+    """Redes que o proprio gateway informou (coleta do eWeb) + o IP do gateway
+    (/32) quando nenhuma delas o cobre. O /32 do gateway e SEMPRE mapeado: sem
+    ele o IP do gateway sairia do vnat e a API cairia no IP real, pela tabela
+    geral. Faixa do proprio servidor nunca entra (dado vem do cliente)."""
+    lans = []
+    for c in ((conn.get("host") or {}).get("lan_networks") or []):
+        n = _norm_cidr(c)
+        if "/" in n and n not in lans and _lan_permitida(n, locais):
+            lans.append(n)
+    gw = str(conn.get("gateway_host") or "").strip()
+    try:
+        gw_ip = ipaddress.ip_address(gw)
+    except ValueError:
+        return lans
+    coberto = any(gw_ip in ipaddress.ip_network(l, strict=False) for l in lans)
+    if not coberto and _lan_permitida("%s/32" % gw_ip, locais):
+        lans.append("%s/32" % gw_ip)
+    return lans
+
+
+def _vmap_cobrindo_gateway(n, conn, lans, anteriores):
+    """virtual_map, garantindo que o gateway ficou mapeado. Uma LAN que nao
+    cabe no slice (ex. /16) e descartada pelo virtual_map -- e se era ela que
+    cobria o gateway, o /32 entra no lugar."""
+    vm = virtual_map(n, lans, anteriores)
+    gw = str(conn.get("gateway_host") or "").strip()
+    try:
+        gw_ip = ipaddress.ip_address(gw)
+    except ValueError:
+        return lans, vm
+    if any(gw_ip in ipaddress.ip_network(r, strict=False) for r, _v in vm):
+        return lans, vm
+    extra = "%s/32" % gw_ip
+    if extra not in lans and _lan_permitida(extra, _redes_locais()):
+        lans = list(lans) + [extra]
+        vm = virtual_map(n, lans, anteriores)
+    return lans, vm
+
+
+def _rotas_tabela(table):
+    rc, out = sh(["ip", "-4", "route", "show", "table", str(table)])
+    rotas = []
+    if rc == 0:
+        for line in out.splitlines():
+            primeiro = (line.split() or [""])[0]
+            if primeiro and primeiro != "default":
+                rotas.append(_norm_cidr(primeiro))
+    return rotas
+
+
+def _apply_ruijie(n, cid, lans, vmap):
+    """Liga o host ao container do tunel Ruijie de indice n (idempotente)."""
+    ifn = "rjc%d" % n
+    if n < ISO_FLOOR:
+        # wgc1..7 (manuais) seguem no ar mesmo sem conector: indice baixo
+        # pisaria na tabela 100N e na faixa virtual de um deles.
+        return "%s: RECUSADO rjc%d (indice reservado aos conectores manuais)" % (cid, n)
+    rc, _ = sh(["ip", "link", "show", ifn])
+    if rc != 0:
+        return "%s: aguardando tunel (rede %s ainda nao existe)" % (cid, ifn)
+    # Resposta volta pelo rjc<N> com origem = IP real do cliente, que so tem
+    # rota na tabela 100N: rp_filter estrito descartaria (igual ao wgc<N>).
+    sh(["sysctl", "-qw", "net.ipv4.conf.all.rp_filter=2"])
+    sh(["sysctl", "-qw", "net.ipv4.conf.%s.rp_filter=2" % ifn])
+    peer = _rjc_peer(n)
+    table = 1000 + n
+    fwmark = 0x5100 + n
+    mark_pref = 20000 + n
+    alvo = [_norm_cidr(l) for l in lans]
+    for velha in _rotas_tabela(table):
+        if velha not in alvo:
+            sh(["ip", "route", "del", velha, "table", str(table)])
+    for lan in alvo:
+        sh(["ip", "route", "replace", lan, "via", peer, "dev", ifn, "table", str(table)])
+    _vnat_limpa_obsoletas(n, vmap)
+    for real, virt in vmap:
+        _iptc("mangle", "PREROUTING", ["-d", virt, "-j", "MARK", "--set-mark", hex(fwmark)])
+        _iptc("nat", "PREROUTING", ["-d", virt, "-j", "NETMAP", "--to", real])
+    _iptc("nat", "POSTROUTING", ["-o", ifn, "-j", "SNAT", "--to-source", _rjc_host_ip(n)], insert=True)
+    # A API (outra bridge Docker) fala com o container: o Docker isola bridges
+    # entre si, entao libera a ida e a RESPOSTA. O firewall de dentro do
+    # container barra o que nasce do lado do cliente, mas ele roda num
+    # container cuja config (.ovpn) vem do cliente -- entao o host tambem
+    # barra: conexao NOVA vinda do rjc<N> so pode ir para a internet (o
+    # proprio OpenVPN e o apk), nunca para rede interna nem para o host.
+    # Ordem a cada ciclo: os DROP primeiro, o ESTABLISHED por cima deles.
+    for faixa in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "100.64.0.0/10"):
+        _iptc_topo("filter", "DOCKER-USER", ["-i", ifn, "-d", faixa, "-j", "DROP"])
+    _iptc_topo("filter", "DOCKER-USER",
+               ["-i", ifn, "-m", "conntrack", "--ctstate", "ESTABLISHED,RELATED", "-j", "ACCEPT"])
+    _iptc("filter", "DOCKER-USER", ["-o", ifn, "-j", "ACCEPT"], insert=True)
+    _reafirma_barreira()  # o ACCEPT acima acabou de ir para o topo
+    _iptc("filter", "INPUT",
+          ["-i", ifn, "-m", "conntrack", "!", "--ctstate", "ESTABLISHED,RELATED", "-j", "DROP"], insert=True)
+    sh(["ip", "rule", "del", "fwmark", hex(fwmark)])
+    sh(["ip", "rule", "add", "fwmark", hex(fwmark), "table", str(table), "pref", str(mark_pref)])
+    return "%s: rjc%d ok (%d LAN, vnat=%d)" % (cid, n, len(alvo), len(vmap))
+
+
+def existing_rjc_indices():
+    rc, out = sh(["ip", "-o", "link", "show"])
+    idx = []
+    if rc == 0:
+        for line in out.splitlines():
+            partes = line.split(":")
+            if len(partes) < 2:
+                continue
+            nome = partes[1].strip().split("@")[0]
+            if nome.startswith("rjc") and nome[3:].isdigit():
+                idx.append(int(nome[3:]))
+    return idx
+
+
+def teardown_ruijie(n):
+    """Tira do host as regras de um tunel Ruijie sem conector. A bridge e do
+    Docker (o sync remove a rede junto com o container) -- aqui so as regras."""
+    if n < ISO_FLOOR:
+        return "rjc%d: RECUSADO teardown (indice manual/reservado)" % n
+    ifn = "rjc%d" % n
+    slice_net = virtual_slice(n)
+    sh(["ip", "rule", "del", "pref", str(20000 + n)])
+    sh(["ip", "route", "flush", "table", str(1000 + n)])
+
+    def _has_d_in_slice(r):
+        return "-d" in r and _in_slice(r[r.index("-d") + 1], slice_net)
+
+    _ipt_delete_matching("mangle", "PREROUTING", lambda r: "MARK" in r and _has_d_in_slice(r))
+    _ipt_delete_matching("nat", "PREROUTING", lambda r: "NETMAP" in r and _has_d_in_slice(r))
+    _ipt_delete_matching("nat", "POSTROUTING", lambda r: "-o" in r and r[r.index("-o") + 1] == ifn)
+    _ipt_delete_matching("filter", "DOCKER-USER", lambda r: ifn in r)
+    _ipt_delete_matching("filter", "INPUT", lambda r: ifn in r)
+    return "rjc%d: teardown (orfao removido)" % n
+
+
+def _reafirma_barreira():
+    """Salto para SIGHTOPS-ISO (barreira entre clientes, sightops_isolamento_fw.sh)
+    de volta a posicao 1: este ciclo acabou de inserir ACCEPT no topo do
+    DOCKER-USER, e ate o timer do host rodar eles ficariam acima da barreira."""
+    rc, _ = sh(["iptables", "-t", "filter", "-S", "SIGHTOPS-ISO"])
+    if rc == 0:
+        _iptc_topo("filter", "DOCKER-USER", ["-j", "SIGHTOPS-ISO"])
+
+
+def _limpa_mapa_de_slice_reaproveitado(mapa, ativos):
+    """Entrada de conector APAGADO cujo virtual cai no slice de um conector
+    ativo (indice reaproveitado): sai do mapa -- senao uma tarefa com o id
+    antigo cairia no NETMAP do conector novo."""
+    slices = {cid: virtual_slice(n) for cid, n in ativos.items()}
+    for cid in list(mapa.keys()):
+        if cid in slices:
+            continue
+        rows = mapa.get(cid) or []
+        if any(any(_in_slice(r.get("virtual_cidr", ""), sl) for sl in slices.values())
+               for r in rows if isinstance(r, dict)):
+            mapa.pop(cid, None)
+    return mapa
+
+
 def existing_wgc_indices():
     rc, out = sh(["wg", "show", "interfaces"])
     idx = []
@@ -363,9 +579,10 @@ def existing_wgc_indices():
     return idx
 
 
-def write_vnat_map(active_entries, orphan_slices):
+def write_vnat_map(active_entries, orphan_slices, ativos_por_id=None):
     """Grava o mapa: mantem os manuais, atualiza os born-isolated ativos,
-    e remove entradas cujo virtual caiu num slice de conector deletado."""
+    e remove entradas cujo virtual caiu num slice de conector deletado ou
+    num slice que agora e de outro conector (indice reaproveitado)."""
     cur = {}
     try:
         cur = json.load(open(VNAT_MAP))
@@ -378,6 +595,8 @@ def write_vnat_map(active_entries, orphan_slices):
         rows = cur.get(cid) or []
         if rows and any(any(_in_slice(r.get("virtual_cidr", ""), sl) for sl in orphan_slices) for r in rows):
             cur.pop(cid, None)
+    if ativos_por_id:
+        cur = _limpa_mapa_de_slice_reaproveitado(cur, ativos_por_id)
     cur.update(active_entries)
     tmp = VNAT_MAP + ".tmp"
     json.dump(cur, open(tmp, "w"), indent=2)
@@ -395,7 +614,30 @@ def reconcile_once():
     except Exception:
         mapa_atual = {}
     active_all = set()  # todo indice com conector presente (manual OU born) -- protege do teardown
+    ativos_por_id = {}
     for c in conns:
+        if c.get("iso_index") and c.get("id"):
+            try:
+                active_all.add(int(c["iso_index"]))
+                ativos_por_id[str(c["id"])] = int(c["iso_index"])
+            except (TypeError, ValueError):
+                pass
+    locais = _redes_locais()
+    for c in conns:
+        if str(c.get("type") or "") == "ruijie":
+            if not c.get("iso_index"):
+                continue
+            n = int(c["iso_index"])
+            try:
+                anteriores = [(e.get("real_cidr"), e.get("virtual_cidr")) for e in (mapa_atual.get(str(c.get("id"))) or [])
+                              if isinstance(e, dict)]
+                lans, vm = _vmap_cobrindo_gateway(n, c, _lans_ruijie(c, locais), anteriores)
+                logs.append(_apply_ruijie(n, c.get("id"), lans, vm))
+                if vm:
+                    vnat_entries[str(c.get("id"))] = [{"real_cidr": r, "virtual_cidr": v} for r, v in vm]
+            except Exception as e:
+                logs.append("%s: ERRO %s" % (c.get("id"), e))
+            continue
         if str(c.get("type") or "routeros") != "routeros":
             continue
         if not c.get("iso_index"):
@@ -458,8 +700,16 @@ def reconcile_once():
         if n >= ISO_FLOOR and n not in active_all:
             logs.append(teardown(n))
             orphan_slices.append(virtual_slice(n))
+    # rjc<N> sem conector: so se o indice N nao e de NINGUEM. O indice e
+    # compartilhado com o MikroTik -- um wgcN que herdou o numero de um Ruijie
+    # apagado nao pode perder a tabela 100N por causa de uma rede Docker que sobrou.
+    for n in existing_rjc_indices():
+        if n >= ISO_FLOOR and n not in active_all:
+            logs.append(teardown_ruijie(n))
+            orphan_slices.append(virtual_slice(n))
     if vnat_entries or orphan_slices:
-        write_vnat_map(vnat_entries, orphan_slices)
+        write_vnat_map(vnat_entries, orphan_slices, ativos_por_id)
+    _reafirma_barreira()
     return logs
 
 

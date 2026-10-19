@@ -70,6 +70,44 @@ def _next_iso_index(rows: List[Dict[str, Any]]) -> int:
     raise ValueError(f"limite de {ISO_INDEX_MAX} conectores isolados atingido")
 
 
+# wgc1..7 sao os conectores migrados na mao: continuam no ar mesmo quando o
+# conector some do cadastro (o provisionador nunca derruba). Indice novo de
+# Ruijie comeca depois deles -- e o mesmo ISO_FLOOR do iso-provisioner.
+RUIJIE_ISO_INDEX_MIN = 8
+
+
+def _slices_em_uso_no_mapa() -> set:
+    """Indices cujo slice virtual ainda tem alguma entrada no mapa vnat (de
+    conector vivo ou de um que sobrou). Reusar um deles poria o Ruijie novo na
+    faixa virtual que outra coisa ainda usa."""
+    usados = set()
+    try:
+        from app.services import connector_routing_vnat as _vnat
+        raiz = ipaddress.ip_network("10.208.0.0/12")
+        for pares in _vnat._load_map().values():
+            for _real, virt in pares:
+                if virt.subnet_of(raiz):
+                    usados.add((int(virt.network_address) - int(raiz.network_address)) // (2 ** 14) + 1)
+    except Exception:
+        pass
+    return usados
+
+
+def _next_ruijie_iso_index(rows: List[Dict[str, Any]]) -> int:
+    usados = set(_slices_em_uso_no_mapa())
+    for r in rows:
+        try:
+            n = int(r.get("iso_index") or 0)
+        except (TypeError, ValueError):
+            continue
+        if n > 0:
+            usados.add(n)
+    for n in range(RUIJIE_ISO_INDEX_MIN, ISO_INDEX_MAX + 1):
+        if n not in usados:
+            return n
+    raise ValueError(f"limite de {ISO_INDEX_MAX} conectores isolados atingido")
+
+
 def iso_endpoint_for(index: Any) -> str:
     """Endpoint WireGuard deste conector: <host publico>:<52000+indice>."""
     try:
@@ -493,6 +531,10 @@ def create_connector(payload: Dict[str, Any]) -> Dict[str, Any]:
             row["iso_index"] = _next_iso_index(_load_connectors())
         row["tunnel"] = {"listen_port": ISO_PORT_BASE + int(row["iso_index"])}
     if connector_type == "ruijie":
+        # Indice de isolamento, igual ao MikroTik: o tunel OpenVPN ganha rede
+        # propria (rjc<N>), tabela 100N e faixa virtual (iso-provisioner).
+        with _lock:
+            row["iso_index"] = _next_ruijie_iso_index(_load_connectors())
         # O Reyee tem IP publico e nao roda agente -- o SightOps fala direto
         # com ele (login+API) sempre que precisar, guardando so o necessario
         # pra reconectar. Sem public_base_url/token de agente (nao se aplica).
@@ -513,11 +555,7 @@ def create_connector(payload: Dict[str, Any]) -> Dict[str, Any]:
         if vpn_username or vpn_password or vpn_config:
             if not (vpn_username and vpn_password and vpn_config):
                 raise ValueError("VPN exige usuario, senha e a configuracao (.ovpn) juntos")
-            if not _looks_like_valid_ovpn_config(vpn_config):
-                raise ValueError(
-                    "essa configuracao nao parece ser o client.ovpn (pode ser o .tar inteiro) -- "
-                    "extraia o .tar exportado do eWeb e use o arquivo client.ovpn de dentro dele"
-                )
+            _valida_ovpn(vpn_config)
             row["vpn_username"] = vpn_username
             row["vpn_password_enc"] = encrypt(vpn_password)
             row["vpn_config"] = vpn_config
@@ -545,6 +583,46 @@ def _looks_like_valid_ovpn_config(text: str) -> bool:
     return bool(re.search(r"^\s*(client|dev\s+tun|dev\s+tap|#|;)", text, re.MULTILINE))
 
 
+# Diretivas do .ovpn que executam comando, carregam codigo ou mudam onde o
+# OpenVPN le arquivos. O .ovpn vem do cliente e roda como root no container do
+# tunel: com `up "iptables -P FORWARD ACCEPT"` o cliente desligaria o firewall
+# que impede a rede dele de atravessar o servidor. O eWeb nunca gera nenhuma.
+_OVPN_PROIBIDAS = (
+    "script-security", "up", "down", "route-up", "route-pre-down", "ipchange", "plugin",
+    "learn-address", "client-connect", "client-disconnect", "auth-user-pass-verify",
+    "tls-verify", "setenv", "setenv-safe", "management", "config", "cd", "chroot",
+    "daemon", "log", "log-append", "writepid", "status", "dev-node", "iproute",
+    "route-noexec", "ifconfig-noexec", "up-delay", "down-pre", "up-restart",
+)
+
+
+def _ovpn_diretivas_proibidas(text: str) -> List[str]:
+    achadas = []
+    for linha in str(text or "").splitlines():
+        partes = linha.strip().split()
+        if not partes or partes[0].startswith(("#", ";", "<")):
+            continue
+        # O OpenVPN aceita o nome da opcao entre aspas ("plugin" ...).
+        nome = partes[0].strip("\"'").lstrip("-").lower()
+        if nome in _OVPN_PROIBIDAS and nome not in achadas:
+            achadas.append(nome)
+    return achadas
+
+
+def _valida_ovpn(vpn_config: str) -> None:
+    if not _looks_like_valid_ovpn_config(vpn_config):
+        raise ValueError(
+            "essa configuracao nao parece ser o client.ovpn (pode ser o .tar inteiro) -- "
+            "extraia o .tar exportado do eWeb e use o arquivo client.ovpn de dentro dele"
+        )
+    proibidas = _ovpn_diretivas_proibidas(vpn_config)
+    if proibidas:
+        raise ValueError(
+            "o client.ovpn tem diretivas que executam comandos no servidor ("
+            + ", ".join(proibidas) + ") -- use o arquivo exportado pelo eWeb sem alteracoes"
+        )
+
+
 def ruijie_update_vpn(connector_id: str, vpn_username: str, vpn_password: str, vpn_config: str) -> Dict[str, Any]:
     """Grava/atualiza a credencial e a config OpenVPN (.ovpn exportado do
     eWeb) de um conector Ruijie ja cadastrado -- separado do cadastro
@@ -556,11 +634,7 @@ def ruijie_update_vpn(connector_id: str, vpn_username: str, vpn_password: str, v
     vpn_config = str(vpn_config or "").strip()
     if not (vpn_username and vpn_password and vpn_config):
         raise ValueError("informe usuario, senha e a configuracao (.ovpn) da VPN")
-    if not _looks_like_valid_ovpn_config(vpn_config):
-        raise ValueError(
-            "essa configuracao nao parece ser o client.ovpn (pode ser o .tar inteiro) -- "
-            "extraia o .tar exportado do eWeb e use o arquivo client.ovpn de dentro dele"
-        )
+    _valida_ovpn(vpn_config)
     with _lock:
         rows = _load_connectors()
         row = next((r for r in rows if _text(r.get("id")) == _text(connector_id)), None)
@@ -613,15 +687,47 @@ def update_connector(connector_id: str, payload: Dict[str, Any]) -> Dict[str, An
         return {"ok": True, "connector": _public_connector(row, include_token=False)}
 
 
+def _ruijie_isolado(row: Dict[str, Any]) -> bool:
+    """Este conector Ruijie esta (ou vai estar) isolado -- tunel na rede
+    propria rjc<N>, sem rota na tabela geral? Basta ter indice: o sync nao sobe
+    tunel sem indice, e com indice o tunel nunca mais fica na rede do host. Na
+    transicao (indice dado, mapa ainda nao gravado) o IP real NAO e caminho
+    valido -- cairia na rota padrao do servidor, levando a senha do gateway."""
+    if row.get("iso_index"):
+        return True
+    try:
+        from app.services import connector_routing_vnat as _vnat
+        return bool(_vnat._load_map().get(_text(row.get("id"))))
+    except Exception:
+        return False
+
+
+def _ruijie_prova_de_posse(row: Dict[str, Any], alvo: str) -> bool:
+    """O gateway_host e digitado pelo cliente, entao sozinho nao prova nada
+    (daria para "cadastrar" a camera de outro cliente ou um servico interno do
+    servidor e abrir um tunel ate la). So vale se a ultima coleta deu certo
+    NESTE endereco -- login no eWeb com a senha do gateway -- e o proprio
+    gateway informou este IP como interface de LAN."""
+    poll = row.get("ruijie_poll") if isinstance(row.get("ruijie_poll"), dict) else {}
+    if not poll.get("ok") or _text(poll.get("host")) != alvo:
+        return False
+    if _public_connector(row).get("status") != "online":
+        return False
+    lans = (row.get("ruijie") or {}).get("lans") if isinstance(row.get("ruijie"), dict) else []
+    return alvo in {_text(l.get("gateway")) for l in lans or [] if isinstance(l, dict)}
+
+
 def ruijie_gateway_owner(ip: str) -> str:
     """Conector Ruijie do cliente ATUAL cujo gateway atende neste IP (o
     gateway_host do cadastro) -- autoriza abrir o eWeb pelo agente.
 
-    O Ruijie nao tem tunel isolado nem IP virtual: o servidor chega no
-    gateway pela tabela de rotas comum (tun do OpenVPN). Se outro conector
-    Ruijie, de QUALQUER cliente, tambem tem esse IP como gateway ou dentro
-    das redes dele, nao da para garantir qual tunel o pacote pega -- entao
-    nao autoriza ninguem.
+    Conector ISOLADO (tabela propria + faixa virtual, igual ao MikroTik): o
+    caminho ate o gateway e exclusivo dele, entao outro cliente com a mesma
+    faixa nao atrapalha -- basta a prova de posse.
+
+    Conector ainda NAO isolado (tunel na tabela geral do host): se outro
+    conector, de QUALQUER cliente, tem esse IP nas suas redes, nao da para
+    garantir qual tunel o pacote pega -- ninguem e autorizado.
     """
     alvo = _text(ip)
     if not alvo:
@@ -632,48 +738,39 @@ def ruijie_gateway_owner(ip: str) -> str:
         return ""
     with _lock:
         todos = _load_connectors()
-    ruijies = [r for r in todos if _text(r.get("type")).lower() == "ruijie"]
-    # Rede de tunel de QUALQUER outro conector (MikroTik, todos os clientes):
-    # se o IP cai nela, a rota do host pode levar o pacote para la.
+    proprios = [r for r in todos if _text(r.get("type")).lower() == "ruijie"
+                and _text(r.get("gateway_host")) == alvo and _visible_to_current_tenant(r)]
+    if len(proprios) != 1:
+        return ""
+    unico = proprios[0]
+    if not _ruijie_prova_de_posse(unico, alvo):
+        return ""
+    if _ruijie_isolado(unico):
+        # Isolado so vale se o caminho de fato passa pelo vnat: com o IP fora
+        # do mapa, a conexao sairia pelo IP real, pela tabela geral do host.
+        from app.services import connector_routing_vnat as _vnat
+        virtual = _vnat.virtual_ip_for(_text(unico.get("id")), alvo)
+        if virtual in (alvo, _vnat.IP_BLOQUEADO, None, ""):
+            return ""
+        return _text(unico.get("id"))
+
+    # Legado (tabela geral): o IP nao pode estar na rede de mais ninguem.
     for r in todos:
-        if _text(r.get("type")).lower() == "ruijie":
+        if r is unico:
             continue
-        tunel = r.get("tunnel") if isinstance(r.get("tunnel"), dict) else {}
-        for cidr in tunel.get("client_lans") or []:
+        if _text(r.get("type")).lower() == "ruijie":
+            redes = list((r.get("host") or {}).get("lan_networks") or []) if isinstance(r.get("host"), dict) else []
+            if _text(r.get("gateway_host")) == alvo:
+                return ""
+        else:
+            tunel = r.get("tunnel") if isinstance(r.get("tunnel"), dict) else {}
+            redes = list(tunel.get("client_lans") or [])
+        for cidr in redes:
             try:
                 if alvo_ip in ipaddress.ip_network(str(cidr), strict=False):
                     return ""
             except ValueError:
                 continue
-    donos = []
-    for r in ruijies:
-        redes = (r.get("host") or {}).get("lan_networks") if isinstance(r.get("host"), dict) else []
-        dentro = _text(r.get("gateway_host")) == alvo
-        for cidr in redes or []:
-            try:
-                dentro = dentro or alvo_ip in ipaddress.ip_network(str(cidr), strict=False)
-            except ValueError:
-                continue
-        if dentro:
-            donos.append(r)
-    if len(donos) != 1:
-        return ""
-    unico = donos[0]
-    if _text(unico.get("gateway_host")) != alvo or not _visible_to_current_tenant(unico):
-        return ""
-    # Prova de posse: o gateway_host e digitado pelo cliente, entao sozinho
-    # nao prova nada (daria para "cadastrar" a camera de outro cliente ou um
-    # servico interno do servidor e abrir um tunel ate la). So vale se a
-    # ultima coleta deu certo NESTE endereco -- login no eWeb com a senha do
-    # gateway -- e o proprio gateway informou este IP como interface de LAN.
-    poll = unico.get("ruijie_poll") if isinstance(unico.get("ruijie_poll"), dict) else {}
-    if not poll.get("ok") or _text(poll.get("host")) != alvo:
-        return ""
-    if _public_connector(unico).get("status") != "online":
-        return ""
-    lans = (unico.get("ruijie") or {}).get("lans") if isinstance(unico.get("ruijie"), dict) else []
-    if alvo not in {_text(l.get("gateway")) for l in lans or [] if isinstance(l, dict)}:
-        return ""
     return _text(unico.get("id"))
 
 
@@ -698,8 +795,23 @@ def _ruijie_poll_row(row: Dict[str, Any]) -> Dict[str, Any]:
         raise ValueError("conector Ruijie sem host/senha cadastrados")
     erro = ""
     result: Dict[str, Any] = {}
+    # Isolado: o gateway so e alcancavel pelo IP virtual do conector (a tabela
+    # geral do host nao tem rota de cliente). O laco roda sem cliente no
+    # contexto; o do dono do conector e posto aqui para o vnat aceitar.
+    from app.services import connector_routing_vnat as _vnat
+    ctx = set_current_tenant_slug(_text(row.get("tenant_slug")))
     try:
-        result = ruijie_collect_status(gw_host, gw_user, decrypt(gw_pass_enc),
+        destino = _vnat.virtual_ip_for(connector_id, gw_host) or gw_host
+    finally:
+        reset_current_tenant_slug(ctx)
+    try:
+        if destino == _vnat.IP_BLOQUEADO:
+            raise RuntimeError("caminho isolado recusado para este conector")
+        if destino == gw_host and _ruijie_isolado(row):
+            # Isolado (ou em transicao) e o gateway sem IP virtual: nunca pelo
+            # IP real (tabela geral).
+            raise RuntimeError("gateway ainda sem IP virtual -- aguardando o provisionador")
+        result = ruijie_collect_status(destino, gw_user, decrypt(gw_pass_enc),
                                        session=_ruijie_sessions.get(connector_id))
         _ruijie_sessions[connector_id] = result.pop("session", None)
     except RuijieAuthError as exc:
@@ -785,7 +897,15 @@ def ruijie_poll_all() -> Dict[str, Any]:
     """Coleta todos os gateways Ruijie (de todos os clientes). Roda no laco
     de app/main.py -- e o "heartbeat" do Ruijie, que nao tem agente proprio."""
     with _lock:
-        alvos = [dict(r) for r in _load_connectors() if _text(r.get("type")).lower() == "ruijie"]
+        rows = _load_connectors()
+        mudou = False
+        for r in rows:
+            if _text(r.get("type")).lower() == "ruijie" and not r.get("iso_index"):
+                r["iso_index"] = _next_ruijie_iso_index(rows)
+                mudou = True
+        if mudou:
+            _save_connectors(rows)
+        alvos = [dict(r) for r in rows if _text(r.get("type")).lower() == "ruijie"]
     resumo: Dict[str, Any] = {"total": len(alvos), "ok": 0, "erros": {}}
     for row in alvos:
         try:
