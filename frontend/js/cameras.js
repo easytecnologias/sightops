@@ -4240,6 +4240,20 @@ function closeMapOcorrencia() {
   document.getElementById('modalMapOcorrencia')?.classList.add('hidden');
 }
 
+// "Fechar"/X/Esc = acabou a ocorrencia: tira o pino e o raio do mapa principal.
+// Antes eles ficavam la ate recarregar a pagina (nao havia como remover).
+// "Marcar no mapa" e "Investigar" fecham o modal SEM limpar -- precisam do ponto.
+function encerrarMapOcorrencia() {
+  closeMapOcorrencia();
+  _moc.ponto = null;
+  _moc.origem = '';
+  _moc.desmarcadas = new Set();
+  _moc.extras = new Set();
+  _moc.fundo?.clearLayers();
+  const texto = document.getElementById('mocTexto');
+  if (texto) texto.value = '';
+}
+
 async function mocLocalizar() {
   const texto = document.getElementById('mocTexto')?.value || '';
   if (!texto.trim()) { document.getElementById('mocTexto')?.focus(); return; }
@@ -4437,8 +4451,8 @@ function mocInvestigar() {
 function bindMapOcorrencia() {
   const $ = id => document.getElementById(id);
   $('btnMapOcorrencia')?.addEventListener('click', openMapOcorrencia);
-  $('mocFechar')?.addEventListener('click', closeMapOcorrencia);
-  $('mocFechar2')?.addEventListener('click', closeMapOcorrencia);
+  $('mocFechar')?.addEventListener('click', encerrarMapOcorrencia);
+  $('mocFechar2')?.addEventListener('click', encerrarMapOcorrencia);
   $('mocLocalizar')?.addEventListener('click', mocLocalizar);
   $('mocTexto')?.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); mocLocalizar(); } });
   // Colar ja localiza: e o caminho normal (copiou do WhatsApp, colou).
@@ -4447,7 +4461,7 @@ function bindMapOcorrencia() {
   $('mocInvestigar')?.addEventListener('click', mocInvestigar);
   $('mocRaio')?.addEventListener('input', e => { _moc.raio = +e.target.value; mocRender(); });
   document.querySelectorAll('#mocRaios [data-raio]').forEach(b => b.addEventListener('click', () => { _moc.raio = +b.dataset.raio; mocRender(); }));
-  $('modalMapOcorrencia')?.addEventListener('keydown', e => { if (e.key === 'Escape') closeMapOcorrencia(); });
+  $('modalMapOcorrencia')?.addEventListener('keydown', e => { if (e.key === 'Escape') encerrarMapOcorrencia(); });
 }
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', bindMapOcorrencia);
 else bindMapOcorrencia();
