@@ -716,74 +716,55 @@ async function mapMarcarNaCoordenada(def, latlng) {
   mapLimparPinoCoordenada();
 }
 
-function mapPopupCoordenada(latlng) {
+function mapPopupCoordenada(latlng, def) {
   const caixa = document.createElement('div');
   caixa.className = 'mapa-coord-popup';
-  const texto = `${latlng.lat.toFixed(6)}, ${latlng.lng.toFixed(6)}`;
-  const editando = _mapEditLayerId ? (_mapLayerGroups[_mapEditLayerId]?.def || _mapEditDef) : null;
-  const camadas = Object.values(_mapLayerGroups).map(s => s?.def).filter(d => d?.updateUrl);
-  let acoes;
-  if (editando) {
-    acoes = `<button type="button" class="primary-action" data-coord-camada="${esc(editando.id)}">Marcar ponto em ${esc(editando.label || '')}</button>`;
-  } else {
-    acoes = `<div class="mapa-coord-rotulo">Marcar ponto aqui em:</div>`
-      + camadas.map(d => `<button type="button" class="secondary-action" data-coord-camada="${esc(d.id)}">${esc(d.label || d.id)}</button>`).join('')
-      + `<button type="button" class="secondary-action" data-coord-nova>+ Nova camada</button>`;
-  }
   caixa.innerHTML = `
-    <div class="mapa-coord-titulo">${esc(texto)}</div>
-    <div class="mapa-coord-acoes">${acoes}
+    <div class="mapa-coord-titulo">${esc(`${latlng.lat.toFixed(6)}, ${latlng.lng.toFixed(6)}`)}</div>
+    <div class="mapa-coord-acoes">
+      <button type="button" class="primary-action" data-coord-marcar>Marcar ponto em ${esc(def?.label || 'esta camada')}</button>
       <button type="button" class="mapa-coord-limpar" data-coord-limpar>Tirar pino</button>
     </div>`;
   caixa.addEventListener('click', async ev => {
     const b = ev.target.closest('button');
     if (!b) return;
     if (b.hasAttribute('data-coord-limpar')) { mapLimparPinoCoordenada(); return; }
-    if (b.hasAttribute('data-coord-nova')) {
-      _map.closePopup();
-      const def = await criarCamadaNoMapa();
-      if (def) await mapMarcarNaCoordenada(def, latlng);
-      return;
-    }
-    const def = _mapLayerGroups[b.getAttribute('data-coord-camada')]?.def;
-    await mapMarcarNaCoordenada(def, latlng);
+    await mapMarcarNaCoordenada(_mapLayerGroups[def?.id]?.def || def, latlng);
   });
   return caixa;
 }
 
-function mapIrParaCoordenada(latlng) {
+function mapIrParaCoordenada(latlng, def) {
   mapLimparPinoCoordenada();
   _mapPinoCoord = L.marker(latlng, {
     icon: L.divIcon({ className: 'mapa-coord-pino', html: '<span></span>', iconSize: [22, 22], iconAnchor: [11, 11] }),
     zIndexOffset: 1000,
   }).addTo(_map);
-  // Conteudo montado na hora de abrir: as camadas e o modo de edicao mudam.
-  _mapPinoCoord.bindPopup(() => mapPopupCoordenada(latlng), { minWidth: 220 });
+  _mapPinoCoord.bindPopup(() => mapPopupCoordenada(latlng, def), { minWidth: 220 });
   _map.flyTo(latlng, Math.max(_map.getZoom(), 18), { duration: 0.8 });
   _map.once('moveend', () => _mapPinoCoord?.openPopup());
 }
 
-function mapControleCoordenada(map) {
-  const caixa = L.DomUtil.create('form', 'leaflet-bar mapa-coord');
-  caixa.innerHTML = `
-    <input type="text" inputmode="decimal" autocomplete="off" spellcheck="false"
-      placeholder="Ir para: -9.712240, -36.736932" aria-label="Ir para coordenada (latitude, longitude)">
-    <button type="submit" title="Ir para a coordenada">Ir</button>`;
-  L.DomEvent.disableClickPropagation(caixa);
-  L.DomEvent.disableScrollPropagation(caixa);
-  const input = caixa.querySelector('input');
-  caixa.addEventListener('submit', ev => {
-    ev.preventDefault();
-    const latlng = mapParseCoordenada(input.value);
-    if (!latlng) {
-      showToast('Coordenada invalida. Use latitude, longitude -- ex.: -9.712240, -36.736932', true);
-      input.focus();
-      return;
-    }
-    mapIrParaCoordenada(latlng);
-  });
-  const Controle = L.Control.extend({ onAdd: () => caixa });
-  new Controle({ position: 'topleft' }).addTo(map);
+// Menu da camada > "Ir para coordenada": o operador recebe a posicao pelo
+// WhatsApp/Google Maps e nao tinha como achar o lugar para marcar o ponto.
+// Fica dentro da camada (e nao fixo no mapa) porque o destino e sempre um
+// ponto DESTA camada.
+async function mapPedirCoordenada(def) {
+  let valor = '';
+  for (;;) {
+    const txt = await mapPedirTexto({
+      titulo: 'Ir para coordenada',
+      subtitulo: `Cole a posicao (latitude, longitude) para marcar um ponto em "${def?.label || ''}". Ex.: -9.712240, -36.736932`,
+      rotulo: 'Latitude, longitude',
+      valor,
+      botao: 'Ir',
+    });
+    if (!txt) return;
+    const latlng = mapParseCoordenada(txt);
+    if (latlng) { mapIrParaCoordenada(latlng, def); return; }
+    showToast('Coordenada invalida. Use latitude, longitude -- ex.: -9.712240, -36.736932', true);
+    valor = txt;
+  }
 }
 
 async function loadKmz() {
@@ -793,7 +774,6 @@ async function loadKmz() {
   if (!_map) {
     _map = L.map('leafletMap', { zoomControl: true }).setView([-9.76, -36.67], 14);
     mapaCamadasBase(_map, 'sightops.mapa.fundo', 'mapa', true);
-    mapControleCoordenada(_map);
   }
 
   setTimeout(() => _map.invalidateSize(), 100);
@@ -1378,6 +1358,7 @@ async function loadMapLayers() {
         mapEditIsActive(def.id) ? 'Sair do modo de edicao' : 'Editar / adicionar pontos',
         () => mapEditIsActive(def.id) ? exitMapPointEditor() : openMapPointEditor(def),
       ));
+      menu.appendChild(item('locate', 'Ir para coordenada', () => mapPedirCoordenada(def)));
     }
     const dlUrl = mapLayerDownloadUrl(def);
     if (dlUrl) {
@@ -1810,7 +1791,8 @@ function mapPedirTexto({ titulo, subtitulo = '', rotulo = 'Nome', valor = '', bo
       if (!txt) { showToast(`Informe ${rotulo.toLowerCase()}.`, true); input.focus(); return; }
       fechar(txt);
     };
-    fundo.addEventListener('click', ev => { if (ev.target === fundo) fechar(null); });
+    // Sem fechar ao clicar fora: o usuario perdia o que tinha digitado (pediu em
+    // 19/10/2026, mesmo ajuste dos modais do gravador). Fecha so por X/Cancelar/Esc.
     fundo.querySelectorAll('[data-mpt-fechar]').forEach(b => b.addEventListener('click', () => fechar(null)));
     fundo.querySelector('[data-mpt-ok]').addEventListener('click', confirmar);
     input.addEventListener('keydown', ev => {

@@ -9629,22 +9629,7 @@ body.shell-owner .nav-item.active { box-shadow: inset 3px 0 #c9962c; }
 }
 #leafletMap .leaflet-control-layers:hover .leaflet-control-layers-toggle { opacity: 1; }
 
-/* Ir para coordenada (mapControleCoordenada em cameras.js) */
-#leafletMap .leaflet-bar.mapa-coord {
-  display: flex; align-items: center; overflow: hidden;
-  border: 1px solid rgba(255,255,255,.4); border-radius: 10px;
-  background: rgba(255,255,255,.85);
-  -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
-  box-shadow: 0 2px 8px rgba(23,32,38,.12);
-}
-.mapa-coord input {
-  width: 230px; max-width: 52vw; border: 0; background: transparent; color: var(--text);
-  font-family: inherit; font-size: 12px; padding: 7px 10px; outline: none;
-}
-.mapa-coord button {
-  border: 0; border-left: 1px solid var(--border); background: var(--primary); color: #fff;
-  font-family: inherit; font-weight: 600; font-size: 12px; padding: 7px 12px; cursor: pointer;
-}
+/* Ir para coordenada (menu da camada > mapPedirCoordenada em cameras.js) */
 .mapa-coord-pino span {
   display: block; width: 22px; height: 22px; border-radius: 50%;
   background: var(--danger); border: 3px solid #fff;
