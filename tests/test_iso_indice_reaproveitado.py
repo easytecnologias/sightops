@@ -44,6 +44,12 @@ def test_rotas_do_conector_anterior_saem():
     assert sorted(sobra) == ["10.250.0.2/32", "10.45.0.0/24", "192.168.10.0/24"]
 
 
+def test_rota_contida_numa_rede_do_conector_fica():
+    # SIERRA: tabela 1013 com 10.200.1.0/24 e o conector com 10.200.0.0/23.
+    tabela = "10.200.1.0/24 dev wgc13 scope link\n10.201.0.27 dev wgc13 scope link\n"
+    assert prov.rotas_sobrando(tabela, "wgc13", ["10.201.0.27/32", "10.200.0.0/23"]) == []
+
+
 def test_rota_de_outra_interface_nao_e_tocada():
     tabela = "192.168.10.0/24 dev wg-sightops scope link\n"
     assert prov.rotas_sobrando(tabela, "wgc1", ["10.201.0.3/32"]) == []

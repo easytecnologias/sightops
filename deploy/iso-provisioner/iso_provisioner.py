@@ -125,8 +125,12 @@ def peers_sobrando(saida_wg_peers, pubkey):
 
 
 def rotas_sobrando(saida_ip_route, ifn, desejadas):
-    """Destinos da tabela do tunel (`ip route show table N`) via `ifn` que o
-    conector nao pede. /32 aparece sem mascara na saida do ip."""
+    """Destinos da tabela do tunel (`ip route show table N`) via `ifn` que nao
+    cabem em nenhuma rede do conector. /32 aparece sem mascara na saida do ip.
+
+    "Cabe" e estar contido, nao ser igual: na SIERRA a tabela 1013 tem
+    10.200.1.0/24 (cameras) e o conector declara 10.200.0.0/23 no mapa virtual.
+    Exigir igualdade derrubaria metade das cameras do site."""
     quer = set()
     for c in desejadas:
         try:
@@ -142,7 +146,7 @@ def rotas_sobrando(saida_ip_route, ifn, desejadas):
             destino = ipaddress.ip_network(partes[0], strict=False)
         except ValueError:
             continue
-        if destino not in quer:
+        if not any(destino.version == q.version and destino.subnet_of(q) for q in quer):
             sobra.append(str(destino))
     return sobra
 
@@ -196,7 +200,7 @@ def _apply(n, cid, pubkey, lans, vmap, priv):
     sh(["ip", "route", "replace", "%s/32" % peer_ip, "dev", ifn, "table", str(table)])
     for lan in lans:
         sh(["ip", "route", "replace", lan, "dev", ifn, "table", str(table)])
-    _rotas_so_do_conector(ifn, table, ["%s/32" % peer_ip] + lans)
+    _rotas_so_do_conector(ifn, table, ["%s/32" % peer_ip] + lans + [real for real, _v in vmap])
     _vnat_limpa_obsoletas(n, vmap)
     for real, virt in vmap:
         _iptc("mangle", "PREROUTING", ["-d", virt, "-j", "MARK", "--set-mark", hex(fwmark)])
