@@ -440,20 +440,51 @@ async function refreshMapLiveStatus() {
   }
 }
 
+// Fundos do mapa com seletor (canto superior direito) e escolha lembrada por
+// navegador. Satelite e Esri World Imagery: sem chave; no interior de AL a
+// imagem para no zoom 18 (o 19 volta "Map data not yet available"), entao
+// maxNativeZoom 18 e o Leaflet amplia a imagem do 18 nos zooms acima.
+// OpenStreetMap direto: a CARTO passou a exigir chave de API nos mapas
+// dark_all. O visual escuro vem do filtro CSS em .tiles-escuro (styles.css),
+// aplicado so a essa camada para nao inverter a foto de satelite.
+const MAPA_ESRI = 'https://server.arcgisonline.com/ArcGIS/rest/services';
+function mapaCamadasBase(map, chave, padrao = 'mapa') {
+  const satelite = () => L.tileLayer(`${MAPA_ESRI}/World_Imagery/MapServer/tile/{z}/{y}/{x}`, {
+    attribution: 'Imagens &copy; Esri, Maxar, Earthstar Geographics',
+    maxZoom: 20, maxNativeZoom: 18,
+  });
+  const fundos = {
+    mapa: L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; OpenStreetMap', className: 'tiles-escuro',
+      subdomains: 'abc', maxZoom: 20, maxNativeZoom: 19,
+    }),
+    satelite: satelite(),
+    hibrido: L.layerGroup([
+      satelite(),
+      L.tileLayer(`${MAPA_ESRI}/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}`, { maxZoom: 20, maxNativeZoom: 18 }),
+      L.tileLayer(`${MAPA_ESRI}/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}`, { maxZoom: 20, maxNativeZoom: 18 }),
+    ]),
+  };
+  const nomes = { mapa: 'Mapa', satelite: 'Satelite', hibrido: 'Satelite + ruas' };
+  let atual = padrao;
+  try { const salvo = localStorage.getItem(chave); if (fundos[salvo]) atual = salvo; } catch (_) {}
+  fundos[atual].addTo(map);
+  const opcoes = {};
+  Object.keys(fundos).forEach(k => { opcoes[nomes[k]] = fundos[k]; });
+  L.control.layers(opcoes, null, { position: 'topright' }).addTo(map);
+  map.on('baselayerchange', ev => {
+    const k = Object.keys(fundos).find(n => fundos[n] === ev.layer);
+    if (k) { try { localStorage.setItem(chave, k); } catch (_) {} }
+  });
+}
+
 async function loadKmz() {
   const container = document.getElementById('leafletMap');
   if (!container) return;
 
   if (!_map) {
     _map = L.map('leafletMap', { zoomControl: true }).setView([-9.76, -36.67], 14);
-    // OpenStreetMap direto: a CARTO passou a exigir chave de API nos mapas
-    // dark_all e as tiles voltavam carimbadas com "API KEY REQUIRED". O visual
-    // escuro e recuperado por filtro CSS sobre o painel de tiles -- os
-    // marcadores ficam em outro painel e nao sao afetados.
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '&copy; OpenStreetMap',
-      subdomains: 'abc', maxZoom: 19,
-    }).addTo(_map);
+    mapaCamadasBase(_map, 'sightops.mapa.fundo');
   }
 
   setTimeout(() => _map.invalidateSize(), 100);
@@ -4110,7 +4141,7 @@ function mocDesenharMini(lista) {
   if (!el) return;
   if (!_moc.mini) {
     _moc.mini = L.map(el, { zoomControl: true, attributionControl: false }).setView(_moc.ponto, 18);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 20, maxNativeZoom: 19 }).addTo(_moc.mini);
+    mapaCamadasBase(_moc.mini, 'sightops.mapa.fundo.ocorrencia', 'hibrido');
     _moc.miniCamada = L.layerGroup().addTo(_moc.mini);
   }
   setTimeout(() => _moc.mini.invalidateSize(), 0);

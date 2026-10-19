@@ -9604,7 +9604,7 @@ body.shell-owner .nav-item.active { box-shadow: inset 3px 0 #c9962c; }
 
 /* Mapa escuro sem depender de provedor pago: inverte so o painel de tiles.
    Marcadores e popups vivem em painéis separados e ficam com a cor original. */
-#leafletMap .leaflet-tile-pane {
+#leafletMap .tiles-escuro {
   filter: invert(1) hue-rotate(180deg) brightness(.92) contrast(.92) saturate(.85);
 }
 
