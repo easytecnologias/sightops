@@ -31,13 +31,10 @@ vnat() {  # VIRT REAL IF TABLE SRC MARK PREF
   ip rule add fwmark "$MARK" table "$TABLE" pref "$PREF"
 }
 
-# ---- PORTO REAL DO COLEGIO (a04555f5bcb652cb) index 1 ----
-wg_iface wgc1 52001 10.201.0.2/31 1001 10001 "VURW8XB1OEVfOEWIQEpxLMpgFj0/+sMvpfqgjwzno0o=" "10.250.0.2/32,192.168.10.0/24,10.45.0.0/24"
-route_add 10.250.0.2/32 wgc1 1001
-route_add 192.168.10.0/24 wgc1 1001
-route_add 10.45.0.0/24 wgc1 1001
-vnat 10.208.0.0/24 192.168.10.0/24 wgc1 1001 10.201.0.2 0x5101 20001
-vnat 10.208.1.0/24 10.45.0.0/24 wgc1 1001 10.201.0.2 0x5101 20001
+# ---- index 1: PORTO REAL DO COLEGIO (a04555f5bcb652cb) foi APAGADO ----
+# O bloco dele ficou aqui e recriava no boot o peer morto, as rotas e o vnat
+# 10.208.1.0/24 -> 10.45.0.0/24 dentro do wgc1 -- que desde 19/10/2026 e do
+# INCOFORTE (88878c4806af493d, born-isolated, gerido pelo iso-provisioner).
 
 # ---- MATA GRANDE (9de8a046f8985a00) index 2 ----
 wg_iface wgc2 52002 10.201.0.4/31 1002 10002 "liumIl66q7nuxj6Bwzz9I9+5QN92qWcfSt4bBLgkOQI=" "10.250.0.3/32,172.16.16.0/20,192.168.10.0/24"
