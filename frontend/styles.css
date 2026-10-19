@@ -9608,20 +9608,39 @@ body.shell-owner .nav-item.active { box-shadow: inset 3px 0 #c9962c; }
   filter: invert(1) hue-rotate(180deg) brightness(.92) contrast(.92) saturate(.85);
 }
 
-/* Seletor da data da foto de satelite (mapaSeletorDatas em cameras.js) */
-.mapa-datas { background: var(--surface); }
-.mapa-datas-botao {
-  border: 0; background: var(--surface); color: var(--text);
-  font-family: inherit; font-weight: 600; font-size: 12px; line-height: 1; padding: 8px 10px; cursor: pointer; white-space: nowrap;
+/* Controles do canto direito do mapa (camadas e data da foto): vidro claro,
+   sem a borda grossa e a sombra forte padrao do Leaflet. */
+#leafletMap .leaflet-control-layers,
+#leafletMap .leaflet-bar.mapa-datas {
+  border: 1px solid rgba(255,255,255,.4);
+  border-radius: 10px;
+  background: rgba(255,255,255,.7);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+  box-shadow: 0 2px 8px rgba(23,32,38,.12);
+  overflow: hidden;
+  transition: background .15s;
 }
-.mapa-datas-botao:hover { background: var(--surface-soft); }
+#leafletMap .leaflet-control-layers:hover,
+#leafletMap .leaflet-bar.mapa-datas:hover,
+#leafletMap .leaflet-control-layers-expanded { background: rgba(255,255,255,.92); }
+#leafletMap .leaflet-control-layers-toggle {
+  width: 32px; height: 32px; background-size: 18px; opacity: .7;
+}
+#leafletMap .leaflet-control-layers:hover .leaflet-control-layers-toggle { opacity: 1; }
+
+/* Seletor da data da foto de satelite (mapaSeletorDatas em cameras.js) */
+.mapa-datas-botao {
+  border: 0; background: transparent; color: var(--text);
+  font-family: inherit; font-weight: 500; font-size: 11.5px; line-height: 1; padding: 7px 10px; cursor: pointer; white-space: nowrap;
+}
 .mapa-datas-lista {
   width: 230px; max-height: 340px; overflow-y: auto;
   border-top: 1px solid var(--border);
 }
 .mapa-datas-item {
   display: block; width: 100%; text-align: left; border: 0; cursor: pointer;
-  background: var(--surface); color: var(--text); padding: 7px 10px;
+  background: transparent; color: var(--text); padding: 7px 10px;
   border-bottom: 1px solid var(--border); font-family: inherit;
 }
 .mapa-datas-item:hover { background: var(--surface-soft); }
