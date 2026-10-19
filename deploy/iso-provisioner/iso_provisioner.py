@@ -119,6 +119,53 @@ def _iptc(tabela, chain, spec, insert=False):
     sh(base + (["-I", chain, "1"] if insert else ["-A", chain]) + spec)
 
 
+def peers_sobrando(saida_wg_peers, pubkey):
+    """Chaves listadas em `wg show <if> peers` que nao sao a do conector."""
+    return [k for k in (l.strip() for l in (saida_wg_peers or "").splitlines()) if k and k != pubkey]
+
+
+def rotas_sobrando(saida_ip_route, ifn, desejadas):
+    """Destinos da tabela do tunel (`ip route show table N`) via `ifn` que o
+    conector nao pede. /32 aparece sem mascara na saida do ip."""
+    quer = set()
+    for c in desejadas:
+        try:
+            quer.add(ipaddress.ip_network(c, strict=False))
+        except ValueError:
+            pass
+    sobra = []
+    for linha in (saida_ip_route or "").splitlines():
+        partes = linha.split()
+        if not partes or "dev" not in partes or partes[partes.index("dev") + 1] != ifn:
+            continue
+        try:
+            destino = ipaddress.ip_network(partes[0], strict=False)
+        except ValueError:
+            continue
+        if destino not in quer:
+            sobra.append(str(destino))
+    return sobra
+
+
+def _so_o_peer_do_conector(ifn, pubkey):
+    """`wg set peer` so ACRESCENTA. Indice reaproveitado herdava o peer do
+    conector anterior: em 19/10/2026 o wgc1 do INCOFORTE (novo) seguia com o
+    peer do PORTO REAL DO COLEGIO (apagado), com 192.168.10.0/24 e
+    10.45.0.0/24 dentro do tunel de outro cliente."""
+    _, saida = sh(["wg", "show", ifn, "peers"])
+    for velho in peers_sobrando(saida, pubkey):
+        sh(["wg", "set", ifn, "peer", velho, "remove"])
+        print("%s: peer que nao e do conector removido (%s...)" % (ifn, velho[:8]), flush=True)
+
+
+def _rotas_so_do_conector(ifn, table, desejadas):
+    """Mesma ideia para a tabela 100N: rota de rede que o conector nao tem sai."""
+    _, saida = sh(["ip", "route", "show", "table", str(table)])
+    for destino in rotas_sobrando(saida, ifn, desejadas):
+        sh(["ip", "route", "del", destino, "dev", ifn, "table", str(table)])
+        print("%s: rota %s fora do conector removida da tabela %s" % (ifn, destino, table), flush=True)
+
+
 def _apply(n, cid, pubkey, lans, vmap, priv):
     """Cria/garante a interface wgc<N> + peer + rotas + vnat (idempotente).
     pubkey/lans/vmap ja resolvidos pelo chamador (migrado usa dados gravados,
@@ -139,6 +186,7 @@ def _apply(n, cid, pubkey, lans, vmap, priv):
         sh(["ip", "link", "add", "dev", ifn, "type", "wireguard"], check=True)
     sh(["wg", "set", ifn, "listen-port", str(port), "private-key", "/dev/stdin"], stdin=priv, check=True)
     sh(["wg", "set", ifn, "peer", pubkey, "allowed-ips", allowed, "persistent-keepalive", "25"], check=True)
+    _so_o_peer_do_conector(ifn, pubkey)
     sh(["ip", "addr", "replace", "%s/31" % server_ip, "dev", ifn], check=True)
     sh(["ip", "link", "set", ifn, "mtu", str(TUNEL_MTU)])
     sh(["ip", "link", "set", ifn, "up"])
@@ -148,6 +196,7 @@ def _apply(n, cid, pubkey, lans, vmap, priv):
     sh(["ip", "route", "replace", "%s/32" % peer_ip, "dev", ifn, "table", str(table)])
     for lan in lans:
         sh(["ip", "route", "replace", lan, "dev", ifn, "table", str(table)])
+    _rotas_so_do_conector(ifn, table, ["%s/32" % peer_ip] + lans)
     _vnat_limpa_obsoletas(n, vmap)
     for real, virt in vmap:
         _iptc("mangle", "PREROUTING", ["-d", virt, "-j", "MARK", "--set-mark", hex(fwmark)])
