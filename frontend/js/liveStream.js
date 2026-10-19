@@ -97,6 +97,14 @@ async function _liveStreamRegister(ip, user, pass, subtype, hint) {
   }
   if (!resp.ok) throw new Error('Falha ao registrar stream');
   const respBody = await resp.json();
+  // O servidor responde "sem senha" com HTTP 200 + ok:false (401 deslogaria o
+  // usuario, ver maintenance_stream_register). So olhar o 401 deixava passar:
+  // o player abria o WS de um stream que nunca foi registrado e mostrava
+  // "mse: stream not found" -- INCOFORTE, 19/10/2026, cameras sem senha salva.
+  if (respBody?.ok === false) {
+    if (respBody.error === 'credential_required') throw new CredentialRequiredError('credential_required');
+    throw new Error(respBody.error || 'Falha ao registrar stream');
+  }
   return respBody?.stream_name || _liveStreamName(ip, subtype);
 }
 
