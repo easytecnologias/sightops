@@ -1,6 +1,6 @@
 [Unit]
 Description=SightOps - sincroniza tuneis OpenVPN dos conectores Ruijie com o cadastro
-# Roda scripts/sightops_ruijie_vpn_sync.py: pergunta pro container sightops-api
+# Roda scripts/sightops_ruijie_vpn_sync.py: pergunta pro container sightops-v3-api
 # quais conectores Ruijie tem VPN configurada e garante que exista um container
 # sightops-vpn-<id> (--network host --restart unless-stopped) com a config em
 # dia -- cria na primeira vez, recria se usuario/senha/config mudou, remove se

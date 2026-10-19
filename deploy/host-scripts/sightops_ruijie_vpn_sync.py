@@ -6,7 +6,7 @@ Reconciliacao automatica dos tuneis OpenVPN dos conectores Ruijie.
 Roda FORA da imagem Docker, direto no HOST de producao (mesmo padrao do
 sightops_wireguard_sync.py), via systemd timer. A cada ciclo:
 
-1. Pergunta pro container sightops-api (via `docker exec`) quais conectores
+1. Pergunta pro container sightops-v3-api (via `docker exec`) quais conectores
    Ruijie tem VPN configurada (usuario/senha/config .ovpn), ja decifrados --
    a chave de criptografia nunca sai do container.
 2. Compara com os containers `sightops-vpn-<id>` que ja estao rodando no
@@ -36,7 +36,9 @@ from typing import Any, Dict, List
 
 CONTAINER_PREFIX = "sightops-vpn-"
 STATE_DIR = Path("/home/central/sightops-vpn")
-API_CONTAINER = "sightops-api"
+# No v3 o container e sightops-v3-api; "sightops-api" era o do v2 e, depois
+# que ele saiu, o timer passou a falhar a cada minuto ("No such container").
+API_CONTAINER = os.getenv("SIGHTOPS_API_CONTAINER", "sightops-v3-api")
 
 _FETCH_SCRIPT = r"""
 import json
