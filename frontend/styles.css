@@ -9629,6 +9629,36 @@ body.shell-owner .nav-item.active { box-shadow: inset 3px 0 #c9962c; }
 }
 #leafletMap .leaflet-control-layers:hover .leaflet-control-layers-toggle { opacity: 1; }
 
+/* Ir para coordenada (mapControleCoordenada em cameras.js) */
+#leafletMap .leaflet-bar.mapa-coord {
+  display: flex; align-items: center; overflow: hidden;
+  border: 1px solid rgba(255,255,255,.4); border-radius: 10px;
+  background: rgba(255,255,255,.85);
+  -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
+  box-shadow: 0 2px 8px rgba(23,32,38,.12);
+}
+.mapa-coord input {
+  width: 230px; max-width: 52vw; border: 0; background: transparent; color: var(--text);
+  font-family: inherit; font-size: 12px; padding: 7px 10px; outline: none;
+}
+.mapa-coord button {
+  border: 0; border-left: 1px solid var(--border); background: var(--primary); color: #fff;
+  font-family: inherit; font-weight: 600; font-size: 12px; padding: 7px 12px; cursor: pointer;
+}
+.mapa-coord-pino span {
+  display: block; width: 22px; height: 22px; border-radius: 50%;
+  background: var(--danger); border: 3px solid #fff;
+  box-shadow: 0 0 0 4px rgba(201,42,42,.25), 0 2px 6px rgba(0,0,0,.35);
+}
+.mapa-coord-popup { padding: 10px 12px; min-width: 210px; }
+.mapa-coord-titulo { font-weight: 700; font-size: 13px; color: var(--text); margin-bottom: 8px; font-variant-numeric: tabular-nums; }
+.mapa-coord-rotulo { font-size: 11px; color: var(--muted); margin-bottom: 2px; }
+.mapa-coord-acoes { display: flex; flex-direction: column; gap: 6px; }
+.mapa-coord-acoes button { width: 100%; justify-content: center; font-size: 12px; padding: 6px 10px; }
+.mapa-coord-acoes .mapa-coord-limpar {
+  background: none; border: 0; color: var(--muted); font-size: 11px; text-decoration: underline; cursor: pointer;
+}
+
 /* Seletor da data da foto de satelite (mapaSeletorDatas em cameras.js) */
 .mapa-datas-botao {
   border: 0; background: transparent; color: var(--text);

@@ -679,6 +679,113 @@ function mapaSeletorDatas(map, imagens, chave) {
   };
 }
 
+// Ir para coordenada: o operador recebe "-9.712240839511704, -36.73693211991055"
+// (Google Maps, WhatsApp, GPS do celular) e nao tinha como achar esse lugar no
+// mapa para marcar o ponto. Ordem latitude, longitude (a do Google). Aceita
+// virgula ou espaco entre os dois e virgula decimal quando separados por espaco.
+function mapParseCoordenada(texto) {
+  const bruto = String(texto || '').trim();
+  let nums = bruto.match(/-?\d+(?:\.\d+)?/g) || [];
+  if (nums.length !== 2 || !bruto.includes('.')) {
+    nums = bruto.split(/[\s;]+/).filter(Boolean).map(x => x.replace(/,$/, '').replace(',', '.'));
+  }
+  if (nums.length !== 2) return null;
+  const lat = Number(nums[0]);
+  const lng = Number(nums[1]);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) return null;
+  return L.latLng(lat, lng);
+}
+
+let _mapPinoCoord = null;
+
+function mapLimparPinoCoordenada() {
+  if (_mapPinoCoord) { _mapPinoCoord.remove(); _mapPinoCoord = null; }
+}
+
+// Marca o ponto na coordenada dentro da camada `def`. Se ja havia uma camera do
+// inventario escolhida no modo de edicao ("Posicionar"), e ela que vai para la.
+async function mapMarcarNaCoordenada(def, latlng) {
+  _map.closePopup();
+  if (!def?.updateUrl) { showToast('Esta camada nao suporta edicao de pontos.', true); return; }
+  if (_mapEditLayerId !== def.id) await openMapPointEditor(def);
+  if (_mapEditPendingCam && !_mapEditPendingCam.livre) {
+    await handleMapEditClick({ latlng });
+  } else {
+    await criarPontoLivre(def, latlng);
+  }
+  mapLimparPinoCoordenada();
+}
+
+function mapPopupCoordenada(latlng) {
+  const caixa = document.createElement('div');
+  caixa.className = 'mapa-coord-popup';
+  const texto = `${latlng.lat.toFixed(6)}, ${latlng.lng.toFixed(6)}`;
+  const editando = _mapEditLayerId ? (_mapLayerGroups[_mapEditLayerId]?.def || _mapEditDef) : null;
+  const camadas = Object.values(_mapLayerGroups).map(s => s?.def).filter(d => d?.updateUrl);
+  let acoes;
+  if (editando) {
+    acoes = `<button type="button" class="primary-action" data-coord-camada="${esc(editando.id)}">Marcar ponto em ${esc(editando.label || '')}</button>`;
+  } else {
+    acoes = `<div class="mapa-coord-rotulo">Marcar ponto aqui em:</div>`
+      + camadas.map(d => `<button type="button" class="secondary-action" data-coord-camada="${esc(d.id)}">${esc(d.label || d.id)}</button>`).join('')
+      + `<button type="button" class="secondary-action" data-coord-nova>+ Nova camada</button>`;
+  }
+  caixa.innerHTML = `
+    <div class="mapa-coord-titulo">${esc(texto)}</div>
+    <div class="mapa-coord-acoes">${acoes}
+      <button type="button" class="mapa-coord-limpar" data-coord-limpar>Tirar pino</button>
+    </div>`;
+  caixa.addEventListener('click', async ev => {
+    const b = ev.target.closest('button');
+    if (!b) return;
+    if (b.hasAttribute('data-coord-limpar')) { mapLimparPinoCoordenada(); return; }
+    if (b.hasAttribute('data-coord-nova')) {
+      _map.closePopup();
+      const def = await criarCamadaNoMapa();
+      if (def) await mapMarcarNaCoordenada(def, latlng);
+      return;
+    }
+    const def = _mapLayerGroups[b.getAttribute('data-coord-camada')]?.def;
+    await mapMarcarNaCoordenada(def, latlng);
+  });
+  return caixa;
+}
+
+function mapIrParaCoordenada(latlng) {
+  mapLimparPinoCoordenada();
+  _mapPinoCoord = L.marker(latlng, {
+    icon: L.divIcon({ className: 'mapa-coord-pino', html: '<span></span>', iconSize: [22, 22], iconAnchor: [11, 11] }),
+    zIndexOffset: 1000,
+  }).addTo(_map);
+  // Conteudo montado na hora de abrir: as camadas e o modo de edicao mudam.
+  _mapPinoCoord.bindPopup(() => mapPopupCoordenada(latlng), { minWidth: 220 });
+  _map.flyTo(latlng, Math.max(_map.getZoom(), 18), { duration: 0.8 });
+  _map.once('moveend', () => _mapPinoCoord?.openPopup());
+}
+
+function mapControleCoordenada(map) {
+  const caixa = L.DomUtil.create('form', 'leaflet-bar mapa-coord');
+  caixa.innerHTML = `
+    <input type="text" inputmode="decimal" autocomplete="off" spellcheck="false"
+      placeholder="Ir para: -9.712240, -36.736932" aria-label="Ir para coordenada (latitude, longitude)">
+    <button type="submit" title="Ir para a coordenada">Ir</button>`;
+  L.DomEvent.disableClickPropagation(caixa);
+  L.DomEvent.disableScrollPropagation(caixa);
+  const input = caixa.querySelector('input');
+  caixa.addEventListener('submit', ev => {
+    ev.preventDefault();
+    const latlng = mapParseCoordenada(input.value);
+    if (!latlng) {
+      showToast('Coordenada invalida. Use latitude, longitude -- ex.: -9.712240, -36.736932', true);
+      input.focus();
+      return;
+    }
+    mapIrParaCoordenada(latlng);
+  });
+  const Controle = L.Control.extend({ onAdd: () => caixa });
+  new Controle({ position: 'topleft' }).addTo(map);
+}
+
 async function loadKmz() {
   const container = document.getElementById('leafletMap');
   if (!container) return;
@@ -686,6 +793,7 @@ async function loadKmz() {
   if (!_map) {
     _map = L.map('leafletMap', { zoomControl: true }).setView([-9.76, -36.67], 14);
     mapaCamadasBase(_map, 'sightops.mapa.fundo', 'mapa', true);
+    mapControleCoordenada(_map);
   }
 
   setTimeout(() => _map.invalidateSize(), 100);
@@ -1716,7 +1824,9 @@ function mapPedirTexto({ titulo, subtitulo = '', rotulo = 'Nome', valor = '', bo
 }
 
 // Camada do zero: nasce vazia no servidor (POST /api/kmz/import/layers) e ja
-// abre em modo de edicao com "Marcar ponto novo" ligado.
+// abre em modo de edicao com "Marcar ponto novo" ligado. Devolve o def da
+// camada criada (ou null) para quem quiser marcar o primeiro ponto direto,
+// como a busca por coordenada.
 async function criarCamadaNoMapa() {
   const nome = await mapPedirTexto({
     titulo: 'Nova camada',
@@ -1724,30 +1834,31 @@ async function criarCamadaNoMapa() {
     rotulo: 'Nome da camada',
     botao: 'Criar camada',
   });
-  if (!nome) return;
+  if (!nome) return null;
   let novoId = '';
   try {
     const res = await api('/api/kmz/import/layers', { method: 'POST', body: JSON.stringify({ label: nome }) });
     const body = await res?.json().catch(() => ({}));
     if (!res?.ok || body?.ok === false || !body?.id) {
       showToast(body?.detail || 'Nao foi possivel criar a camada.', true);
-      return;
+      return null;
     }
     novoId = body.id;
   } catch (err) {
     showToast(`Falha ao criar camada: ${err.message || err}`, true);
-    return;
+    return null;
   }
   await loadMapLayers();
   const def = _mapLayerGroups[`imported:${novoId}`]?.def;
   if (!def) {
     showToast(`Camada "${nome}" criada, mas nao apareceu na lista. Clique em Atualizar.`, true);
-    return;
+    return null;
   }
   await openMapPointEditor(def);
   _mapEditPendingCam = { livre: true };
   renderMapEditBanner();
   showToast(`Camada "${nome}" criada. Clique no mapa para marcar o primeiro ponto.`);
+  return def;
 }
 
 // Ponto livre (CTO, poste, caixa, camera que ainda nao esta no inventario):
