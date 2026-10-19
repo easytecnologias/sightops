@@ -292,11 +292,13 @@ def avisos_do_gravador(g: Gravador) -> Dict[str, Any]:
         except ErroDriver:
             relogio = None
         avisos = montar_avisos({}, relogio) if relogio else []
-        # Sem leitura de configuracao nesta marca: so o relogio, e sem correcao
-        # (a escrita de hora na Hikvision nao foi provada em equipamento).
+        # Sem leitura de configuracao nesta marca: so o relogio. Ele tem
+        # correcao no Hikvision (PUT /ISAPI/System/time, ver _acertar_relogio);
+        # outra marca nao-Intelbras segue so mostrando.
         for a in avisos:
-            a["seguro"] = False
-            a["manual"] = True
+            if not (g.marca == "hikvision" and a["id"] == "relogio"):
+                a["seguro"] = False
+                a["manual"] = True
         return {"marca": g.marca, "avisos": [_publico(a) for a in avisos], "parcial": True}
     pares, relogio, com_camera = _ler(g)
     return {"marca": g.marca, "avisos": [_publico(a) for a in montar_avisos(pares, relogio, com_camera=com_camera)],
@@ -344,7 +346,40 @@ def registros_do_host(base: Path, host: str, limite: int = 50, conector: str = "
     return out[:limite]
 
 
+def _acertar_relogio_hik(g: Gravador) -> Dict[str, Any]:
+    """Hikvision: reescreve so a hora em /ISAPI/System/time.
+
+    Le o XML atual e troca apenas o <localTime>, mantendo fuso, modo e o resto
+    como o gravador tem. A hora vai no fuso DO GRAVADOR (o deslocamento que ele
+    mesmo informa, ex. -03:00), nao no do servidor. Medido no DS-7616NXI-K1 do
+    JANGADEIROS (19/10/2026): timeMode=manual, CST+3, relogio 11 h atrasado.
+    """
+    from datetime import timedelta, timezone
+
+    atual = g._get("/ISAPI/System/time")
+    m = re.search(r"<localTime>\s*\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?(Z|[+-]\d\d:?\d\d)?\s*</localTime>", atual)
+    if not m:
+        raise ErroDriver("o gravador nao informou a hora atual (localTime)")
+    deslocamento = m.group(1) or ""
+    if deslocamento in ("", "Z"):
+        fuso = timezone.utc if deslocamento == "Z" else datetime.now().astimezone().tzinfo
+    else:
+        sinal = -1 if deslocamento.startswith("-") else 1
+        hh, mm = deslocamento[1:].replace(":", "")[:2], deslocamento[1:].replace(":", "")[2:4]
+        fuso = timezone(sinal * timedelta(hours=int(hh), minutes=int(mm or 0)))
+    agora = datetime.now(timezone.utc).astimezone(fuso)
+    nova = agora.strftime("%Y-%m-%dT%H:%M:%S") + (deslocamento if deslocamento not in ("",) else "")
+    corpo = atual[:m.start()] + f"<localTime>{nova}</localTime>" + atual[m.end():]
+    g._put("/ISAPI/System/time", corpo)
+    depois = g.relogio()
+    ok = abs(int(depois["diferenca_s"])) <= 5
+    return {"ok": ok, "aplicadas": 1 if ok else 0, "nao_pegaram": [] if ok else ["hora"],
+            "relogio": depois}
+
+
 def _acertar_relogio(g: Gravador) -> Dict[str, Any]:
+    if g.marca == "hikvision":
+        return _acertar_relogio_hik(g)
     if g.marca != "intelbras":
         raise ErroDriver(f"acertar a hora ainda nao esta disponivel para {g.marca}")
     agora = datetime.now().strftime(FMT)
@@ -359,6 +394,17 @@ def _acertar_relogio(g: Gravador) -> Dict[str, Any]:
 
 def corrigir(g: Gravador, aviso_id: str, base: Path, por: str = "", conector: str = "") -> Dict[str, Any]:
     """Rele o gravador, remonta o aviso e aplica so o que ainda esta fora."""
+    if g.marca == "hikvision" and aviso_id == "relogio":
+        relogio = g.relogio()
+        if abs(int(relogio.get("diferenca_s") or 0)) <= RELOGIO_TOLERANCIA_S:
+            return {"ok": True, "ja_estava": True, "aplicadas": 0, "nao_pegaram": []}
+        r = _acertar_relogio(g)
+        reg = {"id": uuid.uuid4().hex[:12], "host": g.host, "conector": conector or "", "aviso": "relogio",
+               "titulo": "Relógio acertado", "quando": datetime.now().isoformat(timespec="seconds"), "por": por,
+               "mudancas": [{"chave": "hora", "de": relogio["gravador"], "para": r["relogio"]["gravador"]}],
+               "desfazivel": False, "ok": r["ok"], "nao_pegaram": r.get("nao_pegaram", []), "backup": ""}
+        _gravar_registro(base, reg)
+        return {**r, "registro": reg["id"], "titulo": reg["titulo"]}
     if g.marca != "intelbras":
         raise ErroDriver(f"correcao ainda nao esta disponivel para {g.marca}")
     pares, relogio, com_camera = _ler(g)

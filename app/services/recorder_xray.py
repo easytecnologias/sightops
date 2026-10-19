@@ -105,6 +105,20 @@ def _postar(url: str, user: str, password: str, corpo: str,
     return 401, ""
 
 
+def _colocar(url: str, user: str, password: str, corpo: str,
+             content_type: str = "application/xml", timeout: float = _TEMPO) -> Tuple[int | None, str]:
+    """PUT com Digest primeiro, Basic depois -- escrita de configuracao ISAPI."""
+    for auth in (HTTPDigestAuth(user, password), HTTPBasicAuth(user, password)):
+        try:
+            r = requests.put(url, data=corpo.encode("utf-8"), auth=auth, timeout=timeout,
+                             verify=False, headers={"Content-Type": content_type})
+            if r.status_code not in (401, 403) or "<statusCode>" in (r.text or ""):
+                return r.status_code, (r.text or "")
+        except Exception as exc:  # timeout, conexao recusada, DNS
+            return None, str(exc)
+    return 401, ""
+
+
 def conferir_alcance(host: str, connector_id: str = "") -> None:
     """Levanta ValueError se o equipamento so seria alcancado pelo IP REAL.
 

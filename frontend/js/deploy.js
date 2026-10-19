@@ -4943,15 +4943,35 @@ function recLigarAvisos(app) {
   app.querySelectorAll('[data-av-desfazer]').forEach(b => b.addEventListener('click', ev => recAvDesfazer(b.dataset.avDesfazer, ev.currentTarget)));
 }
 
+// Canais do gravador INCLUINDO os vagos. Hikvision (InputProxy/channels) e
+// parte das Intelbras listam so o canal cadastrado: o DS-7616NXI-K1 do
+// JANGADEIROS devolve 7 de 16. Sem os vagos a tela contava "0 livres" e o
+// "+ Adicionar camera" caia no canal 1, sobrescrevendo a camera que estava la.
+function recCanaisComVagos(d) {
+  const canais = Array.isArray(d?.canais) ? d.canais : [];
+  const total = Number(d?.resumo?.canais_total || d?.total_canais || 0);
+  const existentes = new Set(canais.map(c => Number(c.canal)));
+  const lista = [...canais];
+  for (let n = 1; n <= total; n++) {
+    if (!existentes.has(n)) lista.push({ canal: n, nome: '', ip: '', vago: true });
+  }
+  return lista.sort((a, b) => Number(a.canal) - Number(b.canal));
+}
+
+function recCanaisLivres(d) {
+  return recCanaisComVagos(d).filter(c => !String(c.ip || '').trim()).map(c => Number(c.canal));
+}
+
 function recSecCanais(d) {
-  const canais = d.canais || [];
+  const canais = recCanaisComVagos(d);
+  const primeiroLivre = recCanaisLivres(d)[0] || 0;
   return `<div class="bloco">
     <div class="bloco-cab"><div><h2>Canais</h2><p>Editar troca os dados sem tirar a camera do canal</p></div>
       <div class="bloco-dir">
         <button class="acao perigo" type="button" data-rec-excluir-sel disabled>Excluir selecionados</button>
         <button class="acao perigo" type="button" data-rec-excluir-todos ${canais.some(c => c.ip) ? '' : 'disabled'}>Excluir todos</button>
         <button class="acao" type="button" data-rec-buscar="1">Buscar cameras</button>
-        <button class="acao forte" type="button" data-rec-add="1">+ Adicionar camera</button></div></div>
+        <button class="acao forte" type="button" data-rec-add="${primeiroLivre}" ${primeiroLivre ? '' : 'disabled title="Nenhum canal livre neste gravador"'}>+ Adicionar camera</button></div></div>
     <div class="rolo"><table>
       <thead><tr><th><input type="checkbox" data-rec-sel-todos title="Marcar todos os canais com camera"></th><th>#</th><th>Nome</th><th>IP</th><th>Modelo</th><th>Resolucao</th><th>Codec</th><th>Estado</th><th></th></tr></thead>
       <tbody>${canais.map(c => `<tr>
@@ -5403,9 +5423,7 @@ function recPedirNome(sugestao, d, aoConfirmar) {
   tampa.querySelector('[data-rec-ok]')?.addEventListener('click', confirmar);
   tampa.querySelectorAll('[data-rec-fechar]').forEach(b => b.addEventListener('click', fechar));
   campo?.addEventListener('keydown', ev => { if (ev.key === 'Enter') confirmar(); });
-  tampa.querySelector('.rec-tampa').addEventListener('click', ev => {
-    if (ev.target === ev.currentTarget) fechar();
-  });
+  // Fecha so pelos botoes: clique fora levava o que ja tinha sido digitado.
 }
 
 // ── Tela inicial dos gravadores (nenhum aberto) ──
@@ -6288,8 +6306,15 @@ async function recBuscarGravadores() {
 function recAbrirEdicao(acao, canal) {
   const d = _deployRecorderXray;
   if (!d) return;
+  const livres = recCanaisLivres(d);
+  // "Adicionar" nunca abre num canal ocupado (seria sobrescrever a camera de
+  // la): sem canal ou com canal ocupado, a tela pede para escolher um livre.
+  if (acao === 'adicionar' && canal && !livres.includes(Number(canal))) canal = 0;
+  if (acao === 'adicionar' && !canal && !livres.length) {
+    showToast('Este gravador nao tem canal livre. Para trocar a camera de um canal, use "Trocar camera".', true);
+    return;
+  }
   const c = (d.canais || []).find(x => Number(x.canal) === Number(canal)) || { canal };
-  const livres = (d.canais || []).filter(x => !x.ip).map(x => x.canal);
   const titulos = { adicionar: 'Adicionar camera', editar: 'Editar camera', excluir: 'Excluir camera do canal' };
   const ehExcluir = acao === 'excluir';
 
@@ -6338,9 +6363,7 @@ function recAbrirEdicao(acao, canal) {
 
   const fechar = () => { tampa.innerHTML = ''; };
   tampa.querySelectorAll('[data-rec-fechar]').forEach(b => b.addEventListener('click', fechar));
-  tampa.querySelector('.rec-tampa').addEventListener('click', ev => {
-    if (ev.target === ev.currentTarget) fechar();
-  });
+  // Fecha so pelos botoes: clique fora levava o que ja tinha sido digitado.
   // Buscar de dentro do formulario: escolher na lista preenche IP e protocolo
   // e volta para ca sem perder o que ja foi digitado.
   tampa.querySelector('[data-rec-escolher-cam]')?.addEventListener('click', () => {
@@ -6545,9 +6568,7 @@ function recPedirSenha(item) {
   tampa.querySelector('[data-rec-ok]')?.addEventListener('click', entrar);
   tampa.querySelectorAll('[data-rec-fechar]').forEach(b => b.addEventListener('click', fechar));
   campoPass?.addEventListener('keydown', ev => { if (ev.key === 'Enter') entrar(); });
-  tampa.querySelector('.rec-tampa').addEventListener('click', ev => {
-    if (ev.target === ev.currentTarget) fechar();
-  });
+  // Fecha so pelos botoes: clique fora levava o que ja tinha sido digitado.
 }
 
 

@@ -129,7 +129,9 @@ async function g5Buscar() {
 // ---------------------------------------------------------------- Canais
 function g5SecCanais(d) {
   const g = g5Estado();
-  const canais = d.canais || [];
+  // Inclui os canais vagos ate a capacidade: o Hikvision so lista os
+  // cadastrados (7 de 16 no JANGADEIROS) e a tela dizia "0 livres".
+  const canais = typeof recCanaisComVagos === 'function' ? recCanaisComVagos(d) : (d.canais || []);
   const inv = g5Inventario(d);
   const comCam = canais.filter(c => c.ip);
   const sem = comCam.filter(c => g5Imagem(c, inv[c.canal]) === 'sem');
@@ -201,7 +203,7 @@ function g5SecCanais(d) {
       <div class="bloco-dir">
         <button class="acao perigo" type="button" data-rec-excluir-sel disabled>Excluir selecionados</button>
         <button class="acao" type="button" data-g5-buscar ${g.busca?.carregando ? 'disabled' : ''}>Procurar câmeras na rede</button>
-        <button class="acao forte" type="button" data-rec-add="${primeiroLivre || 1}">+ Adicionar câmera</button></div></div>
+        <button class="acao forte" type="button" data-rec-add="${primeiroLivre}" ${primeiroLivre ? '' : 'disabled title="Nenhum canal livre neste gravador"'}>+ Adicionar câmera</button></div></div>
     ${busca}${cartoes}${semMudanca}${foraHtml}
     <div class="rolo"><table>
       <thead><tr><th><input type="checkbox" data-rec-sel-todos title="Marcar todos os canais com câmera"></th><th>Canal</th><th>Nome</th><th>IP da câmera</th><th>Imagem</th><th>Gravando</th><th>Vídeo</th><th></th></tr></thead>

@@ -49,6 +49,12 @@ def _req(metodo: str, url: str, user: str, password: str,
                                  data=corpo, headers=cabecalho)
             if r.status_code not in (401, 403):
                 return r.status_code, (r.text or "")
+            # Hikvision responde 403 com ResponseStatus ("Invalid Operation")
+            # para canal que nao existe -- e uma resposta, nao senha errada.
+            # Tratado como senha, o PUT num canal vago abortava o "adicionar"
+            # antes do POST que cria o canal, e so sobrescrever funcionava.
+            if r.status_code == 403 and "<statusCode>" in (r.text or ""):
+                return r.status_code, r.text
         except Exception as exc:
             raise ErroGravador(f"nao consegui falar com o gravador: {exc}") from exc
     raise ErroGravador("o gravador recusou usuario ou senha")
@@ -343,6 +349,32 @@ _ACOES = {
 }
 
 
+def _canal_ocupado(marca: str, base: str, user: str, password: str, canal: int) -> str:
+    """IP (ou "uma camera") que ja esta no canal; "" se vago ou se nao deu
+    para ler -- a tela ja so oferece canal livre; isto e a segunda trava."""
+    try:
+        if marca == "hikvision":
+            cod, txt = _req("GET", f"{base}/ISAPI/ContentMgmt/InputProxy/channels/{int(canal)}",
+                            user, password, timeout=10)
+            if cod and 200 <= cod < 300:
+                m = re.search(r"<(?:ipAddress|hostName)>\s*([^<\s]+)\s*<", txt or "")
+                return m.group(1) if m else "uma camera"
+            return ""  # 403 "Invalid Operation" = canal vago
+        if marca == "intelbras":
+            from app.services.recorder_xray import _endereco_de_canal
+            cod, txt = _req("GET", f"{base}/cgi-bin/LogicDeviceManager.cgi?action=getCameraAll",
+                            user, password, timeout=20)
+            if not (cod and 200 <= cod < 300):
+                return ""
+            campos = dict(re.findall(rf"camera\[{int(canal) - 1}\]\.([^=\r\n]+)=([^\r\n]*)", txt or ""))
+            if str(campos.get("Type", "")).strip().lower() == "compose":
+                return ""
+            return _endereco_de_canal(campos.get("DeviceInfo.Address")) or ""
+    except ErroGravador:
+        return ""
+    return ""
+
+
 def executar(acao: str, *, host: str, user: str, password: str, canal: int,
              porta_gravador: Any = None, connector_id: str = "",
              ip: str = "", cam_user: str = "", cam_senha: str = "", nome: str = "",
@@ -368,6 +400,13 @@ def executar(acao: str, *, host: str, user: str, password: str, canal: int,
             raise ErroGravador("informe usuario e senha da camera")
     if acao == "renomear" and not nome:
         raise ErroGravador("informe o novo nome do canal")
+    if acao == "adicionar":
+        # "Adicionar" nunca substitui: no Hikvision o PUT no canal troca a
+        # camera que estiver la, sem perguntar. Quem troca e "Trocar camera".
+        ocupado = _canal_ocupado(marca, base, user, password, int(canal))
+        if ocupado:
+            raise ErroGravador(f"o canal {int(canal)} ja tem a camera {ocupado} -- "
+                               "nada foi gravado; para substituir use \"Trocar camera\"")
     try:
         saida = funcao(base, user, password, canal=int(canal), ip=ip, cam_user=cam_user,
                        cam_senha=cam_senha, nome=nome, protocolo=protocolo, porta=porta,

@@ -31,7 +31,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 from urllib.parse import quote
 
-from app.services.recorder_xray import _base, _pedir, _postar, detectar_marca
+from app.services.recorder_xray import _base, _colocar, _pedir, _postar, detectar_marca
 
 FMT = "%Y-%m-%d %H:%M:%S"
 
@@ -235,7 +235,8 @@ class Gravador:
     def __init__(self, host: str, user: str, password: str, porta: Any = 80,
                  connector_id: str = "", pedir: Optional[Callable[[str], Tuple[Optional[int], str]]] = None,
                  marca: str = "",
-                 postar: Optional[Callable[[str, str], Tuple[Optional[int], str]]] = None):
+                 postar: Optional[Callable[[str, str], Tuple[Optional[int], str]]] = None,
+                 colocar: Optional[Callable[[str, str], Tuple[Optional[int], str]]] = None):
         if not host or not password:
             raise ErroDriver("sem host ou sem senha do gravador")
         self.host = host
@@ -247,6 +248,7 @@ class Gravador:
             raise ErroDriver(str(exc)) from exc
         self._pedir = pedir or (lambda url: _pedir(url, self.user, self.password))
         self._postar = postar or (lambda url, corpo: _postar(url, self.user, self.password, corpo))
+        self._colocar = colocar or (lambda url, corpo: _colocar(url, self.user, self.password, corpo))
         self.marca = marca or detectar_marca(self.base, self.user, self.password)
 
     @property
@@ -259,6 +261,15 @@ class Gravador:
             raise ErroDriver("o gravador recusou usuario ou senha")
         if not cod or cod >= 400:
             raise ErroDriver(f"o gravador nao respondeu ({cod or txt[:80]})")
+        return txt
+
+    def _put(self, caminho: str, corpo: str) -> str:
+        cod, txt = self._colocar(f"{self.base}{caminho}", corpo)
+        if cod == 401:
+            raise ErroDriver("o gravador recusou usuario ou senha")
+        if not cod or cod >= 400:
+            m = re.search(r"<statusString>([^<]*)<", txt or "")
+            raise ErroDriver(f"o gravador recusou a escrita ({(m.group(1) if m else '') or cod or txt[:80]})")
         return txt
 
     def _post(self, caminho: str, corpo: str) -> str:
