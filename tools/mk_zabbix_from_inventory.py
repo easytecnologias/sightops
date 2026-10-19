@@ -306,6 +306,19 @@ def host_upsert(
     if tpl_links:
         payload_u["templates"] = tpl_links
     api("host.update", payload_u, auth)
+    # Trocar a interface inteira e o que falha; mudar so o IP da interface que
+    # ja existe (mesmo interfaceid) mantem os itens ligados. Sem isto, host criado
+    # antes do tunel isolado ficava para sempre no IP real, sem rota: na
+    # JANGADEIROS (19/10/2026) as cameras 03/04/05 davam offline no Zabbix e
+    # online no SightOps (validacao TCP pelo IP virtual).
+    try:
+        ifaces = api("hostinterface.get", {"hostids": existing["hostid"],
+                                           "output": ["interfaceid", "ip", "main", "useip"]}, auth) or []
+        principal = next((i for i in ifaces if str(i.get("main")) == "1"), None)
+        if principal and str(principal.get("useip")) == "1" and ip and principal.get("ip") != ip:
+            api("hostinterface.update", {"interfaceid": principal["interfaceid"], "ip": ip}, auth)
+    except Exception as e:
+        print(f"[WARN] {host}: IP da interface nao atualizado ({e})", file=sys.stderr)
     return "updated", str(existing["hostid"])
 
 
