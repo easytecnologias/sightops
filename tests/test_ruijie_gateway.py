@@ -235,3 +235,47 @@ def test_editar_conector_so_campos_de_cadastro_e_do_proprio_cliente(conectores, 
     monkeypatch.setattr(cs, "get_current_tenant_slug", lambda: "t2")
     with pytest.raises(ValueError, match="nao encontrado"):
         cs.update_connector("gw1", {"name": "invasor"})
+
+
+def test_eweb_so_abre_gateway_ruijie_provado_do_proprio_cliente(conectores, monkeypatch):
+    agora = datetime.now(timezone.utc).isoformat()
+    base = {"type": "ruijie", "password_enc": "x", "gateway_user": "admin", "last_seen": agora}
+
+    def gw(cid, tenant, ip, lans, poll_ok=True, poll_host=None):
+        return {**base, "id": cid, "tenant_slug": tenant, "gateway_host": ip,
+                "host": {"lan_networks": lans},
+                "ruijie": {"lans": [{"cidr": lans[0], "gateway": ip}]},
+                "ruijie_poll": {"ok": poll_ok, "host": poll_host or ip, "at": agora}}
+
+    cs._save_connectors([
+        gw("gw1", "t1", "172.16.80.1", ["172.16.80.0/23", "172.16.180.0/24"]),
+        gw("gw2", "t2", "10.9.0.1", ["10.9.0.0/24"]),
+    ])
+    monkeypatch.setattr(cs, "get_current_tenant_slug", lambda: "t1")
+    assert cs.ruijie_gateway_owner("172.16.80.1") == "gw1"
+    assert cs.ruijie_gateway_owner("172.16.80.200") == ""   # camera/NVR nao e o gateway
+    assert cs.ruijie_gateway_owner("10.9.0.1") == ""         # gateway de outro cliente
+    assert cs.ruijie_gateway_owner("lixo") == ""
+
+    def com(*rows):
+        cs._save_connectors(list(rows))
+        return cs.ruijie_gateway_owner(rows[0]["gateway_host"])
+
+    # IP digitado sem prova: o "gateway" nunca respondeu (camera de outro cliente, servico interno)
+    assert com(gw("gw1", "t1", "10.50.10.20", ["172.16.80.0/23"], poll_ok=False)) == ""
+    # ultima coleta foi em outro endereco (acabou de editar o host)
+    assert com(gw("gw1", "t1", "172.16.80.1", ["172.16.80.0/23"], poll_host="172.16.80.9")) == ""
+    # o gateway nao informou esse IP como interface de LAN
+    x = gw("gw1", "t1", "172.16.80.7", ["172.16.80.0/23"])
+    x["ruijie"]["lans"][0]["gateway"] = "172.16.80.1"
+    assert com(x) == ""
+    # conector offline (coleta parada)
+    velho = gw("gw1", "t1", "172.16.80.1", ["172.16.80.0/23"])
+    velho["last_seen"] = "2020-01-01T00:00:00+00:00"
+    assert com(velho) == ""
+    # rede de tunel de um MikroTik (qualquer cliente) cobre o IP: rota do host pode ir para la
+    mk = {"id": "mk", "type": "routeros", "tenant_slug": "t9", "tunnel": {"client_lans": ["172.16.80.0/24"]}}
+    assert com(gw("gw1", "t1", "172.16.80.1", ["172.16.80.0/23"]), mk) == ""
+    # outro Ruijie (outro cliente) com a mesma faixa: o servidor nao sabe qual tunel
+    assert com(gw("gw1", "t1", "172.16.80.1", ["172.16.80.0/23"]),
+               gw("gw3", "t2", "172.16.80.1", ["172.16.80.0/23"])) == ""

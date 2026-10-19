@@ -258,7 +258,7 @@ function openConnectorActionMenu(event, connectorId, trigger) {
     <button type="button" data-action="edit"><i data-lucide="pencil"></i><span>Editar</span></button>
     <button type="button" data-action="ruijie-lan"><i data-lucide="scan-search"></i><span>Coletar LAN</span></button>
     <button type="button" data-action="ruijie-vpn"><i data-lucide="shield"></i><span>Configurar VPN</span></button>
-    <button type="button" data-action="router-winbox"><i data-lucide="terminal"></i><span>Acessar via Winbox</span></button>
+    <button type="button" data-action="ruijie-eweb"><i data-lucide="globe"></i><span>Acessar eWeb</span></button>
     <button type="button" data-action="pc-agent"><i data-lucide="monitor-down"></i><span>Baixar agente (PC)</span></button>
     <button type="button" class="danger" data-action="delete"><i data-lucide="trash-2"></i><span>Excluir</span></button>` : `
     <button type="button" data-action="edit"><i data-lucide="pencil"></i><span>Editar</span></button>
@@ -283,6 +283,7 @@ function openConnectorActionMenu(event, connectorId, trigger) {
     if (action === 'ruijie-lan') collectRuijieLanInventory(connectorId);
     if (action === 'ruijie-vpn') openRuijieVpnModal(connectorId);
     if (action === 'router-winbox') openConnectorWinbox(connectorId);
+    if (action === 'ruijie-eweb') openRuijieEweb(connectorId);
     if (action === 'pc-agent') downloadPcAgent();
     if (action === 'delete') deleteConnector(connectorId);
   });
@@ -515,6 +516,18 @@ async function openConnectorWinbox(connectorId) {
   // tela para trocar, e cada MikroTik atende numa porta diferente (JAPARATINGA
   // na 8291, os outros na 3854). Um caminho so, igual em todo conector.
   openConnectorPortsModal(connectorId);
+}
+
+// eWeb do gateway Ruijie: abre pelo SightOps Agent (openDeviceWeb), igual a
+// camera/NVR -- o gateway_host e o IP da LAN, alcancado pelo tunel OpenVPN
+// do conector. Porta 80: o eWeb atende HTTP ali sem redirecionar para HTTPS.
+function openRuijieEweb(connectorId) {
+  const ip = String(connectorById(connectorId)?.gateway_host || '').trim();
+  if (!ip) {
+    showToast('Este conector nao tem o IP/host do gateway cadastrado.', true);
+    return;
+  }
+  openDeviceWeb(ip, 80);
 }
 
 function downloadPcAgent() {

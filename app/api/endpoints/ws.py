@@ -659,6 +659,16 @@ async def ws_web_tunnel(ws: WebSocket, ip: str) -> None:
         if not _is_proxy_allowed_host(host) or not _ip_belongs_to_current_tenant(host):
             await ws.close(code=4403)
             return
+        # Gateway Ruijie: so a interface web (eWeb). Sem isto a ponte abriria
+        # TCP bruto em qualquer porta do gateway.
+        try:
+            from app.api.endpoints.maintenance import _ruijie_gateway_owner
+            if _ruijie_gateway_owner(host) and port not in (80, 443):
+                await ws.close(code=4403)
+                return
+        except Exception:
+            await ws.close(code=4403)
+            return
         # GRAVADOR nao vive no inventario de cameras, e o _reach so resolve o
         # conector por la -- sem este hint ele devolveria o IP real e o
         # container nao alcanca a LAN do conector isolado (camera abria, NVR

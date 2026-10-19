@@ -613,6 +613,70 @@ def update_connector(connector_id: str, payload: Dict[str, Any]) -> Dict[str, An
         return {"ok": True, "connector": _public_connector(row, include_token=False)}
 
 
+def ruijie_gateway_owner(ip: str) -> str:
+    """Conector Ruijie do cliente ATUAL cujo gateway atende neste IP (o
+    gateway_host do cadastro) -- autoriza abrir o eWeb pelo agente.
+
+    O Ruijie nao tem tunel isolado nem IP virtual: o servidor chega no
+    gateway pela tabela de rotas comum (tun do OpenVPN). Se outro conector
+    Ruijie, de QUALQUER cliente, tambem tem esse IP como gateway ou dentro
+    das redes dele, nao da para garantir qual tunel o pacote pega -- entao
+    nao autoriza ninguem.
+    """
+    alvo = _text(ip)
+    if not alvo:
+        return ""
+    try:
+        alvo_ip = ipaddress.ip_address(alvo)
+    except ValueError:
+        return ""
+    with _lock:
+        todos = _load_connectors()
+    ruijies = [r for r in todos if _text(r.get("type")).lower() == "ruijie"]
+    # Rede de tunel de QUALQUER outro conector (MikroTik, todos os clientes):
+    # se o IP cai nela, a rota do host pode levar o pacote para la.
+    for r in todos:
+        if _text(r.get("type")).lower() == "ruijie":
+            continue
+        tunel = r.get("tunnel") if isinstance(r.get("tunnel"), dict) else {}
+        for cidr in tunel.get("client_lans") or []:
+            try:
+                if alvo_ip in ipaddress.ip_network(str(cidr), strict=False):
+                    return ""
+            except ValueError:
+                continue
+    donos = []
+    for r in ruijies:
+        redes = (r.get("host") or {}).get("lan_networks") if isinstance(r.get("host"), dict) else []
+        dentro = _text(r.get("gateway_host")) == alvo
+        for cidr in redes or []:
+            try:
+                dentro = dentro or alvo_ip in ipaddress.ip_network(str(cidr), strict=False)
+            except ValueError:
+                continue
+        if dentro:
+            donos.append(r)
+    if len(donos) != 1:
+        return ""
+    unico = donos[0]
+    if _text(unico.get("gateway_host")) != alvo or not _visible_to_current_tenant(unico):
+        return ""
+    # Prova de posse: o gateway_host e digitado pelo cliente, entao sozinho
+    # nao prova nada (daria para "cadastrar" a camera de outro cliente ou um
+    # servico interno do servidor e abrir um tunel ate la). So vale se a
+    # ultima coleta deu certo NESTE endereco -- login no eWeb com a senha do
+    # gateway -- e o proprio gateway informou este IP como interface de LAN.
+    poll = unico.get("ruijie_poll") if isinstance(unico.get("ruijie_poll"), dict) else {}
+    if not poll.get("ok") or _text(poll.get("host")) != alvo:
+        return ""
+    if _public_connector(unico).get("status") != "online":
+        return ""
+    lans = (unico.get("ruijie") or {}).get("lans") if isinstance(unico.get("ruijie"), dict) else []
+    if alvo not in {_text(l.get("gateway")) for l in lans or [] if isinstance(l, dict)}:
+        return ""
+    return _text(unico.get("id"))
+
+
 # Sessao do eWeb por conector, reaproveitada entre coletas (o id do conector
 # e unico entre clientes, entao a chave ja isola um tenant do outro).
 _ruijie_sessions: Dict[str, Any] = {}
@@ -654,7 +718,7 @@ def _ruijie_poll_row(row: Dict[str, Any]) -> Dict[str, Any]:
                     or _text(item.get("tenant_slug")) != _text(row.get("tenant_slug"))
                     or _text(item.get("gateway_host")) != gw_host):
                 continue
-            item["ruijie_poll"] = {"at": _now(), "ok": not erro, "error": erro,
+            item["ruijie_poll"] = {"at": _now(), "ok": not erro, "error": erro, "host": gw_host,
                                    "module_errors": result.get("module_errors", [])}
             if not erro:
                 now = _now()

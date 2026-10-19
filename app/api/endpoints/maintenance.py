@@ -144,6 +144,8 @@ def _ip_belongs_to_current_tenant(ip: str) -> bool:
         or _host_in_recorder_inventory(ip)
         # o MikroTik do proprio conector (IP do tunel) tambem e "do tenant"
         or bool(_connector_tunnel_ip_owner(ip))
+        # e o gateway Ruijie do conector (eWeb pelo tunel OpenVPN)
+        or bool(_ruijie_gateway_owner(ip))
         # e o switch gerenciavel coletado por ele (acesso web pela tela Switch)
         or _switch_connector_for_ip(ip) is not None
         # e a ONU gerenciada por TR-069 (IP da rede de gerencia dela)
@@ -527,6 +529,16 @@ def _ip_em_transito_isolado(ip: str) -> bool:
         return False
 
 
+def _ruijie_gateway_owner(ip: str) -> str:
+    """Conector Ruijie (do tenant atual) cujo gateway e este IP; "" se nao for
+    ou se o IP for ambiguo entre conectores Ruijie (ver connector_service)."""
+    try:
+        from app.services.connector_service import ruijie_gateway_owner
+        return ruijie_gateway_owner(ip)
+    except Exception:
+        return ""
+
+
 def _connector_tunnel_ip_owner(ip: str) -> str:
     """Conector cujo PROPRIO MikroTik atende neste IP (o client_address do
     tunnel WireGuard, ex. 10.201.0.17/31). So olha conectores visiveis pro
@@ -589,6 +601,10 @@ def _connector_for(ip: str, hint: str = "") -> str:
         return str(leitor.get("connector_id")).strip()
     # Nao e camera: pode ser o proprio MikroTik do conector (IP do tunel).
     dono = _connector_tunnel_ip_owner(ip)
+    if dono:
+        return dono
+    # Gateway Ruijie: o conector dele, e nao a faixa de vnat de um MikroTik.
+    dono = _ruijie_gateway_owner(ip)
     if dono:
         return dono
     # Ultimo recurso: a FAIXA do vnat. Cobre o IP que ainda nao esta no
