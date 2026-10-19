@@ -461,7 +461,7 @@ def _garantir_gatilhos_gravador(url: str, auth: str, technical_names: Dict[str, 
         return 0
 
 
-def sync_monitoring_to_zabbix(entity_types: tuple[str, ...] = ("olt", "onu", "camera", "nvr", "dvr", "connector", "access_device", "whatsapp", "switch", "windows")) -> Dict[str, Any]:
+def sync_monitoring_to_zabbix(entity_types: tuple[str, ...] = ("olt", "onu", "camera", "nvr", "dvr", "connector", "access_device", "whatsapp", "switch", "windows", "access_point")) -> Dict[str, Any]:
     settings = load_app_settings()
     raw_cfg = settings.get("zabbix_ip_sync") if isinstance(settings.get("zabbix_ip_sync"), dict) else {}
     cfg = _default_zabbix_cfg(raw_cfg)
@@ -619,7 +619,7 @@ def sync_monitoring_to_zabbix(entity_types: tuple[str, ...] = ("olt", "onu", "ca
         "sightops.canais_sem_imagem": ("SightOps - Cameras no ar sem imagem no gravador", 3, "Canais em que a camera responde na rede mas o gravador nao recebe imagem (nao esta gravando)"),
         "sightops.disco_c_livre_pct": ("SightOps - Disco C: livre (%)", 0, "Espaco livre no C: no ultimo relatorio do agente Windows"),
         "sightops.defender_tempo_real": ("SightOps - Defender em tempo real", 3, "1 = ligado, 0 = desligado (agente Windows)"),
-        "sightops.alertas": ("SightOps - Alertas de saude", 3, "Quantos alertas o inventario Windows levantou (sem SSD, pouca memoria, disco cheio, Defender, BitLocker, TPM, Windows sem suporte)"),
+        "sightops.alertas": ("SightOps - Alertas de saude", 3, "Windows: alertas do inventario (sem SSD, pouca memoria, disco cheio, Defender, BitLocker, TPM, Windows sem suporte). Gateway/AP Ruijie: alarmes ativos no equipamento + conflito de IP"),
     }
     # bit/s ja vem calculado (olt_snmp_health, entre duas leituras SNMP). A
     # primeira versao criou estes itens com pre-processamento "x8 + diferenca
@@ -645,11 +645,25 @@ def sync_monitoring_to_zabbix(entity_types: tuple[str, ...] = ("olt", "onu", "ca
         "nvr": ["sightops.canais_online", "sightops.canais_offline", "sightops.canais_total", "sightops.canais_sem_imagem"],
         "dvr": ["sightops.canais_online", "sightops.canais_offline", "sightops.canais_total", "sightops.canais_sem_imagem"],
         "windows": ["sightops.disco_c_livre_pct", "sightops.defender_tempo_real", "sightops.alertas"],
+        # Gateway Ruijie (conector sem agente) e APs Reyee. O tipo "connector"
+        # tambem e o MikroTik, que nao manda nada disso: por isso so cria o
+        # item quando o detalhe da entidade traz o valor (ver abaixo).
+        "connector": ["sightops.ports_up", "sightops.ports_total", "sightops.uplink_in_bps",
+                      "sightops.uplink_out_bps", "sightops.alertas"],
+        "access_point": ["sightops.alertas"],
     }
+    so_se_presente = {"connector", "access_point"}
     create_items = []
     for technical_name, row in technical_names.items():
         hostid = host_ids.get(technical_name, "")
-        keys = ["sightops.status"] + metricas_por_tipo.get(_text(row.get("entity_type")), [])
+        tipo = _text(row.get("entity_type"))
+        keys = ["sightops.status"] + metricas_por_tipo.get(tipo, [])
+        if tipo in so_se_presente:
+            try:
+                detalhe_row = json.loads(_text(row.get("detail_json")) or "{}")
+            except Exception:
+                detalhe_row = {}
+            keys = [k for k in keys if k == "sightops.status" or detalhe_row.get(k.split(".", 1)[1]) is not None]
         for key in keys:
             if (hostid, key) in item_by_host_key:
                 continue

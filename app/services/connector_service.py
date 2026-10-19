@@ -21,9 +21,15 @@ from cryptography.hazmat.primitives.asymmetric import x25519
 from app.core.crypto import decrypt, encrypt
 from app.core.paths import DATA_DIR
 from app.core.tenant_context import get_current_tenant_slug, reset_current_tenant_slug, set_current_tenant_slug
-from app.cli.tools.ruijie_reyee import RuijieAuthError, lan_inventory as ruijie_lan_inventory_call
+from app.cli.tools.ruijie_reyee import RuijieAuthError, collect_status as ruijie_collect_status
 
 CONNECTORS_PATH = DATA_DIR / "connectors.json"
+# Intervalo da coleta automatica dos gateways Ruijie (sem agente -- o SightOps
+# pergunta). Tambem define a janela de "online" deles (3 ciclos).
+try:
+    RUIJIE_POLL_INTERVAL_S = max(60, min(int(os.getenv("SIGHTOPS_RUIJIE_POLL_INTERVAL", "120")), 900))
+except ValueError:
+    RUIJIE_POLL_INTERVAL_S = 120
 CONNECTOR_JOBS_PATH = DATA_DIR / "connector-jobs.json"
 # Endereco publico onde os roteadores dos clientes fecham o tunel. Sai de
 # variavel de ambiente: e infraestrutura, nao codigo -- e um repositorio nao
@@ -408,12 +414,11 @@ def _public_connector(row: Dict[str, Any], include_token: bool = False) -> Dict[
     online = False
     if last_seen:
         # O MikroTik tem agente que bate heartbeat sozinho a cada 60s -- 90s de
-        # janela reflete isso de verdade. O Ruijie e "pull": so atualiza
-        # last_seen quando alguem clica em "Coletar LAN" (sem heartbeat), entao
-        # a mesma janela curta o deixaria "offline" minutos depois de qualquer
-        # coleta bem-sucedida, por engano. Usa uma janela bem mais longa nesse
-        # caso -- e um sinal de "ultima coleta ok", nao de conexao continua.
-        window_seconds = 90 if _text(row.get("type")).lower() != "ruijie" else 86400
+        # janela reflete isso de verdade. O Ruijie e "pull": o SightOps o
+        # consulta a cada RUIJIE_POLL_INTERVAL_S (laco em app/main.py), entao a
+        # janela e de 3 ciclos. Antes era 24 h, e o gateway ficava "online" o
+        # dia inteiro depois de cair.
+        window_seconds = 90 if _text(row.get("type")).lower() != "ruijie" else RUIJIE_POLL_INTERVAL_S * 3
         try:
             last_ts = datetime.fromisoformat(last_seen.replace("Z", "+00:00")).timestamp()
             online = (time.time() - last_ts) <= window_seconds
@@ -570,12 +575,95 @@ def ruijie_update_vpn(connector_id: str, vpn_username: str, vpn_password: str, v
         return {"ok": True, "connector": _public_connector(row, include_token=False)}
 
 
-def ruijie_collect_lan_inventory(connector_id: str) -> Dict[str, Any]:
-    """Loga no gateway Ruijie e devolve o inventario de dispositivos da LAN.
+# Sessao do eWeb por conector, reaproveitada entre coletas (o id do conector
+# e unico entre clientes, entao a chave ja isola um tenant do outro).
+_ruijie_sessions: Dict[str, Any] = {}
 
-    Chamado direto pelo SightOps (sem fila/job, sem agente) -- o gateway
-    tem IP publico e responde na hora, diferente do fluxo assincrono do
-    MikroTik (que precisa esperar o proximo ciclo do script no equipamento).
+
+def _ruijie_poll_row(row: Dict[str, Any]) -> Dict[str, Any]:
+    """Coleta um gateway Ruijie e grava o resultado no cadastro do conector.
+
+    Sucesso atualiza last_seen (e isso que deixa o conector online), o
+    inventario no formato do MikroTik e o bloco `ruijie` (portas, APs,
+    alarmes, WAN). Falha so registra o erro: last_seen fica parado e o
+    conector cai para offline sozinho quando a janela vence.
+    """
+    connector_id = _text(row.get("id"))
+    gw_host = _text(row.get("gateway_host"))
+    gw_user = _text(row.get("gateway_user")) or "admin"
+    gw_pass_enc = _text(row.get("password_enc"))
+    if not gw_host or not gw_pass_enc:
+        raise ValueError("conector Ruijie sem host/senha cadastrados")
+    erro = ""
+    result: Dict[str, Any] = {}
+    try:
+        result = ruijie_collect_status(gw_host, gw_user, decrypt(gw_pass_enc),
+                                       session=_ruijie_sessions.get(connector_id))
+        _ruijie_sessions[connector_id] = result.pop("session", None)
+    except RuijieAuthError as exc:
+        _ruijie_sessions.pop(connector_id, None)
+        erro = f"falha ao autenticar no gateway Ruijie: {exc}"
+    except Exception as exc:  # noqa: BLE001 -- gateway fora do ar e um estado, nao um bug
+        _ruijie_sessions.pop(connector_id, None)
+        erro = f"gateway Ruijie nao respondeu: {exc}"
+    with _lock:
+        rows = _load_connectors()
+        for item in rows:
+            # A coleta roda fora do lock e pode levar minutos: se nesse meio
+            # tempo o conector foi apagado e outro (de outro cliente) nasceu
+            # com o mesmo id, o dado deste gateway nao pode cair nele.
+            if (_text(item.get("id")) != connector_id
+                    or _text(item.get("tenant_slug")) != _text(row.get("tenant_slug"))
+                    or _text(item.get("gateway_host")) != gw_host):
+                continue
+            item["ruijie_poll"] = {"at": _now(), "ok": not erro, "error": erro,
+                                   "module_errors": result.get("module_errors", [])}
+            if not erro:
+                now = _now()
+                item["last_seen"] = now
+                item["status"] = "online"
+                atual = item.get("inventory") if isinstance(item.get("inventory"), dict) else {}
+                inventario = dict(result["inventory"])
+                for key in ("known_targets", "known_targets_updated_at"):
+                    if key in atual:
+                        inventario[key] = atual[key]
+                inventario["collected_at"] = now
+                item["inventory"] = inventario
+                host = dict(result["host"])
+                host["hostname"] = host.get("hostname") or _text(item.get("name"))
+                host["ips"] = [gw_host]
+                item["host"] = host
+                item["version"] = host.get("firmware", "")
+                item["remote_ip"] = gw_host
+                # AP que cai SOME da lista de vizinhos do gateway. Se o
+                # monitoramento so olhasse a lista atual, o AP seria apagado
+                # em vez de alertar -- entao todo AP ja visto fica guardado,
+                # e quem nao aparece mais vira "down" (monitoring_service).
+                conhecidos = item.get("ruijie_aps_known") if isinstance(item.get("ruijie_aps_known"), dict) else {}
+                anterior = item.get("ruijie") if isinstance(item.get("ruijie"), dict) else {}
+                novo = dict(result["ruijie"])
+                # Modulo que nao respondeu neste ciclo (None) nao apaga a lista
+                # de APs: o monitoramento le "aps_ok" para nao dar AP offline.
+                novo["aps_ok"] = novo.get("aps") is not None
+                if novo.get("aps") is None:
+                    novo["aps"] = anterior.get("aps") or []
+                item["ruijie"] = novo
+                for ap in (result["ruijie"].get("aps") or []):
+                    if ap.get("sn"):
+                        conhecidos[ap["sn"]] = {**ap, "last_seen": now}
+                item["ruijie_aps_known"] = conhecidos
+            break
+        _save_connectors(rows)
+    if erro:
+        raise ValueError(erro)
+    return result
+
+
+def ruijie_collect_lan_inventory(connector_id: str) -> Dict[str, Any]:
+    """Coleta um gateway Ruijie na hora (botao "Coletar LAN").
+
+    E a mesma coleta que o laco automatico faz a cada poucos minutos
+    (ruijie_poll_all); o botao so serve para nao esperar o proximo ciclo.
     """
     with _lock:
         rows = _load_connectors()
@@ -584,34 +672,26 @@ def ruijie_collect_lan_inventory(connector_id: str) -> Dict[str, Any]:
             raise ValueError("conector nao encontrado")
         if _text(row.get("type")) != "ruijie":
             raise ValueError("conector nao e do tipo Ruijie")
-        gw_host = _text(row.get("gateway_host"))
-        gw_user = _text(row.get("gateway_user")) or "admin"
-        gw_pass_enc = _text(row.get("password_enc"))
-    if not gw_host or not gw_pass_enc:
-        raise ValueError("conector Ruijie sem host/senha cadastrados")
-    gw_pass = decrypt(gw_pass_enc)
-    try:
-        result = ruijie_lan_inventory_call(gw_host, gw_user, gw_pass)
-    except RuijieAuthError as exc:
-        raise ValueError(f"falha ao autenticar no gateway Ruijie: {exc}") from exc
+        row = dict(row)
+    result = _ruijie_poll_row(row)
+    inventario = result.get("inventory") or {}
+    return {"ok": True, "sn": result.get("sn"), "count": inventario.get("count", 0),
+            "devices": inventario.get("ruijie_devices", [])}
+
+
+def ruijie_poll_all() -> Dict[str, Any]:
+    """Coleta todos os gateways Ruijie (de todos os clientes). Roda no laco
+    de app/main.py -- e o "heartbeat" do Ruijie, que nao tem agente proprio."""
     with _lock:
-        rows = _load_connectors()
-        for item in rows:
-            if _text(item.get("id")) == _text(connector_id):
-                item["last_seen"] = _now()
-                item["inventory"] = {
-                    "ruijie_devices": result.get("devices", []),
-                    "count": result.get("count", 0),
-                }
-                item["remote_ip"] = gw_host
-                item["host"] = {
-                    "hostname": _text(item.get("name")),
-                    "model": f"SN {result.get('sn')}" if result.get("sn") else "",
-                    "ips": [gw_host],
-                }
-                break
-        _save_connectors(rows)
-    return result
+        alvos = [dict(r) for r in _load_connectors() if _text(r.get("type")).lower() == "ruijie"]
+    resumo: Dict[str, Any] = {"total": len(alvos), "ok": 0, "erros": {}}
+    for row in alvos:
+        try:
+            _ruijie_poll_row(row)
+            resumo["ok"] += 1
+        except Exception as exc:  # noqa: BLE001 -- um gateway fora nao para os outros
+            resumo["erros"][_text(row.get("id"))] = str(exc)
+    return resumo
 
 
 def _raw_connector(connector_id: str, enforce_tenant: bool = False) -> Dict[str, Any] | None:

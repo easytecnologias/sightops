@@ -1,0 +1,30 @@
+{
+ "_origem": "Estrutura das respostas de um EG105G-P-V2 (ReyeeOS 2.340.0.1629), 19/10/2026. Valores ficticios; campos e formatos iguais aos do equipamento.",
+ "sysinfo": {"hardware_version": "1.11", "manufacturer": "Ruijie Networks Co., Ltd", "max_sta_num": "200", "product_class": "EG105G-P-V2", "productType": "egw", "max_ap_num": "32", "ostype": "openwrt", "sys_mac": "10:82:3D:00:00:01", "model": "EG105G-P-V2", "forwardMode": "ROUTER", "software_version": "ReyeeOS 2.340.0.1629;EG_3.0(1)B11P340,Release(12162923)", "wan_ip": "203.0.113.10", "serial_num": "H1SU000000001"},
+ "arp": {"arpList": [
+  {"hardware": "a4:d5:c2:00:00:10", "intf": "br-lan_300", "address": "172.16.80.202"},
+  {"hardware": "6e:ad:a7:00:00:11", "intf": "br-lan_200", "address": "172.16.180.101"},
+  {"hardware": "08:cc:81:00:00:12", "intf": "br-lan_300", "address": "172.16.80.200"}
+ ]},
+ "user_list": {"dev_sn": "H1SU000000001", "code": "0", "list": [
+  {"mac": "08:cc:81:00:00:12", "userIp": "172.16.80.200", "name": "", "ssid": "", "band": "", "hostName": "DS-7632NXI-K2", "up": "", "down": "", "flowUp": "2425806", "flowDown": "58055", "connectType": "wire", "access_vlan": "0", "sn": "H1SU000000001", "port": "LAN3/WAN1"},
+  {"mac": "62:0f:2d:00:00:13", "userIp": "172.16.180.100", "name": "", "ssid": "COLABORADORES", "band": "2.4G", "rssi": "-86", "hostName": "Galaxy-A20", "up": "4214374", "down": "85388058", "connectType": "wireless", "access_vlan": "0", "sn": "G1RUAGG000002"},
+  {"mac": "aa:bb:cc:00:00:14", "userIp": "", "name": "", "ssid": "", "hostName": "", "connectType": "wireoff", "access_vlan": "0"}
+ ]},
+ "network": {"version": "1.0.0", "lanNum": "2", "wanNum": "1",
+  "wan": [{"proto": "pppoe", "mtu": "1480", "service": "PROVEDOR", "username": "usuario_pppoe", "password": "SENHA-PPPOE-NAO-PODE-VAZAR", "macaddr": "10:82:3d:00:00:03", "nat_ena": "1"}],
+  "lan": [
+   {"proto": "static", "ipaddr": "172.16.80.1", "netmask": "255.255.254.0", "vlanid": "300", "desc": "", "ignore": "0", "leasetime": "30", "limit": "254"},
+   {"proto": "static", "ipaddr": "172.16.180.1", "netmask": "255.255.255.0", "vlanid": "200", "desc": "WIFI", "ignore": "0", "leasetime": "30", "limit": "254"}
+  ]},
+ "remarks": {"list": [{"mac": "1082.3d00.0001", "name": "GW-TESTE"}], "total": "1"},
+ "ports": {"count": "3", "List": [
+  {"name": "LAN", "ipaddr": "172.16.80.1", "poe_direct": "out", "panel_name": "LAN0", "portId": "1", "duplex": "full", "status": "on", "speed": "100"},
+  {"name": "LAN", "ipaddr": "172.16.80.1", "poe_direct": "out", "panel_name": "LAN1", "portId": "2", "duplex": "full", "status": "off", "speed": ""},
+  {"name": "WAN", "ipaddr": "203.0.113.10", "poe_direct": "none", "poe_enable": "0", "panel_name": "WAN", "portId": "5", "duplex": "full", "status": "on", "speed": "1000"}
+ ]},
+ "flow": {"count": 1, "data": {"wan": {"up": "3977271", "down": "36503522"}}},
+ "neighbor": {"neighbor": [{"role": "AP", "deviceType": "RAP6262", "devSN": "G1RUAGG000002", "ip": "172.16.80.4", "devMac": "10:82:3D:00:00:02", "software": "ReyeeOS 2.360.0.2002;AP_3.0(1)B11P360,Release(12200216)", "product": "EAP", "forwardMode": "AP"}], "count": "1"},
+ "alarms": {"list": [{"id": 170, "detail": [{"sn": "G1RUAGG000002", "msg": "当前使用非标准适配器，设备供电不足!", "type": "device", "time": 1792416898, "id": 170, "msgId": 2}]}]},
+ "conflict": {"conflict_status": false}
+}

@@ -574,6 +574,27 @@ async def _alert_escalation_loop() -> None:
         await asyncio.sleep(15)
 
 
+async def _ruijie_poll_loop() -> None:
+    """Gateways Ruijie nao tem agente nem heartbeat: o SightOps pergunta a
+    eles. Sem este laco o conector so era atualizado no clique de "Coletar
+    LAN" e o status/Zabbix ficava parado no ultimo clique."""
+    from app.services.connector_service import RUIJIE_POLL_INTERVAL_S, ruijie_poll_all
+
+    await asyncio.sleep(20)
+    while True:
+        try:
+            resumo = await asyncio.to_thread(ruijie_poll_all)
+            app.state.ruijie_poll_last = {"ok": True, "interval_s": RUIJIE_POLL_INTERVAL_S, **resumo}
+            if resumo.get("erros"):
+                logger.warning("ruijie poll: %s gateway(s) sem resposta: %s", len(resumo["erros"]), resumo["erros"])
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            app.state.ruijie_poll_last = {"ok": False, "interval_s": RUIJIE_POLL_INTERVAL_S, "error": str(exc)}
+            logger.exception("ruijie poll loop failed")
+        await asyncio.sleep(RUIJIE_POLL_INTERVAL_S)
+
+
 async def _live_stream_cleanup_loop() -> None:
     from app.services.live_stream_service import reap_idle_streams
 
@@ -632,6 +653,7 @@ async def startup_events() -> None:
         _alert_escalation_loop(), name="alert-escalation-loop"
     )
     app.state.nvr_status_task = asyncio.create_task(_nvr_status_loop(), name="nvr-status-loop")
+    app.state.ruijie_poll_task = asyncio.create_task(_ruijie_poll_loop(), name="ruijie-poll-loop")
 
 
 @app.on_event("shutdown")
@@ -645,6 +667,7 @@ async def shutdown_events() -> None:
         "live_stream_cleanup_task",
         "alert_escalation_task",
         "nvr_status_task",
+        "ruijie_poll_task",
     ):
         task = getattr(app.state, task_name, None)
         if task:

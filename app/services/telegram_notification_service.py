@@ -26,7 +26,7 @@ def get_telegram_config() -> Dict[str, Any]:
         "enabled": bool(cfg.get("enabled")), "configured": bool(cfg.get("bot_token") and cfg.get("chat_id")),
         "chat_id": _text(cfg.get("chat_id")), "warn_rx": float(cfg.get("warn_rx", -27)),
         "critical_rx": float(cfg.get("critical_rx", -29)), "notify_recovery": bool(cfg.get("notify_recovery", True)),
-        "types": list(cfg.get("types") or ["connector", "olt", "onu", "camera", "nvr", "dvr", "windows", "whatsapp"]),
+        "types": list(cfg.get("types") or ["connector", "olt", "onu", "camera", "nvr", "dvr", "windows", "whatsapp", "access_point"]),
     }
 
 
@@ -38,7 +38,7 @@ def save_telegram_config(payload: Dict[str, Any]) -> Dict[str, Any]:
         "enabled": bool(payload.get("enabled")), "bot_token": token, "chat_id": _text(payload.get("chat_id")),
         "warn_rx": float(payload.get("warn_rx", -27)), "critical_rx": float(payload.get("critical_rx", -29)),
         "notify_recovery": bool(payload.get("notify_recovery", True)),
-        "types": list(payload.get("types") or ["connector", "olt", "onu", "camera", "nvr", "dvr", "windows", "whatsapp"]),
+        "types": list(payload.get("types") or ["connector", "olt", "onu", "camera", "nvr", "dvr", "windows", "whatsapp", "access_point"]),
     }
     save_app_settings(settings)
     return get_telegram_config()
@@ -140,6 +140,36 @@ def process_monitoring_notifications() -> Dict[str, Any]:
                        f"Recuperado: {html.escape(_now())}")
                 result = _send(raw_cfg, msg)
                 if result.get("ok"): _set_state(key, "sem_imagem", False, ""); sent += 1
+                else: errors.append(result.get("error"))
+            continue
+        if entity_type in ("connector", "access_point"):
+            # Alarme do proprio equipamento (gateway/AP Ruijie: ex. "alimentacao
+            # insuficiente"). O equipamento segue "up", entao o aviso de
+            # offline nao cobre. So com a lista de alarmes lida (checado_em):
+            # sem leitura, "nenhum alarme" seria chute.
+            try: detail = json.loads(_text(row.get("detail_json")) or "{}")
+            except Exception: detail = {}
+            if not detail.get("checado_em"):
+                continue
+            alarmes = [str(a) for a in (detail.get("alarmes") or [])]
+            if detail.get("conflito_ip"):
+                alarmes.append("Conflito de IP na rede")
+            al_state = _state(key, "alarme")
+            atual = " | ".join(alarmes)
+            if alarmes and not (al_state.get("active") and atual == _text(al_state.get("last_value"))):
+                msg = (f"🟠 <b>ALARME NO EQUIPAMENTO</b>\n\nTipo: {html.escape(entity_type.upper())}\nEquipamento: {html.escape(name)}\n"
+                       f"Site: {html.escape(site)}\nAlarmes: {html.escape(atual)}\nDetectado: {html.escape(_now())}")
+                result = _send(raw_cfg, msg)
+                if result.get("ok"): _set_state(key, "alarme", True, atual); sent += 1
+                else: errors.append(result.get("error"))
+            elif not alarmes and al_state.get("active"):
+                if not public["notify_recovery"]:
+                    _set_state(key, "alarme", False, "")
+                    continue
+                msg = (f"🟢 <b>ALARME RESOLVIDO</b>\n\nEquipamento: {html.escape(name)}\nSite: {html.escape(site)}\n"
+                       f"Resolvido: {html.escape(_now())}")
+                result = _send(raw_cfg, msg)
+                if result.get("ok"): _set_state(key, "alarme", False, ""); sent += 1
                 else: errors.append(result.get("error"))
             continue
         if entity_type != "onu":

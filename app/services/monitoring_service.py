@@ -20,6 +20,7 @@ DEFAULT_PROFILES = (
     ("camera-default", "Camera IP", "camera", 60, 2),
     ("nvr-default", "NVR", "nvr", 60, 2),
     ("switch-default", "Switch gerenciavel", "switch", 600, 2),
+    ("access_point-default", "Access Point", "access_point", 120, 2),
     ("dvr-default", "DVR", "dvr", 60, 2),
     ("windows-default", "Computador Windows", "windows", 120, 2),
     # underscore para casar com o fallback automatico de _observe_entity_on()
@@ -207,6 +208,83 @@ def _segundos_desde(quando: Any) -> float:
         return float("inf")
 
 
+def _detalhe_conector(r: Dict[str, Any]) -> Dict[str, Any]:
+    """Detalhe do conector. O Ruijie (coletado pelo SightOps, sem agente)
+    traz portas, trafego da WAN e alarmes -- viram itens no Zabbix. Os
+    numeros so vao quando a ultima coleta deu certo: com o gateway mudo,
+    mandar 0 desenharia "nenhuma porta com link"."""
+    detalhe: Dict[str, Any] = {"last_seen": r.get("last_seen")}
+    if _text(r.get("type")).lower() != "ruijie":
+        return detalhe
+    poll = r.get("ruijie_poll") if isinstance(r.get("ruijie_poll"), dict) else {}
+    host = r.get("host") if isinstance(r.get("host"), dict) else {}
+    detalhe.update({"model": host.get("model"), "firmware": host.get("firmware"), "serial": host.get("serial"),
+                    "wan_ip": host.get("wan_ip"), "last_poll": poll.get("at"), "poll_error": poll.get("error")})
+    ruijie = r.get("ruijie") if isinstance(r.get("ruijie"), dict) else {}
+    # Conector offline (inclusive com o laco de coleta parado) nao manda o
+    # ultimo numero bom de novo como se fosse atual.
+    if not poll.get("ok") or not ruijie or _text(r.get("status")) != "online":
+        return detalhe
+    detalhe.update({"uplink_in_bps": ruijie.get("wan_down_bps"), "uplink_out_bps": ruijie.get("wan_up_bps")})
+    # Cada numero so vai se o modulo dele respondeu neste ciclo (None = nao sei).
+    if isinstance(ruijie.get("ports"), list):
+        portas = [p for p in ruijie["ports"] if isinstance(p, dict)]
+        detalhe.update({"ports_total": len(portas), "ports_up": sum(1 for p in portas if p.get("up"))})
+    if isinstance(ruijie.get("alarms"), list) and ruijie.get("ip_conflict") is not None:
+        alarmes = [a for a in ruijie["alarms"] if isinstance(a, dict)]
+        detalhe.update({
+            "checado_em": poll.get("at"),
+            "alertas": len(alarmes) + (1 if ruijie.get("ip_conflict") else 0),
+            "alarmes": [a.get("msg") for a in alarmes][:10],
+            "conflito_ip": bool(ruijie.get("ip_conflict")),
+        })
+    return detalhe
+
+
+def _access_point_entities(connectors: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """APs Reyee (ex.: RAP6262) vistos pelos gateways Ruijie.
+
+    Usa a lista de APs JA VISTOS (ruijie_aps_known), nao so a atual: AP que
+    cai some da lista do gateway, e sumir do inventario apaga a entidade --
+    ninguem seria avisado. Com o gateway sem coleta valida o estado do AP e
+    desconhecido (nao da para dizer que caiu).
+    """
+    saida = []
+    for r in connectors:
+        if _text(r.get("type")).lower() != "ruijie" or not r.get("id"):
+            continue
+        poll = r.get("ruijie_poll") if isinstance(r.get("ruijie_poll"), dict) else {}
+        ruijie = r.get("ruijie") if isinstance(r.get("ruijie"), dict) else {}
+        # `aps_ok` falso = o modulo de vizinhos nao respondeu neste ciclo: nao
+        # da para dizer que algum AP caiu.
+        coleta_ok = (bool(poll.get("ok")) and _text(r.get("status")) == "online"
+                     and ruijie.get("aps_ok", True) is not False)
+        alarmes_ok = isinstance(ruijie.get("alarms"), list)
+        atuais = {_text(a.get("sn")) for a in ruijie.get("aps") or [] if isinstance(a, dict)}
+        alarmes = [a for a in ruijie.get("alarms") or [] if isinstance(a, dict)]
+        conhecidos = r.get("ruijie_aps_known") if isinstance(r.get("ruijie_aps_known"), dict) else {}
+        for sn, ap in conhecidos.items():
+            if not isinstance(ap, dict) or not sn:
+                continue
+            if not coleta_ok:
+                status = "unknown"
+            else:
+                status = "online" if sn in atuais else "offline"
+            meus = [a.get("msg") for a in alarmes if _text(a.get("sn")) == sn]
+            detalhe = {"ip": ap.get("ip"), "mac": ap.get("mac"), "model": ap.get("model"), "serial": sn,
+                       "firmware": ap.get("firmware"), "last_seen": ap.get("last_seen"), "alarmes": meus}
+            if coleta_ok and alarmes_ok:
+                detalhe.update({"checado_em": poll.get("at"), "alertas": len(meus)})
+            saida.append({
+                "entity_key": f"access_point:{_text(r.get('id'))}:{sn}", "entity_type": "access_point",
+                "entity_id": sn, "parent_key": f"connector:{_text(r.get('id'))}",
+                "site": r.get("site"), "connector_id": r.get("id"),
+                "display_name": ap.get("name") or f"{ap.get('model') or 'AP'} {ap.get('ip') or sn}",
+                "status": status, "detail": detalhe,
+            })
+    return saida
+
+
 def _switch_entities() -> List[Dict[str, Any]]:
     """Um switch por entidade, com o resultado da coleta automatica
     (switch_service.poll_switches, a cada ciclo da telemetria de OLT)."""
@@ -330,8 +408,9 @@ def refresh_from_inventory() -> Dict[str, Any]:
     counts["connector"] = _observe_many(({
         "entity_key": f"connector:{_text(r.get('id'))}", "entity_type": "connector", "entity_id": r.get("id"),
         "site": r.get("site"), "connector_id": r.get("id"), "display_name": r.get("name") or r.get("client"),
-        "status": r.get("status"), "detail": {"last_seen": r.get("last_seen")},
+        "status": r.get("status"), "detail": _detalhe_conector(r),
     } for r in connectors if r.get("id")), prune_entity_type="connector")
+    counts["access_point"] = _observe_many(_access_point_entities(connectors), prune_entity_type="access_point")
     olts = list_olts(True)
     onus = list_macs().get("rows", [])
     olt_hosts_with_telemetry = {
