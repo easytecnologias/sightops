@@ -349,6 +349,13 @@ def api_cameras(
             "model": r.get("modelo") or r.get("model") or "",
             "titulo": r.get("titulo") or r.get("nome") or "",
             "status": r.get("status") or "",
+            # A data da medicao TEM que vir junto: aplicar_em_linha(exigir_data)
+            # trata status sem data como "nunca verificado". Sem estes campos as
+            # 41 cameras da JANGADEIROS (medidas as 18:41) sairam todas "Nao
+            # verificado" na tela, embora o inventario tivesse a data.
+            "status_checked_at": r.get("status_checked_at") or "",
+            "status_detail": r.get("status_detail") or "",
+            "status_source": r.get("status_source") or "",
             "local": r.get("local") or r.get("LOCAL") or "",
             "physical_location": r.get("physical_location") or r.get("location") or "",
             "lat": r.get("lat") or r.get("latitude") or "",
