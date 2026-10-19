@@ -148,3 +148,12 @@ def test_relogio_do_hikvision_agora_tem_correcao(tmp_path, monkeypatch):
 def test_hikvision_continua_sem_correcao_de_configuracao(tmp_path):
     with pytest.raises(rd.ErroDriver):
         ra.corrigir(_g(HikRelogio()), "movimento", tmp_path)
+
+
+def test_erro_do_ffmpeg_nao_leva_a_senha_do_gravador():
+    from app.services.recorder_media_service import sem_senha
+    erro = ("Error opening input file rtsp://admin:cam%21sierra%40%24@10.211.2.212:554/cam/playback?"
+            "channel=13. [tcp @ 0x1] Connection to tcp://10.211.2.212:554 failed")
+    limpo = sem_senha(erro)
+    assert "cam%21sierra" not in limpo and "admin:" not in limpo
+    assert "rtsp://***@10.211.2.212:554/cam/playback" in limpo

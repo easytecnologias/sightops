@@ -272,8 +272,16 @@ def run_ffmpeg(args: list[str], timeout_sec: int) -> None:
     except subprocess.TimeoutExpired as exc:
         raise TimeoutError("Conversao excedeu o tempo limite.") from exc
     except subprocess.CalledProcessError as exc:
-        msg = exc.stderr.decode("utf-8", errors="ignore").strip()
+        msg = sem_senha(exc.stderr.decode("utf-8", errors="ignore").strip())
         raise RuntimeError(msg or "Falha ao converter gravacao.") from exc
+
+
+def sem_senha(texto: str) -> str:
+    """Tira usuario:senha de URL (rtsp://admin:SENHA@host/...). O erro do
+    ffmpeg repete a URL de entrada inteira, e ela ia para a tela ("Baixar"
+    com erro 502) e para o job do download -- com a senha do gravador
+    (visto na SIERRA, 19/10/2026)."""
+    return re.sub(r"(\w+://)[^/@\s]+@", r"\1***@", str(texto or ""))
 
 
 def download_clip_mp4(

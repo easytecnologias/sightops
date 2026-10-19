@@ -20,6 +20,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from app.core.tenant_context import tenant_scoped_path
+from app.services.recorder_media_service import sem_senha
 from app.services.recorder_credentials import resolve_recorder_credential
 from app.services.recorder_driver import FMT, ErroDriver, Gravador
 
@@ -45,7 +46,7 @@ def _abrir(host: str, http_port: int, connector_id: str = "") -> Gravador:
         return Gravador(host, cred.get("username") or "admin", cred["password"], http_port,
                         connector_id or _conector(host))
     except ErroDriver as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+        raise HTTPException(status_code=502, detail=sem_senha(str(exc))) from exc
 
 
 def _data(valor: str, campo: str) -> datetime:
@@ -62,7 +63,7 @@ def api_driver_diagnostico(host: str, http_port: int = 80, connector_id: str = "
     try:
         return g.diagnostico()
     except ErroDriver as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+        raise HTTPException(status_code=502, detail=sem_senha(str(exc))) from exc
 
 
 class PadronizarRequest(BaseModel):
@@ -85,7 +86,7 @@ def api_driver_padronizar(req: PadronizarRequest) -> Dict[str, Any]:
             mudancas = [m for m in mudancas if m["chave"] in pedidas]
         resultado = g.aplicar(mudancas, backup_dir=tenant_scoped_path("gravador_backups"))
     except ErroDriver as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+        raise HTTPException(status_code=502, detail=sem_senha(str(exc))) from exc
     resultado["alertas"] = diag["alertas"]
     resultado["mudancas"] = mudancas
     return resultado
@@ -103,7 +104,7 @@ def api_driver_indice(host: str, canal: int, inicio: str = "", fim: str = "",
     try:
         segs = g.indice(int(canal), ini_dt, fim_dt)
     except ErroDriver as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+        raise HTTPException(status_code=502, detail=sem_senha(str(exc))) from exc
 
     def segundos(s) -> float:
         return (datetime.strptime(s.fim, FMT) - datetime.strptime(s.inicio, FMT)).total_seconds()
@@ -125,7 +126,7 @@ def api_driver_relogio(host: str, http_port: int = 80, connector_id: str = "") -
     try:
         return g.relogio()
     except ErroDriver as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+        raise HTTPException(status_code=502, detail=sem_senha(str(exc))) from exc
 
 
 # ------------------------------------------------------------- Investigacao
@@ -326,11 +327,11 @@ def api_driver_trecho(req: TrechoRequest) -> Dict[str, Any]:
     try:
         final = _baixar_trecho(g, int(req.canal), inicio, fim)
     except RecorderAuthError as exc:
-        raise HTTPException(status_code=401, detail=str(exc)) from exc
+        raise HTTPException(status_code=401, detail=sem_senha(str(exc))) from exc
     except RecordingNotFoundError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        raise HTTPException(status_code=404, detail=sem_senha(str(exc))) from exc
     except (RuntimeError, TimeoutError) as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+        raise HTTPException(status_code=502, detail=sem_senha(str(exc))) from exc
     return {"url": f"/api/playback/files/{final.name}", "filename": final.name, "size": final.stat().st_size}
 
 
@@ -357,7 +358,7 @@ def _trecho_worker(job_id: str, g: Gravador, canal: int,
                  "url": f"/api/playback/files/{final.name}",
                  "filename": final.name, "size": final.stat().st_size}
     except Exception as exc:  # nunca deixa o job pendurado
-        dados = {"estado": "erro", "fim_ts": time.time(), "erro": str(exc)}
+        dados = {"estado": "erro", "fim_ts": time.time(), "erro": sem_senha(str(exc))}
     with _trecho_lock:
         if job_id in _trecho_jobs:
             _trecho_jobs[job_id].update(dados)
@@ -438,7 +439,7 @@ def _caso(func, *args, **kwargs):
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="caso nao encontrado") from exc
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise HTTPException(status_code=400, detail=sem_senha(str(exc))) from exc
 
 
 @router.get("/casos")
@@ -490,7 +491,7 @@ def api_driver_avisos(host: str, http_port: int = 80, connector_id: str = "") ->
     try:
         out = avisos_do_gravador(g)
     except ErroDriver as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+        raise HTTPException(status_code=502, detail=sem_senha(str(exc))) from exc
     out["registros"] = registros_do_host(_base_registros(), g.host, limite=20,
                                          conector=connector_id or _conector(host))
     return out
@@ -511,7 +512,7 @@ def api_driver_corrigir(req: CorrigirRequest, request: Request) -> Dict[str, Any
         return corrigir(g, req.aviso, _base_registros(), por=_quem(request),
                         conector=req.connector_id or _conector(req.host))
     except ErroDriver as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+        raise HTTPException(status_code=502, detail=sem_senha(str(exc))) from exc
 
 
 class DesfazerRequest(BaseModel):
@@ -529,7 +530,7 @@ def api_driver_desfazer(req: DesfazerRequest, request: Request) -> Dict[str, Any
         return desfazer(g, req.registro, _base_registros(), por=_quem(request),
                         conector=req.connector_id or _conector(req.host))
     except ErroDriver as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+        raise HTTPException(status_code=502, detail=sem_senha(str(exc))) from exc
 
 
 @router.get("/resumo")
@@ -541,7 +542,7 @@ def api_driver_resumo(host: str, canal: int = 1, http_port: int = 80, connector_
     try:
         return resumo_do_gravador(g, max(1, int(canal)))
     except ErroDriver as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+        raise HTTPException(status_code=502, detail=sem_senha(str(exc))) from exc
 
 
 # ------------------------------------------------- rede do gravador (escrita)
@@ -589,7 +590,7 @@ def api_driver_rede(host: str, http_port: int = 80, connector_id: str = "") -> D
     try:
         rede = ler_rede(g)
     except ErroDriver as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+        raise HTTPException(status_code=502, detail=sem_senha(str(exc))) from exc
     return {"marca": g.marca, "rede": rede, "conector": conector,
             "redes_conector": [str(r) for r in _redes_do_conector(conector)],
             "arp_disponivel": bool(_arp_do_conector(conector)) if conector else False}
@@ -604,7 +605,7 @@ def api_driver_rede_conferir(req: RedeRequest) -> Dict[str, Any]:
     try:
         atual = ler_rede(g)
     except ErroDriver as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+        raise HTTPException(status_code=502, detail=sem_senha(str(exc))) from exc
     novo = {k: v for k, v in req.novo.model_dump().items()}
     return {"atual": atual, "conferencias": conferir(atual, novo, conector, arp=_arp_do_conector(conector) if conector else None),
             "mudancas": mudancas(atual, novo)}
@@ -619,7 +620,7 @@ def api_driver_rede_aplicar(req: RedeRequest, request: Request) -> Dict[str, Any
     try:
         atual = ler_rede(g)
     except ErroDriver as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+        raise HTTPException(status_code=502, detail=sem_senha(str(exc))) from exc
     novo = req.novo.model_dump()
     alvo = (novo.get("ip") or atual.get("ip") or "").strip()
     if req.confirmar.strip() != alvo:
@@ -630,7 +631,7 @@ def api_driver_rede_aplicar(req: RedeRequest, request: Request) -> Dict[str, Any
             int(req.http_port), lambda h, p: Gravador(h, g.user, g.password, p, conector),
             _registrar_rede(g, conector, _quem(request), "rede"))
     except ErroDriver as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
+        raise HTTPException(status_code=409, detail=sem_senha(str(exc))) from exc
 
 
 @router.post("/reiniciar")
@@ -646,7 +647,7 @@ def api_driver_reiniciar(req: RedeRequest, request: Request) -> Dict[str, Any]:
                                 lambda: Gravador(g.host, g.user, g.password, req.http_port, conector),
                                 _registrar_rede(g, conector, _quem(request), "reinicio"))
     except ErroDriver as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
+        raise HTTPException(status_code=409, detail=sem_senha(str(exc))) from exc
 
 
 @router.get("/rede/situacao")
