@@ -448,11 +448,17 @@ async function refreshMapLiveStatus() {
 // dark_all. O visual escuro vem do filtro CSS em .tiles-escuro (styles.css),
 // aplicado so a essa camada para nao inverter a foto de satelite.
 const MAPA_ESRI = 'https://server.arcgisonline.com/ArcGIS/rest/services';
-function mapaCamadasBase(map, chave, padrao = 'mapa') {
-  const satelite = () => L.tileLayer(`${MAPA_ESRI}/World_Imagery/MapServer/tile/{z}/{y}/{x}`, {
-    attribution: 'Imagens &copy; Esri, Maxar, Earthstar Geographics',
-    maxZoom: 20, maxNativeZoom: 18,
-  });
+const MAPA_SAT_ATUAL = `${MAPA_ESRI}/World_Imagery/MapServer/tile/{z}/{y}/{x}`;
+function mapaCamadasBase(map, chave, padrao = 'mapa', comDatas = false) {
+  const imagens = [];
+  const satelite = () => {
+    const camada = L.tileLayer(MAPA_SAT_ATUAL, {
+      attribution: 'Imagens &copy; Esri, Maxar, Earthstar Geographics',
+      maxZoom: 20, maxNativeZoom: 18,
+    });
+    imagens.push(camada);
+    return camada;
+  };
   const fundos = {
     mapa: L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       attribution: '&copy; OpenStreetMap', className: 'tiles-escuro',
@@ -472,10 +478,133 @@ function mapaCamadasBase(map, chave, padrao = 'mapa') {
   const opcoes = {};
   Object.keys(fundos).forEach(k => { opcoes[nomes[k]] = fundos[k]; });
   L.control.layers(opcoes, null, { position: 'topright' }).addTo(map);
+  const datas = comDatas ? mapaSeletorDatas(map, imagens, `${chave}.versao`) : null;
+  if (datas) datas.mostrar(atual !== 'mapa');
   map.on('baselayerchange', ev => {
     const k = Object.keys(fundos).find(n => fundos[n] === ev.layer);
     if (k) { try { localStorage.setItem(chave, k); } catch (_) {} }
+    if (datas) datas.mostrar(k !== 'mapa');
   });
+}
+
+// Data da foto de satelite: a Esri guarda as versoes antigas da World Imagery
+// no "Wayback" (sem chave, CORS aberto). Cada versao so troca a foto onde houve
+// imagem nova, entao a lista e montada para o centro do mapa: o tilemap diz em
+// qual versao aquele quadro mudou pela ultima vez; dali se volta para a versao
+// anterior e repete. A data da foto (nao a da versao) vem da camada de metadados.
+const WAYBACK_CONFIG = 'https://s3-us-west-2.amazonaws.com/config.maptiles.arcgis.com/waybackconfig.json';
+const WAYBACK_BASE = 'https://wayback.maptiles.arcgis.com/arcgis/rest/services/World_Imagery';
+let _waybackVersoes = null;
+
+async function waybackVersoes() {
+  if (_waybackVersoes) return _waybackVersoes;
+  const res = await fetch(WAYBACK_CONFIG);
+  if (!res.ok) throw new Error(`config Wayback HTTP ${res.status}`);
+  const cfg = await res.json();
+  _waybackVersoes = Object.entries(cfg).map(([id, v]) => ({
+    id,
+    data: (String(v.itemTitle || '').match(/\d{4}-\d{2}-\d{2}/) || [''])[0],
+    metadados: v.metadataLayerUrl || '',
+  })).filter(v => v.data).sort((a, b) => b.data.localeCompare(a.data));
+  return _waybackVersoes;
+}
+
+async function waybackDataFoto(versao, lat, lon) {
+  if (!versao.metadados) return null;
+  // As camadas de metadados sao por faixa de escala; a de detalhe fica entre 4 e 6.
+  for (const camada of [5, 6, 4, 3]) {
+    try {
+      const url = `${versao.metadados}/${camada}/query?geometry=${lon},${lat}&geometryType=esriGeometryPoint`
+        + '&inSR=4326&spatialRel=esriSpatialRelIntersects&outFields=SRC_DATE2,NICE_DESC,SRC_RES&returnGeometry=false&f=json';
+      const body = await (await fetch(url)).json();
+      const a = body?.features?.[0]?.attributes;
+      if (a) return { quando: a.SRC_DATE2 ? new Date(a.SRC_DATE2) : null, fonte: a.NICE_DESC || '', res: a.SRC_RES };
+    } catch (_) {}
+  }
+  return null;
+}
+
+async function waybackVersoesNoPonto(lat, lon) {
+  const todas = await waybackVersoes();
+  const z = 17, n = 2 ** z;
+  const x = Math.floor((lon + 180) / 360 * n);
+  const y = Math.floor((1 - Math.asinh(Math.tan(lat * Math.PI / 180)) / Math.PI) / 2 * n);
+  const achadas = [];
+  let i = 0;
+  while (i < todas.length && achadas.length < 15) {
+    const res = await fetch(`${WAYBACK_BASE}/MapServer/tilemap/${todas[i].id}/${z}/${y}/${x}`);
+    const body = await res.json().catch(() => ({}));
+    const id = String(body?.select?.[0] ?? todas[i].id);
+    const idx = todas.findIndex(v => v.id === id);
+    if (idx < 0 || achadas.some(v => v.id === id)) break;
+    achadas.push(todas[idx]);
+    i = idx + 1;
+  }
+  const fotos = await Promise.all(achadas.map(v => waybackDataFoto(v, lat, lon)));
+  // Versoes seguidas com a mesma foto (so reprocessada) viram uma linha so.
+  const vistas = new Set();
+  return achadas.map((v, k) => ({ ...v, foto: fotos[k] })).filter(v => {
+    const q = v.foto?.quando?.getTime();
+    if (q == null) return true;
+    if (vistas.has(q)) return false;
+    vistas.add(q);
+    return true;
+  });
+}
+
+function mapaSeletorDatas(map, imagens, chave) {
+  const mes = d => d.toLocaleDateString('pt-BR', { month: 'short', year: 'numeric', timeZone: 'UTC' }).replace('. de ', '/').replace(' de ', '/');
+  let escolhida = null;
+  try { escolhida = JSON.parse(localStorage.getItem(chave) || 'null'); } catch (_) {}
+  const caixa = L.DomUtil.create('div', 'leaflet-bar mapa-datas');
+  const botao = L.DomUtil.create('button', 'mapa-datas-botao', caixa);
+  botao.type = 'button';
+  botao.title = 'Escolher a data da foto de satelite (para fugir de nuvem ou ver obra antiga)';
+  const lista = L.DomUtil.create('div', 'mapa-datas-lista', caixa);
+  lista.hidden = true;
+  L.DomEvent.disableClickPropagation(caixa);
+  L.DomEvent.disableScrollPropagation(caixa);
+
+  const aplicar = v => {
+    escolhida = v ? { id: v.id, rotulo: v.rotulo } : null;
+    const url = v ? `${WAYBACK_BASE}/WMTS/1.0.0/default028mm/MapServer/tile/${v.id}/{z}/{y}/{x}` : MAPA_SAT_ATUAL;
+    imagens.forEach(c => c.setUrl(url));
+    botao.textContent = `Imagem: ${escolhida ? escolhida.rotulo : 'mais recente'} ▾`;
+    try { localStorage.setItem(chave, JSON.stringify(escolhida)); } catch (_) {}
+  };
+
+  const abrir = async () => {
+    if (!lista.hidden) { lista.hidden = true; return; }
+    lista.hidden = false;
+    lista.innerHTML = '<div class="mapa-datas-msg">Buscando fotos deste ponto...</div>';
+    const c = map.getCenter();
+    try {
+      const versoes = await waybackVersoesNoPonto(c.lat, c.lng);
+      versoes.forEach(v => {
+        v.rotulo = v.foto?.quando ? mes(v.foto.quando) : `versao ${v.data}`;
+      });
+      const linhas = versoes.map((v, k) => {
+        const det = [v.foto?.fonte, v.foto?.res ? `${String(v.foto.res).replace('.', ',')} m` : ''].filter(Boolean).join(' · ');
+        const ativa = escolhida?.id === v.id ? ' ativa' : '';
+        return `<button type="button" class="mapa-datas-item${ativa}" data-k="${k}"><b>${esc(v.rotulo)}</b><small>${esc(det)}</small></button>`;
+      }).join('');
+      lista.innerHTML = `<button type="button" class="mapa-datas-item${escolhida ? '' : ' ativa'}" data-k="-1"><b>Mais recente</b><small>imagem atual da Esri</small></button>${linhas}`
+        + '<div class="mapa-datas-msg">Datas da foto no centro do mapa. Mudou de lugar? Abra de novo.</div>';
+      lista.querySelectorAll('[data-k]').forEach(b => b.addEventListener('click', () => {
+        const k = Number(b.dataset.k);
+        aplicar(k < 0 ? null : versoes[k]);
+        lista.hidden = true;
+      }));
+    } catch (err) {
+      lista.innerHTML = `<div class="mapa-datas-msg">Nao foi possivel buscar as datas: ${esc(err.message || err)}</div>`;
+    }
+  };
+  botao.addEventListener('click', abrir);
+
+  const Controle = L.Control.extend({ onAdd: () => caixa });
+  new Controle({ position: 'topright' }).addTo(map);
+  aplicar(escolhida);
+  return { mostrar: sim => { caixa.style.display = sim ? '' : 'none'; if (!sim) lista.hidden = true; } };
 }
 
 async function loadKmz() {
@@ -484,7 +613,7 @@ async function loadKmz() {
 
   if (!_map) {
     _map = L.map('leafletMap', { zoomControl: true }).setView([-9.76, -36.67], 14);
-    mapaCamadasBase(_map, 'sightops.mapa.fundo');
+    mapaCamadasBase(_map, 'sightops.mapa.fundo', 'mapa', true);
   }
 
   setTimeout(() => _map.invalidateSize(), 100);

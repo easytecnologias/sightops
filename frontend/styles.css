@@ -9608,6 +9608,28 @@ body.shell-owner .nav-item.active { box-shadow: inset 3px 0 #c9962c; }
   filter: invert(1) hue-rotate(180deg) brightness(.92) contrast(.92) saturate(.85);
 }
 
+/* Seletor da data da foto de satelite (mapaSeletorDatas em cameras.js) */
+.mapa-datas { background: var(--surface); }
+.mapa-datas-botao {
+  border: 0; background: var(--surface); color: var(--text);
+  font-family: inherit; font-weight: 600; font-size: 12px; line-height: 1; padding: 8px 10px; cursor: pointer; white-space: nowrap;
+}
+.mapa-datas-botao:hover { background: var(--surface-soft); }
+.mapa-datas-lista {
+  width: 230px; max-height: 340px; overflow-y: auto;
+  border-top: 1px solid var(--border);
+}
+.mapa-datas-item {
+  display: block; width: 100%; text-align: left; border: 0; cursor: pointer;
+  background: var(--surface); color: var(--text); padding: 7px 10px;
+  border-bottom: 1px solid var(--border); font-family: inherit;
+}
+.mapa-datas-item:hover { background: var(--surface-soft); }
+.mapa-datas-item.ativa { background: var(--primary-soft); color: var(--primary); }
+.mapa-datas-item b { display: block; font-size: 12px; }
+.mapa-datas-item small { display: block; font-size: 11px; color: var(--muted); }
+.mapa-datas-msg { padding: 8px 10px; font-size: 11px; color: var(--muted); }
+
 /* --- menu de acoes da camada do mapa --- */
 .map-layer-card { position: relative; }
 .map-layer-btn { padding-right: 32px; }
