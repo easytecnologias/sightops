@@ -2560,6 +2560,10 @@ def _load_rows_for_report(site: str = "", mode: str = "", items: str = "") -> Li
         if not rows:
             rows = _read_rows()
             rows = decorate_legacy_rows("nvr", rows, site=site)
+    # Mesmo estado que a tela mostra. O relatorio lia o status cru e era o
+    # UNICO lugar que acusava canal sem imagem com a camera no ar -- enquanto a
+    # tela dizia 48/48 online (SIERRA, 19/10/2026). Agora os dois dizem o mesmo.
+    rows = _com_estado_efetivo(rows)
     mode_norm = _normalize_rec_inventory_mode(mode) if str(mode or "").strip() else ""
     if mode_norm:
         rows = [r for r in rows if isinstance(r, dict) and _rec_row_mode(r) == mode_norm]

@@ -51,7 +51,7 @@ function g5Inventario(d) {
 function g5Imagem(c, inv) {
   const st = String(inv?.status || '').toLowerCase();
   if (!c.ip) return 'livre';
-  if (c.online === false || ['camera_offline', 'offline', 'nvr_offline'].includes(st) || String(inv?.video_loss) === 'True' || inv?.video_loss === true) return 'sem';
+  if (c.online === false || ['camera_offline', 'offline', 'nvr_offline', 'sem_imagem'].includes(st) || String(inv?.video_loss) === 'True' || inv?.video_loss === true) return 'sem';
   if (c.online === true || st === 'online') return 'ok';
   return 'semleitura';
 }

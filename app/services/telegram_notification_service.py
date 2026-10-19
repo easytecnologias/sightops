@@ -116,6 +116,32 @@ def process_monitoring_notifications() -> Dict[str, Any]:
             result = _send(raw_cfg, msg)
             if result.get("ok"): _set_state(key, "offline", False, status); sent += 1
             else: errors.append(result.get("error"))
+        if entity_type in ("nvr", "dvr"):
+            # Gravador que responde mas nao recebe imagem de camera que esta no
+            # ar: nunca fica "down", entao o aviso de offline nao cobre. Foi
+            # assim que o NVR 01 da SIERRA perdeu 14 cameras sem ninguem saber.
+            try: detail = json.loads(_text(row.get("detail_json")) or "{}")
+            except Exception: detail = {}
+            canais = [str(c) for c in (detail.get("canais_sem_imagem_lista") or [])]
+            img_state = _state(key, "sem_imagem")
+            atual = ",".join(canais)
+            if canais and not (img_state.get("active") and atual == _text(img_state.get("last_value"))):
+                msg = (f"🟠 <b>GRAVADOR SEM IMAGEM</b>\n\nGravador: {html.escape(name)}\nSite: {html.escape(site)}\n"
+                       f"Cameras no ar sem imagem no gravador: <b>{len(canais)}</b>\nCanais: {html.escape(', '.join(canais))}\n"
+                       f"Detectado: {html.escape(_now())}")
+                result = _send(raw_cfg, msg)
+                if result.get("ok"): _set_state(key, "sem_imagem", True, atual); sent += 1
+                else: errors.append(result.get("error"))
+            elif not canais and img_state.get("active"):
+                if not public["notify_recovery"]:
+                    _set_state(key, "sem_imagem", False, "")
+                    continue
+                msg = (f"🟢 <b>GRAVADOR COM IMAGEM DE NOVO</b>\n\nGravador: {html.escape(name)}\nSite: {html.escape(site)}\n"
+                       f"Recuperado: {html.escape(_now())}")
+                result = _send(raw_cfg, msg)
+                if result.get("ok"): _set_state(key, "sem_imagem", False, ""); sent += 1
+                else: errors.append(result.get("error"))
+            continue
         if entity_type != "onu":
             continue
         try: detail = json.loads(_text(row.get("detail_json")) or "{}")

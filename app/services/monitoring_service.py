@@ -477,12 +477,24 @@ def refresh_from_inventory() -> Dict[str, Any]:
     # o status do primeiro canal da lista: canal "online" sem data nenhuma =
     # gravador online no Zabbix, sem nunca ter sido consultado.
     from app.services.nvr_status_service import resumo_gravador
+    # Estado medido das cameras: canal sem imagem com a camera no ar deixa o
+    # gravador "unstable" (ver status_efetivo.sem_imagem_no_gravador). Sem
+    # isso o NVR 01 da SIERRA ficou "up" com 14 cameras fora da gravacao.
+    # Falha na medicao NAO vira "0 sem imagem": isso fecharia o gatilho no
+    # Zabbix sem ninguem ter resolvido. Sem medida, o item simplesmente nao vai.
+    try:
+        from app.services.status_efetivo import estado_medido_por_ip
+        medidas_cam = estado_medido_por_ip()
+    except Exception as exc:
+        logger.warning("Monitoramento: sem estado das cameras para julgar canais sem imagem: %s", exc)
+        medidas_cam = None
     for source in ("dvr", "nvr"):
         canais_por_host: Dict[str, List[Dict[str, Any]]] = {}
         for r in _recorder_rows(source):
             host = _text(r.get("host") or r.get("ip"))
             if host: canais_por_host.setdefault(host, []).append(r)
-        resumos = {host: resumo_gravador(ls, sem_caminho) for host, ls in canais_por_host.items()}
+        resumos = {host: resumo_gravador(ls, sem_caminho, medidas=medidas_cam)
+                   for host, ls in canais_por_host.items()}
         counts[source] = _observe_many(({
             "entity_key": f"{source}:{ls[0].get('remote_connector_id') or ls[0].get('connector_id') or 'local'}:{host}",
             "entity_type": source, "entity_id": host, "site": ls[0].get("local"),
@@ -490,7 +502,12 @@ def refresh_from_inventory() -> Dict[str, Any]:
             "display_name": ls[0].get("recorder_name") or ls[0].get("nvr_name") or host, "status": resumos[host]["status"],
             "detail": {"host": host, "model": ls[0].get("recorder_model") or ls[0].get("nvr_model"),
                        "canais_total": resumos[host]["canais_total"], "canais_online": resumos[host]["canais_online"],
-                       "canais_offline": resumos[host]["canais_offline"], "checado_em": resumos[host]["checado_em"]},
+                       "canais_offline": resumos[host]["canais_offline"], "checado_em": resumos[host]["checado_em"],
+                       "canais_sem_imagem": resumos[host]["canais_sem_imagem"] if medidas_cam is not None else None,
+                       "canais_sem_imagem_lista": resumos[host]["canais_sem_imagem_lista"],
+                       **({"motivo": f"{resumos[host]['canais_sem_imagem']} camera(s) no ar sem imagem no gravador "
+                                     f"(canais {', '.join(str(c) for c in resumos[host]['canais_sem_imagem_lista'])})"}
+                          if resumos[host]["canais_sem_imagem"] else {})},
         } for host, ls in canais_por_host.items()), prune_entity_type=source)
     try:
         counts["switch"] = _observe_many(_switch_entities(), prune_entity_type="switch")

@@ -46,26 +46,34 @@ def _agora() -> str:
 
 
 def resumo_gravador(linhas: List[Dict[str, Any]], conectores_fora: Set[str] = frozenset(),
-                    limite_min: float = LIMITE_CANAL_MIN) -> Dict[str, Any]:
+                    limite_min: float = LIMITE_CANAL_MIN,
+                    medidas: Optional[Dict[str, Dict[str, Any]]] = None) -> Dict[str, Any]:
     """Estado de UM gravador a partir de todos os seus canais (puro, testavel).
 
     Antes o host do gravador no monitoramento/Zabbix herdava o status do
     PRIMEIRO canal da lista: canal 1 "online" sem data = gravador online, ainda
     que nunca tivesse sido consultado.
 
-    status: "online" (respondeu na ultima leitura valida), "offline" (todas as
-    leituras validas dizem que o gravador nao respondeu) ou "unknown".
+    status: "online" (respondeu na ultima leitura valida), "unstable" (respondeu,
+    mas ha canal sem imagem com a camera no ar -- `medidas` = estado das cameras
+    por IP), "offline" (todas as leituras validas dizem que o gravador nao
+    respondeu) ou "unknown".
     """
-    from app.services.status_efetivo import avaliar
+    from app.services.status_efetivo import avaliar, sem_imagem_no_gravador
 
     total = online = offline = 0
     gravador_respondeu = gravador_fora = False
     ultima = ""
+    sem_imagem: List[int] = []
     for l in linhas:
         lido = str(l.get("status") or "").strip().lower()
         if lido in CANAL_VAZIO:
             continue
         checado = l.get("status_checked_at") or ""
+        cid = l.get("remote_connector_id") or l.get("connector_id")
+        if medidas and not (cid and cid in conectores_fora) and \
+                sem_imagem_no_gravador(l, medidas.get(str(l.get("camera_ip") or "").strip())):
+            sem_imagem.append(int(l.get("channel") or 0))
         efetivo, motivo = avaliar(lido, l.get("remote_connector_id") or l.get("connector_id"),
                                   checado, conectores_fora, limite_min=limite_min)
         if motivo or not checado:
@@ -87,13 +95,14 @@ def resumo_gravador(linhas: List[Dict[str, Any]], conectores_fora: Set[str] = fr
             else:
                 gravador_respondeu = True  # camera fora, mas o gravador falou
     if gravador_respondeu:
-        status = "online"
+        status = "unstable" if sem_imagem else "online"
     elif gravador_fora:
         status = "offline"
     else:
         status = "unknown"
     return {"status": status, "canais_total": total, "canais_online": online,
-            "canais_offline": offline, "checado_em": ultima}
+            "canais_offline": offline, "checado_em": ultima,
+            "canais_sem_imagem": len(sem_imagem), "canais_sem_imagem_lista": sorted(sem_imagem)}
 
 
 def _perda_de_video(base: str, auth: Any, timeout: float) -> Optional[Set[int]]:

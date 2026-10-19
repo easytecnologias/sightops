@@ -1161,6 +1161,13 @@ def _recorder_channel_status(row: Dict[str, Any]) -> str:
         return "sem camera"
     if status in ("camera_offline", "offline", "auth_failed"):
         return "offline"
+    if status == "sem_imagem":
+        # camera no ar, gravador sem imagem dela (status_efetivo.SEM_IMAGEM)
+        return "sem imagem no gravador"
+    if status == "nvr_offline":
+        return "gravador sem resposta"
+    if status == "unknown":
+        return "nao verificado"
     return status or "nao informado"
 
 
@@ -1168,7 +1175,7 @@ def _recorder_channel_empty(row: Dict[str, Any]) -> bool:
     status = _recorder_channel_status(row)
     if status in ("sem camera", "no_camera"):
         return True
-    if status in ("online", "offline", "video loss"):
+    if status in ("online", "offline", "video loss", "sem imagem no gravador", "gravador sem resposta"):
         return False
     title = _to_text(row.get("title") or row.get("titulo")).strip().lower()
     default_title = bool(re.fullmatch(r"(?:ch\s*)?\d*\s*-?\s*canal\s*\d*", title) or re.fullmatch(r"canal\s*\d*", title))
@@ -1184,7 +1191,8 @@ def _recorder_channel_in_use(row: Dict[str, Any]) -> bool:
 
 
 def _recorder_channel_offline(row: Dict[str, Any]) -> bool:
-    return (not _recorder_channel_empty(row)) and _recorder_channel_status(row) in ("offline", "video loss")
+    return (not _recorder_channel_empty(row)) and _recorder_channel_status(row) in (
+        "offline", "video loss", "sem imagem no gravador", "gravador sem resposta")
 
 
 def _recorder_recording_text(row: Dict[str, Any]) -> str:

@@ -257,6 +257,8 @@ const _REC_STATUS = {
   offline:        { classe: 'offline', texto: 'offline',           cor: 'var(--danger)' },
   camera_offline: { classe: 'offline', texto: 'camera offline',    cor: 'var(--danger)' },
   nvr_offline:    { classe: 'offline', texto: 'gravador sem resposta', cor: 'var(--danger)' },
+  // Camera no ar, gravador sem imagem dela: nao esta gravando (status_efetivo.SEM_IMAGEM).
+  sem_imagem:     { classe: 'offline', texto: 'sem imagem no gravador', cor: 'var(--danger)' },
   sem_camera:     { classe: 'vazio',   texto: 'sem camera',        cor: 'var(--muted)' },
 };
 function recStatusInfo(r) {

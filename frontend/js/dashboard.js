@@ -234,7 +234,10 @@ async function openDashDrawerRecorder(source, filterKey, filtros) {
   }
   const rows = sources.flatMap(src => _dashDrawerData[src] || []);
   const isOnline  = r => ['online','ok','up','ativo','active'].includes((r.status||'').toLowerCase());
-  const isOffline = r => ['offline','down','inativo','inactive','auth_failed','timeout','erro','error','video_loss'].includes((r.status||'').toLowerCase());
+  // camera_offline/nvr_offline/sem_imagem: vocabulario dos canais. Sem eles o
+  // painel mostrava 48/48 online com 14 cameras fora da gravacao (19/10/2026).
+  const isOffline = r => ['offline','down','inativo','inactive','auth_failed','timeout','erro','error','video_loss',
+                          'camera_offline','nvr_offline','sem_imagem'].includes((r.status||'').toLowerCase());
   const rowSite   = r => String(r.local || r.site || r.site_name || '').trim();
 
   // Mesmo nome de gravador (DVR-NN ou o que o usuario ja batizou) usado na
@@ -312,7 +315,8 @@ async function openDashDrawerRecorder(source, filterKey, filtros) {
       ${_drawerStatusDot(r.status)}
       <div class="drawer-item-main">
         <div class="drawer-item-title">CH${String(r.channel||0).padStart(2,'0')} ${typeBadge} ${esc(dvrChannelLabel(r))}</div>
-        <div class="drawer-item-sub">${esc(dvrNome)}  ${esc(rowSite(r))}</div>
+        <div class="drawer-item-sub">${esc(dvrNome)}  ${esc(rowSite(r))}${(r.status||'').toLowerCase() === 'sem_imagem'
+          ? ' · <span style="color:var(--danger);font-weight:600">camera no ar, sem imagem no gravador</span>' : ''}</div>
       </div>
       ${r.snapshot_url ? `<img src="${API_BASE}${esc(r.snapshot_url)}" style="width:52px;height:36px;object-fit:cover;border-radius:4px;flex-shrink:0" loading="lazy">` : '<span style="width:52px;flex-shrink:0"></span>'}
       <i data-lucide="chevron-right" style="width:13px;height:13px;color:var(--muted);flex-shrink:0"></i>

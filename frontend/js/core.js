@@ -1371,7 +1371,8 @@ function _drawerGoToInventory(view, searchValue, camMode) {
 function _drawerStatusDot(status) {
   const s = (status || '').toLowerCase();
   const online  = ['online','ok','up','ativo','active'].includes(s);
-  const offline = ['offline','down','inativo','inactive','auth_failed','timeout','erro','error'].includes(s);
+  const offline = ['offline','down','inativo','inactive','auth_failed','timeout','erro','error',
+                   'camera_offline','nvr_offline','sem_imagem'].includes(s);
   const color = online ? 'var(--primary)' : offline ? 'var(--danger)' : 'var(--muted)';
   return `<span style="width:8px;height:8px;border-radius:50%;background:${color};flex-shrink:0;display:inline-block"></span>`;
 }

@@ -1067,6 +1067,8 @@ def _load_rows_for_report(site: str = "", mode: str = "", items: str = "") -> Li
         if not rows:
             rows = _read_rows()
             rows = decorate_legacy_rows("dvr", rows, site=site)
+    # Mesmo estado que a tela mostra (ver nvr._load_rows_for_report).
+    rows = _com_estado_efetivo(rows)
     mode_norm = _normalize_rec_inventory_mode(mode) if str(mode or "").strip() else ""
     if mode_norm:
         rows = [r for r in rows if isinstance(r, dict) and _rec_row_mode(r) == mode_norm]

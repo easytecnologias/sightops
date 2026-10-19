@@ -79,6 +79,7 @@ function monitoringDrawerMeta(row) {
     if (address) parts.push(address);
     if (model) parts.push(model);
     if (row.entity_type === 'camera') parts.push(monitoringOnuTexto(detail));
+    if (detail.motivo) parts.push(detail.motivo);
   }
   return parts.filter(Boolean).join(' · ');
 }

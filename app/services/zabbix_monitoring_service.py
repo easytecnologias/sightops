@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import re
 from typing import Any, Dict, Iterable, List
 import os
@@ -12,6 +13,8 @@ import requests
 from app.core.tenant_context import get_current_tenant_slug
 from app.services.db_store import _conn, load_app_settings
 from app.services.monitoring_service import list_entities
+
+logger = logging.getLogger("cam-snapshot")
 
 
 def _text(value: Any) -> str:
@@ -416,6 +419,48 @@ def _configurar_telegram_por_site(
     return {"acoes": feitas, "motivo": ""}
 
 
+GATILHO_SEM_IMAGEM = "Gravador sem imagem de camera que esta no ar ({HOST.NAME})"
+
+
+def _garantir_gatilhos_gravador(url: str, auth: str, technical_names: Dict[str, Dict[str, Any]],
+                                host_ids: Dict[str, str], item_by_host_key: Dict[Any, str]) -> int:
+    """Cria, nos hosts de NVR/DVR, o gatilho de camera no ar sem imagem.
+
+    Em 19/10/2026 os 1786 hosts SIGHTOPS.* do Zabbix tinham ZERO gatilhos: os
+    itens recebiam valor, mas nada disparava. O NVR 01 da SIERRA ficou com 14
+    cameras fora da gravacao e o Zabbix so guardou o numero. Este e o primeiro
+    gatilho, no caso em que o status do gravador nao mostra nada (ele responde).
+
+    Falha aqui nao derruba o sync: o push dos valores continua.
+    """
+    alvos = {}
+    for nome, row in technical_names.items():
+        hostid = host_ids.get(nome, "")
+        if _text(row.get("entity_type")).lower() in ("nvr", "dvr") and hostid \
+                and item_by_host_key.get((hostid, "sightops.canais_sem_imagem")):
+            alvos[hostid] = nome
+    if not alvos:
+        return 0
+    try:
+        existentes = _call(url, "trigger.get", {
+            "output": ["triggerid"], "selectHosts": ["hostid"], "hostids": list(alvos),
+            "filter": {"description": [GATILHO_SEM_IMAGEM]}}, auth, 120) or []
+        com_gatilho = {_text(h.get("hostid")) for t in existentes for h in (t.get("hosts") or [])}
+        novos = [{
+            "description": GATILHO_SEM_IMAGEM,
+            "expression": f"last(/{nome}/sightops.canais_sem_imagem)>0",
+            "priority": 3,
+            "comments": "Camera responde na rede, mas o gravador nao recebe imagem dela: nao esta gravando. "
+                        "Veja no SightOps, Gravadores, os canais 'sem imagem no gravador'.",
+        } for hostid, nome in alvos.items() if hostid not in com_gatilho]
+        for i, lote in enumerate(_chunks(novos)):
+            _call(url, "trigger.create", lote, auth, 121 + i)
+        return len(novos)
+    except Exception as exc:
+        logger.warning("Zabbix: falha ao criar gatilho de gravador sem imagem: %s", exc)
+        return 0
+
+
 def sync_monitoring_to_zabbix(entity_types: tuple[str, ...] = ("olt", "onu", "camera", "nvr", "dvr", "connector", "access_device", "whatsapp", "switch", "windows")) -> Dict[str, Any]:
     settings = load_app_settings()
     raw_cfg = settings.get("zabbix_ip_sync") if isinstance(settings.get("zabbix_ip_sync"), dict) else {}
@@ -539,6 +584,7 @@ def sync_monitoring_to_zabbix(entity_types: tuple[str, ...] = ("olt", "onu", "ca
                    "sightops.uplinks_up", "sightops.uplinks_total", "sightops.pons_up", "sightops.pons_total",
                    "sightops.uplink_in_bps", "sightops.uplink_out_bps",
                    "sightops.canais_online", "sightops.canais_offline", "sightops.canais_total",
+                   "sightops.canais_sem_imagem",
                    # Toda chave de metricas_por_tipo TEM de estar aqui: o item.get
                    # filtra por esta lista, e chave ausente nao e achada -- o sync
                    # tenta criar o item de novo a cada ciclo, o Zabbix recusa a
@@ -570,6 +616,7 @@ def sync_monitoring_to_zabbix(entity_types: tuple[str, ...] = ("olt", "onu", "ca
         "sightops.canais_online": ("SightOps - Canais com imagem", 3, "Canais do gravador com camera respondendo (verificacao de ate 2 h)"),
         "sightops.canais_offline": ("SightOps - Canais sem imagem", 3, "Canais do gravador com camera fora ou gravador sem resposta"),
         "sightops.canais_total": ("SightOps - Canais lidos", 3, "Canais com camera e leitura valida na ultima verificacao (exclui canal vazio e sem leitura)"),
+        "sightops.canais_sem_imagem": ("SightOps - Cameras no ar sem imagem no gravador", 3, "Canais em que a camera responde na rede mas o gravador nao recebe imagem (nao esta gravando)"),
         "sightops.disco_c_livre_pct": ("SightOps - Disco C: livre (%)", 0, "Espaco livre no C: no ultimo relatorio do agente Windows"),
         "sightops.defender_tempo_real": ("SightOps - Defender em tempo real", 3, "1 = ligado, 0 = desligado (agente Windows)"),
         "sightops.alertas": ("SightOps - Alertas de saude", 3, "Quantos alertas o inventario Windows levantou (sem SSD, pouca memoria, disco cheio, Defender, BitLocker, TPM, Windows sem suporte)"),
@@ -595,8 +642,8 @@ def sync_monitoring_to_zabbix(entity_types: tuple[str, ...] = ("olt", "onu", "ca
         "olt": ["sightops.onus_up", "sightops.onus_total", "sightops.uptime_days", "sightops.uplinks_up",
                 "sightops.uplinks_total", "sightops.pons_up", "sightops.pons_total",
                 "sightops.uplink_in_bps", "sightops.uplink_out_bps"],
-        "nvr": ["sightops.canais_online", "sightops.canais_offline", "sightops.canais_total"],
-        "dvr": ["sightops.canais_online", "sightops.canais_offline", "sightops.canais_total"],
+        "nvr": ["sightops.canais_online", "sightops.canais_offline", "sightops.canais_total", "sightops.canais_sem_imagem"],
+        "dvr": ["sightops.canais_online", "sightops.canais_offline", "sightops.canais_total", "sightops.canais_sem_imagem"],
         "windows": ["sightops.disco_c_livre_pct", "sightops.defender_tempo_real", "sightops.alertas"],
     }
     create_items = []
@@ -619,6 +666,8 @@ def sync_monitoring_to_zabbix(entity_types: tuple[str, ...] = ("olt", "onu", "ca
         for host_key, itemid in zip(missing_item_keys[cursor:cursor + len(batch)], ids):
             item_by_host_key[host_key] = _text(itemid)
         cursor += len(batch)
+
+    gatilhos = _garantir_gatilhos_gravador(url, auth, technical_names, host_ids, item_by_host_key)
 
     status_value = {"up": "1", "down": "0", "unstable": "2", "unknown": "3", "maintenance": "4"}
     push_rows = []
@@ -655,6 +704,7 @@ def sync_monitoring_to_zabbix(entity_types: tuple[str, ...] = ("olt", "onu", "ca
             ("sightops.canais_online", _number(detail.get("canais_online")) if detail.get("checado_em") else None),
             ("sightops.canais_offline", _number(detail.get("canais_offline")) if detail.get("checado_em") else None),
             ("sightops.canais_total", _number(detail.get("canais_total")) if detail.get("checado_em") else None),
+            ("sightops.canais_sem_imagem", _number(detail.get("canais_sem_imagem")) if detail.get("checado_em") else None),
             # Windows: so valores do agente; sem relatorio (checado_em) nao manda nada.
             ("sightops.disco_c_livre_pct", _number(detail.get("disco_c_livre_pct")) if detail.get("checado_em") else None),
             ("sightops.defender_tempo_real", _number(detail.get("defender_tempo_real")) if detail.get("checado_em") else None),
@@ -680,4 +730,5 @@ def sync_monitoring_to_zabbix(entity_types: tuple[str, ...] = ("olt", "onu", "ca
         "acoes_telegram": telegram["acoes"], "telegram_motivo": telegram["motivo"],
         "created_hosts": len(create_hosts), "linked_hosts": len(host_ids),
         "created_items": len(create_items), "pushed": pushed, "removed_hosts": len(orphan_hostids),
+        "gatilhos_criados": gatilhos,
     }
