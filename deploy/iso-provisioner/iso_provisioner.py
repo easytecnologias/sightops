@@ -632,8 +632,11 @@ def reconcile_once():
                 anteriores = [(e.get("real_cidr"), e.get("virtual_cidr")) for e in (mapa_atual.get(str(c.get("id"))) or [])
                               if isinstance(e, dict)]
                 lans, vm = _vmap_cobrindo_gateway(n, c, _lans_ruijie(c, locais), anteriores)
-                logs.append(_apply_ruijie(n, c.get("id"), lans, vm))
-                if vm:
+                msg = _apply_ruijie(n, c.get("id"), lans, vm)
+                logs.append(msg)
+                # Mapa so depois das regras no ar: com o tunel ainda subindo, o
+                # app passaria a usar um IP virtual que nao leva a lugar nenhum.
+                if vm and (" ok (" in msg):
                     vnat_entries[str(c.get("id"))] = [{"real_cidr": r, "virtual_cidr": v} for r, v in vm]
             except Exception as e:
                 logs.append("%s: ERRO %s" % (c.get("id"), e))

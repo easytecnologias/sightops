@@ -310,3 +310,18 @@ def test_diretiva_entre_aspas_tambem_e_barrada():
     assert "plugin" not in sync.ovpn_seguro(cfg)
     args = sync.run_args("abc", 14)
     assert args[args.index("--dns") + 1] == "8.8.8.8"
+
+
+def test_mapa_so_e_gravado_depois_que_o_tunel_existe(monkeypatch, tmp_path):
+    conns = [{"id": "gw", "type": "ruijie", "iso_index": 14, "gateway_host": "172.16.80.1",
+              "host": {"lan_networks": ["172.16.80.0/23"]}}]
+    monkeypatch.setattr(prov, "VNAT_MAP", str(tmp_path / "map.json"))
+    monkeypatch.setattr(prov, "wg_privkey", lambda: "k")
+    monkeypatch.setattr(prov, "load_connectors", lambda: conns)
+    monkeypatch.setattr(prov, "existing_wgc_indices", lambda: [])
+    monkeypatch.setattr(prov, "existing_rjc_indices", lambda: [])
+    monkeypatch.setattr(prov, "_redes_locais", lambda: [])
+    _sh_falso(monkeypatch, existe=False)  # rjc14 ainda nao existe
+    logs = prov.reconcile_once()
+    assert any("aguardando tunel" in l for l in logs)
+    assert not (tmp_path / "map.json").exists() or "gw" not in json.loads((tmp_path / "map.json").read_text())

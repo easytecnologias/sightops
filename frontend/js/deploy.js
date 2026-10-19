@@ -562,7 +562,9 @@ async function loadDeployNew() {
     loadDeploySites(),
   ]);
   _deployConnectors = (Array.isArray(data?.connectors) ? data.connectors : [])
-    .filter(c => _connectorNorm(c.type) === 'routeros');
+    // MikroTik e Ruijie (com VPN isolada): os dois chegam no gravador pelo
+    // IP virtual do conector (_reach_deploy_host no backend).
+    .filter(c => ['routeros', 'ruijie'].includes(_connectorNorm(c.type)));
   const connectorOptions = _deployConnectors
     .map(c => {
       const online = deployConnectorOnline(c);
@@ -700,7 +702,9 @@ async function deployStandaloneRecorderLoadConnectors() {
   if (!select) return;
   const data = await apiJson('/api/connectors');
   _deployConnectors = (Array.isArray(data?.connectors) ? data.connectors : [])
-    .filter(c => _connectorNorm(c.type) === 'routeros');
+    // MikroTik e Ruijie (com VPN isolada): os dois chegam no gravador pelo
+    // IP virtual do conector (_reach_deploy_host no backend).
+    .filter(c => ['routeros', 'ruijie'].includes(_connectorNorm(c.type)));
   select.innerHTML = `<option value="">Escolha a origem de acesso</option><option value="${DEPLOY_LOCAL_ORIGIN}">Local / VPN do servidor</option>` + _deployConnectors.map(c => {
     const online = deployConnectorOnline(c);
     const tunnel = deployConnectorVpnReady(c);
