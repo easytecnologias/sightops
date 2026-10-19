@@ -221,7 +221,16 @@ titulo "11. Containers que nenhum compose recria"
 # apenas na linha de comando -- sem ele o site nao responde pela internet e nao
 # ha onde consultar o valor. Ver deploy/compose/docker-compose.extras.yml.
 orfaos=0
-for c in $(docker ps --format '{{.Names}}' 2>/dev/null | grep -vE '^backup-'); do
+# Tunel Ruijie (sightops-vpn-<id>): quem recria e o timer sightops-ruijie-vpn-sync,
+# a partir do cadastro do conector -- nao e orfao, desde que o timer esteja ativo.
+if docker ps --format '{{.Names}}' 2>/dev/null | grep -q '^sightops-vpn-'; then
+  if systemctl is-active --quiet sightops-ruijie-vpn-sync.timer 2>/dev/null; then
+    ok "tuneis Ruijie (sightops-vpn-*) recriados pelo timer sightops-ruijie-vpn-sync"
+  else
+    aviso "tuneis Ruijie no ar, mas o timer sightops-ruijie-vpn-sync esta parado -- ninguem os recria"
+  fi
+fi
+for c in $(docker ps --format '{{.Names}}' 2>/dev/null | grep -vE '^backup-|^sightops-vpn-'); do
   arq=$(docker inspect -f '{{index .Config.Labels "com.docker.compose.project.config_files"}}' "$c" 2>/dev/null)
   if [ -z "$arq" ]; then
     echo "      SEM COMPOSE: $c"
@@ -235,7 +244,7 @@ elif [ -f "$EXTRAS" ]; then
   # Estar no extras.yml nao e problema: ele existe justamente para descrever
   # esses containers. O aviso e para quem NAO esta em lugar nenhum.
   fora=0
-  for c in $(docker ps --format '{{.Names}}' 2>/dev/null | grep -vE '^backup-'); do
+  for c in $(docker ps --format '{{.Names}}' 2>/dev/null | grep -vE '^backup-|^sightops-vpn-'); do
     arq=$(docker inspect -f '{{index .Config.Labels "com.docker.compose.project.config_files"}}' "$c" 2>/dev/null)
     [ -n "$arq" ] && continue
     grep -qE "^[[:space:]]*container_name: ${c}[[:space:]]*$" "$EXTRAS" 2>/dev/null || { echo "      NAO DESCRITO EM LUGAR NENHUM: $c"; fora=$((fora + 1)); }

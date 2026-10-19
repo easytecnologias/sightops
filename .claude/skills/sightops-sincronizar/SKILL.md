@@ -59,11 +59,17 @@ Com a imagem que esta no ar, sem tocar no container de producao:
 ```bash
 ssh sightops 'cd /home/central/sightops-v3; IMG=$(docker inspect sightops-v3-api --format "{{.Config.Image}}"); \
   docker run --rm -e PYTHONPYCACHEPREFIX=/tmp/pyc -v $PWD/app:/src/app:ro -v $PWD/tests:/src/tests:ro \
+  -v $PWD/deploy:/src/deploy:ro -v $PWD/scripts:/src/scripts:ro \
   -w /src --entrypoint sh $IMG -c "pip install -q pytest >/dev/null 2>&1; python -c \"import app.main\" && python -m pytest tests -q -p no:cacheprovider | tail -3"'
 ```
 
 `-v $PWD:/src` inteiro nao serve: o app cria `data/` no import e o mount e
-somente leitura. Monte so `app/` e `tests/`.
+somente leitura. Monte `app/` e `tests/`, mais `deploy/` e `scripts/` (o teste
+de isolamento do Ruijie carrega o iso-provisioner e o sync do tunel de la).
+
+Depois de `/sightops-publicar`, a imagem que vale e a do `.env.v3` (o container
+pode ainda estar na anterior ate ser recriado): use
+`IMG=$(grep ^CAM_SNAPSHOT_IMAGE= /home/central/sightops-v3-release/.env.v3 | cut -d= -f2)`.
 
 ### 4. Commitar no servidor
 
