@@ -1,0 +1,10 @@
+[Unit]
+Description=SightOps - barreira de firewall entre tuneis de clientes (SIGHTOPS-ISO)
+# Roda /opt/sightops/scripts/sightops_isolamento_fw.sh: bloqueia encaminhamento
+# de um tunel de cliente (wgc*, tun*, wg-sightops) para outro e mantem o salto
+# na posicao 1 do DOCKER-USER, acima dos ACCEPT por interface.
+After=docker.service sightops-connector-routing.service
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh /opt/sightops/scripts/sightops_isolamento_fw.sh
