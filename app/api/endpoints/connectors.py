@@ -25,6 +25,7 @@ from app.services.connector_service import (
     ruijie_collect_lan_inventory,
     ruijie_update_vpn,
     save_connector_ports,
+    update_connector,
 )
 
 router = APIRouter(prefix="/api/connectors", tags=["connectors"])
@@ -78,6 +79,16 @@ def api_connectors_get(connector_id: str) -> Dict[str, Any]:
     if not row:
         raise HTTPException(status_code=404, detail="conector nao encontrado")
     return {"ok": True, "connector": row}
+
+
+@router.put("/{connector_id}")
+def api_connectors_update(connector_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Edita nome/cliente/site (e, no Ruijie, host/usuario/senha do gateway)."""
+    try:
+        return update_connector(connector_id, payload if isinstance(payload, dict) else {})
+    except ValueError as exc:
+        detail = str(exc)
+        raise HTTPException(status_code=404 if "nao encontrado" in detail else 400, detail=detail)
 
 
 @router.put("/{connector_id}/ports")

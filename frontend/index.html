@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=1792000211">
+  <link rel="stylesheet" href="styles.css?v=1792500005">
 </head>
 <body>
 
@@ -6507,6 +6507,49 @@
   </div>
 
   <!-- --- MODAL: VPN DO CONECTOR RUIJIE --- -->
+  <div id="modalConnectorEdit" class="modal-backdrop hidden" style="z-index:80" onclick="if(event.target===this)closeConnectorEditModal()">
+    <div class="modal" style="max-width:560px">
+      <div class="modal-header">
+        <div>
+          <p class="eyebrow" id="connEditEyebrow">Conector</p>
+          <h2>Editar conector</h2>
+        </div>
+        <button class="secondary-action" type="button" onclick="closeConnectorEditModal()" title="Fechar" aria-label="Fechar" style="width:44px;height:44px;padding:0;justify-content:center">
+          <i data-lucide="x"></i>
+        </button>
+      </div>
+      <div class="modal-body">
+        <div class="connector-form" style="grid-template-columns:1fr 1fr;padding:0">
+          <label style="grid-column:1 / -1">Nome
+            <input id="connEditName">
+          </label>
+          <label>Cliente
+            <input id="connEditClient">
+          </label>
+          <label>Site
+            <input id="connEditSite">
+          </label>
+          <label class="conn-edit-ruijie" style="grid-column:1 / -1">IP/host do gateway
+            <input id="connEditGatewayHost" placeholder="172.16.80.1">
+          </label>
+          <label class="conn-edit-ruijie">Usuário do gateway
+            <input id="connEditGatewayUser" placeholder="admin">
+          </label>
+          <label class="conn-edit-ruijie">Senha do gateway
+            <input id="connEditGatewayPassword" type="password" placeholder="em branco = manter a atual" autocomplete="new-password">
+          </label>
+        </div>
+        <p class="conn-edit-ruijie" style="margin:12px 0 0;color:var(--muted);font-size:12px;line-height:1.45">
+          A VPN (usuario, senha e client.ovpn) e alterada em "Configurar VPN".
+        </p>
+      </div>
+      <div class="modal-actions">
+        <button class="secondary-action" type="button" onclick="closeConnectorEditModal()">Cancelar</button>
+        <button class="primary-action" type="button" id="btnConnEditSave" onclick="submitConnectorEditModal()"><i data-lucide="save"></i> Salvar</button>
+      </div>
+    </div>
+  </div>
+
   <div id="modalRuijieVpn" class="modal-backdrop hidden" style="z-index:80">
     <div class="modal" style="max-width:560px">
       <div class="modal-header">
@@ -6949,7 +6992,7 @@
   <script src="js/gravador-rede-editar.js?v=1792000202"></script>
   <script src="js/cameraActivation.js?v=1791000212"></script>
   <script src="js/deployOlt.js?v=1791000212"></script>
-  <script src="js/connectors.js?v=1792500003"></script>
+  <script src="js/connectors.js?v=1792500006"></script>
   <script src="js/monitoring.js?v=1792500002"></script>
   <script src="js/planning.js?v=1791000212"></script>
   <script src="js/helpers.js?v=1791000212"></script>

@@ -575,6 +575,44 @@ def ruijie_update_vpn(connector_id: str, vpn_username: str, vpn_password: str, v
         return {"ok": True, "connector": _public_connector(row, include_token=False)}
 
 
+def update_connector(connector_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Edita o cadastro de um conector do proprio cliente.
+
+    So campos de cadastro: nome, cliente e site (qualquer tipo); IP/host,
+    usuario e senha do gateway (Ruijie). Senha em branco mantem a atual -- a
+    tela nunca recebe a senha salva. Tunel, token e VPN tem fluxo proprio
+    (Configurar VPN / script), nao passam por aqui.
+    """
+    data = payload if isinstance(payload, dict) else {}
+    with _lock:
+        rows = _load_connectors()
+        row = next((r for r in rows if _text(r.get("id")) == _text(connector_id)), None)
+        if not row or not _visible_to_current_tenant(row):
+            raise ValueError("conector nao encontrado")
+        for campo in ("name", "client", "site"):
+            if campo in data:
+                valor = _text(data.get(campo))
+                if not valor:
+                    raise ValueError(f"{campo} nao pode ficar vazio")
+                row[campo] = valor
+        if _text(row.get("type")).lower() == "ruijie":
+            if "gateway_host" in data:
+                host = _text(data.get("gateway_host"))
+                if not host:
+                    raise ValueError("informe o IP/host do gateway")
+                row["gateway_host"] = host
+            if "gateway_user" in data:
+                row["gateway_user"] = _text(data.get("gateway_user")) or "admin"
+            senha = _text(data.get("gateway_password"))
+            if senha:
+                row["password_enc"] = encrypt(senha)
+            # Credencial ou endereco novo: o login guardado nao vale mais.
+            _ruijie_sessions.pop(_text(row.get("id")), None)
+        row["updated_at"] = _now()
+        _save_connectors(rows)
+        return {"ok": True, "connector": _public_connector(row, include_token=False)}
+
+
 # Sessao do eWeb por conector, reaproveitada entre coletas (o id do conector
 # e unico entre clientes, entao a chave ja isola um tenant do outro).
 _ruijie_sessions: Dict[str, Any] = {}

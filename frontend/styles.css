@@ -5150,6 +5150,9 @@ body.cam-live-lock {
 .connector-form label {
   display: grid;
   gap: 6px;
+  /* Sem isto, quando a celula vizinha tem uma dica embaixo do campo, as
+     linhas do grid esticam e o input cresce/desce (campos desalinhados). */
+  align-content: start;
   color: var(--muted);
   font-size: 13px;
   font-weight: 500;

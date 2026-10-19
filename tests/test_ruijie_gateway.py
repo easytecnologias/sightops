@@ -214,3 +214,24 @@ def test_telegram_avisa_alarme_de_ap(monkeypatch):
     tg.process_monitoring_notifications()
     tg.process_monitoring_notifications()  # mesmo alarme: nao repete
     assert len(enviados) == 1 and "ALARME NO EQUIPAMENTO" in enviados[0] and "Alimentacao insuficiente" in enviados[0]
+
+
+def test_editar_conector_so_campos_de_cadastro_e_do_proprio_cliente(conectores, monkeypatch):
+    monkeypatch.setattr(cs, "encrypt", lambda v: f"enc:{v}")
+    monkeypatch.setattr(cs, "get_current_tenant_slug", lambda: "t1")
+    cs._ruijie_sessions["gw1"] = "sessao-velha"
+    out = cs.update_connector("gw1", {"name": "GW NOVO", "gateway_host": "172.16.80.1", "gateway_password": "",
+                                      "token": "x", "tenant_slug": "t2", "vpn_config": "y"})
+    row = cs._load_connectors()[0]
+    assert row["name"] == "GW NOVO" and row["gateway_host"] == "172.16.80.1"
+    assert row["password_enc"] == "x"  # senha em branco mantem a atual
+    assert row["tenant_slug"] == "t1" and "vpn_config" not in row  # campo fora da lista e ignorado
+    assert "gw1" not in cs._ruijie_sessions  # endereco novo: login antigo descartado
+    assert "password_enc" not in out["connector"]
+    cs.update_connector("gw1", {"gateway_password": "nova"})
+    assert cs._load_connectors()[0]["password_enc"] == "enc:nova"
+    with pytest.raises(ValueError):
+        cs.update_connector("gw1", {"name": "  "})
+    monkeypatch.setattr(cs, "get_current_tenant_slug", lambda: "t2")
+    with pytest.raises(ValueError, match="nao encontrado"):
+        cs.update_connector("gw1", {"name": "invasor"})

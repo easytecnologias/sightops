@@ -255,11 +255,13 @@ function openConnectorActionMenu(event, connectorId, trigger) {
   menu.id = 'connectorFloatingMenu';
   menu.className = 'connector-floating-menu';
   menu.innerHTML = isRuijie ? `
+    <button type="button" data-action="edit"><i data-lucide="pencil"></i><span>Editar</span></button>
     <button type="button" data-action="ruijie-lan"><i data-lucide="scan-search"></i><span>Coletar LAN</span></button>
     <button type="button" data-action="ruijie-vpn"><i data-lucide="shield"></i><span>Configurar VPN</span></button>
     <button type="button" data-action="router-winbox"><i data-lucide="terminal"></i><span>Acessar via Winbox</span></button>
     <button type="button" data-action="pc-agent"><i data-lucide="monitor-down"></i><span>Baixar agente (PC)</span></button>
     <button type="button" class="danger" data-action="delete"><i data-lucide="trash-2"></i><span>Excluir</span></button>` : `
+    <button type="button" data-action="edit"><i data-lucide="pencil"></i><span>Editar</span></button>
     <button type="button" data-action="download"><i data-lucide="download"></i><span>Baixar script</span></button>
     <button type="button" data-action="vpn"><i data-lucide="shield"></i><span>Configurar VPN</span></button>
     <button type="button" data-action="router-winbox"><i data-lucide="terminal"></i><span>Acessar via Winbox</span></button>
@@ -268,13 +270,14 @@ function openConnectorActionMenu(event, connectorId, trigger) {
   document.body.appendChild(menu);
   const rect = trigger.getBoundingClientRect();
   const menuWidth = 210;
-  const menuHeight = 220;
+  const menuHeight = 270;
   menu.style.left = `${Math.max(8, Math.min(window.innerWidth - menuWidth - 8, rect.right - menuWidth))}px`;
   menu.style.top = `${rect.bottom + menuHeight + 8 <= window.innerHeight ? rect.bottom + 6 : Math.max(8, rect.top - menuHeight - 6)}px`;
   menu.addEventListener('click', ev => {
     ev.stopPropagation();
     const action = ev.target.closest('button')?.dataset.action;
     closeConnectorActionMenu();
+    if (action === 'edit') openConnectorEditModal(connectorId);
     if (action === 'download') downloadConnectorAgent(connectorId);
     if (action === 'vpn') downloadConnectorVpn(connectorId);
     if (action === 'ruijie-lan') collectRuijieLanInventory(connectorId);
@@ -699,6 +702,70 @@ function openRuijieVpnModal(connectorId) {
   modal.dataset.connectorId = connectorId;
   modal.classList.remove('hidden');
   lucide.createIcons();
+}
+
+function openConnectorEditModal(connectorId) {
+  const modal = document.getElementById('modalConnectorEdit');
+  const row = connectorById(connectorId);
+  if (!modal || !row) return;
+  const isRuijie = String(row.type || '').toLowerCase() === 'ruijie';
+  document.getElementById('connEditEyebrow').textContent = isRuijie ? 'Conector Ruijie' : 'Conector MikroTik';
+  document.getElementById('connEditName').value = row.name || '';
+  document.getElementById('connEditClient').value = row.client || '';
+  document.getElementById('connEditSite').value = row.site || '';
+  document.getElementById('connEditGatewayHost').value = row.gateway_host || '';
+  document.getElementById('connEditGatewayUser').value = row.gateway_user || 'admin';
+  // A senha salva nunca vem para a tela; em branco = manter.
+  document.getElementById('connEditGatewayPassword').value = '';
+  modal.querySelectorAll('.conn-edit-ruijie').forEach(el => el.classList.toggle('hidden', !isRuijie));
+  modal.dataset.connectorId = connectorId;
+  modal.dataset.ruijie = isRuijie ? '1' : '';
+  modal.classList.remove('hidden');
+  lucide.createIcons();
+}
+
+function closeConnectorEditModal() {
+  document.getElementById('modalConnectorEdit')?.classList.add('hidden');
+}
+
+async function submitConnectorEditModal() {
+  const modal = document.getElementById('modalConnectorEdit');
+  const connectorId = modal?.dataset.connectorId || '';
+  if (!connectorId) return;
+  const val = id => document.getElementById(id)?.value.trim() || '';
+  const payload = { name: val('connEditName'), client: val('connEditClient'), site: val('connEditSite') };
+  if (!payload.name || !payload.client || !payload.site) {
+    showToast('Nome, cliente e site nao podem ficar vazios.', true);
+    return;
+  }
+  if (modal.dataset.ruijie) {
+    payload.gateway_host = val('connEditGatewayHost');
+    payload.gateway_user = val('connEditGatewayUser') || 'admin';
+    const senha = document.getElementById('connEditGatewayPassword')?.value || '';
+    if (senha) payload.gateway_password = senha;
+    if (!payload.gateway_host) {
+      showToast('Informe o IP/host do gateway.', true);
+      return;
+    }
+  }
+  const btn = document.getElementById('btnConnEditSave');
+  if (btn) btn.disabled = true;
+  try {
+    const res = await api(`/api/connectors/${encodeURIComponent(connectorId)}`, {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    });
+    const body = await res?.json().catch(() => ({}));
+    if (!res?.ok || body?.ok === false) {
+      showToast(body?.detail || 'Erro ao salvar o conector.', true);
+      return;
+    }
+    showToast(modal.dataset.ruijie ? 'Conector salvo. A proxima coleta (ate 2 min) ja usa os dados novos.' : 'Conector salvo.');
+    closeConnectorEditModal();
+    await loadConnectors();
+  } finally {
+    if (btn) btn.disabled = false;
+  }
 }
 
 function closeRuijieVpnModal() {
