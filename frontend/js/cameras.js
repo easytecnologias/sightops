@@ -511,45 +511,80 @@ async function waybackVersoes() {
 
 async function waybackDataFoto(versao, lat, lon) {
   if (!versao.metadados) return null;
-  // As camadas de metadados sao por faixa de escala; a de detalhe fica entre 4 e 6.
-  for (const camada of [5, 6, 4, 3]) {
-    try {
-      const url = `${versao.metadados}/${camada}/query?geometry=${lon},${lat}&geometryType=esriGeometryPoint`
-        + '&inSR=4326&spatialRel=esriSpatialRelIntersects&outFields=SRC_DATE2,NICE_DESC,SRC_RES&returnGeometry=false&f=json';
-      const body = await (await fetch(url)).json();
-      const a = body?.features?.[0]?.attributes;
-      if (a) return { quando: a.SRC_DATE2 ? new Date(a.SRC_DATE2) : null, fonte: a.NICE_DESC || '', res: a.SRC_RES };
-    } catch (_) {}
+  // As camadas de metadados sao por escala; a 6 (1,2 m) e a do zoom 17, o mesmo
+  // do tilemap. So cai para a 5 se a 6 vier vazia. Perguntar varias camadas
+  // juntas faz a Esri enfileirar (32 consultas de uma vez levaram 25 s).
+  for (const camada of [6, 5]) {
+    const url = `${versao.metadados}/${camada}/query?geometry=${lon},${lat}&geometryType=esriGeometryPoint`
+      + '&inSR=4326&spatialRel=esriSpatialRelIntersects&outFields=SRC_DATE2,NICE_DESC,SRC_RES&returnGeometry=false&f=json';
+    const a = await fetch(url, { signal: AbortSignal.timeout(6000) }).then(r => r.json()).then(b => b?.features?.[0]?.attributes || null).catch(() => null);
+    if (a) return { quando: a.SRC_DATE2 ? new Date(a.SRC_DATE2) : null, fonte: a.NICE_DESC || '', res: a.SRC_RES };
   }
   return null;
 }
 
-async function waybackVersoesNoPonto(lat, lon) {
-  const todas = await waybackVersoes();
+// Uma busca por quadro z17 (~300 m); o resultado fica guardado e a segunda
+// abertura no mesmo lugar e instantanea.
+const _waybackPorQuadro = new Map();
+
+// Consultar versao por versao em sequencia levava ~10 s (uma ida aos EUA por
+// versao). Aqui comeca por amostras espalhadas (uma a cada 12 versoes) em
+// paralelo; cada foto achada puxa a versao logo abaixo dela, e uma cadeia para
+// quando cai numa foto ja achada -- a cadeia de quem achou primeiro segue dali.
+// aoMudar(lista) e chamado a cada foto nova ou data de foto que chega.
+function waybackVersoesNoPonto(lat, lon, aoMudar = () => {}) {
   const z = 17, n = 2 ** z;
   const x = Math.floor((lon + 180) / 360 * n);
   const y = Math.floor((1 - Math.asinh(Math.tan(lat * Math.PI / 180)) / Math.PI) / 2 * n);
-  const achadas = [];
-  let i = 0;
-  while (i < todas.length && achadas.length < 15) {
-    const res = await fetch(`${WAYBACK_BASE}/MapServer/tilemap/${todas[i].id}/${z}/${y}/${x}`);
-    const body = await res.json().catch(() => ({}));
-    const id = String(body?.select?.[0] ?? todas[i].id);
-    const idx = todas.findIndex(v => v.id === id);
-    if (idx < 0 || achadas.some(v => v.id === id)) break;
-    achadas.push(todas[idx]);
-    i = idx + 1;
+  const chave = `${z}/${y}/${x}`;
+  let busca = _waybackPorQuadro.get(chave);
+  if (!busca) {
+    busca = { lista: [], ouvintes: new Set(), pronta: null };
+    busca.pronta = (async () => {
+      const todas = await waybackVersoes();
+      const achadas = new Map();
+      const consultadas = new Set();
+      const fotos = [];
+      const avisar = () => {
+        // Versoes com a mesma foto (so reprocessada) viram uma linha so.
+        const vistas = new Set();
+        busca.lista = [...achadas.values()].sort((a, b) => b.data.localeCompare(a.data)).filter(v => {
+          const q = v.foto?.quando?.getTime();
+          if (q == null) return true;
+          if (vistas.has(q)) return false;
+          vistas.add(q);
+          return true;
+        });
+        busca.ouvintes.forEach(fn => fn(busca.lista));
+      };
+      const seguir = async i => {
+        if (i >= todas.length || consultadas.has(i)) return;
+        consultadas.add(i);
+        const body = await fetch(`${WAYBACK_BASE}/MapServer/tilemap/${todas[i].id}/${z}/${y}/${x}`)
+          .then(r => r.json()).catch(() => ({}));
+        const id = String(body?.select?.[0] ?? todas[i].id);
+        const idx = todas.findIndex(v => v.id === id);
+        if (idx < 0 || achadas.has(id)) return;
+        const v = { ...todas[idx], foto: undefined };
+        achadas.set(id, v);
+        fotos.push(waybackDataFoto(v, lat, lon).then(f => { v.foto = f; avisar(); }));
+        avisar();
+        await seguir(idx + 1);
+      };
+      const amostras = [];
+      for (let i = 0; i < todas.length; i += 12) amostras.push(seguir(i));
+      await Promise.all(amostras);
+      await Promise.all(fotos);
+      avisar();
+      return busca.lista;
+    })();
+    busca.pronta.catch(() => _waybackPorQuadro.delete(chave));
+    _waybackPorQuadro.set(chave, busca);
   }
-  const fotos = await Promise.all(achadas.map(v => waybackDataFoto(v, lat, lon)));
-  // Versoes seguidas com a mesma foto (so reprocessada) viram uma linha so.
-  const vistas = new Set();
-  return achadas.map((v, k) => ({ ...v, foto: fotos[k] })).filter(v => {
-    const q = v.foto?.quando?.getTime();
-    if (q == null) return true;
-    if (vistas.has(q)) return false;
-    vistas.add(q);
-    return true;
-  });
+  const ouvinte = lista => aoMudar(lista);
+  busca.ouvintes.add(ouvinte);
+  if (busca.lista.length) aoMudar(busca.lista);
+  return busca.pronta.finally(() => busca.ouvintes.delete(ouvinte));
 }
 
 function mapaSeletorDatas(map, imagens, chave) {
@@ -573,38 +608,75 @@ function mapaSeletorDatas(map, imagens, chave) {
     try { localStorage.setItem(chave, JSON.stringify(escolhida)); } catch (_) {}
   };
 
+  let versoes = [];
+  let pedido = 0;
+  const desenhar = (carregando) => {
+    versoes.forEach(v => {
+      v.rotulo = v.foto?.quando ? mes(v.foto.quando) : `versao de ${mes(new Date(`${v.data}T00:00:00Z`))}`;
+    });
+    const linhas = versoes.map((v, k) => {
+      const det = v.foto === undefined ? 'buscando data da foto...'
+        : v.foto === null ? 'data da foto indisponivel'
+        : [v.foto?.fonte, v.foto?.res ? `${String(v.foto.res).replace('.', ',')} m` : ''].filter(Boolean).join(' · ');
+      const ativa = escolhida?.id === v.id ? ' ativa' : '';
+      return `<button type="button" class="mapa-datas-item${ativa}" data-k="${k}"><b>${esc(v.rotulo)}</b><small>${esc(det)}</small></button>`;
+    }).join('');
+    lista.innerHTML = `<button type="button" class="mapa-datas-item${escolhida ? '' : ' ativa'}" data-k="-1"><b>Mais recente</b><small>imagem atual da Esri</small></button>${linhas}`
+      + `<div class="mapa-datas-msg">${carregando ? 'Buscando mais fotos deste ponto...' : 'Datas da foto no centro do mapa. Mudou de lugar? Abra de novo.'}</div>`;
+  };
+  lista.addEventListener('click', ev => {
+    const b = ev.target.closest('[data-k]');
+    if (!b) return;
+    const k = Number(b.dataset.k);
+    aplicar(k < 0 ? null : versoes[k]);
+    lista.hidden = true;
+  });
+
   const abrir = async () => {
     if (!lista.hidden) { lista.hidden = true; return; }
     lista.hidden = false;
-    lista.innerHTML = '<div class="mapa-datas-msg">Buscando fotos deste ponto...</div>';
+    const meu = ++pedido;
+    versoes = [];
+    desenhar(true);
     const c = map.getCenter();
     try {
-      const versoes = await waybackVersoesNoPonto(c.lat, c.lng);
-      versoes.forEach(v => {
-        v.rotulo = v.foto?.quando ? mes(v.foto.quando) : `versao ${v.data}`;
+      await waybackVersoesNoPonto(c.lat, c.lng, atual => {
+        if (meu !== pedido || lista.hidden) return;
+        versoes = atual;
+        desenhar(true);
       });
-      const linhas = versoes.map((v, k) => {
-        const det = [v.foto?.fonte, v.foto?.res ? `${String(v.foto.res).replace('.', ',')} m` : ''].filter(Boolean).join(' · ');
-        const ativa = escolhida?.id === v.id ? ' ativa' : '';
-        return `<button type="button" class="mapa-datas-item${ativa}" data-k="${k}"><b>${esc(v.rotulo)}</b><small>${esc(det)}</small></button>`;
-      }).join('');
-      lista.innerHTML = `<button type="button" class="mapa-datas-item${escolhida ? '' : ' ativa'}" data-k="-1"><b>Mais recente</b><small>imagem atual da Esri</small></button>${linhas}`
-        + '<div class="mapa-datas-msg">Datas da foto no centro do mapa. Mudou de lugar? Abra de novo.</div>';
-      lista.querySelectorAll('[data-k]').forEach(b => b.addEventListener('click', () => {
-        const k = Number(b.dataset.k);
-        aplicar(k < 0 ? null : versoes[k]);
-        lista.hidden = true;
-      }));
+      if (meu === pedido && !lista.hidden) desenhar(false);
     } catch (err) {
-      lista.innerHTML = `<div class="mapa-datas-msg">Nao foi possivel buscar as datas: ${esc(err.message || err)}</div>`;
+      if (meu === pedido) lista.innerHTML = `<div class="mapa-datas-msg">Nao foi possivel buscar as datas: ${esc(err.message || err)}</div>`;
     }
   };
   botao.addEventListener('click', abrir);
 
+  // Com o satelite ligado, a busca do ponto comeca sozinha quando o mapa para
+  // de mexer; ao clicar no botao a lista ja esta pronta (ou quase).
+  let visivel = false;
+  let espera = null;
+  const adiantar = () => {
+    clearTimeout(espera);
+    if (!visivel) return;
+    espera = setTimeout(() => {
+      const c = map.getCenter();
+      waybackVersoesNoPonto(c.lat, c.lng).catch(() => {});
+    }, 700);
+  };
+  map.on('moveend', adiantar);
+
   const Controle = L.Control.extend({ onAdd: () => caixa });
   new Controle({ position: 'topright' }).addTo(map);
   aplicar(escolhida);
-  return { mostrar: sim => { caixa.style.display = sim ? '' : 'none'; if (!sim) lista.hidden = true; } };
+  return {
+    mostrar: sim => {
+      visivel = sim;
+      caixa.style.display = sim ? '' : 'none';
+      if (!sim) lista.hidden = true;
+      adiantar();
+    },
+  };
 }
 
 async function loadKmz() {
