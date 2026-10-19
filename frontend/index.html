@@ -3380,7 +3380,7 @@
           <div>
             <p class="eyebrow">SaaS</p>
             <h1>Conectores</h1>
-            <p>MikroTik RouterOS dos clientes para coletar dados locais e executar tarefas remotas.</p>
+            <p>Roteadores dos clientes (MikroTik ou Ruijie/Reyee) para coletar dados locais e executar tarefas remotas.</p>
           </div>
           <div class="page-heading-actions">
             <button class="secondary-action" id="btnConnectorRefresh"><i data-lucide="refresh-cw"></i> Atualizar</button>
@@ -3416,7 +3416,8 @@
                 <input id="connPublicUrl" placeholder="preenchido automaticamente">
               </label>
               <label id="connFieldsRuijieHost" class="hidden">IP/host do gateway
-                <input id="connGatewayHost" placeholder="177.131.224.11">
+                <input id="connGatewayHost" placeholder="172.16.80.1">
+                <small style="display:block;color:var(--muted);margin-top:4px">Com VPN: o IP da LAN do gateway. O IP publico so funciona se a gerencia web estiver aberta na internet (quase nunca esta).</small>
               </label>
               <label id="connFieldsRuijieUser" class="hidden">Usuário do gateway
                 <input id="connGatewayUser" placeholder="admin" value="admin">
@@ -3426,12 +3427,13 @@
               </label>
               <label id="connFieldsRuijieVpnUser" class="hidden">Usuário da VPN (opcional)
                 <input id="connVpnUsername" placeholder="sightops">
+                <small style="display:block;color:var(--muted);margin-top:4px">Crie no gateway um usuario so do SightOps. Se for o mesmo do tecnico, uma conexao derruba a outra.</small>
               </label>
               <label id="connFieldsRuijieVpnPass" class="hidden">Senha da VPN (opcional)
                 <input id="connVpnPassword" type="password" placeholder="senha da conta VPN">
               </label>
               <label id="connFieldsRuijieVpnConfig" class="hidden" style="grid-column:1 / -1">Configuração OpenVPN exportada do gateway (.ovpn, opcional)
-                <small style="display:block;color:var(--muted);margin-bottom:6px">O eWeb exporta um .tar -- extraia e escolha o arquivo "client.ovpn" de dentro dele.</small>
+                <small style="display:block;color:var(--muted);margin-bottom:6px">O eWeb exporta um .tar -- extraia e escolha so o arquivo "client.ovpn". Nunca envie o .tar inteiro: ele leva a chave privada da CA (ca.key).</small>
                 <div style="display:flex;align-items:center;gap:10px">
                   <button type="button" class="secondary-action" style="font-size:12px;padding:6px 12px" onclick="document.getElementById('connVpnConfigFile').click()"><i data-lucide="upload"></i> Escolher client.ovpn</button>
                   <span id="connVpnConfigFileName" style="font-size:12px;color:var(--muted)">Nenhum arquivo escolhido</span>
@@ -3482,7 +3484,7 @@
 
         <div class="panel connector-jobs-panel">
           <div class="panel-header">
-            <div><h2>Tarefas remotas</h2><p>Envie jobs para o MikroTik selecionado. Ele executa no proximo ciclo.</p></div>
+            <div><h2>Tarefas remotas</h2><p>Envie jobs para o MikroTik selecionado. Ele executa no proximo ciclo. No Ruijie, use "Coletar LAN" no menu do conector.</p></div>
           </div>
           <div class="connector-job-form">
             <select id="connJobConnector"></select>
@@ -3497,7 +3499,7 @@
       <div id="modalConnectorCreate" class="modal-backdrop hidden" onclick="if(event.target===this)closeConnectorCreateModal()">
         <div class="modal connector-create-modal">
           <div class="modal-header">
-            <div><p class="eyebrow">SaaS</p><h2>Novo conector</h2><p>Gere o acesso e baixe o script RouterOS para instalar no cliente.</p></div>
+            <div><p class="eyebrow">SaaS</p><h2>Novo conector</h2><p id="connCreateSubtitle">Gere o acesso e baixe o script RouterOS para instalar no cliente.</p></div>
             <button class="icon-button" id="btnConnectorModalClose" type="button" title="Fechar" aria-label="Fechar"><i data-lucide="x"></i></button>
           </div>
           <div class="modal-body" id="connectorCreateModalBody"></div>
@@ -6528,7 +6530,7 @@
             <input id="ruijieVpnPassword" type="password" placeholder="senha da conta VPN">
           </label>
           <label style="grid-column:1 / -1">Configuração OpenVPN (.ovpn)
-            <small style="display:block;color:var(--muted);margin-bottom:6px">O eWeb exporta um .tar -- extraia e escolha o arquivo "client.ovpn" de dentro dele.</small>
+            <small style="display:block;color:var(--muted);margin-bottom:6px">O eWeb exporta um .tar -- extraia e escolha so o arquivo "client.ovpn". Nunca envie o .tar inteiro: ele leva a chave privada da CA (ca.key).</small>
             <div style="display:flex;align-items:center;gap:10px">
               <button type="button" class="secondary-action" style="font-size:12px;padding:6px 12px" onclick="document.getElementById('ruijieVpnConfigFile').click()"><i data-lucide="upload"></i> Escolher client.ovpn</button>
               <span id="ruijieVpnConfigFileName" style="font-size:12px;color:var(--muted)">Nenhum arquivo escolhido</span>
@@ -6927,7 +6929,7 @@
        trechos do app.js original na sequencia em que estavam, entao carregar
        fora de ordem muda o comportamento. Ao adicionar um arquivo novo, entre
        antes de bootstrap.js, que e quem liga os botoes no DOMContentLoaded. -->
-  <script src="js/core.js?v=1792000237"></script>
+  <script src="js/core.js?v=1792500004"></script>
   <script src="js/dashboard.js?v=1792000238"></script>
   <script src="js/liveStream.js?v=1791000212"></script>
   <script src="js/cameras.js?v=1792000236"></script>
@@ -6947,7 +6949,7 @@
   <script src="js/gravador-rede-editar.js?v=1792000202"></script>
   <script src="js/cameraActivation.js?v=1791000212"></script>
   <script src="js/deployOlt.js?v=1791000212"></script>
-  <script src="js/connectors.js?v=1791000212"></script>
+  <script src="js/connectors.js?v=1792500003"></script>
   <script src="js/monitoring.js?v=1792500002"></script>
   <script src="js/planning.js?v=1791000212"></script>
   <script src="js/helpers.js?v=1791000212"></script>

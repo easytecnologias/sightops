@@ -496,7 +496,7 @@ const VIEW_META = {
   kmz:             { title: 'KMZ  Mapa',        sub: 'Localizacao das cameras' },
   'script-grafana':{ title: 'Scripts  Grafana', sub: '' },
   'script-zabbix': { title: 'Scripts  Zabbix',  sub: '' },
-  connectors:      { title: 'Conectores',       sub: 'MikroTik RouterOS dos clientes' },
+  connectors:      { title: 'Conectores',       sub: 'Roteadores dos clientes (MikroTik e Ruijie)' },
   monitoring:      { title: 'Monitoramento',     sub: 'Saude dos equipamentos e alertas' },
   tools:           { title: 'Ferramentas',       sub: '' },
   backup:          { title: 'Backup',            sub: 'Exportacao e importacao' },

@@ -231,7 +231,12 @@ def _detalhe_conector(r: Dict[str, Any]) -> Dict[str, Any]:
         portas = [p for p in ruijie["ports"] if isinstance(p, dict)]
         detalhe.update({"ports_total": len(portas), "ports_up": sum(1 for p in portas if p.get("up"))})
     if isinstance(ruijie.get("alarms"), list) and ruijie.get("ip_conflict") is not None:
-        alarmes = [a for a in ruijie["alarms"] if isinstance(a, dict)]
+        # O gateway lista os alarmes da rede inteira. Alarme de AP conhecido
+        # conta so no AP (_access_point_entities): contar aqui tambem dava
+        # dois avisos do mesmo problema. Alarme de equipamento desconhecido
+        # fica aqui, para nao se perder.
+        aps = r.get("ruijie_aps_known") if isinstance(r.get("ruijie_aps_known"), dict) else {}
+        alarmes = [a for a in ruijie["alarms"] if isinstance(a, dict) and _text(a.get("sn")) not in aps]
         detalhe.update({
             "checado_em": poll.get("at"),
             "alertas": len(alarmes) + (1 if ruijie.get("ip_conflict") else 0),

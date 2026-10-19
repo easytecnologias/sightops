@@ -189,6 +189,12 @@ function updateConnectorTypeFields() {
   document.getElementById('connFieldsRuijieVpnUser')?.classList.toggle('hidden', !isRuijie);
   document.getElementById('connFieldsRuijieVpnPass')?.classList.toggle('hidden', !isRuijie);
   document.getElementById('connFieldsRuijieVpnConfig')?.classList.toggle('hidden', !isRuijie);
+  const sub = document.getElementById('connCreateSubtitle');
+  if (sub) {
+    sub.textContent = isRuijie
+      ? 'O SightOps entra no gateway pela VPN e coleta sozinho a cada 2 min. Nada e instalado no equipamento.'
+      : 'Gere o acesso e baixe o script RouterOS para instalar no cliente.';
+  }
 }
 
 function resetConnectorCreateForm() {

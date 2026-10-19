@@ -126,7 +126,11 @@ def _conector_publico(status="online", ok=True, aps_atuais=True):
 def test_detalhe_do_conector_vai_para_o_zabbix():
     d = ms._detalhe_conector(_conector_publico())
     assert d["ports_total"] == 3 and d["ports_up"] == 2
-    assert d["uplink_in_bps"] == 36503522 and d["alertas"] == 1 and d["checado_em"]
+    # o unico alarme e do AP conhecido: conta so no AP, nao no gateway (aviso duplo)
+    assert d["uplink_in_bps"] == 36503522 and d["alertas"] == 0 and d["checado_em"]
+    c = _conector_publico()
+    c["ruijie"] = {**c["ruijie"], "alarms": c["ruijie"]["alarms"] + [{"sn": "H1SU000000001", "msg": "do gateway"}]}
+    assert ms._detalhe_conector(c)["alarmes"] == ["do gateway"]
     # sem coleta valida nao manda numero (0 viraria "nenhuma porta com link")
     d = ms._detalhe_conector(_conector_publico(ok=False))
     assert "ports_up" not in d and "alertas" not in d and d["poll_error"] == "timeout"
