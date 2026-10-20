@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional
 
+from app.core import permissions
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
@@ -106,7 +107,7 @@ def api_db_inventory(
     site: str = Query(""),
     only_online: bool = Query(False),
 ) -> Dict[str, Any]:
-    rows = query_inventory(source=source, site=site, only_online=bool(only_online))
+    rows = permissions.filtrar_por_site(query_inventory(source=source, site=site, only_online=bool(only_online)))
     return {"ok": True, "source": source, "site": site, "count": len(rows), "rows": rows}
 
 

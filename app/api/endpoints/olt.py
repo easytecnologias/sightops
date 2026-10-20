@@ -5,6 +5,7 @@ import time
 import uuid
 from typing import Any, Dict, List
 
+from app.core import permissions
 from fastapi import APIRouter, HTTPException
 
 from app.core.tenant_context import get_current_tenant_slug
@@ -375,6 +376,8 @@ def api_olt_clear(site: str = "", clear_camera_link: bool = False) -> Dict[str, 
 @router.get("/olt/rows")
 def api_olt_rows(site: str = "", compact: bool = False) -> Dict[str, Any]:
     data = list_macs(site=site)
+    if isinstance(data, dict) and isinstance(data.get("rows"), list):
+        data = {**data, "rows": permissions.filtrar_por_site(data["rows"])}
     if not compact:
         return data
 

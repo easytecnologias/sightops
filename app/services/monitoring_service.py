@@ -845,12 +845,21 @@ def monitoring_summary(sites: List[str] | None = None) -> Dict[str, Any]:
     ensure_default_profiles()
     filtro, params = "", [_tenant()]
     if sites is not None:
-        nomes = [str(s).strip().upper() for s in sites if str(s).strip()] or ["\x00"]
-        filtro = f" AND upper(trim(COALESCE(site,''))) IN ({','.join('?' for _ in nomes)})"
+        nomes = [str(s).strip().upper() for s in sites if str(s).strip()]
+        filtro = f" AND upper(trim(COALESCE(site,''))) IN ({','.join('?' for _ in nomes)})" if nomes else " AND 1=0"
         params += nomes
     with _conn() as c:
         rows = c.execute("SELECT entity_type,status,COUNT(1) AS count FROM monitoring_entities WHERE tenant_slug=? AND monitoring_enabled=1" + filtro + " GROUP BY entity_type,status", tuple(params)).fetchall()
-        events = c.execute("SELECT * FROM monitoring_events WHERE tenant_slug=? ORDER BY created_at DESC LIMIT 20", (_tenant(),)).fetchall()
+        if sites is None:
+            events = c.execute("SELECT * FROM monitoring_events WHERE tenant_slug=? ORDER BY created_at DESC LIMIT 20", (_tenant(),)).fetchall()
+        else:
+            # So eventos de equipamento dos sites liberados (o nome do equipamento vai na mensagem).
+            events = c.execute(
+                "SELECT * FROM monitoring_events WHERE tenant_slug=? AND entity_key IN ("
+                "SELECT entity_key FROM monitoring_entities WHERE tenant_slug=? AND monitoring_enabled=1" + filtro +
+                ") ORDER BY created_at DESC LIMIT 20",
+                tuple([_tenant()] + params),
+            ).fetchall()
     by_type: Dict[str, Dict[str, int]] = {}
     for row in rows:
         item = dict(row); bucket = by_type.setdefault(item["entity_type"], {"total": 0, "up": 0, "down": 0, "unstable": 0, "unknown": 0, "maintenance": 0})

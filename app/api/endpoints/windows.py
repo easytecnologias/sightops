@@ -107,7 +107,7 @@ def api_windows_report_pdf(request: Request) -> Response:
             if candidato.exists():
                 logo = candidato
                 break
-    conteudo = build_windows_inventory_pdf(load_windows_inventory(), company_name=cliente, logo_path=logo)
+    conteudo = build_windows_inventory_pdf(permissions.filtrar_por_site(load_windows_inventory()), company_name=cliente, logo_path=logo)
     sufixo = re.sub(r"[^A-Za-z0-9]+", "-", cliente).strip("-")[:40]
     nome = f"computadores{'-' + sufixo if sufixo else ''}.pdf"
     return Response(content=conteudo, media_type="application/pdf",

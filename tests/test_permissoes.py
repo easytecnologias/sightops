@@ -316,7 +316,8 @@ def test_filtro_por_site_na_sessao(sem_banco, monkeypatch):
     from app.core import tenant_context as T
 
     monkeypatch.setattr(P, "sites_do_cliente", lambda slug: [{"name": "INCOFORTE", "equipamentos": 66}, {"name": "JANGADEIROS", "equipamentos": 48}])
-    linhas = [{"ip": "1", "site": "INCOFORTE"}, {"ip": "2", "local": "jangadeiros"}, {"ip": "3"}, {"ip": "4", "site_name": "Incoforte"}]
+    linhas = [{"ip": "1", "site": "INCOFORTE"}, {"ip": "2", "local": "jangadeiros"}, {"ip": "3"}, {"ip": "4", "site_name": "Incoforte"},
+              {"ip": "5", "site": "JANGADEIROS", "local": "INCOFORTE"}]  # local editado nao libera
     u = _user("viewer", uid=12)
     P.definir_acesso_usuario("cliente-x", u, "", {}, ["INCOFORTE"])
     tok = T.set_current_user(u)
@@ -353,5 +354,28 @@ def test_resumo_do_monitoramento_por_site(tmp_path, monkeypatch):
         assert M.monitoring_summary()["types"]["camera"]["total"] == 4
         assert M.monitoring_summary(sites=["incoforte"])["types"]["camera"]["total"] == 2
         assert M.monitoring_summary(sites=[])["types"] == {}
+        with db_store._conn() as c:
+            for i in range(4):
+                c.execute("INSERT INTO monitoring_events(tenant_slug, entity_key, entity_type, from_status, to_status, message) VALUES(?,?,?,?,?,?)",
+                          ("cliente-x", f"cam{i}", "camera", "up", "down", f"cam{i}: up -> down"))
+        evs = M.monitoring_summary(sites=["INCOFORTE"])["events"]
+        assert sorted(e["entity_key"] for e in evs) == ["cam0", "cam1"]
+        assert len(M.monitoring_summary()["events"]) == 4
     finally:
         tenant_context.reset_current_tenant_slug(tok)
+
+
+
+def test_export_nao_grava_em_pasta_comum_e_migrate_le_so_o_cliente(tmp_path, monkeypatch):
+    from app.core import tenant_context
+    from app.services import db_store
+
+    legado = tmp_path / "saida" / "cam-inventory.json"
+    legado.parent.mkdir(parents=True)
+    legado.write_text('[{"ip": "10.9.9.9", "title": "CAMERA DE OUTRO CLIENTE"}]', encoding="utf-8")
+    monkeypatch.setattr(db_store, "INVENTORY_JSON_PATH", legado)
+    monkeypatch.setattr(db_store, "DVR_INVENTORY_JSON_PATH", tmp_path / "dvr.json")
+    monkeypatch.setattr(db_store, "NVR_INVENTORY_JSON_PATH", tmp_path / "nvr.json")
+    monkeypatch.setattr(tenant_context, "DATA_DIR", tmp_path)
+    assert db_store._arquivo_do_cliente("cliente-b", tmp_path / "nao-existe.json", legado) == tmp_path / "nao-existe.json"
+    assert db_store._arquivo_do_cliente("default", tmp_path / "nao-existe.json", legado) == legado

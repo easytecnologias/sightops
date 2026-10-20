@@ -1157,7 +1157,7 @@ def api_dvr_report_preview_jpg(site: str = "", company_name: str = "") -> FileRe
 
 @router.get("/report.pdf")
 def api_dvr_report_pdf(site: str = "", company_name: str = "", mode: str = "", items: str = "") -> FileResponse:
-    rows = _load_rows_for_report(site=site, mode=mode, items=items)
+    rows = permissions.filtrar_por_site(_load_rows_for_report(site=site, mode=mode, items=items))
     obj = load_app_settings()
     if not isinstance(obj, dict):
         obj = {}

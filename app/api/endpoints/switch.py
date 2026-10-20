@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Dict
 
+from app.core import permissions
 from fastapi import APIRouter
 
 from app.services.intelbras_switch_service import collect_switch_snapshot
@@ -76,7 +77,10 @@ def api_switch_collect_macs(req: SwitchCollectMacsRequest) -> Dict[str, Any]:
 
 @router.get("/rows")
 def api_switch_rows(site: str = "") -> Dict[str, Any]:
-    return list_macs(site=site)
+    data = list_macs(site=site)
+    if isinstance(data, dict) and isinstance(data.get("rows"), list):
+        data = {**data, "rows": permissions.filtrar_por_site(data["rows"])}
+    return data
 
 
 @router.post("/clear")

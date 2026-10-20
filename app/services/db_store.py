@@ -470,12 +470,23 @@ def _site_name_from_row(row: Dict[str, Any]) -> str:
     return ""
 
 
+def _arquivo_do_cliente(tenant: str, proprio: Path, legado: Path) -> Path:
+    """Arquivo de inventario DO cliente. Os arquivos legados (pasta comum) sao do
+    tempo de cliente unico e so valem para o tenant default: lidos por outro
+    cliente, importavam o inventario alheio como se fosse dele."""
+    if proprio.exists() or tenant != "default":
+        return proprio
+    return legado
+
+
 def migrate_json_to_db() -> Dict[str, Any]:
     init_db()
     tenant = _current_tenant_slug()
-    ip_rows = _load_json_rows(INVENTORY_JSON_PATH)
-    dvr_rows = _load_json_rows(DVR_INVENTORY_JSON_PATH)
-    nvr_rows = _load_json_rows(NVR_INVENTORY_JSON_PATH)
+    from app.core.tenant_context import tenant_ip_inventory_path, tenant_recorder_inventory_path
+
+    ip_rows = _load_json_rows(_arquivo_do_cliente(tenant, tenant_ip_inventory_path("olt", tenant), INVENTORY_JSON_PATH))
+    dvr_rows = _load_json_rows(_arquivo_do_cliente(tenant, tenant_recorder_inventory_path("dvr", tenant), DVR_INVENTORY_JSON_PATH))
+    nvr_rows = _load_json_rows(_arquivo_do_cliente(tenant, tenant_recorder_inventory_path("nvr", tenant), NVR_INVENTORY_JSON_PATH))
     with _conn() as c:
         ip_count = 0
         for r in ip_rows:

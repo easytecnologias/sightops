@@ -510,10 +510,21 @@ def filtrar_por_site(linhas: Any, campos: Tuple[str, ...] = _CAMPOS_SITE) -> Any
     for linha in linhas:
         if not isinstance(linha, dict):
             continue
-        valores = {str(linha.get(c) or "").strip().upper() for c in campos} - {""}
-        if valores & liberados:
+        if site_da_linha(linha, campos).upper() in liberados:
             saida.append(linha)
     return saida
+
+
+def site_da_linha(linha: Dict[str, Any], campos: Tuple[str, ...] = _CAMPOS_SITE) -> str:
+    """Site do equipamento = o PRIMEIRO campo preenchido (site, site_name, local).
+
+    Nao a uniao: com a uniao, quem edita o "local" de uma camera de outro site
+    (o operador edita esse campo) passava a ve-la."""
+    for c in campos:
+        v = str(linha.get(c) or "").strip()
+        if v:
+            return v
+    return ""
 
 
 def catalogo() -> Dict[str, Any]:
@@ -540,5 +551,5 @@ __all__ = [
     "MODULOS", "NIVEIS", "PERFIS_PADRAO", "modulo_da_rota", "nivel_exigido", "modulo_no_plano",
     "niveis_do_usuario", "decidir", "modo", "definir_modo", "registrar_divergencia", "resumo_sombra",
     "carregar_perfis", "salvar_perfil", "excluir_perfil", "definir_acesso_usuario", "catalogo",
-    "pode", "site_liberado", "sites_do_usuario", "sites_da_sessao", "filtrar_por_site",
+    "pode", "site_liberado", "sites_do_usuario", "sites_da_sessao", "filtrar_por_site", "site_da_linha",
 ]

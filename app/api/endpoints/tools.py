@@ -16,8 +16,9 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from app.core import permissions
 from fastapi import APIRouter, File, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, Response, StreamingResponse
 
 from app.core.paths import (
     BASE_DIR,
@@ -859,17 +860,22 @@ async def api_inventory_clear(payload: Dict[str, Any] | None = None) -> dict[str
 
 
 @router.get("/inventory/export")
-async def api_inventory_export(mode: str = "olt") -> FileResponse:
-    rows = _load_inventory_rows(mode=mode)
+async def api_inventory_export(mode: str = "olt") -> Response:
+    rows = permissions.filtrar_por_site(_load_inventory_rows(mode=mode))
     if not rows:
         raise HTTPException(404, "Inventario nao encontrado.")
     export_mode = str(mode or "olt").strip().lower()
-    export_path = (DATA_DIR / "cam-inventory-switch-export.json") if export_mode == "switch" else INVENTORY_JSON_PATH
-    export_path.parent.mkdir(parents=True, exist_ok=True)
-    export_path.write_text(json.dumps(rows, ensure_ascii=False, indent=2), encoding="utf-8")
+    # Devolve direto, sem gravar em disco. Antes gravava em saida/cam-inventory.json
+    # (pasta comum a todos os clientes), que o /api/db/migrate de OUTRO cliente lia
+    # e importava como se fosse dele -- e dois clientes exportando ao mesmo tempo
+    # podiam baixar o arquivo um do outro.
     ts = datetime.now().strftime("%Y%m%d-%H%M%S")
     fname = f"cam-inventory-{export_mode}-backup-{ts}.json"
-    return FileResponse(path=export_path, media_type="application/json", filename=fname)
+    return Response(
+        content=json.dumps(rows, ensure_ascii=False, indent=2),
+        media_type="application/json",
+        headers={"Content-Disposition": f'attachment; filename="{fname}"', "Cache-Control": "no-store"},
+    )
 
 
 @router.post("/inventory/import")
@@ -906,7 +912,9 @@ async def api_inventory_import(file: UploadFile = File(...), mode: str = "olt") 
 @router.get("/inventory-last")
 async def api_inventory_last(site: str = "", enrich: str = "") -> Dict[str, Any]:
     mode = (enrich or "olt").strip().lower()
-    rows = _load_inventory_rows(mode=mode, site=site)
+    # Filtro de site so nas rotas de LEITURA: _load_inventory_rows tambem serve a
+    # importar/limpar/excluir, que regravariam o inventario sem os outros sites.
+    rows = permissions.filtrar_por_site(_load_inventory_rows(mode=mode, site=site))
     if mode == "olt":
         rows, _ = _enrich_inventory_with_olt(list(rows), SAIDA_DIR / "olt-cpe-macs.json")
     elif mode == "switch":
@@ -918,7 +926,7 @@ def _load_report_rows_and_config(
     site: str, company_name: str, report_color: str, mode: str, ips: str
 ) -> tuple[list[dict[str, Any]], Dict[str, Any]]:
     report_mode = str(mode or "").strip().lower()
-    rows = _load_inventory_rows(mode=(report_mode or "olt"), site=site)
+    rows = permissions.filtrar_por_site(_load_inventory_rows(mode=(report_mode or "olt"), site=site))
     if report_mode == "olt":
         rows, _ = _enrich_inventory_with_olt(list(rows), SAIDA_DIR / "olt-cpe-macs.json")
     elif report_mode == "switch":
