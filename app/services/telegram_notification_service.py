@@ -38,7 +38,8 @@ def save_telegram_config(payload: Dict[str, Any]) -> Dict[str, Any]:
         "enabled": bool(payload.get("enabled")), "bot_token": token, "chat_id": _text(payload.get("chat_id")),
         "warn_rx": float(payload.get("warn_rx", -27)), "critical_rx": float(payload.get("critical_rx", -29)),
         "notify_recovery": bool(payload.get("notify_recovery", True)),
-        "types": list(payload.get("types") or ["connector", "olt", "onu", "camera", "nvr", "dvr", "windows", "whatsapp", "access_point"]),
+        # Sem "types" no payload, mantem a lista salva (antes voltava ao padrao sem avisar).
+        "types": list(payload.get("types") or old.get("types") or ["connector", "olt", "onu", "camera", "nvr", "dvr", "windows", "whatsapp", "access_point"]),
     }
     save_app_settings(settings)
     return get_telegram_config()

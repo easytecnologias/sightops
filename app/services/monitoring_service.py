@@ -768,6 +768,25 @@ def refresh_interval_seconds() -> int:
         return 120
 
 
+def nvr_status_interval_seconds() -> int:
+    """Ritmo da medicao de gravador (mesmo calculo de _nvr_status_interval_s em app/main.py).
+    O laco de 2 min rele essa mesma medicao; "falhas seguidas" de gravador conta releituras."""
+    try:
+        return max(600, min(int(os.getenv("SIGHTOPS_NVR_STATUS_INTERVAL", "2400")), 21600))
+    except Exception:
+        return 2400
+
+
+def _ultimo_sync_zabbix(tenant: str) -> Dict[str, Any]:
+    try:
+        from app.services.zabbix_monitoring_service import ultimo_sync
+
+        return ultimo_sync(tenant)
+    except Exception:
+        logger.exception("nao consegui ler o ultimo sync do Zabbix")
+        return {}
+
+
 def config_health() -> Dict[str, Any]:
     """Numeros do cliente atual para a "saude da configuracao" em Configuracoes."""
     tenant = _tenant()
@@ -803,6 +822,9 @@ def config_health() -> Dict[str, Any]:
         "sem_informacao": int(r.get("sem_informacao") or 0),
         "ultima_verificacao": str(r.get("ultima_verificacao") or ""),
         "intervalo_verificacao_s": refresh_interval_seconds(),
+        "intervalo_gravador_s": nvr_status_interval_seconds(),
+        # O que prova que o dado chega ao Zabbix e o ultimo sync deste cliente, nao o hostid.
+        "zabbix_ultimo_sync": _ultimo_sync_zabbix(tenant),
         "conectores": por_tipo.get("connector", {}),
         "whatsapp": por_tipo.get("whatsapp", {}),
     }

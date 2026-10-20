@@ -4,6 +4,8 @@ import hashlib
 import json
 import logging
 import re
+import threading
+from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, List
 import os
 from urllib.parse import urlsplit, urlunsplit
@@ -461,7 +463,38 @@ def _garantir_gatilhos_gravador(url: str, auth: str, technical_names: Dict[str, 
         return 0
 
 
+# Ultimo resultado do sync por cliente, para a tela dizer "sincronizado" so quando
+# o dado esta chegando de fato. Ter zabbix_hostid nao prova isso: o campo nunca e
+# limpo e sobrevive a sync quebrado (excecao, Zabbix desconfigurado, host apagado).
+_ULTIMO_SYNC: Dict[str, Dict[str, Any]] = {}
+_ULTIMO_SYNC_LOCK = threading.Lock()
+
+
+def _registrar_sync(tenant: str, ok: bool, total: int = 0, pushed: int = 0, erro: str = "") -> None:
+    with _ULTIMO_SYNC_LOCK:
+        _ULTIMO_SYNC[tenant] = {
+            "em": datetime.now(timezone.utc).isoformat(), "ok": bool(ok),
+            "total": int(total), "pushed": int(pushed), "erro": str(erro or "")[:300],
+        }
+
+
+def ultimo_sync(tenant: str) -> Dict[str, Any]:
+    with _ULTIMO_SYNC_LOCK:
+        return dict(_ULTIMO_SYNC.get(_text(tenant).lower()) or {})
+
+
 def sync_monitoring_to_zabbix(entity_types: tuple[str, ...] = ("olt", "onu", "camera", "nvr", "dvr", "connector", "access_device", "whatsapp", "switch", "windows", "access_point")) -> Dict[str, Any]:
+    tenant = _text(get_current_tenant_slug() or "default").lower()
+    try:
+        result = _sync_monitoring_to_zabbix(entity_types)
+    except Exception as exc:
+        _registrar_sync(tenant, False, erro=f"{type(exc).__name__}: {exc}")
+        raise
+    _registrar_sync(tenant, bool(result.get("ok")), result.get("total") or 0, result.get("pushed") or 0, result.get("error") or "")
+    return result
+
+
+def _sync_monitoring_to_zabbix(entity_types: tuple[str, ...]) -> Dict[str, Any]:
     settings = load_app_settings()
     raw_cfg = settings.get("zabbix_ip_sync") if isinstance(settings.get("zabbix_ip_sync"), dict) else {}
     cfg = _default_zabbix_cfg(raw_cfg)

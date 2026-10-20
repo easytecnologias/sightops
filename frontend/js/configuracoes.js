@@ -27,6 +27,7 @@ const ALARME_ICONES = {
 };
 
 let _cfgAudit = [];
+let _cfgTelegram = null; // configuracao do Telegram como esta salva (nao como esta na tela)
 
 function cfgQuando(iso) {
   return typeof formatDateTimeShort === 'function' ? formatDateTimeShort(iso || '') : String(iso || '');
@@ -61,6 +62,21 @@ function cfgAnel(pct) {
     <text x="60" y="81" text-anchor="middle" font-size="10" fill="var(--muted)">configurado</text></svg>`;
 }
 
+// Estado real do envio ao Zabbix: exige o ultimo sync deste cliente com sucesso,
+// recente e com dado enviado. Ter host (zabbix_hostid) nao basta: o campo nunca e
+// limpo e continua preenchido com o sync parado.
+function cfgZabbix(h) {
+  const u = h?.zabbix_ultimo_sync || {};
+  const ciclo = Number(h?.intervalo_verificacao_s || 120) * 1000;
+  if (!u.em) return { st: 'espera', cor: 'gray', txt: 'Aguardando sincronização', det: 'O primeiro envio acontece em até alguns minutos depois que o sistema reinicia.' };
+  const idade = Date.now() - Date.parse(u.em);
+  if (!u.ok) return { st: 'falha', cor: 'red', txt: 'Sincronização falhou', det: u.erro || 'O último envio ao Zabbix deu erro.' };
+  if (idade > 3 * ciclo + 60000) return { st: 'parado', cor: 'red', txt: 'Sincronização parada', det: `Último envio ${cfgMinutos(u.em)}.` };
+  if ((h?.sem_zabbix || 0) > 0) return { st: 'sem_host', cor: 'red', txt: 'Equipamento sem host', det: `${licNum(h.sem_zabbix)} equipamento(s) sem host no Zabbix.` };
+  if (!u.pushed && (h?.total || 0) > 0) return { st: 'sem_dado', cor: 'amber', txt: 'Nenhum valor enviado', det: 'O último ciclo achou os hosts mas não enviou nenhum valor.' };
+  return { st: 'ok', cor: 'green', txt: 'Sincronizado', det: `Último envio ${cfgMinutos(u.em)}: ${licNum(u.pushed)} valores.` };
+}
+
 function cfgEhAdmin(u) {
   return ['owner', 'admin'].includes(String(u?.role || '').toLowerCase());
 }
@@ -74,6 +90,7 @@ async function renderSettingsConsole(currentUser, userRows, telegram) {
     apiJson('/api/monitoring/profiles', { forceRefresh: true }),
   ]);
   _cfgAudit = audit?.events || [];
+  _cfgTelegram = telegram || null;
   const navAudit = document.getElementById('settingsNavAudit');
   if (navAudit) navAudit.hidden = !admin;
   if (!admin && sessionStorage.getItem('sightops.settings.tab') === 'audit') sessionStorage.setItem('sightops.settings.tab', 'overview');
@@ -131,9 +148,12 @@ function renderSettingsHealth(userRows, telegram, health, plan) {
     : cfgCheck('bell-off', 'r', 'Ninguém recebe aviso quando um equipamento cai.', 'Nenhum canal de aviso está ligado.', cfgBotao('Configurar', vaiPara('notifications'), true)));
 
   if (health) {
-    add(health.sem_zabbix === 0, health.sem_zabbix === 0
-      ? cfgCheck('check-circle-2', 'g', 'Todo equipamento tem host no Zabbix.', `${licNum(health.total)} de ${licNum(health.total)} monitorados.`, '')
-      : cfgCheck('alert-octagon', 'r', `${licNum(health.sem_zabbix)} equipamento(s) sem host no Zabbix.`, 'Esses não aparecem nos painéis nem geram histórico.', cfgBotao('Ver integrações', vaiPara('integrations'))));
+    const zb = cfgZabbix(health);
+    if (zb.st !== 'espera') {
+      add(zb.st === 'ok', zb.st === 'ok'
+        ? cfgCheck('check-circle-2', 'g', 'Dados chegando ao Zabbix.', `${licNum(health.total)} equipamentos com host. ${esc(zb.det)}`, '')
+        : cfgCheck('alert-octagon', zb.cor === 'amber' ? 'a' : 'r', `Zabbix: ${esc(zb.txt.toLowerCase())}.`, esc(zb.det), cfgBotao('Ver integrações', vaiPara('integrations'))));
+    }
     add(health.fora === 0, health.fora === 0
       ? cfgCheck('activity', 'g', 'Nenhum equipamento fora do ar agora.', `Última verificação ${esc(cfgMinutos(health.ultima_verificacao) || '—')}.`, '')
       : cfgCheck('activity', 'a', `${licNum(health.fora)} equipamento(s) fora do ar agora.`, `${health.instavel ? `${licNum(health.instavel)} instável(is) também. ` : ''}Última verificação ${esc(cfgMinutos(health.ultima_verificacao) || '—')}.`, cfgBotao('Ver monitoramento', 'data-cfg-nav="monitoring"')));
@@ -201,6 +221,10 @@ function renderAlarmProfiles(profiles, health) {
   // O ritmo vem do laco de monitoramento (igual para todos os tipos), nao do perfil.
   const min = Math.max(1, Math.round(Number(health?.intervalo_verificacao_s || 120) / 60));
   setText('alarmIntervalNote', `O sistema verifica todos os equipamentos a cada ${licNum(min)} min.`);
+  const minGrav = Math.max(1, Math.round(Number(health?.intervalo_gravador_s || 2400) / 60));
+  const tempo = (tipo, n) => (['nvr', 'dvr'].includes(tipo)
+    ? `até ≈ ${licNum(minGrav + n * min)} min`
+    : `≈ ${licNum(n * min)} min`);
   box.innerHTML = lista.map(p => {
     const n = Number(p.failure_threshold || 2);
     return soCard({
@@ -209,13 +233,15 @@ function renderAlarmProfiles(profiles, health) {
       title: ALARME_TIPOS[p.entity_type],
       rows: [
         ['Falhas seguidas', `<span class="so-unit" style="justify-content:flex-end"><input type="number" min="1" max="10" data-alarm-profile="${esc(p.profile_key)}" data-alarm-orig="${n}" value="${n}" aria-label="Falhas seguidas para ${esc(ALARME_TIPOS[p.entity_type])}"></span>`],
-        ['Fora do ar após', `≈ ${licNum(n * min)} min`],
+        ['Fora do ar após', tempo(p.entity_type, n)],
       ],
+      foot: ['nvr', 'dvr'].includes(p.entity_type) ? `<small class="text-muted">O gravador é medido a cada ${licNum(minGrav)} min; as falhas contam releituras dessa medição.</small>` : '',
     });
   }).join('') || '<p class="text-muted">Nenhum perfil de monitoramento.</p>';
   box.querySelectorAll('[data-alarm-profile]').forEach(inp => inp.addEventListener('input', () => {
     const dd = inp.closest('dl')?.querySelectorAll('dd')[1];
-    if (dd) dd.textContent = `≈ ${licNum(Math.max(1, Number(inp.value) || 1) * min)} min`;
+    const p = lista.find(x => x.profile_key === inp.dataset.alarmProfile);
+    if (dd && p) dd.textContent = tempo(p.entity_type, Math.max(1, Number(inp.value) || 1));
   }));
 }
 
@@ -239,18 +265,23 @@ async function saveOnuThresholds() {
   const crit = Number(document.getElementById('alarmCriticalRx')?.value);
   if (!Number.isFinite(warn) || !Number.isFinite(crit)) { showToast('Informe os dois limites em dBm.', true); return; }
   if (crit >= warn) { showToast('O crítico precisa ser menor (mais negativo) que o alerta.', true); return; }
-  // Mesmo PUT do Telegram: manda o resto como esta para nao desligar nada.
+  // Mesmo PUT do Telegram. O resto vai como esta SALVO (nao como esta na tela),
+  // para nao gravar junto uma mudanca do formulario do Telegram que ninguem salvou.
+  // bot_token vazio = o backend mantem o atual.
+  const t = _cfgTelegram || {};
   const payload = {
     bot_token: '',
-    chat_id: document.getElementById('telegramChatId')?.value.trim() || '',
+    chat_id: t.chat_id || '',
     warn_rx: warn,
     critical_rx: crit,
-    enabled: !!document.getElementById('telegramEnabled')?.checked,
-    notify_recovery: !!document.getElementById('telegramRecovery')?.checked,
+    enabled: !!t.enabled,
+    notify_recovery: t.notify_recovery !== false,
+    ...(Array.isArray(t.types) && t.types.length ? { types: t.types } : {}),
   };
   try {
     const res = await api('/api/monitoring/telegram', { method: 'PUT', body: JSON.stringify(payload) });
     await jsonOrReadableError(res, 'Não foi possível salvar os limites.');
+    _cfgTelegram = { ...t, warn_rx: warn, critical_rx: crit };
     document.getElementById('telegramWarnRx').value = warn;
     document.getElementById('telegramCriticalRx').value = crit;
     showToast('Limites de sinal da ONU salvos.');
@@ -292,19 +323,20 @@ function renderIntegrationCards(health, telegram) {
   const con = h.conectores || {};
   const conTotal = Object.values(con).reduce((a, b) => a + b, 0);
   const conUp = con.up || 0;
-  const zbxOk = h.total ? h.sem_zabbix === 0 : true;
+  const zb = cfgZabbix(h);
+  const zu = h.zabbix_ultimo_sync || {};
   const wa = h.whatsapp || {};
   const waTotal = Object.values(wa).reduce((a, b) => a + b, 0);
   box.innerHTML = [
     soCard({
       logo: 'Zb', cor: 'r', title: 'Zabbix',
-      badge: zbxOk ? '<span class="badge badge-green so-dot">Sincronizado</span>' : '<span class="badge badge-red so-dot">Equipamento sem host</span>',
+      badge: `<span class="badge badge-${zb.cor} so-dot">${esc(zb.txt)}</span>`,
       actions: '<span class="so-tag">gerenciado pela Easy</span>',
       rows: [
-        ['Hosts', `${licNum((h.total || 0) - (h.sem_zabbix || 0))} / ${licNum(h.total || 0)}`],
-        ['Fora do ar agora', licNum(h.fora || 0)],
-        ['Sem informação', licNum(h.sem_informacao || 0)],
-        ['Última verificação', esc(cfgMinutos(h.ultima_verificacao) || '—')],
+        ['Equipamentos com host', `${licNum((h.total || 0) - (h.sem_zabbix || 0))} / ${licNum(h.total || 0)}`],
+        ['Último envio', esc(zu.em ? cfgMinutos(zu.em) : '—')],
+        ['Valores no último envio', zu.em ? licNum(zu.pushed || 0) : '—'],
+        ['Fora do ar (SightOps)', licNum(h.fora || 0)],
       ],
     }),
     soCard({

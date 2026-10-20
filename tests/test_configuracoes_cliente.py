@@ -77,3 +77,34 @@ def test_limiar_novo_vale_na_proxima_verificacao(banco):
             assert r["status"] == esperado
     finally:
         tenant_context.reset_current_tenant_slug(tok)
+
+
+def test_ultimo_sync_do_zabbix_registra_sucesso_falha_e_separa_cliente(banco, monkeypatch):
+    from app.services import zabbix_monitoring_service as Z
+
+    monkeypatch.setattr(Z, "_ULTIMO_SYNC", {})
+    monkeypatch.setattr(Z, "_sync_monitoring_to_zabbix", lambda tipos: {"ok": True, "total": 5, "pushed": 9})
+    tok = _como("cliente-a")
+    try:
+        Z.sync_monitoring_to_zabbix()
+        assert M.config_health()["zabbix_ultimo_sync"]["pushed"] == 9
+
+        def quebra(tipos):
+            raise RuntimeError("item duplicado")
+
+        monkeypatch.setattr(Z, "_sync_monitoring_to_zabbix", quebra)
+        with pytest.raises(RuntimeError):
+            Z.sync_monitoring_to_zabbix()
+        u = M.config_health()["zabbix_ultimo_sync"]
+        assert u["ok"] is False and "item duplicado" in u["erro"]
+
+        monkeypatch.setattr(Z, "_sync_monitoring_to_zabbix", lambda tipos: {"ok": False, "error": "Zabbix nao configurado automaticamente."})
+        Z.sync_monitoring_to_zabbix()
+        assert M.config_health()["zabbix_ultimo_sync"]["ok"] is False
+    finally:
+        tenant_context.reset_current_tenant_slug(tok)
+    tok = _como("cliente-b")
+    try:
+        assert M.config_health()["zabbix_ultimo_sync"] == {}  # nada do cliente-a aparece aqui
+    finally:
+        tenant_context.reset_current_tenant_slug(tok)

@@ -147,7 +147,7 @@ def test_toda_metrica_do_zabbix_esta_no_item_get():
     import inspect
     import re
     from app.services import zabbix_monitoring_service as Z
-    fonte = inspect.getsource(Z.sync_monitoring_to_zabbix)
+    fonte = inspect.getsource(Z._sync_monitoring_to_zabbix)  # o publico so registra o resultado
     wanted = fonte[fonte.index("wanted_keys = ["):]
     wanted = set(re.findall(r'"(sightops\.[a-z_]+)"', wanted[:wanted.index("]")]))
     metricas = fonte[fonte.index("metricas_por_tipo = {"):]
