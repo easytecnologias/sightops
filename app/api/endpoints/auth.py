@@ -4,7 +4,7 @@ import os
 import time
 from typing import Any, Dict
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response
+from fastapi import APIRouter, Body, Depends, Header, HTTPException, Request, Response
 from pydantic import BaseModel
 
 from app.core.security import AUTH_COOKIE_NAME
@@ -36,6 +36,7 @@ from app.services.auth_store import (
     user_requires_initial_setup,
 )
 from app.services.zabbix_access_service import provision_zabbix_tenant_access
+from app.services import licensing_service
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 _LOGIN_FAILS: dict[str, list[float]] = {}
@@ -365,6 +366,72 @@ def api_auth_set_tenant_modules(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     return {"ok": True, **result}
+
+
+def _require_platform_admin(user: Dict[str, Any]) -> None:
+    if not bool(user.get("is_platform_admin")):
+        raise HTTPException(status_code=403, detail="somente admin da plataforma")
+
+
+def _licensing_call(fn, *args):
+    try:
+        return fn(*args)
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/my-plan")
+def api_auth_my_plan(user: Dict[str, Any] = Depends(current_user)) -> Dict[str, Any]:
+    """Plano e uso do cliente em que a sessao esta (inclusive operando como)."""
+    slug = str(user.get("effective_tenant_slug") or user.get("tenant_slug") or "").strip().lower()
+    users = len(list_users(user))
+    summary = licensing_service.tenant_summary(slug, users)
+    summary.pop("note", None)  # observacao interna da Easy, o cliente nao ve
+    return {"ok": True, **summary}
+
+
+@router.get("/licensing")
+def api_auth_licensing(user: Dict[str, Any] = Depends(current_user)) -> Dict[str, Any]:
+    _require_platform_admin(user)
+    return {"ok": True, **licensing_service.platform_overview(list_tenants(user))}
+
+
+@router.put("/licensing/plans/{plan_key}")
+def api_auth_licensing_plan(
+    plan_key: str, payload: Dict[str, Any] = Body(...), user: Dict[str, Any] = Depends(current_user)
+) -> Dict[str, Any]:
+    _require_platform_admin(user)
+    return {"ok": True, "plan": _licensing_call(licensing_service.save_plan, user, plan_key, payload)}
+
+
+@router.put("/licensing/weights")
+def api_auth_licensing_weights(
+    payload: Dict[str, Any] = Body(...), user: Dict[str, Any] = Depends(current_user)
+) -> Dict[str, Any]:
+    _require_platform_admin(user)
+    return {"ok": True, "weights": _licensing_call(licensing_service.save_weights, user, payload.get("weights") or {})}
+
+
+@router.put("/licensing/policy")
+def api_auth_licensing_policy(
+    payload: Dict[str, Any] = Body(...), user: Dict[str, Any] = Depends(current_user)
+) -> Dict[str, Any]:
+    _require_platform_admin(user)
+    return {"ok": True, "policy": _licensing_call(licensing_service.save_policy, user, payload)}
+
+
+@router.put("/licensing/tenants/{tenant_id}")
+def api_auth_licensing_tenant(
+    tenant_id: int, payload: Dict[str, Any] = Body(...), user: Dict[str, Any] = Depends(current_user)
+) -> Dict[str, Any]:
+    _require_platform_admin(user)
+    tenant = next((t for t in list_tenants(user) if int(t.get("id") or 0) == int(tenant_id)), None)
+    if not tenant:
+        raise HTTPException(status_code=404, detail="cliente nao encontrado")
+    summary = _licensing_call(licensing_service.set_tenant_plan, user, str(tenant.get("slug") or ""), payload)
+    return {"ok": True, **summary}
 
 
 @router.post("/tenants/{tenant_id}/zabbix-access")

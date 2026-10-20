@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=1792500022">
+  <link rel="stylesheet" href="styles.css?v=1792600101">
 </head>
 <body>
 
@@ -137,6 +137,7 @@
           <button class="nav-item active" data-view="owner-overview"><i data-lucide="layout-dashboard"></i><span>Visão geral</span></button>
           <div class="nav-section-label">Administração SaaS</div>
           <button class="nav-item" data-view="owner-clients"><i data-lucide="building-2"></i><span>Clientes</span></button>
+          <button class="nav-item" data-view="owner-plans"><i data-lucide="package"></i><span>Planos e licenças</span></button>
           <button class="nav-item" data-view="owner-audit"><i data-lucide="history"></i><span>Auditoria</span></button>
           <button class="nav-item nav-item-owner-cta" id="btnEnterOperation" type="button"><i data-lucide="arrow-right-circle"></i><span>Ir para a operação</span></button>
         </div>
@@ -3521,6 +3522,7 @@
             <div class="settings-navigation-head"><span>Console administrativo</span><small>Gerencie o ambiente atual</small></div>
             <button type="button" class="settings-nav-item active" data-settings-tab="overview"><i data-lucide="layout-dashboard"></i><span><strong>Visão geral</strong><small>Resumo da conta</small></span><i data-lucide="chevron-right"></i></button>
             <button type="button" class="settings-nav-item" data-settings-tab="users"><i data-lucide="users"></i><span><strong>Usuários e acessos</strong><small>Perfis e permissões</small></span><i data-lucide="chevron-right"></i></button>
+            <button type="button" class="settings-nav-item" data-settings-tab="plan" id="settingsNavPlan" hidden><i data-lucide="package"></i><span><strong>Meu plano e uso</strong><small id="settingsNavPlanSub">Equipamentos e limites</small></span><i data-lucide="chevron-right"></i></button>
             <button type="button" class="settings-nav-item" data-settings-tab="notifications"><i data-lucide="bell-ring"></i><span><strong>Notificações</strong><small>Alertas operacionais</small></span><i data-lucide="chevron-right"></i></button>
           </aside>
           <div class="settings-saas-grid">
@@ -3576,6 +3578,25 @@
             </div>
           </div>
 
+          <div class="panel settings-wide-panel settings-area" data-settings-panel="plan">
+            <div class="panel-header">
+              <div><h2 id="myPlanTitle">Meu plano e uso</h2><p id="myPlanSubtitle">Carregando.</p></div>
+              <span id="myPlanBadge"></span>
+            </div>
+            <div class="settings-status-grid" id="myPlanCards" style="grid-template-columns:repeat(3,minmax(140px,1fr))"></div>
+            <div class="so-section">
+              <p class="so-section-title" id="myPlanBreakdownTitle">Como a conta é feita</p>
+              <div class="table-wrap settings-table-wrap">
+                <table class="data-table settings-table so-table" style="min-width:520px">
+                  <colgroup><col style="width:40%"><col style="width:20%"><col style="width:20%"><col></colgroup>
+                  <thead><tr><th>Tipo de equipamento</th><th class="num">Cadastrados</th><th class="num">Conta como</th><th class="num">Licenças</th></tr></thead>
+                  <tbody id="myPlanBreakdown"></tbody>
+                </table>
+              </div>
+            </div>
+            <div class="so-section" id="myPlanFeatures"></div>
+            <div class="so-section"><div class="so-note" id="myPlanNote"><i data-lucide="info"></i><span>Conta o que está cadastrado e monitorado. Se passar do limite, há um prazo de tolerância. O monitoramento do que já existe nunca para por causa de limite. Para mudar de plano, fale com a Easy.</span></div></div>
+          </div>
           <div class="panel settings-wide-panel settings-area" data-settings-panel="notifications">
             <div class="panel-header">
               <div><h2>Notificacoes pelo Telegram</h2><p>Alertas de queda, recuperacao e degradacao do sinal optico por cliente.</p></div>
@@ -3611,6 +3632,7 @@
           <button class="secondary-action" id="btnOwnerOverviewRefresh" type="button"><i data-lucide="refresh-cw"></i> Atualizar</button>
         </div>
         <div class="settings-status-grid settings-overview-grid" id="ownerOverviewStatus"></div>
+        <div id="ownerLicAttention"></div>
         <div class="panel settings-wide-panel" style="margin-top:20px">
           <div class="panel-header">
             <div><h2>Clientes recentes</h2><p id="ownerOverviewRecentSummary">Carregando clientes.</p></div>
@@ -3629,9 +3651,10 @@
       <!-- --- VIEW: PAINEL DO DONO / CLIENTES --- -->
       <section class="workspace hidden" id="viewOwnerClients">
         <div class="page-heading">
-          <div><p class="eyebrow">Administração da plataforma</p><h1>Clientes</h1><p>Organizações SaaS, módulos habilitados e operação como cliente.</p></div>
+          <div><p class="eyebrow">Administração da plataforma</p><h1>Clientes</h1><p>Organizações SaaS, plano, licenças, módulos e operação como cliente.</p></div>
           <button class="secondary-action" id="btnOwnerClientsRefresh" type="button"><i data-lucide="refresh-cw"></i> Atualizar</button>
         </div>
+        <div class="so-card-grid" id="ownerLicCards" style="margin-bottom:20px"></div>
         <div class="settings-saas-grid">
           <div class="panel settings-admin-form-panel">
             <div class="panel-header">
@@ -3673,6 +3696,44 @@
                 <tbody id="settingsTenantsBody"></tbody>
               </table>
             </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- --- VIEW: PAINEL DO DONO / PLANOS E LICENCAS --- -->
+      <section class="workspace hidden" id="viewOwnerPlans">
+        <div class="page-heading">
+          <div><p class="eyebrow">Administração da plataforma</p><h1>Planos e licenças</h1><p>O que cada plano vende, quanto cada equipamento conta e o que acontece no limite.</p></div>
+          <div class="page-heading-actions">
+            <button class="primary-action" id="btnLicNewPlan" type="button"><i data-lucide="plus"></i> Novo plano</button>
+            <button class="secondary-action" id="btnOwnerPlansRefresh" type="button"><i data-lucide="refresh-cw"></i> Atualizar</button>
+          </div>
+        </div>
+        <div class="so-card-grid" id="licPlanCards" style="margin-bottom:20px"></div>
+        <div class="panel settings-wide-panel">
+          <div class="panel-header">
+            <div><h2>Quanto cada equipamento conta</h2><p>O peso vale para todos os planos. A contagem é a do monitoramento: o que tem host no Zabbix.</p></div>
+            <button class="primary-action" id="btnLicSaveWeights" type="button"><i data-lucide="save"></i> Salvar pesos</button>
+          </div>
+          <div class="table-wrap settings-table-wrap">
+            <table class="data-table settings-table so-table" style="min-width:560px">
+              <colgroup><col style="width:34%"><col style="width:22%"><col style="width:22%"><col></colgroup>
+              <thead><tr><th>Tipo de equipamento</th><th class="num">Cadastrados (todos os clientes)</th><th>Conta como</th><th class="num">Licenças</th></tr></thead>
+              <tbody id="licWeightsBody"></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="panel settings-wide-panel">
+          <div class="panel-header">
+            <div><h2>O que acontece no limite</h2><p>Mesma regra para todos. Cada cliente pode ter tolerância própria no plano dele.</p></div>
+            <button class="primary-action" id="btnLicSavePolicy" type="button"><i data-lucide="save"></i> Salvar regra</button>
+          </div>
+          <div class="so-section">
+            <div class="so-row"><div><strong>Aviso</strong><small>O dono da conta e a Easy veem o aviso a partir deste ponto.</small></div><div class="so-unit"><input id="licWarnPct" type="number" min="1" max="100"><span>% do limite</span></div></div>
+            <div class="so-row"><div><strong>Tolerância</strong><small>Pode passar do limite por um tempo sem bloquear nada.</small></div><div class="so-unit"><input id="licTolPct" type="number" min="0" max="100"><span>% por</span><input id="licTolDays" type="number" min="0" max="365"><span>dias</span></div></div>
+            <div class="so-row"><div><strong>Depois da tolerância</strong><small>Por enquanto o sistema só mostra a situação. O bloqueio de cadastro novo entra na próxima etapa.</small></div><div class="so-unit"><select id="licAfter"><option value="block">Bloquear cadastro novo</option><option value="charge">Cobrar excedente</option><option value="warn">Só avisar</option></select></div></div>
+            <div class="so-row"><div><strong>Preço do excedente</strong><small>Usado quando a regra é cobrar excedente.</small></div><div class="so-unit"><span>R$</span><input id="licOverPrice" type="text" inputmode="decimal"><span>por equipamento</span></div></div>
+            <div class="so-row"><div><strong>Monitoramento do que já existe</strong><small>Nunca para por causa de limite.</small></div><span class="badge badge-green so-dot">sempre ligado</span></div>
           </div>
         </div>
       </section>
@@ -5664,6 +5725,75 @@
     </div>
   </div>
 
+  <div id="modalTenantPlan" class="modal-backdrop hidden">
+    <div class="modal" style="max-width:640px">
+      <div class="modal-header">
+        <div>
+          <p class="eyebrow">Clientes · Plano e licenças</p>
+          <h2 id="tenantPlanTitle">Plano do cliente</h2>
+          <p id="tenantPlanSubtitle" style="margin:2px 0 0;font-size:12px;color:var(--muted)"></p>
+        </div>
+        <button class="icon-button" id="btnCloseTenantPlan" type="button" title="Fechar" aria-label="Fechar"><i data-lucide="x"></i></button>
+      </div>
+      <div class="modal-body">
+        <div class="form-row">
+          <div class="form-group"><label for="tenantPlanKey">Plano</label><select id="tenantPlanKey"></select></div>
+          <div class="form-group"><label for="tenantPlanLimit">Licenças de equipamento</label><input id="tenantPlanLimit" type="number" min="0" placeholder="do plano"></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label for="tenantPlanUsers">Usuários</label><input id="tenantPlanUsers" type="number" min="0" placeholder="do plano"></div>
+          <div class="form-group"><label for="tenantPlanRenewal">Renovação</label><input id="tenantPlanRenewal" placeholder="Ex: 01/12/2026 · mensal"></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label for="tenantPlanTolPct">Tolerância (%)</label><input id="tenantPlanTolPct" type="number" min="0" max="100" placeholder="padrão"></div>
+          <div class="form-group"><label for="tenantPlanTolDays">Tolerância (dias)</label><input id="tenantPlanTolDays" type="number" min="0" max="365" placeholder="padrão"></div>
+        </div>
+        <div class="form-group"><label for="tenantPlanNote">Observação interna</label><input id="tenantPlanNote" placeholder="Só a Easy vê"></div>
+        <p class="so-section-title" id="tenantPlanUsage" style="margin-top:4px"></p>
+        <div class="table-wrap settings-table-wrap">
+          <table class="data-table settings-table so-table" style="min-width:460px">
+            <thead><tr><th>Tipo</th><th class="num">Cadastrados</th><th class="num">Conta como</th><th class="num">Licenças</th></tr></thead>
+            <tbody id="tenantPlanBreakdown"></tbody>
+          </table>
+        </div>
+        <p id="tenantPlanErro" class="login-error" hidden></p>
+      </div>
+      <div class="modal-actions">
+        <button class="secondary-action" id="btnCancelTenantPlan" type="button">Cancelar</button>
+        <button class="primary-action" id="btnSaveTenantPlan" type="button"><i data-lucide="save"></i> Salvar plano</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="modalLicPlan" class="modal-backdrop hidden">
+    <div class="modal" style="max-width:520px">
+      <div class="modal-header">
+        <div><p class="eyebrow">Planos e licenças</p><h2 id="licPlanTitle">Plano</h2></div>
+        <button class="icon-button" id="btnCloseLicPlan" type="button" title="Fechar" aria-label="Fechar"><i data-lucide="x"></i></button>
+      </div>
+      <div class="modal-body">
+        <div class="form-row">
+          <div class="form-group"><label for="licPlanName">Nome</label><input id="licPlanName"></div>
+          <div class="form-group"><label for="licPlanKeyInput">Chave</label><input id="licPlanKeyInput" placeholder="ex: profissional"></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label for="licPlanLimit">Equipamentos (vazio = sem limite)</label><input id="licPlanLimit" type="number" min="0"></div>
+          <div class="form-group"><label for="licPlanUsers">Usuários (vazio = sem limite)</label><input id="licPlanUsers" type="number" min="0"></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label for="licPlanPrice">R$ por equipamento/mês (vazio = negociado)</label><input id="licPlanPrice" inputmode="decimal"></div>
+          <div class="form-group"><label for="licPlanTrial">Dias de teste</label><input id="licPlanTrial" type="number" min="0"></div>
+        </div>
+        <div class="form-group"><label for="licPlanFeatures">O que inclui (uma linha por item)</label><textarea id="licPlanFeatures" rows="5"></textarea></div>
+        <p id="licPlanErro" class="login-error" hidden></p>
+      </div>
+      <div class="modal-actions">
+        <button class="secondary-action" id="btnCancelLicPlan" type="button">Cancelar</button>
+        <button class="primary-action" id="btnSaveLicPlan" type="button"><i data-lucide="save"></i> Salvar plano</button>
+      </div>
+    </div>
+  </div>
+
   <div id="modalTenantZabbix" class="modal-backdrop hidden">
     <div class="modal" style="max-width:480px">
       <div class="modal-header">
@@ -6972,7 +7102,8 @@
        trechos do app.js original na sequencia em que estavam, entao carregar
        fora de ordem muda o comportamento. Ao adicionar um arquivo novo, entre
        antes de bootstrap.js, que e quem liga os botoes no DOMContentLoaded. -->
-  <script src="js/core.js?v=1792500004"></script>
+  <script src="js/core.js?v=1792600102"></script>
+  <script src="js/licencas.js?v=1792600103"></script>
   <script src="js/dashboard.js?v=1792000238"></script>
   <script src="js/liveStream.js?v=1792500018"></script>
   <script src="js/cameras.js?v=1792500023"></script>

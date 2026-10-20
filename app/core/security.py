@@ -55,6 +55,11 @@ class ApiAuthMiddleware(BaseHTTPMiddleware):
             (("POST",), "/api/auth/tenants/", "admin"),
             (("PUT",), "/api/auth/tenants/", "admin"),
             (("POST",), "/api/auth/act-as", "admin"),
+            # Licencas: o handler ainda exige is_platform_admin; o perfil aqui so
+            # tira a rota do 403 padrao de escrita.
+            (("GET",), "/api/auth/licensing", "admin"),
+            (("PUT",), "/api/auth/licensing/", "admin"),
+            (("GET",), "/api/auth/my-plan", "admin"),
             (("POST",), "/api/system/product", "admin"),
             (("POST",), "/api/db/init", "admin"),
             (("POST",), "/api/db/migrate", "admin"),

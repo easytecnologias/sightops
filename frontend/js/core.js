@@ -503,6 +503,7 @@ const VIEW_META = {
   settings:        { title: 'Configuracoes',     sub: '' },
   'owner-overview':{ title: 'Visão geral',       sub: 'Administração da plataforma' },
   'owner-clients': { title: 'Clientes',          sub: 'Organizações SaaS' },
+  'owner-plans':   { title: 'Planos e licenças', sub: 'O que cada cliente pode usar' },
   'owner-audit':   { title: 'Auditoria',         sub: 'Eventos de todos os clientes' },
 };
 
@@ -544,6 +545,7 @@ const VIEW_ID_MAP = {
   settings:         'viewSettings',
   'owner-overview': 'viewOwnerOverview',
   'owner-clients':  'viewOwnerClients',
+  'owner-plans':    'viewOwnerPlans',
   'owner-audit':    'viewOwnerAudit',
 };
 
@@ -646,6 +648,7 @@ function loadView(view) {
       break;
     case 'owner-overview': loadOwnerOverview(); break;
     case 'owner-clients':  loadOwnerClients();  break;
+    case 'owner-plans':    loadOwnerPlans();    break;
     case 'owner-audit':    loadOwnerAudit();    break;
     default:
       loadStaticView();
@@ -761,6 +764,7 @@ async function loadSettings() {
     status.className = `badge ${telegram.configured ? 'badge-green' : 'badge-gray'}`;
   }
 
+  if (typeof loadMyPlan === 'function') await loadMyPlan(currentUser);
   scheduleResponsiveHydration(document.getElementById('viewSettings'));
   activateSettingsTab(sessionStorage.getItem('sightops.settings.tab') || 'overview');
   lucide.createIcons();
@@ -810,6 +814,7 @@ async function loadOwnerOverview() {
         <td class="settings-cell-date"><span class="text-muted">${esc(formatDateTimeShort(t.created_at || ''))}</span></td>
       </tr>`).join('') : '<tr class="empty-row"><td colspan="5">Nenhum cliente cadastrado.</td></tr>';
   }
+  if (typeof renderOwnerLicenseAttention === 'function') await renderOwnerLicenseAttention();
   scheduleResponsiveHydration(document.getElementById('viewOwnerOverview'));
   lucide.createIcons();
 }
@@ -859,6 +864,7 @@ async function loadOwnerClients() {
       </tr>`;
     }).join('') : '<tr class="empty-row"><td colspan="6">Nenhum cliente cadastrado.</td></tr>';
   }
+  if (typeof renderOwnerLicenseCards === 'function') await renderOwnerLicenseCards();
   scheduleResponsiveHydration(document.getElementById('viewOwnerClients'));
   lucide.createIcons();
 }
