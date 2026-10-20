@@ -6,6 +6,21 @@ from pathlib import Path
 from app.core.paths import DATA_DIR
 
 _tenant_slug_ctx: ContextVar[str] = ContextVar("tenant_slug", default="")
+# Usuario da requisicao (posto pelo middleware). Laco de fundo nao tem usuario:
+# quem filtra por usuario (ex.: site) deixa tudo passar quando isto e None.
+_current_user_ctx: ContextVar[dict | None] = ContextVar("current_user", default=None)
+
+
+def set_current_user(user: dict | None) -> Token:
+    return _current_user_ctx.set(user)
+
+
+def reset_current_user(token: Token) -> None:
+    _current_user_ctx.reset(token)
+
+
+def get_current_user() -> dict | None:
+    return _current_user_ctx.get()
 
 
 def set_current_tenant_slug(slug: str) -> Token:

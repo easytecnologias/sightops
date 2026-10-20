@@ -9,7 +9,12 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.core import permissions
 from app.core.settings import AppSettings
-from app.core.tenant_context import reset_current_tenant_slug, set_current_tenant_slug
+from app.core.tenant_context import (
+    reset_current_tenant_slug,
+    reset_current_user,
+    set_current_tenant_slug,
+    set_current_user,
+)
 from app.services.auth_store import get_user_by_token
 
 AUTH_COOKIE_NAME = "sightops_session"
@@ -330,7 +335,9 @@ class ApiAuthMiddleware(BaseHTTPMiddleware):
         request.state.current_tenant_slug = str(user.get("effective_tenant_slug") or user.get("tenant_slug") or "").strip().lower()
         reset_current_tenant_slug(ctx_token)
         ctx_token = set_current_tenant_slug(request.state.current_tenant_slug)
+        user_token = set_current_user(user)
         try:
             return await call_next(request)
         finally:
+            reset_current_user(user_token)
             reset_current_tenant_slug(ctx_token)

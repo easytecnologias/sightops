@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 import requests
+from app.core import permissions
 from fastapi import APIRouter, HTTPException, File
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
@@ -821,13 +822,13 @@ def api_dvr_inventory(site: str = "") -> Dict[str, Any]:
                 ]
                 return any(v.lower() == site_norm for v in vals if v)
             rows = [r for r in rows if isinstance(r, dict) and _matches(r)]
-        return {"ok": True, "inventory": _com_estado_efetivo(rows)}
+        return {"ok": True, "inventory": _com_estado_efetivo(permissions.filtrar_por_site(rows))}
 
     rows = legacy_rows_from_db("dvr", site=site)
     if not rows:
         rows = _read_rows()
         rows = decorate_legacy_rows("dvr", rows, site=site)
-    return {"ok": True, "inventory": _com_estado_efetivo(rows)}
+    return {"ok": True, "inventory": _com_estado_efetivo(permissions.filtrar_por_site(rows))}
 
 
 @router.post("/save")

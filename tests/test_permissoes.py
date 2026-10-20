@@ -310,3 +310,48 @@ def test_pode_e_site_liberado_respeitam_o_modo(sem_banco, monkeypatch):
     assert P.pode(op, "cameras", "operar") and not P.pode(op, "cameras", "administrar")
     assert P.site_liberado(op, "incoforte") and not P.site_liberado(op, "JANGADEIROS") and not P.site_liberado(op, "")
     assert P.site_liberado(_user("owner"), "JANGADEIROS")
+
+
+def test_filtro_por_site_na_sessao(sem_banco, monkeypatch):
+    from app.core import tenant_context as T
+
+    monkeypatch.setattr(P, "sites_do_cliente", lambda slug: [{"name": "INCOFORTE", "equipamentos": 66}, {"name": "JANGADEIROS", "equipamentos": 48}])
+    linhas = [{"ip": "1", "site": "INCOFORTE"}, {"ip": "2", "local": "jangadeiros"}, {"ip": "3"}, {"ip": "4", "site_name": "Incoforte"}]
+    u = _user("viewer", uid=12)
+    P.definir_acesso_usuario("cliente-x", u, "", {}, ["INCOFORTE"])
+    tok = T.set_current_user(u)
+    try:
+        assert P.filtrar_por_site(linhas) is linhas  # sombra: intacto
+        monkeypatch.setattr(P, "modo", lambda: "valer")
+        assert [l["ip"] for l in P.filtrar_por_site(linhas)] == ["1", "4"]  # sem site some
+    finally:
+        T.reset_current_user(tok)
+    assert P.filtrar_por_site(linhas) is linhas  # laco de fundo: sem usuario, sem filtro
+    tok = T.set_current_user(_user("owner"))
+    try:
+        assert P.filtrar_por_site(linhas) is linhas  # dono ve tudo
+    finally:
+        T.reset_current_user(tok)
+
+
+def test_resumo_do_monitoramento_por_site(tmp_path, monkeypatch):
+    from app.core import tenant_context
+    from app.services import db_store
+    from app.services import monitoring_service as M
+
+    monkeypatch.setenv("DATABASE_BACKEND", "sqlite")
+    monkeypatch.setattr(db_store, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(db_store, "SIGHTOPS_DB_PATH", tmp_path / "teste.db")
+    monkeypatch.setattr(tenant_context, "DATA_DIR", tmp_path)
+    db_store.init_db()
+    with db_store._conn() as c:
+        for i, site in enumerate(["INCOFORTE", "INCOFORTE", "JANGADEIROS", ""]):
+            c.execute("INSERT INTO monitoring_entities(tenant_slug, entity_key, entity_type, display_name, status, site) VALUES(?,?,?,?,?,?)",
+                      ("cliente-x", f"cam{i}", "camera", f"cam{i}", "up", site))
+    tok = tenant_context.set_current_tenant_slug("cliente-x")
+    try:
+        assert M.monitoring_summary()["types"]["camera"]["total"] == 4
+        assert M.monitoring_summary(sites=["incoforte"])["types"]["camera"]["total"] == 2
+        assert M.monitoring_summary(sites=[])["types"] == {}
+    finally:
+        tenant_context.reset_current_tenant_slug(tok)

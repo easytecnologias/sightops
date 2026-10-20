@@ -11,6 +11,7 @@ import shutil
 
 from datetime import datetime, timezone
 from app.api.endpoints.auth import current_user
+from app.core import permissions
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi import Query
 
@@ -290,6 +291,8 @@ def api_cameras(
     """Compat com legado: retorna {cameras:[...]} mesclando campos."""
     inventory_mode = _camera_inventory_mode(mode)
     rows = load_inventory_json(site=site, mode=mode) or []
+    # Usuario limitado a alguns sites so ve as cameras deles (lista, mapa, painel).
+    rows = permissions.filtrar_por_site(rows)
     recorder_by_ip = _load_recorder_camera_index(site=site, connector_id=connector_id) if inventory_mode == "olt" else {}
     wanted_connector = str(connector_id or "").strip()
     if wanted_connector:

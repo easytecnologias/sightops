@@ -840,10 +840,16 @@ def list_entities(entity_type: str = "", status: str = "", limit: int = 500) -> 
     return [dict(r) for r in rows]
 
 
-def monitoring_summary() -> Dict[str, Any]:
+def monitoring_summary(sites: List[str] | None = None) -> Dict[str, Any]:
+    """`sites`: so estes sites (usuario restrito); None = todos."""
     ensure_default_profiles()
+    filtro, params = "", [_tenant()]
+    if sites is not None:
+        nomes = [str(s).strip().upper() for s in sites if str(s).strip()] or ["\x00"]
+        filtro = f" AND upper(trim(COALESCE(site,''))) IN ({','.join('?' for _ in nomes)})"
+        params += nomes
     with _conn() as c:
-        rows = c.execute("SELECT entity_type,status,COUNT(1) AS count FROM monitoring_entities WHERE tenant_slug=? AND monitoring_enabled=1 GROUP BY entity_type,status", (_tenant(),)).fetchall()
+        rows = c.execute("SELECT entity_type,status,COUNT(1) AS count FROM monitoring_entities WHERE tenant_slug=? AND monitoring_enabled=1" + filtro + " GROUP BY entity_type,status", tuple(params)).fetchall()
         events = c.execute("SELECT * FROM monitoring_events WHERE tenant_slug=? ORDER BY created_at DESC LIMIT 20", (_tenant(),)).fetchall()
     by_type: Dict[str, Dict[str, int]] = {}
     for row in rows:

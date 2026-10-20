@@ -482,6 +482,40 @@ def site_liberado(user: Dict[str, Any], site: Any) -> bool:
     return bool(nome) and nome in {s.upper() for s in sites}
 
 
+_CAMPOS_SITE = ("site", "site_name", "local", "LOCAL")
+
+
+def sites_da_sessao() -> Optional[List[str]]:
+    """Sites que a requisicao atual pode ver; None = sem filtro (sombra, laco de
+    fundo, usuario sem restricao ou dono)."""
+    from app.core.tenant_context import get_current_user
+
+    user = get_current_user()
+    if not user or modo() != "valer":
+        return None
+    sites = sites_do_usuario(user)
+    return list(sites) if sites else None
+
+
+def filtrar_por_site(linhas: Any, campos: Tuple[str, ...] = _CAMPOS_SITE) -> Any:
+    """Tira das listas o que e de site que o usuario da sessao nao acessa.
+
+    Linha sem site nenhum fica de fora para quem tem restricao (na duvida, nao
+    mostra). Sem restricao, devolve a mesma lista intacta."""
+    sites = sites_da_sessao()
+    if sites is None or not isinstance(linhas, list):
+        return linhas
+    liberados = {s.strip().upper() for s in sites}
+    saida = []
+    for linha in linhas:
+        if not isinstance(linha, dict):
+            continue
+        valores = {str(linha.get(c) or "").strip().upper() for c in campos} - {""}
+        if valores & liberados:
+            saida.append(linha)
+    return saida
+
+
 def catalogo() -> Dict[str, Any]:
     return {
         "modulos": [{"key": m["key"], "label": m["label"], "views": m["views"]} for m in MODULOS],
@@ -506,5 +540,5 @@ __all__ = [
     "MODULOS", "NIVEIS", "PERFIS_PADRAO", "modulo_da_rota", "nivel_exigido", "modulo_no_plano",
     "niveis_do_usuario", "decidir", "modo", "definir_modo", "registrar_divergencia", "resumo_sombra",
     "carregar_perfis", "salvar_perfil", "excluir_perfil", "definir_acesso_usuario", "catalogo",
-    "pode", "site_liberado", "sites_do_usuario",
+    "pode", "site_liberado", "sites_do_usuario", "sites_da_sessao", "filtrar_por_site",
 ]

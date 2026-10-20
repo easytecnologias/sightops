@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Dict
 
+from app.core import permissions
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import Response
 
@@ -21,7 +22,7 @@ router = APIRouter(prefix="/api/windows", tags=["windows"])
 
 @router.get("/inventory")
 def api_windows_inventory() -> Dict[str, Any]:
-    rows = load_windows_inventory()
+    rows = permissions.filtrar_por_site(load_windows_inventory())
     return {"ok": True, "count": len(rows), "inventory": rows}
 
 

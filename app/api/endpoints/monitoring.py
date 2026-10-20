@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Any, Dict
+from app.core import permissions
 from fastapi import APIRouter, HTTPException
 
 from app.services.monitoring_service import (
@@ -20,12 +21,12 @@ router = APIRouter(prefix="/api/monitoring", tags=["monitoring"])
 
 @router.get("/summary")
 def api_monitoring_summary() -> Dict[str, Any]:
-    return monitoring_summary()
+    return monitoring_summary(sites=permissions.sites_da_sessao())
 
 
 @router.get("/entities")
 def api_monitoring_entities(entity_type: str = "", status: str = "", limit: int = 500) -> Dict[str, Any]:
-    rows = list_entities(entity_type=entity_type, status=status, limit=limit)
+    rows = permissions.filtrar_por_site(list_entities(entity_type=entity_type, status=status, limit=limit), ("site",))
     return {"ok": True, "count": len(rows), "entities": rows}
 
 
