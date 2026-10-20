@@ -1432,6 +1432,114 @@ def list_users(actor: Dict[str, Any]) -> List[Dict[str, Any]]:
         )
 
 
+def _token_ativo(row: Dict[str, Any], agora: datetime) -> bool:
+    if row.get("revoked_at"):
+        return False
+    try:
+        exp = datetime.fromisoformat(str(row.get("expires_at") or "").replace("Z", "+00:00"))
+        if exp.tzinfo is None:
+            exp = exp.replace(tzinfo=timezone.utc)
+    except ValueError:
+        return False
+    return exp > agora
+
+
+def _texto_data(valor: Any) -> str:
+    if isinstance(valor, datetime):
+        return _utc_text(valor)
+    return str(valor or "")
+
+
+def users_overview(actor: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Usuarios do cliente efetivo com ultimo acesso e sessoes abertas.
+
+    Ultimo acesso = maior last_seen_at (atualizado a cada requisicao) ou, se o
+    token nunca foi usado, a hora em que foi criado."""
+    users = list_users(actor)
+    if not users:
+        return users
+    ids = [int(u["id"]) for u in users]
+    agora = _utc_now()
+    marcas = ",".join("?" for _ in ids)
+    with _conn() as c:
+        tokens = _fetchall(
+            c,
+            f"SELECT user_id, label, created_at, expires_at, revoked_at, last_seen_at FROM auth_tokens WHERE user_id IN ({marcas})",
+            tuple(ids),
+        )
+    resumo: Dict[int, Dict[str, Any]] = {i: {"last_seen": "", "active_sessions": 0} for i in ids}
+    for t in tokens:
+        r = resumo[int(t["user_id"])]
+        visto = _texto_data(t.get("last_seen_at") or t.get("created_at"))
+        if visto > r["last_seen"]:
+            r["last_seen"] = visto
+        if _token_ativo(t, agora):
+            r["active_sessions"] += 1
+    return [{**u, **resumo[int(u["id"])]} for u in users]
+
+
+def user_detail(actor: Dict[str, Any], target_user_id: int) -> Dict[str, Any]:
+    """Sessoes abertas e atividade recente de um usuario do cliente efetivo."""
+    _ensure_schema()
+    tenant_id = _actor_tenant_id(actor)
+    agora = _utc_now()
+    with _conn() as c:
+        alvo = _get_user_for_tenant(c, tenant_id, int(target_user_id))
+        if not alvo:
+            raise ValueError("usuario nao encontrado")
+        tokens = _fetchall(
+            c,
+            "SELECT id, label, created_at, expires_at, revoked_at, last_seen_at, acting_tenant_id FROM auth_tokens WHERE user_id=? ORDER BY id DESC LIMIT 50",
+            (int(target_user_id),),
+        )
+        eventos = _fetchall(
+            c,
+            """
+            SELECT id, action, resource_type, resource_id, detail_json, created_at
+            FROM audit_log WHERE tenant_id=? AND user_id=? ORDER BY id DESC LIMIT 40
+            """,
+            (tenant_id, int(target_user_id)),
+        )
+    sessoes = [
+        {"id": t["id"], "label": t.get("label") or "", "created_at": _texto_data(t.get("created_at")),
+         "last_seen_at": _texto_data(t.get("last_seen_at")), "expires_at": _texto_data(t.get("expires_at"))}
+        for t in tokens if _token_ativo(t, agora)
+    ]
+    return {"user": alvo, "sessions": sessoes, "events": eventos}
+
+
+def revoke_user_sessions(actor: Dict[str, Any], target_user_id: int) -> Dict[str, Any]:
+    """Encerra todas as sessoes abertas de um usuario (ele precisa entrar de novo)."""
+    actor_role = str(actor.get("role") or "")
+    if actor_role not in ("admin", "owner"):
+        raise ValueError("permissao insuficiente")
+    _ensure_schema()
+    tenant_id = _actor_tenant_id(actor)
+    agora = _utc_now()
+    with _conn() as c:
+        alvo = _get_user_for_tenant(c, tenant_id, int(target_user_id))
+        if not alvo:
+            raise ValueError("usuario nao encontrado")
+        if int(alvo["id"]) == int(actor["id"]):
+            raise ValueError("para sair da propria conta use Sair")
+        if str(alvo.get("role")) == "owner" and actor_role != "owner":
+            raise ValueError("somente owner pode encerrar sessoes de owner")
+        tokens = _fetchall(c, "SELECT id, expires_at, revoked_at FROM auth_tokens WHERE user_id=?", (int(alvo["id"]),))
+        ativos = [int(t["id"]) for t in tokens if _token_ativo(t, agora)]
+        for tid in ativos:
+            _execute(c, "UPDATE auth_tokens SET revoked_at=? WHERE id=?", (_utc_text(agora), tid))
+        _audit(
+            c,
+            action="user.revoke_sessions",
+            tenant_id=tenant_id,
+            user_id=int(actor["id"]),
+            resource_type="user",
+            resource_id=str(alvo.get("username") or alvo["id"]),
+            detail_json=json.dumps({"sessoes": len(ativos)}, ensure_ascii=False),
+        )
+    return {"revoked": len(ativos)}
+
+
 def recent_audit_events(actor: Dict[str, Any], limit: int = 50) -> List[Dict[str, Any]]:
     _ensure_schema()
     lim = max(1, min(int(limit or 50), 200))

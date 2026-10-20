@@ -12662,3 +12662,27 @@ table.recorder-tabela tbody tr:hover { background: var(--surface-soft); }
 @media (max-width: 860px) { .so-health { grid-template-columns: 1fr; } }
 /* hidden tem que vencer o display:block !important de .settings-area.active */
 .settings-area.active[hidden], .settings-area[hidden] { display: none !important; }
+
+/* ── Usuarios: equipe e detalhe ── */
+.so-team-head { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; padding: 16px 20px; border-bottom: 1px solid var(--border); }
+.so-team-head .avatar { width: 46px; height: 46px; font-size: 16px; flex: none; }
+.so-team-head h2 { margin: 0; font-size: 16px; }
+.so-team-head p { margin: 2px 0 0; color: var(--muted); font-size: 12px; }
+.so-team-head .panel-actions { margin-left: auto; }
+.so-team-head .panel-actions .secondary-action, .so-team-head .panel-actions .primary-action { padding: 6px 11px; font-size: 12px; }
+.so-tabs { display: flex; gap: 2px; padding: 0 12px; border-bottom: 1px solid var(--border); overflow-x: auto; }
+.so-tabs button { display: inline-flex; align-items: center; gap: 6px; padding: 12px 10px; border: 0; border-bottom: 2px solid transparent; background: none; color: var(--muted); font-size: 12.5px; font-weight: 600; white-space: nowrap; }
+.so-tabs button svg { width: 14px; height: 14px; }
+.so-tabs button.active { color: var(--primary); border-bottom-color: var(--primary); }
+.so-user { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.so-user .avatar { flex: none; width: 30px; height: 30px; font-size: 11px; }
+.so-user strong { display: block; font-size: 12.5px; }
+.so-user small { display: block; overflow: hidden; color: var(--muted); font-size: 11px; text-overflow: ellipsis; }
+.settings-table tbody tr.so-click { cursor: pointer; }
+.so-chip { padding: 4px 11px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface); color: var(--text); font-size: 12px; cursor: pointer; }
+.so-chip.active { border-color: var(--text); background: var(--text); color: var(--surface); }
+.so-mod-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.so-mod { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-soft); font-size: 12.5px; }
+.so-mod.off { opacity: .6; }
+@media (max-width: 1100px) { .so-mod-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 640px) { .so-mod-grid { grid-template-columns: 1fr; } }

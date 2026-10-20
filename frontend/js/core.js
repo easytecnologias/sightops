@@ -754,6 +754,7 @@ async function loadSettings() {
   if (typeof loadMyPlan === 'function') await loadMyPlan(currentUser);
   if (typeof renderSettingsConsole === 'function') await renderSettingsConsole(currentUser, userRows, telegram);
   if (typeof loadAccessProfiles === 'function') await loadAccessProfiles(currentUser);
+  if (typeof loadTeam === 'function') await loadTeam(currentUser);
   scheduleResponsiveHydration(document.getElementById('viewSettings'));
   activateSettingsTab(sessionStorage.getItem('sightops.settings.tab') || 'overview');
   lucide.createIcons();

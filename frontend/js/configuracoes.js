@@ -8,6 +8,7 @@ const AUDIT_ACOES = {
   'auth.logout': 'Saiu do sistema',
   'auth.act_as': 'Entrou como cliente (suporte Easy)',
   'user.create': 'Criou usuário',
+  'user.revoke_sessions': 'Encerrou as sessões de um usuário',
   'user.delete': 'Excluiu usuário',
   'user.reset_password': 'Redefiniu senha',
   'user.set_active': 'Ativou/desativou usuário',

@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=1792600109">
+  <link rel="stylesheet" href="styles.css?v=1792600113">
 </head>
 <body>
 
@@ -3542,81 +3542,48 @@
             <div class="panel-header"><div><h2>Mudanças recentes</h2><p>Últimas alterações de acesso e configuração.</p></div><button class="secondary-action" type="button" data-settings-goto="audit"><i data-lucide="history"></i> Ver tudo</button></div>
             <div class="so-feed" id="settingsRecent"></div>
           </div>
-          <div class="panel settings-area settings-admin-form-panel" data-settings-panel="users">
+          <div class="panel settings-wide-panel settings-area so-sub" data-settings-panel="users">
             <div class="panel-header">
-              <div><h2>Novo usuario</h2><p>Usuarios sao criados dentro do cliente logado.</p></div>
+              <div><h2>Equipe</h2><p id="teamSummary">Carregando.</p></div>
+              <button class="primary-action" id="btnTeamNewUser" type="button"><i data-lucide="user-plus"></i> Novo usuário</button>
             </div>
-            <div class="settings-form">
+            <div class="so-section" id="teamNewUserForm" hidden>
               <div class="form-row">
-                <div class="form-group">
-                  <label for="newUserName">Usuario</label>
-                  <input id="newUserName" placeholder="login">
-                </div>
-                <div class="form-group">
-                  <label for="newUserPass">Senha</label>
-                  <input id="newUserPass" type="password" placeholder="minimo 8">
-                </div>
+                <div class="form-group"><label for="newUserFullName">Nome</label><input id="newUserFullName" placeholder="Nome completo"></div>
+                <div class="form-group"><label for="newUserName">Login</label><input id="newUserName" placeholder="ex: portaria.sede" autocomplete="off"></div>
               </div>
               <div class="form-row">
-                <div class="form-group">
-                  <label for="newUserRole">Perfil</label>
-                  <select id="newUserRole">
-                    <option value="viewer">Visualizador</option>
-                    <option value="operator">Operador</option>
-                    <option value="admin">Administrador</option>
-                    <option value="owner">Proprietário</option>
-                  </select>
-                </div>
-                <div class="form-group">
-                  <label for="newUserFullName">Nome</label>
-                  <input id="newUserFullName" placeholder="nome completo">
-                </div>
+                <div class="form-group"><label for="newUserRole">Perfil</label>
+                  <select id="newUserRole"><option value="viewer">Visualizador: vê tudo, não altera</option><option value="operator">Operador: opera no dia a dia</option><option value="admin">Administrador: inclusive usuários</option><option value="owner">Dono da conta</option></select></div>
+                <div class="form-group"><label for="newUserPass">Senha inicial</label><input id="newUserPass" type="password" placeholder="mínimo 8 caracteres" autocomplete="new-password"></div>
               </div>
-              <button class="primary-action" id="btnCreateUser" type="button"><i data-lucide="user-plus"></i> Criar usuario</button>
-            </div>
-          </div>
-
-          <div class="panel settings-wide-panel settings-area" data-settings-panel="users">
-            <div class="panel-header">
-              <div><h2>Usuarios</h2><p id="settingsUsersSummary">Carregando usuarios.</p></div>
-            </div>
-            <div class="table-wrap settings-table-wrap">
-              <table class="data-table settings-table settings-users-table">
-                <colgroup><col class="settings-col-user"><col class="settings-col-name"><col class="settings-col-role"><col class="settings-col-status"><col class="settings-col-tenant"><col style="width:170px"></colgroup>
-                <thead><tr><th>Usuario</th><th>Nome</th><th>Perfil</th><th>Status</th><th>Cliente</th><th>Ações</th></tr></thead>
-                <tbody id="settingsUsersBody"></tbody>
-              </table>
-            </div>
-          </div>
-
-          <div class="panel settings-wide-panel settings-area" data-settings-panel="plan">
-            <div class="panel-header">
-              <div><h2 id="myPlanTitle">Meu plano e uso</h2><p id="myPlanSubtitle">Carregando.</p></div>
-              <span id="myPlanBadge"></span>
-            </div>
-            <div class="settings-status-grid" id="myPlanCards" style="grid-template-columns:repeat(3,minmax(140px,1fr))"></div>
-            <div class="so-section">
-              <p class="so-section-title" id="myPlanBreakdownTitle">Como a conta é feita</p>
-              <div class="table-wrap settings-table-wrap">
-                <table class="data-table settings-table so-table" style="min-width:520px">
-                  <colgroup><col style="width:40%"><col style="width:20%"><col style="width:20%"><col></colgroup>
-                  <thead><tr><th>Tipo de equipamento</th><th class="num">Cadastrados</th><th class="num">Conta como</th><th class="num">Licenças</th></tr></thead>
-                  <tbody id="myPlanBreakdown"></tbody>
-                </table>
+              <div class="page-heading-actions" style="justify-content:flex-start">
+                <button class="primary-action" id="btnCreateUser" type="button"><i data-lucide="user-plus"></i> Criar usuário</button>
+                <button class="secondary-action" id="btnTeamNewUserCancel" type="button">Cancelar</button>
               </div>
             </div>
-            <div class="so-section" id="myPlanFeatures"></div>
-            <div class="so-section"><div class="so-note" id="myPlanNote"><i data-lucide="info"></i><span>Conta o que está cadastrado e monitorado. Se passar do limite, há um prazo de tolerância. O monitoramento do que já existe nunca para por causa de limite. Para mudar de plano, fale com a Easy.</span></div></div>
-          </div>
-          <div class="panel settings-wide-panel settings-area so-sub" data-settings-panel="users" id="userAccessPanel" hidden>
-            <div class="panel-header"><div><h2>Acesso por usuário</h2><p>Perfil de cada pessoa e ajustes só dela. O dono da conta tem acesso total.</p></div><span id="userAccessModeBadge"></span></div>
+            <div class="so-section" style="padding-top:0;display:flex;gap:8px;flex-wrap:wrap" id="teamFilters"></div>
             <div class="table-wrap settings-table-wrap">
-              <table class="data-table settings-table" style="min-width:720px">
-                <colgroup><col style="width:24%"><col style="width:18%"><col style="width:22%"><col><col style="width:120px"></colgroup>
-                <thead><tr><th>Usuário</th><th>Perfil fixo</th><th>Perfil de acesso</th><th>Ajustes</th><th></th></tr></thead>
-                <tbody id="userAccessBody"></tbody>
+              <table class="data-table settings-table" style="min-width:860px">
+                <colgroup><col style="width:27%"><col style="width:16%"><col style="width:14%"><col style="width:12%"><col style="width:14%"><col></colgroup>
+                <thead><tr><th>Usuário</th><th>Perfil</th><th>Perfil de acesso</th><th>Situação</th><th>Último acesso</th><th>Sessões</th></tr></thead>
+                <tbody id="teamBody"></tbody>
               </table>
             </div>
+            <span id="settingsUsersSummary" hidden></span><table hidden><tbody id="settingsUsersBody"></tbody></table>
+          </div>
+          <div class="panel settings-wide-panel settings-area so-sub" data-settings-panel="users" id="teamDetail" hidden>
+            <div class="so-team-head">
+              <span class="avatar" id="teamDetAvatar">?</span>
+              <div style="min-width:0"><h2 id="teamDetName">-</h2><p id="teamDetSub">-</p></div>
+              <div class="panel-actions" id="teamDetActions"></div>
+            </div>
+            <div class="so-tabs" id="teamDetTabs">
+              <button type="button" class="active" data-team-tab="acesso"><i data-lucide="shield"></i> O que pode usar</button>
+              <button type="button" data-team-tab="sessoes"><i data-lucide="monitor-smartphone"></i> Sessões</button>
+              <button type="button" data-team-tab="atividade"><i data-lucide="list"></i> Atividade</button>
+            </div>
+            <div class="so-section" id="teamDetBody"></div>
           </div>
           <div class="panel settings-wide-panel settings-area" data-settings-panel="profiles">
             <div class="panel-header"><div><h2>Perfis de acesso</h2><p>Cada perfil diz o nível em cada módulo. Mude o perfil e todos os usuários dele acompanham.</p></div>
@@ -5803,6 +5770,25 @@
     </div>
   </div>
 
+  <div id="modalUserPassword" class="modal-backdrop hidden">
+    <div class="modal" style="max-width:440px">
+      <div class="modal-header">
+        <div><p class="eyebrow">Usuários · Senha</p><h2>Redefinir senha</h2><p id="userPassSub" style="margin:2px 0 0;font-size:12px;color:var(--muted)"></p></div>
+        <button class="icon-button" id="btnCloseUserPass" type="button" title="Fechar" aria-label="Fechar"><i data-lucide="x"></i></button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group"><label for="userPassNew">Nova senha</label><input id="userPassNew" type="password" autocomplete="new-password" placeholder="mínimo 8 caracteres"></div>
+        <div class="form-group"><label for="userPassConfirm">Repita a senha</label><input id="userPassConfirm" type="password" autocomplete="new-password"></div>
+        <p style="font-size:12px;color:var(--muted);margin:0">Redefinir a senha também encerra as sessões abertas: o usuário precisa entrar de novo com a senha nova.</p>
+        <p id="userPassErro" class="login-error" hidden></p>
+      </div>
+      <div class="modal-actions">
+        <button class="secondary-action" id="btnCancelUserPass" type="button">Cancelar</button>
+        <button class="primary-action" id="btnSaveUserPass" type="button"><i data-lucide="key-round"></i> Redefinir senha</button>
+      </div>
+    </div>
+  </div>
+
   <div id="modalUserAccess" class="modal-backdrop hidden">
     <div class="modal" style="max-width:620px">
       <div class="modal-header">
@@ -7200,10 +7186,11 @@
        trechos do app.js original na sequencia em que estavam, entao carregar
        fora de ordem muda o comportamento. Ao adicionar um arquivo novo, entre
        antes de bootstrap.js, que e quem liga os botoes no DOMContentLoaded. -->
-  <script src="js/core.js?v=1792600107"></script>
+  <script src="js/core.js?v=1792600115"></script>
   <script src="js/licencas.js?v=1792600103"></script>
-  <script src="js/configuracoes.js?v=1792600111"></script>
+  <script src="js/configuracoes.js?v=1792600116"></script>
   <script src="js/permissoes.js?v=1792600112"></script>
+  <script src="js/equipe.js?v=1792600117"></script>
   <script src="js/dashboard.js?v=1792000238"></script>
   <script src="js/liveStream.js?v=1792500018"></script>
   <script src="js/cameras.js?v=1792500023"></script>

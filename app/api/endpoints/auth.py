@@ -570,6 +570,34 @@ def api_auth_users(user: Dict[str, Any] = Depends(current_user)) -> Dict[str, An
     return {"ok": True, "users": list_users(user)}
 
 
+@router.get("/users/overview")
+def api_auth_users_overview(user: Dict[str, Any] = Depends(current_user)) -> Dict[str, Any]:
+    """Equipe do cliente com ultimo acesso e sessoes abertas (tela Usuarios)."""
+    from app.services.auth_store import users_overview
+
+    return {"ok": True, "users": users_overview(user)}
+
+
+@router.get("/users/{user_id}/detail")
+def api_auth_user_detail(user_id: int, user: Dict[str, Any] = Depends(current_user)) -> Dict[str, Any]:
+    from app.services.auth_store import user_detail
+
+    try:
+        return {"ok": True, **user_detail(user, user_id)}
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.post("/users/{user_id}/sessions/revoke")
+def api_auth_user_revoke_sessions(user_id: int, user: Dict[str, Any] = Depends(current_user)) -> Dict[str, Any]:
+    from app.services.auth_store import revoke_user_sessions
+
+    try:
+        return {"ok": True, **revoke_user_sessions(user, user_id)}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 @router.get("/tenants")
 def api_auth_tenants(user: Dict[str, Any] = Depends(current_user)) -> Dict[str, Any]:
     return {"ok": True, "tenants": list_tenants(user)}
