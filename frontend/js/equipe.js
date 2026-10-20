@@ -203,7 +203,7 @@ function eqEditorHtml(u) {
         <div class="form-group" style="margin:0"><label for="eqNome">Nome</label><input id="eqNome" value="${esc(u.full_name || '')}" placeholder="Nome completo"></div>
         <div class="form-group" style="margin:0"><label for="eqEmail">E-mail</label><input id="eqEmail" type="email" value="${esc(u.email || '')}" placeholder="opcional, para avisos"></div>
       </div>
-      <div class="form-group" style="margin:0"><label for="eqLogin">Login</label><input id="eqLogin" value="${esc(u.username)}" disabled></div>
+      <div class="form-group" style="margin:0"><label for="eqLogin">Login para entrar</label><input id="eqLogin" value="${esc(u.username)}" autocomplete="off"><small class="text-muted">Letras, números, ponto e traço. Trocar o login não encerra as sessões abertas.</small></div>
     </section>
     <section><h3>Perfil <small>o que a pessoa pode fazer</small></h3>
       <div class="so-roles">${perfis}</div>
@@ -268,7 +268,9 @@ async function eqSalvarEdicao(u) {
   const nome = document.getElementById('eqNome').value.trim();
   const email = document.getElementById('eqEmail').value.trim();
   const role = document.querySelector('input[name="eqRole"]:checked')?.value || u.role;
+  const login = document.getElementById('eqLogin').value.trim();
   const senha = document.getElementById('eqSenha')?.value || '';
+  if (!/^[A-Za-z0-9._-]{3,40}$/.test(login)) return erro('Login com 3 a 40 caracteres: letras, números, ponto, traço ou sublinhado.');
   const senha2 = document.getElementById('eqSenha2')?.value || '';
   if (senha && senha.length < 8) return erro('A senha precisa de pelo menos 8 caracteres.');
   if (senha !== senha2) return erro('As duas senhas não são iguais.');
@@ -276,10 +278,10 @@ async function eqSalvarEdicao(u) {
   btn.disabled = true;
   const feito = [];
   try {
-    if (nome !== (u.full_name || '') || email !== (u.email || '') || role !== u.role) {
-      const r = await api(`/api/auth/users/${Number(u.id)}`, { method: 'POST', body: JSON.stringify({ full_name: nome, email, role }) });
+    if (nome !== (u.full_name || '') || email !== (u.email || '') || role !== u.role || login !== u.username) {
+      const r = await api(`/api/auth/users/${Number(u.id)}`, { method: 'POST', body: JSON.stringify({ full_name: nome, email, role, ...(login !== u.username ? { username: login } : {}) }) });
       await jsonOrReadableError(r, 'Não foi possível salvar os dados.');
-      feito.push('dados');
+      feito.push(login !== u.username ? `dados (login agora é ${login})` : 'dados');
     }
     const matriz = document.getElementById('eqAccessMatrix');
     if (matriz && role !== 'owner' && !voce) {

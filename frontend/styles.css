@@ -12720,3 +12720,8 @@ table.recorder-tabela tbody tr:hover { background: var(--surface-soft); }
 .so-escolha input { accent-color: var(--primary); }
 @media (max-width: 900px) { .so-sites { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 560px) { .so-sites { grid-template-columns: 1fr; } }
+/* linha da senha: campo e botoes na mesma altura, ajuda embaixo */
+.so-senha { align-items: stretch; max-width: 560px; }
+.so-senha input { height: 42px; }
+.so-senha .secondary-action { height: 42px; display: inline-flex; align-items: center; justify-content: center; }
+.so-edit .form-group small.text-muted { font-size: 11.5px; }

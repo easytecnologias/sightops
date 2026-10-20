@@ -96,6 +96,7 @@ class UserUpdateRequest(BaseModel):
     full_name: str = ""
     email: str = ""
     role: str = "viewer"
+    username: str = ""  # vazio = nao muda o login
 
 
 class AuthStorageMigrateRequest(BaseModel):
@@ -693,6 +694,10 @@ def api_auth_delete_user(user_id: int, user: Dict[str, Any] = Depends(current_us
 @router.post("/users/{user_id}")
 def api_auth_update_user(user_id: int, req: UserUpdateRequest, user: Dict[str, Any] = Depends(current_user)) -> Dict[str, Any]:
     try:
+        if str(req.username or "").strip():
+            from app.services.auth_store import rename_user
+
+            rename_user(user, user_id, req.username)
         updated = update_user_profile(
             user,
             target_user_id=user_id,

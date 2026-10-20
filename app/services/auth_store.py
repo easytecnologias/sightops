@@ -1218,6 +1218,43 @@ def update_user_password(actor: Dict[str, Any], target_user_id: int, new_passwor
     return fresh or {}
 
 
+_LOGIN_OK = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-")
+
+
+def rename_user(actor: Dict[str, Any], target_user_id: int, new_username: str) -> Dict[str, Any]:
+    """Troca o login de um usuario do cliente efetivo.
+
+    O login e unico no sistema todo (coluna UNIQUE), entao confere contra todos
+    os clientes, sem diferenciar maiuscula. As sessoes abertas continuam: o token
+    aponta para o id, nao para o login."""
+    actor_role = str(actor.get("role") or "").strip().lower()
+    if actor_role not in ("owner", "admin"):
+        raise ValueError("permissao insuficiente")
+    novo = str(new_username or "").strip()
+    if not (3 <= len(novo) <= 40) or any(ch not in _LOGIN_OK for ch in novo):
+        raise ValueError("login com 3 a 40 caracteres: letras, numeros, ponto, traco ou sublinhado")
+    if novo.lower() in [x.lower() for x in _default_bootstrap_usernames()]:
+        raise ValueError("esse login e reservado")
+    _ensure_schema()
+    with _conn() as c:
+        tenant_id = _actor_tenant_id(actor)
+        alvo = _get_user_for_tenant(c, tenant_id, int(target_user_id))
+        if not alvo:
+            raise ValueError("usuario nao encontrado")
+        if str(alvo.get("role") or "") == "owner" and actor_role != "owner" and int(alvo["id"]) != int(actor["id"]):
+            raise ValueError("somente owner pode mudar o login de outro owner")
+        antigo = str(alvo.get("username") or "")
+        if novo == antigo:
+            return alvo
+        outro = _fetchone(c, "SELECT id FROM users WHERE lower(username)=lower(?) AND id<>?", (novo, int(alvo["id"])))
+        if outro:
+            raise ValueError("ja existe um usuario com esse login")
+        _execute(c, "UPDATE users SET username=?, updated_at=? WHERE id=?", (novo, _utc_text(_utc_now()), int(alvo["id"])))
+        _audit(c, action="user.rename", tenant_id=tenant_id, user_id=int(actor["id"]), resource_type="user",
+               resource_id=str(alvo["id"]), detail_json=json.dumps({"de": antigo, "para": novo}, ensure_ascii=False))
+        return _get_user_for_tenant(c, tenant_id, int(alvo["id"])) or alvo
+
+
 def update_user_profile(
     actor: Dict[str, Any],
     target_user_id: int,

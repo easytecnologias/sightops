@@ -92,3 +92,18 @@ def test_unico_dono_nao_e_rebaixado(auth):
         A.update_user_profile(dono, dono["id"], full_name="Dono", email="", role="admin")
     A.update_user_profile(dono, auth["admin_a"]["id"], full_name="Admin A", email="", role="owner")
     A.update_user_profile(dono, dono["id"], full_name="Dono", email="", role="admin")  # agora ha outro dono
+
+
+def test_trocar_login(auth):
+    dono = auth["dono_a"]
+    A.rename_user(dono, auth["portaria"]["id"], "portaria.sede")
+    assert A.authenticate_user("portaria.sede", "senha-teste-123")
+    for ruim in ("ab", "tem espaco", "DONO-B", "admin_teste"):
+        with pytest.raises(ValueError):
+            A.rename_user(dono, auth["portaria"]["id"], ruim)  # curto, invalido, ja existe (outro cliente), reservado
+    with pytest.raises(ValueError):
+        A.rename_user(auth["portaria"], auth["admin_a"]["id"], "qualquer")  # viewer nao troca
+    with pytest.raises(ValueError):
+        A.rename_user(dono, auth["dono_b"]["id"], "invasor")  # usuario de outro cliente
+    A.rename_user(dono, dono["id"], "dono.a")  # o proprio dono pode
+    assert any(e["action"] == "user.rename" for e in A.user_detail(dono, dono["id"])["events"])
