@@ -19,7 +19,7 @@ from urllib.parse import quote, urlsplit, urlunsplit
 import requests
 from requests.auth import HTTPDigestAuth
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
 
@@ -216,6 +216,16 @@ def _site_do_conector(cid: Any) -> str:
         return ""
 
 
+def _site_da_linha(linha: Dict[str, Any]) -> str:
+    """Site do equipamento: o primeiro preenchido entre site, site_name e local
+    (mesma regra das listas filtradas por site, em permissions)."""
+    for campo in ("site", "site_name", "local"):
+        valor = _as_str(linha.get(campo))
+        if valor:
+            return valor
+    return ""
+
+
 def _alvo_web(ip: str) -> Tuple[str, str]:
     """(modulo, site) do equipamento cuja pagina web abre por este IP.
 
@@ -228,10 +238,10 @@ def _alvo_web(ip: str) -> Tuple[str, str]:
     alvo = _as_str(ip)
     linha = _camera_row_for_ip(alvo)
     if linha:
-        return "cameras", _as_str(linha.get("site") or linha.get("local"))
+        return "cameras", _site_da_linha(linha)
     gravador = _recorder_row_for_host(alvo)
     if gravador:
-        return "gravadores", _as_str(gravador.get("site") or gravador.get("local"))
+        return "gravadores", _site_da_linha(gravador)
     leitor = _access_device_for_host(alvo)
     if leitor:
         return "acesso", _as_str(leitor.get("site")) or _site_do_conector(leitor.get("connector_id"))
@@ -248,6 +258,19 @@ def _alvo_web(ip: str) -> Tuple[str, str]:
 
 
 def web_liberada_para(user: Optional[Dict[str, Any]], ip: str, conector_hint: str = "") -> Tuple[bool, str]:
+    """Abrir a pagina web do equipamento = "operar" (ver alvo_permitido)."""
+    return alvo_permitido(user, ip, "operar", conector_hint)
+
+
+def alvo_liberado(user: Optional[Dict[str, Any]], ip: str, nivel: str = "ver", conector_hint: str = "") -> bool:
+    """Para os outros arquivos (acoes e leituras por IP): o usuario pode `nivel`
+    (ver | operar | administrar) no equipamento deste IP, no modulo dele e com
+    o site da ficha E o do conector da rota liberados?"""
+    return alvo_permitido(user, ip, nivel, conector_hint)[0]
+
+
+def alvo_permitido(user: Optional[Dict[str, Any]], ip: str, nivel: str = "ver",
+                   conector_hint: str = "") -> Tuple[bool, str]:
     """O usuario pode abrir a pagina web deste equipamento? (perfil por modulo
     + sites do usuario). Sem usuario (autenticacao desligada) nada muda.
 
@@ -257,11 +280,22 @@ def web_liberada_para(user: Optional[Dict[str, Any]], ip: str, conector_hint: st
     if not user:
         return True, ""
     from app.core import permissions
+    if permissions.modo() != "valer":
+        # Em "sombra" a regra nova nao nega nada: nao gasta consulta de
+        # inventario por IP (lote de dezenas de cameras). O perfil fixo
+        # continua valendo pelas regras de rota que ja existem.
+        return True, ""
     modulo, site = _alvo_web(ip)
     if not modulo:
-        return False, "equipamento desconhecido"
-    if not permissions.pode(user, modulo, "operar"):
-        return False, f"sem permissao para operar {modulo}"
+        # IP sem cadastro (camera recem-instalada, IP novo de uma troca): sem
+        # modulo nem site para conferir. Em "sombra" passa (como antes); em
+        # "valer" so passa quem nao tem restricao de site -- usuario restrito
+        # nao opera IP que nao se sabe de qual site e.
+        if permissions.site_liberado(user, ""):
+            return True, ""
+        return False, "equipamento sem cadastro: o site nao e conhecido"
+    if not permissions.pode(user, modulo, nivel):
+        return False, f"sem permissao para {nivel} em {modulo}"
     # O pacote vai pelo conector que _reach escolhe (_connector_for, com a
     # MESMA dica que quem chama passa ao _reach). Conferir so o site da ficha
     # deixava passar: IP que e camera do site A e gravador do site B (a ponte
@@ -275,6 +309,81 @@ def web_liberada_para(user: Optional[Dict[str, Any]], ip: str, conector_hint: st
         if not permissions.site_liberado(user, s):
             return False, f"o site {s or '(sem site)'} nao esta liberado para este usuario"
     return True, ""
+
+
+_LOTE_SO_LEITURA = {"test", "time_check"}
+
+
+def _ips_do_lote(corpo: Any) -> List[str]:
+    """IPs de ORIGEM de um lote (o que ja existe e sera mexido). IP novo de
+    destino (new_ip) nao entra: ainda nao e equipamento de ninguem."""
+    if not isinstance(corpo, dict):
+        return []
+    ips: List[str] = []
+
+    def _pega(valor: Any) -> None:
+        if isinstance(valor, str):
+            ips.append(valor)
+        elif isinstance(valor, dict):
+            for campo in ("ip", "old_ip", "address", "host"):
+                if _as_str(valor.get(campo)):
+                    ips.append(_as_str(valor.get(campo)))
+                    break
+
+    if _as_str(corpo.get("ip")):
+        ips.append(_as_str(corpo.get("ip")))
+    for chave in ("ips", "targets", "items", "itens"):
+        for item in corpo.get(chave) or [] if isinstance(corpo.get(chave), list) else []:
+            _pega(item)
+    prefixo = _as_str(corpo.get("prefix"))
+    if prefixo:  # batch/shift_ips: faixa prefix + octetos
+        try:
+            ini, fim = int(corpo.get("start_octet") or 0), int(corpo.get("end_octet") or 0)
+        except (TypeError, ValueError):
+            ini, fim = 0, -1
+        if 1 <= ini <= fim <= 254:
+            ips.extend(f"{prefixo}{n}" for n in range(ini, fim + 1))
+    return list(dict.fromkeys(x.strip() for x in ips if x and x.strip()))
+
+
+async def _conferir_lote(request: Request) -> None:
+    """Lote de manutencao: cada IP de origem tem que estar liberado (modulo e
+    site) para o usuario. Um IP fora derruba o lote inteiro -- melhor que
+    aplicar metade."""
+    user = getattr(request.state, "current_user", None)
+    if not user:
+        return
+    try:
+        corpo = await request.json()
+    except Exception:
+        return  # a propria rota responde o erro de payload
+    nome = request.url.path.rstrip("/").rsplit("/", 1)[-1]
+    nivel = "ver" if nome in _LOTE_SO_LEITURA else "operar"
+    for ip in _ips_do_lote(corpo):
+        ok, motivo = await asyncio.to_thread(alvo_permitido, user, ip, nivel)
+        if not ok:
+            raise HTTPException(status_code=403, detail=f"{ip}: {motivo}")
+
+
+async def _conferir_ip_do_caminho(request: Request) -> None:
+    """Video ao vivo, snapshot e rede da camera pelo IP do caminho: "ver" no
+    modulo e site liberado. stream_register manda o conector no corpo -- a
+    mesma dica que o _reach dele usa."""
+    user = getattr(request.state, "current_user", None)
+    if not user:
+        return
+    ip = _as_str(request.path_params.get("ip"))
+    dica = ""
+    if request.method == "POST":
+        try:
+            corpo = await request.json()
+            if isinstance(corpo, dict):
+                dica = _as_str(corpo.get("remote_connector_id"))
+        except Exception:
+            pass
+    ok, motivo = await asyncio.to_thread(alvo_permitido, user, ip, "ver", dica)
+    if not ok:
+        raise HTTPException(status_code=403, detail=motivo)
 
 
 def _camera_web_target_url(ip: str, path: str = "", query: str = "") -> str:
@@ -1610,7 +1719,7 @@ def _build_zabbix_rows(source: str, rows: list[dict[str, Any]]) -> list[dict[str
     return out
 
 
-@router.post("/maintenance/batch/rename")
+@router.post("/maintenance/batch/rename", dependencies=[Depends(_conferir_lote)])
 def maintenance_batch_rename(payload: Dict[str, Any]) -> Dict[str, Any]:
     user = _as_str(payload.get("user"))
     password = _as_str(payload.get("pass"))
@@ -1651,7 +1760,7 @@ def maintenance_batch_rename(payload: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-@router.post("/maintenance/batch/password")
+@router.post("/maintenance/batch/password", dependencies=[Depends(_conferir_lote)])
 def maintenance_batch_password(payload: Dict[str, Any]) -> Dict[str, Any]:
     user = _as_str(payload.get("user"))
     old_pass = _as_str(payload.get("old_pass"))
@@ -1755,7 +1864,7 @@ def maintenance_change_ip_confirmar(payload: Dict[str, Any]) -> Dict[str, Any]:
     return out
 
 
-@router.get("/maintenance/camera-network/{ip}")
+@router.get("/maintenance/camera-network/{ip}", dependencies=[Depends(_conferir_ip_do_caminho)])
 def maintenance_camera_network(ip: str) -> Dict[str, Any]:
     """Mascara e gateway que a camera usa HOJE.
 
@@ -1806,7 +1915,7 @@ def maintenance_camera_network(ip: str) -> Dict[str, Any]:
     return {"ok": True, "ip": alvo, "mask": rede.get("mask", ""), "gateway": rede.get("gateway", "")}
 
 
-@router.post("/maintenance/batch/ip")
+@router.post("/maintenance/batch/ip", dependencies=[Depends(_conferir_lote)])
 def maintenance_batch_ip(payload: Dict[str, Any]) -> Dict[str, Any]:
     user = _as_str(payload.get("user"))
     password = _as_str(payload.get("pass"))
@@ -1840,7 +1949,7 @@ def maintenance_batch_ip(payload: Dict[str, Any]) -> Dict[str, Any]:
     return {"ok": fail_n == 0, "message": f"Troca de IP: {ok_n} ok, {fail_n} falhas.", "results": results}
 
 
-@router.post("/maintenance/batch/ntp")
+@router.post("/maintenance/batch/ntp", dependencies=[Depends(_conferir_lote)])
 def maintenance_batch_ntp(payload: Dict[str, Any]) -> Dict[str, Any]:
     user = _as_str(payload.get("user"))
     password = _as_str(payload.get("pass"))
@@ -1871,7 +1980,7 @@ def maintenance_batch_ntp(payload: Dict[str, Any]) -> Dict[str, Any]:
     return {"ok": fail_n == 0, "message": f"{label}: {ok_n} ok, {fail_n} falhas.", "results": results}
 
 
-@router.post("/maintenance/batch/reboot")
+@router.post("/maintenance/batch/reboot", dependencies=[Depends(_conferir_lote)])
 def maintenance_batch_reboot(payload: Dict[str, Any]) -> Dict[str, Any]:
     user = _as_str(payload.get("user"))
     password = _as_str(payload.get("pass"))
@@ -2061,7 +2170,7 @@ def _force_snapshot_one_mnt(ip: str, user: str, password: str) -> Dict[str, Any]
 
 # ── Stream ao vivo — MJPEG proxy (multipart/x-mixed-replace) ─────────────────
 
-@router.get("/maintenance/stream/{ip}")
+@router.get("/maintenance/stream/{ip}", dependencies=[Depends(_conferir_ip_do_caminho)])
 def maintenance_mjpeg_stream(ip: str, user: str = "admin", password: str = ""):
     """Proxia MJPEG da câmera como multipart/x-mixed-replace usando requests streaming."""
     from fastapi.responses import StreamingResponse, Response
@@ -2166,7 +2275,7 @@ def maintenance_mjpeg_stream(ip: str, user: str = "admin", password: str = ""):
     )
 
 
-@router.get("/maintenance/live/{ip}")
+@router.get("/maintenance/live/{ip}", dependencies=[Depends(_conferir_ip_do_caminho)])
 def maintenance_live_snapshot(ip: str, user: str = "admin", password: str = ""):
     """Snapshot único direto da câmera — fallback quando MJPEG não disponível."""
     from fastapi.responses import Response
@@ -2491,7 +2600,7 @@ def _credencial_que_responde(ip: str, user: str, password: str, connector_id: st
     return user_site, senha_site
 
 
-@router.post("/maintenance/stream_register/{ip}")
+@router.post("/maintenance/stream_register/{ip}", dependencies=[Depends(_conferir_ip_do_caminho)])
 def maintenance_stream_register(ip: str, payload: Dict[str, Any]):
     """Registra a camera no go2rtc (idempotente) e devolve o nome do stream
     para o player MSE conectar em /go2rtc/api/ws?src=<stream_name>.
@@ -2534,7 +2643,7 @@ def maintenance_stream_register(ip: str, payload: Dict[str, Any]):
     return {"ok": True, "stream_name": stream_name}
 
 
-@router.post("/maintenance/stream_unregister/{ip}")
+@router.post("/maintenance/stream_unregister/{ip}", dependencies=[Depends(_conferir_ip_do_caminho)])
 def maintenance_stream_unregister(ip: str, subtype: int = 1):
     """Desregistra a camera do go2rtc (chamado ao fechar a tela de live view;
     a limpeza automatica periodica cobre o caso de aba fechada sem aviso)."""
@@ -3110,7 +3219,7 @@ def api_cameras_rename(payload: Dict[str, Any]) -> Dict[str, Any]:
 
 # ── Novos endpoints batch ─────────────────────────────────────────────────────
 
-@router.post("/maintenance/batch/test")
+@router.post("/maintenance/batch/test", dependencies=[Depends(_conferir_lote)])
 def maintenance_batch_test(payload: Dict[str, Any]) -> Dict[str, Any]:
     user = _as_str(payload.get("user"))
     password = _as_str(payload.get("pass"))
@@ -3125,7 +3234,7 @@ def maintenance_batch_test(payload: Dict[str, Any]) -> Dict[str, Any]:
     return {"ok": fail_n == 0, "message": f"Teste de acesso: {ok_n} ok, {fail_n} falhas.", "results": results}
 
 
-@router.post("/maintenance/batch/snapshot_force")
+@router.post("/maintenance/batch/snapshot_force", dependencies=[Depends(_conferir_lote)])
 def maintenance_batch_snapshot_force(payload: Dict[str, Any]) -> Dict[str, Any]:
     user = _as_str(payload.get("user"))
     password = _as_str(payload.get("pass"))
@@ -3177,7 +3286,7 @@ def maintenance_batch_snapshot_force(payload: Dict[str, Any]) -> Dict[str, Any]:
     return {"ok": fail_n == 0, "message": f"Snapshot forçado: {ok_n} ok, {fail_n} falhas.", "results": results}
 
 
-@router.post("/maintenance/batch/time_check")
+@router.post("/maintenance/batch/time_check", dependencies=[Depends(_conferir_lote)])
 def maintenance_batch_time_check(payload: Dict[str, Any]) -> Dict[str, Any]:
     user = _as_str(payload.get("user"))
     password = _as_str(payload.get("pass"))
@@ -3192,7 +3301,7 @@ def maintenance_batch_time_check(payload: Dict[str, Any]) -> Dict[str, Any]:
     return {"ok": fail_n == 0, "message": f"Hora verificada: {ok_n} ok, {fail_n} falhas.", "results": results}
 
 
-@router.post("/maintenance/batch/mirror")
+@router.post("/maintenance/batch/mirror", dependencies=[Depends(_conferir_lote)])
 def maintenance_batch_mirror(payload: Dict[str, Any]) -> Dict[str, Any]:
     user = _as_str(payload.get("user"))
     password = _as_str(payload.get("pass"))
@@ -3209,7 +3318,7 @@ def maintenance_batch_mirror(payload: Dict[str, Any]) -> Dict[str, Any]:
     return {"ok": fail_n == 0, "message": f"Espelhar/Virar: {ok_n} ok, {fail_n} falhas.", "results": results}
 
 
-@router.post("/maintenance/batch/day_night")
+@router.post("/maintenance/batch/day_night", dependencies=[Depends(_conferir_lote)])
 def maintenance_batch_day_night(payload: Dict[str, Any]) -> Dict[str, Any]:
     user = _as_str(payload.get("user"))
     password = _as_str(payload.get("pass"))
@@ -3225,7 +3334,7 @@ def maintenance_batch_day_night(payload: Dict[str, Any]) -> Dict[str, Any]:
     return {"ok": fail_n == 0, "message": f"Modo dia/noite: {ok_n} ok, {fail_n} falhas.", "results": results}
 
 
-@router.post("/maintenance/batch/video_quality")
+@router.post("/maintenance/batch/video_quality", dependencies=[Depends(_conferir_lote)])
 def maintenance_batch_video_quality(payload: Dict[str, Any]) -> Dict[str, Any]:
     user = _as_str(payload.get("user"))
     password = _as_str(payload.get("pass"))
@@ -3246,7 +3355,7 @@ def maintenance_batch_video_quality(payload: Dict[str, Any]) -> Dict[str, Any]:
     return {"ok": fail_n == 0, "message": f"Qualidade de vídeo: {ok_n} ok, {fail_n} falhas.", "results": results}
 
 
-@router.post("/maintenance/batch/network_config")
+@router.post("/maintenance/batch/network_config", dependencies=[Depends(_conferir_lote)])
 def maintenance_batch_network_config(payload: Dict[str, Any]) -> Dict[str, Any]:
     targets  = payload.get("targets", [])   # [{old_ip, new_ip}]
     mask     = _as_str(payload.get("mask", ""))
@@ -3282,7 +3391,7 @@ def maintenance_batch_network_config(payload: Dict[str, Any]) -> Dict[str, Any]:
     return {"ok": fail_n == 0, "message": f"{ok_n} câmeras configuradas, {fail_n} falhas.", "results": results}
 
 
-@router.post("/maintenance/batch/shift_ips")
+@router.post("/maintenance/batch/shift_ips", dependencies=[Depends(_conferir_lote)])
 def maintenance_batch_shift_ips(payload: Dict[str, Any]) -> Dict[str, Any]:
     prefix     = _as_str(payload.get("prefix", ""))
     start      = int(payload.get("start_octet", 0))
@@ -3382,7 +3491,7 @@ def _ordem_sem_colisao(pares):
     return saida, ciclo
 
 
-@router.post("/maintenance/batch/change_ips")
+@router.post("/maintenance/batch/change_ips", dependencies=[Depends(_conferir_lote)])
 def maintenance_batch_change_ips(payload: Dict[str, Any]) -> Dict[str, Any]:
     """Troca o IP das cameras SELECIONADAS, uma rede por camera.
 

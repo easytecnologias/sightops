@@ -35,7 +35,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 
 from app.services import connector_service
 from app.services.inventory_json import load_inventory_json
@@ -358,6 +358,7 @@ def _salto(nome: str, detalhe: str, estado: str, ms: Optional[float] = None, not
 
 @router.get("/path")
 def api_network_path(
+    request: Request,
     connector_id: str = Query(""),
     ip: str = Query(""),
 ) -> Dict[str, Any]:
@@ -370,6 +371,15 @@ def api_network_path(
     """
     cid = _texto(connector_id)
     alvo_real = _texto(ip)
+    # Restricao por site: o conector medido e o equipamento (pela mesma rota).
+    usuario = getattr(request.state, "current_user", None)
+    if not connector_service.conector_do_site_liberado(usuario, cid):
+        raise HTTPException(status_code=403, detail="o site deste conector nao esta liberado para este usuario")
+    if alvo_real:
+        from app.api.endpoints.maintenance import alvo_permitido
+        ok, motivo = alvo_permitido(usuario, alvo_real, "ver", cid)
+        if not ok:
+            raise HTTPException(status_code=403, detail=motivo)
 
     linha = connector_service.get_connector(cid, enforce_tenant=True) if cid else None
     if not linha:

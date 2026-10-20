@@ -159,3 +159,64 @@ def test_ativacao_e_tuneis_respeitam_o_site(regras, conectores, monkeypatch):
         assert e.value.status_code == 403
     vistos = {c["id"] for c in conectores.list_connectors(user=OPERADOR)["connectors"]}
     assert vistos == {"gw"}
+
+
+# ------------------------------------------------ lotes, rotas por IP e /network/path
+import asyncio  # noqa: E402
+
+
+class _ReqAsync:
+    def __init__(self, user, path, corpo=None, metodo="POST", path_params=None):
+        self.state = SimpleNamespace(current_user=user)
+        self.url = SimpleNamespace(path=path)
+        self.method = metodo
+        self.path_params = path_params or {}
+        self._corpo = corpo
+
+    async def json(self):
+        return self._corpo
+
+
+def test_ips_de_origem_de_cada_formato_de_lote():
+    assert M._ips_do_lote({"ips": ["10.0.0.1", "10.0.0.2"]}) == ["10.0.0.1", "10.0.0.2"]
+    assert M._ips_do_lote({"targets": [{"old_ip": "10.0.0.3", "new_ip": "10.0.0.99"}]}) == ["10.0.0.3"]
+    assert M._ips_do_lote({"itens": [{"ip": "10.0.0.4", "new_ip": "10.0.0.98"}]}) == ["10.0.0.4"]
+    assert M._ips_do_lote({"prefix": "10.0.0.", "start_octet": 5, "end_octet": 7}) == ["10.0.0.5", "10.0.0.6", "10.0.0.7"]
+    assert M._ips_do_lote("lixo") == []
+
+
+def test_lote_com_um_ip_de_outro_site_e_recusado_inteiro(regras, monkeypatch):
+    sites = {"172.16.81.3": "JANGADEIROS", "192.168.20.40": "INCOFORTE"}
+    monkeypatch.setattr(M, "_alvo_web", lambda ip: ("cameras", sites.get(ip, "")))
+    monkeypatch.setattr(M, "_connector_for", lambda ip, hint="": "")
+    ok = _ReqAsync(OPERADOR, "/api/maintenance/batch/reboot", {"ips": ["172.16.81.3"]})
+    asyncio.run(M._conferir_lote(ok))
+    misto = _ReqAsync(OPERADOR, "/api/maintenance/batch/reboot", {"ips": ["172.16.81.3", "192.168.20.40"]})
+    with pytest.raises(HTTPException) as e:
+        asyncio.run(M._conferir_lote(misto))
+    assert e.value.status_code == 403 and "192.168.20.40" in e.value.detail
+
+
+def test_video_ao_vivo_por_ip_respeita_site_e_a_dica_do_conector(regras, monkeypatch):
+    _alvo(monkeypatch, "cameras", "JANGADEIROS")
+    monkeypatch.setattr(M, "_connector_for", lambda ip, hint="": hint or "gw")
+    monkeypatch.setattr(M, "_site_do_conector", lambda cid: {"gw": "JANGADEIROS", "mk": "INCOFORTE"}.get(cid, ""))
+    asyncio.run(M._conferir_ip_do_caminho(_ReqAsync(OPERADOR, "/api/maintenance/live/1.2.3.4", metodo="GET",
+                                                     path_params={"ip": "1.2.3.4"})))
+    reg = _ReqAsync(OPERADOR, "/api/maintenance/stream_register/1.2.3.4", {"remote_connector_id": "mk"},
+                    path_params={"ip": "1.2.3.4"})
+    with pytest.raises(HTTPException):
+        asyncio.run(M._conferir_ip_do_caminho(reg))
+
+
+def test_ip_sem_cadastro_so_para_quem_nao_tem_restricao(regras, monkeypatch):
+    _alvo(monkeypatch, "", "")
+    assert M.alvo_liberado(OPERADOR, "10.9.9.9", "operar") is False       # restrito por site
+    regras["dados"]["users"]["7"]["sites"] = []
+    assert M.alvo_liberado(OPERADOR, "10.9.9.9", "operar") is True        # sem restricao
+
+
+def test_sombra_nao_consulta_inventario(regras, monkeypatch):
+    regras["modo"] = "sombra"
+    monkeypatch.setattr(M, "_alvo_web", lambda ip: (_ for _ in ()).throw(AssertionError("consultou")))
+    assert M.alvo_liberado(OPERADOR, "192.168.20.40", "operar") is True
