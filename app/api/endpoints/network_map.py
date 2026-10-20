@@ -28,6 +28,7 @@ cheio nao passa.
 from __future__ import annotations
 
 import ipaddress
+import logging
 import socket
 import struct
 import time
@@ -38,6 +39,8 @@ from typing import Any, Dict, List, Optional, Tuple
 from fastapi import APIRouter, HTTPException, Query, Request
 
 from app.services import connector_service
+
+logger = logging.getLogger(__name__)
 from app.services.inventory_json import load_inventory_json
 
 router = APIRouter(prefix="/api/network", tags=["network-map"])
@@ -434,8 +437,13 @@ def api_network_path(
         from app.api.endpoints.maintenance import _reach
 
         virtual = _reach(alvo_real, cid) if alvo_real else ""
-    except Exception:
-        pass
+    except Exception as exc:
+        # Sem o IP virtual NAO pinga o real: na tabela compartilhada ele pode
+        # responder do equipamento de outro cliente com o mesmo IP.
+        logger.warning("network/path: IP virtual de %s falhou: %s", alvo_real, exc)
+        saltos.append(_salto("Equipamento", alvo_real, "falhou", None,
+                             nota="Não consegui calcular o IP virtual do conector."))
+        alvo_real = virtual = ""
 
     if alvo_real:
         ms_eq, perda_eq = _latencia_e_perda(virtual or alvo_real, tentativas=3)

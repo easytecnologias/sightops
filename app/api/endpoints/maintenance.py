@@ -314,24 +314,26 @@ def alvo_permitido(user: Optional[Dict[str, Any]], ip: str, nivel: str = "ver",
 _LOTE_SO_LEITURA = {"test", "time_check"}
 
 
-def _ips_do_lote(corpo: Any) -> List[str]:
-    """IPs de ORIGEM de um lote (o que ja existe e sera mexido). IP novo de
-    destino (new_ip) nao entra: ainda nao e equipamento de ninguem."""
+def _alvos_do_lote(corpo: Any) -> List[Tuple[str, str]]:
+    """(IP de ORIGEM, conector do item) de um lote -- o que ja existe e sera
+    mexido. IP novo de destino (new_ip) nao entra: ainda nao e equipamento de
+    ninguem. Cada item confere TODOS os campos de origem presentes: um handler
+    le old_ip, outro ip; conferir so o primeiro deixava o outro escapar."""
     if not isinstance(corpo, dict):
         return []
-    ips: List[str] = []
+    alvos: List[Tuple[str, str]] = []
 
     def _pega(valor: Any) -> None:
         if isinstance(valor, str):
-            ips.append(valor)
+            alvos.append((valor, ""))
         elif isinstance(valor, dict):
+            dica = _as_str(valor.get("connector_id"))
             for campo in ("ip", "old_ip", "address", "host"):
                 if _as_str(valor.get(campo)):
-                    ips.append(_as_str(valor.get(campo)))
-                    break
+                    alvos.append((_as_str(valor.get(campo)), dica))
 
     if _as_str(corpo.get("ip")):
-        ips.append(_as_str(corpo.get("ip")))
+        alvos.append((_as_str(corpo.get("ip")), _as_str(corpo.get("connector_id"))))
     for chave in ("ips", "targets", "items", "itens"):
         for item in corpo.get(chave) or [] if isinstance(corpo.get(chave), list) else []:
             _pega(item)
@@ -342,8 +344,13 @@ def _ips_do_lote(corpo: Any) -> List[str]:
         except (TypeError, ValueError):
             ini, fim = 0, -1
         if 1 <= ini <= fim <= 254:
-            ips.extend(f"{prefixo}{n}" for n in range(ini, fim + 1))
-    return list(dict.fromkeys(x.strip() for x in ips if x and x.strip()))
+            alvos.extend((f"{prefixo}{n}", "") for n in range(ini, fim + 1))
+    limpos = ((ip.strip(), dica) for ip, dica in alvos if ip and ip.strip())
+    return list(dict.fromkeys(limpos))
+
+
+def _ips_do_lote(corpo: Any) -> List[str]:
+    return list(dict.fromkeys(ip for ip, _ in _alvos_do_lote(corpo)))
 
 
 async def _conferir_lote(request: Request) -> None:
@@ -359,8 +366,8 @@ async def _conferir_lote(request: Request) -> None:
         return  # a propria rota responde o erro de payload
     nome = request.url.path.rstrip("/").rsplit("/", 1)[-1]
     nivel = "ver" if nome in _LOTE_SO_LEITURA else "operar"
-    for ip in _ips_do_lote(corpo):
-        ok, motivo = await asyncio.to_thread(alvo_permitido, user, ip, nivel)
+    for ip, dica in _alvos_do_lote(corpo):
+        ok, motivo = await asyncio.to_thread(alvo_permitido, user, ip, nivel, dica)
         if not ok:
             raise HTTPException(status_code=403, detail=f"{ip}: {motivo}")
 
@@ -384,6 +391,47 @@ async def _conferir_ip_do_caminho(request: Request) -> None:
     ok, motivo = await asyncio.to_thread(alvo_permitido, user, ip, "ver", dica)
     if not ok:
         raise HTTPException(status_code=403, detail=motivo)
+
+
+def _conferir_ip_unico(nivel: str):
+    """Rotas de UM equipamento (reboot, renomear, PTZ, troca de IP): o IP vem
+    no corpo ou na query. Sem isto o lote negava e a rota de um IP so fazia
+    a mesma coisa."""
+    async def _dep(request: Request) -> None:
+        user = getattr(request.state, "current_user", None)
+        if not user:
+            return
+        ip = _as_str(request.query_params.get("ip"))
+        dica = ""
+        if request.method == "POST":
+            try:
+                corpo = await request.json()
+            except Exception:
+                corpo = None
+            if isinstance(corpo, dict):
+                ip = _as_str(corpo.get("ip")) or ip
+                dica = _as_str(corpo.get("connector_id"))
+        if not ip:
+            return  # a rota responde "IP obrigatorio"
+        ok, motivo = await asyncio.to_thread(alvo_permitido, user, ip, nivel, dica)
+        if not ok:
+            raise HTTPException(status_code=403, detail=f"{ip}: {motivo}")
+    return _dep
+
+
+async def _conferir_site_do_corpo(request: Request) -> None:
+    user = getattr(request.state, "current_user", None)
+    if not user:
+        return
+    try:
+        corpo = await request.json()
+    except Exception:
+        return
+    from app.core import permissions
+
+    site = _as_str((corpo or {}).get("site")) if isinstance(corpo, dict) else ""
+    if site and not await asyncio.to_thread(permissions.site_liberado, user, site):
+        raise HTTPException(status_code=403, detail=f"o site {site} nao esta liberado para este usuario")
 
 
 def _camera_web_target_url(ip: str, path: str = "", query: str = "") -> str:
@@ -1778,7 +1826,7 @@ def maintenance_batch_password(payload: Dict[str, Any]) -> Dict[str, Any]:
     return {"ok": fail_n == 0, "message": f"Troca de senha: {ok_n} ok, {fail_n} falhas.", "results": results}
 
 
-@router.post("/maintenance/change_ip")
+@router.post("/maintenance/change_ip", dependencies=[Depends(_conferir_ip_unico("operar"))])
 def maintenance_change_ip(payload: Dict[str, Any]) -> Dict[str, Any]:
     return _change_ip_one(
         ip=_as_str(payload.get("ip")),
@@ -1793,7 +1841,7 @@ def maintenance_change_ip(payload: Dict[str, Any]) -> Dict[str, Any]:
     )
 
 
-@router.post("/maintenance/change_ip/confirmar")
+@router.post("/maintenance/change_ip/confirmar", dependencies=[Depends(_conferir_ip_unico("operar"))])
 def maintenance_change_ip_confirmar(payload: Dict[str, Any]) -> Dict[str, Any]:
     """Fecha a troca que ficou `pendente` depois do reboot.
 
@@ -2666,7 +2714,7 @@ class PTZMoveRequest(BaseModel):
     duration_ms: int = 350
 
 
-@router.get("/cameras/ptz_capability", tags=["cameras"])
+@router.get("/cameras/ptz_capability", tags=["cameras"], dependencies=[Depends(_conferir_ip_unico("ver"))])
 def api_cameras_ptz_capability(
     ip: str = Query(...),
     user: str = Query(""),
@@ -2703,6 +2751,7 @@ def api_cameras_ptz_capability(
     hint_is_ptz = any(k in hint_text for k in ["ptz", "speed dome", "speeddome", "sd5", "sd6", "sd49", "sd59"])
 
     def _try_get(url: str):
+        url = _reach_url(url)  # IP virtual do conector isolado; o real cai na tabela de outro
         for auth in (HTTPDigestAuth(user, password), (user, password)):
             try:
                 r = requests.get(url, auth=auth, timeout=4, verify=False, headers={"Accept": "*/*"})
@@ -2741,7 +2790,7 @@ def api_cameras_ptz_capability(
     }
 
 
-@router.post("/cameras/ptz_capability", tags=["cameras"])
+@router.post("/cameras/ptz_capability", tags=["cameras"], dependencies=[Depends(_conferir_ip_unico("ver"))])
 def api_cameras_ptz_capability_post(payload: Dict[str, Any]) -> Dict[str, Any]:
     return api_cameras_ptz_capability(
         ip=str(payload.get("ip") or ""),
@@ -2751,7 +2800,7 @@ def api_cameras_ptz_capability_post(payload: Dict[str, Any]) -> Dict[str, Any]:
     )
 
 
-@router.post("/cameras/ptz_move", tags=["cameras"])
+@router.post("/cameras/ptz_move", tags=["cameras"], dependencies=[Depends(_conferir_ip_unico("operar"))])
 def api_cameras_ptz_move(payload: PTZMoveRequest) -> Dict[str, Any]:
     import requests
     from requests.auth import HTTPDigestAuth
@@ -2801,6 +2850,7 @@ def api_cameras_ptz_move(payload: PTZMoveRequest) -> Dict[str, Any]:
         return {"ok": False, "error": "direction invalida"}
 
     def _request(method: str, url: str, data: str | None = None) -> requests.Response | None:
+        url = _reach_url(url)  # IP virtual do conector isolado; o real cai na tabela de outro
         for auth in (HTTPDigestAuth(user, password), (user, password)):
             try:
                 if method == "PUT":
@@ -2895,7 +2945,7 @@ def _try_http_with_auth(
     return response, error
 
 
-@router.post("/cameras/reboot", tags=["cameras"])
+@router.post("/cameras/reboot", tags=["cameras"], dependencies=[Depends(_conferir_ip_unico("operar"))])
 def api_cameras_reboot(payload: Dict[str, Any]) -> Dict[str, Any]:
     ip = (payload.get("ip") or "").strip()
 
@@ -3018,7 +3068,7 @@ def _hikvision_rename_channel(
     return None
 
 
-@router.post("/cameras/rename", tags=["cameras"])
+@router.post("/cameras/rename", tags=["cameras"], dependencies=[Depends(_conferir_ip_unico("operar"))])
 def api_cameras_rename(payload: Dict[str, Any]) -> Dict[str, Any]:
     import urllib.parse
 
@@ -4396,7 +4446,7 @@ def api_scripts_zabbix_groups(url: str = "", user: str = "", password: str = "")
 # -- Ensinar UMA senha a todas as cameras de um site que recusam a guardada --
 # (editor do Mapa: "Usar em todas do site"). Ver app/services/camera_senha_lote.py
 # para o limite de tentativas que evita bloquear o usuario das Intelbras.
-@router.post("/maintenance/camera_senha/ensinar")
+@router.post("/maintenance/camera_senha/ensinar", dependencies=[Depends(_conferir_site_do_corpo)])
 def maintenance_camera_senha_ensinar(payload: Dict[str, Any]) -> Dict[str, Any]:
     from app.services import camera_senha_lote
 

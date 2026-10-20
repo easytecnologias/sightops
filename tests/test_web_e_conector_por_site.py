@@ -171,6 +171,7 @@ class _ReqAsync:
         self.url = SimpleNamespace(path=path)
         self.method = metodo
         self.path_params = path_params or {}
+        self.query_params = {}
         self._corpo = corpo
 
     async def json(self):
@@ -220,3 +221,25 @@ def test_sombra_nao_consulta_inventario(regras, monkeypatch):
     regras["modo"] = "sombra"
     monkeypatch.setattr(M, "_alvo_web", lambda ip: (_ for _ in ()).throw(AssertionError("consultou")))
     assert M.alvo_liberado(OPERADOR, "192.168.20.40", "operar") is True
+
+
+def test_lote_confere_todos_os_campos_de_origem_e_o_conector_do_item():
+    corpo = {"targets": [{"ip": "10.0.0.1", "old_ip": "10.0.0.2", "new_ip": "10.0.0.9"}],
+             "itens": [{"ip": "10.0.0.3", "connector_id": "mk"}]}
+    assert M._alvos_do_lote(corpo) == [("10.0.0.1", ""), ("10.0.0.2", ""), ("10.0.0.3", "mk")]
+
+
+def test_rota_de_um_ip_so_respeita_o_site(regras, monkeypatch):
+    sites = {"172.16.81.3": "JANGADEIROS", "192.168.20.40": "INCOFORTE"}
+    monkeypatch.setattr(M, "_alvo_web", lambda ip: ("cameras", sites.get(ip, "")))
+    monkeypatch.setattr(M, "_connector_for", lambda ip, hint="": "")
+    dep = M._conferir_ip_unico("operar")
+    asyncio.run(dep(_ReqAsync(OPERADOR, "/api/cameras/reboot", {"ip": "172.16.81.3"})))
+    with pytest.raises(HTTPException):
+        asyncio.run(dep(_ReqAsync(OPERADOR, "/api/cameras/reboot", {"ip": "192.168.20.40"})))
+
+
+def test_ensinar_senha_so_no_site_liberado(regras):
+    asyncio.run(M._conferir_site_do_corpo(_ReqAsync(OPERADOR, "/x", {"site": "JANGADEIROS"})))
+    with pytest.raises(HTTPException):
+        asyncio.run(M._conferir_site_do_corpo(_ReqAsync(OPERADOR, "/x", {"site": "INCOFORTE"})))
