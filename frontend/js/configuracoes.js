@@ -13,6 +13,9 @@ const AUDIT_ACOES = {
   'user.set_active': 'Ativou/desativou usuário',
   'user.update_profile': 'Alterou usuário',
   'tenant.create': 'Cliente criado',
+  'access.profile_save': 'Salvou perfil de acesso',
+  'access.profile_delete': 'Excluiu perfil de acesso',
+  'access.user_set': 'Mudou o acesso de um usuário',
   'tenant.update': 'Alterou dados do cliente',
   'tenant.set_modules': 'Alterou módulos do cliente',
 };

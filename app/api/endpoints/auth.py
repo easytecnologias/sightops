@@ -456,6 +456,24 @@ def _perm_call(fn, *args):
         raise HTTPException(status_code=404, detail=str(e))
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    except RuntimeError as e:
+        raise HTTPException(status_code=500, detail=f"nao foi possivel gravar: {e}")
+
+
+def _auditar_acesso(user: Dict[str, Any], acao: str, recurso: Any, detalhe: Dict[str, Any]) -> None:
+    """Mudanca de perfil/acesso fica no registro de auditoria do proprio cliente."""
+    import json as _json
+    import logging as _logging
+
+    from app.services.auth_store import _audit as _a, _conn as _c
+
+    try:
+        with _c() as c:
+            _a(c, action=acao, tenant_id=int(user.get("effective_tenant_id") or user.get("tenant_id")),
+               user_id=int(user["id"]), resource_type="access", resource_id=str(recurso),
+               detail_json=_json.dumps(detalhe, ensure_ascii=False)[:4000])
+    except Exception:
+        _logging.getLogger("cam-snapshot").exception("falha ao auditar %s", acao)
 
 
 @router.get("/access-profiles")
@@ -484,12 +502,14 @@ def api_auth_access_profile_put(
 ) -> Dict[str, Any]:
     perfil = _perm_call(permissions.salvar_perfil, _tenant_efetivo(user), profile_key,
                         payload.get("name"), payload.get("levels") or {})
+    _auditar_acesso(user, "access.profile_save", profile_key, perfil)
     return {"ok": True, "perfil": perfil}
 
 
 @router.delete("/access-profiles/{profile_key}")
 def api_auth_access_profile_delete(profile_key: str, user: Dict[str, Any] = Depends(current_user)) -> Dict[str, Any]:
     _perm_call(permissions.excluir_perfil, _tenant_efetivo(user), profile_key)
+    _auditar_acesso(user, "access.profile_delete", profile_key, {})
     return {"ok": True}
 
 
@@ -504,6 +524,7 @@ def api_auth_user_access_put(
         raise HTTPException(status_code=400, detail="nao e possivel mudar o proprio acesso")
     cfg = _perm_call(permissions.definir_acesso_usuario, _tenant_efetivo(user), alvo,
                      payload.get("profile") or "", payload.get("overrides") or {})
+    _auditar_acesso(user, "access.user_set", alvo.get("username") or user_id, cfg)
     return {"ok": True, "acesso": cfg}
 
 

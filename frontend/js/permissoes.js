@@ -95,7 +95,7 @@ function openAccessProfileEditor(chave) {
   _permEditando = chave || '';
   const p = chave ? (_perm.perfis || {})[chave] : null;
   setText('accessEditorTitle', p ? p.name : 'Novo perfil');
-  setText('accessEditorSub', p ? `${licNum(permContaUsuarios(chave))} usuário(s) usam este perfil.` : 'Escolha o nível de cada módulo.');
+  setText('accessEditorSub', `${p ? `${licNum(permContaUsuarios(chave))} usuário(s) usam este perfil. ` : ''}Administrar só vale para quem tem o perfil fixo Administrador; para os outros, conta como Operar.`);
   document.getElementById('accessProfileName').value = p?.name || '';
   document.getElementById('accessProfileBase').value = '';
   document.getElementById('btnDeleteAccessProfile').hidden = !p;

@@ -304,6 +304,16 @@ class ApiAuthMiddleware(BaseHTTPMiddleware):
                 permissions.registrar_divergencia(user, path, method, antiga_ok, nova_ok, nova_msg)
             if permissions.modo() == "valer":
                 permitido, motivo = nova_ok, (f"permissao insuficiente: {nova_msg}" if not nova_ok else "")
+        except permissions.PerfisIndisponiveis:
+            if permissions.modo() == "valer":
+                # Sem os perfis do cliente nao da para saber o que ele restringiu:
+                # negar e mais seguro que liberar pelo perfil fixo.
+                logger.exception("permissoes: perfis indisponiveis em %s %s; requisicao negada", method, path)
+                try:
+                    return JSONResponse(status_code=503, content={"detail": "permissoes temporariamente indisponiveis, tente de novo"})
+                finally:
+                    reset_current_tenant_slug(ctx_token)
+            logger.exception("permissoes(sombra): perfis indisponiveis em %s %s", method, path)
         except Exception:
             logger.exception("permissoes: regra nova falhou em %s %s; valeu a antiga", method, path)
 

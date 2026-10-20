@@ -21,6 +21,7 @@ plataforma (json_state tenant "_platform", chave "permissoes_modo").
 from __future__ import annotations
 
 import collections
+import copy
 import json
 import logging
 import threading
@@ -114,7 +115,12 @@ def modulo_no_plano(modulo: str, enabled_modules: Any) -> bool:
 
 _CACHE_TTL = 30.0
 _cache: Dict[str, Tuple[float, Dict[str, Any]]] = {}  # chave = tenant_slug
+_ultimo_bom: Dict[str, Dict[str, Any]] = {}  # ultima leitura que deu certo, por tenant
 _cache_lock = threading.Lock()
+
+
+class PerfisIndisponiveis(RuntimeError):
+    """Nao deu para ler os perfis do cliente e nao ha leitura anterior boa."""
 
 
 def _chave_perfis(tenant_slug: str) -> str:
@@ -140,11 +146,22 @@ def carregar_perfis(tenant_slug: str, usar_cache: bool = True) -> Dict[str, Any]
             hit = _cache.get(slug)
             if hit and agora - hit[0] < _CACHE_TTL:
                 return hit[1]
-    raw = _ler_json_state(slug, "perfis_acesso")
+    try:
+        raw = _ler_json_state(slug, "perfis_acesso")
+    except Exception as exc:
+        # Banco falhou: usa a ultima leitura boa deste cliente. Sem nenhuma, nega
+        # (com a regra valendo, cair na antiga apagaria as restricoes do perfil).
+        with _cache_lock:
+            velho = _ultimo_bom.get(slug)
+        if velho is not None:
+            logger.warning("permissoes: perfis de %s indisponiveis (%s); usando a ultima leitura boa", slug, exc)
+            return velho
+        raise PerfisIndisponiveis(str(exc)) from exc
     dados = raw if isinstance(raw, dict) else {}
     dados = {"profiles": dict(dados.get("profiles") or {}), "users": dict(dados.get("users") or {})}
     with _cache_lock:
         _cache[slug] = (agora, dados)
+        _ultimo_bom[slug] = dados
     return dados
 
 
@@ -212,9 +229,17 @@ def views_sem_acesso(user: Dict[str, Any]) -> List[str]:
 
 def decidir(user: Dict[str, Any], path: str, method: str, min_role: str) -> Tuple[bool, str]:
     """(permitido, motivo) pela regra nova."""
+    role = str(user.get("role") or "").strip().lower()
+    if str(min_role or "").lower() == "owner":
+        return (role == "owner"), ("" if role == "owner" else "requer dono da conta")
     exigido = nivel_exigido(min_role, method)
     if exigido is None:
         return False, "escrita sem regra declarada"
+    # Rotas que hoje exigem admin (backup com CPF e foto, trocar IP de gravador,
+    # config do TR-069...) continuam exigindo o perfil fixo admin: perfil
+    # personalizado nunca da mais que "operar" a quem nao e administrador.
+    if exigido >= NIVEIS["administrar"] and _ROLE_NIVEL.get(role, 0) < NIVEIS["administrar"]:
+        return False, "requer perfil fixo administrador"
     modulo = modulo_da_rota(path)
     if not modulo:
         # Rota fora dos modulos (login, painel, plataforma): so o perfil fixo, como antes.
@@ -236,6 +261,8 @@ _modo_lock = threading.Lock()
 _DIVERGENCIAS: "collections.deque[Dict[str, Any]]" = collections.deque(maxlen=500)
 _CONTAGEM: Dict[Tuple[str, str, str, str], int] = collections.Counter()
 _div_lock = threading.Lock()
+_MAX_GRUPOS = 2000
+_CHAVE_EXCESSO = ("*", "*", "(outras rotas: limite de grupos atingido)", "*")
 _CHAVE_MODO = "permissoes_modo__tenant___platform"
 
 
@@ -287,6 +314,9 @@ def registrar_divergencia(user: Dict[str, Any], path: str, method: str, antiga: 
     rota = _rota_agrupada(path)
     chave = (tenant, method, rota, f"{'permitia' if antiga else 'negava'}->{'permite' if nova else 'nega'}")
     with _div_lock:
+        if chave not in _CONTAGEM and len(_CONTAGEM) >= _MAX_GRUPOS:
+            _CONTAGEM[_CHAVE_EXCESSO] += 1  # teto: caminho inventado nao cresce a memoria
+            return
         _CONTAGEM[chave] += 1
         primeira = _CONTAGEM[chave] == 1
         _DIVERGENCIAS.appendleft({
@@ -311,6 +341,8 @@ def resumo_sombra() -> Dict[str, Any]:
 # --------------------------------------------------------------------------- edicao pelo cliente
 
 def _validar_niveis(niveis: Dict[str, Any]) -> Dict[str, int]:
+    if niveis is not None and not isinstance(niveis, dict):
+        raise ValueError("niveis devem ser um objeto modulo -> nivel")
     limpos: Dict[str, int] = {}
     for m, v in (niveis or {}).items():
         if m not in _MODULO_KEYS:
@@ -326,14 +358,14 @@ def salvar_perfil(tenant_slug: str, chave: str, nome: str, niveis: Dict[str, Any
     nome = str(nome or "").strip()[:60]
     if not nome:
         raise ValueError("nome do perfil obrigatorio")
-    dados = carregar_perfis(tenant_slug, usar_cache=False)
+    dados = copy.deepcopy(carregar_perfis(tenant_slug, usar_cache=False))  # nao mexe no cache antes de gravar
     dados["profiles"][chave] = {"name": nome, "levels": _validar_niveis(niveis)}
     salvar_perfis(tenant_slug, dados)
     return dados["profiles"][chave]
 
 
 def excluir_perfil(tenant_slug: str, chave: str) -> None:
-    dados = carregar_perfis(tenant_slug, usar_cache=False)
+    dados = copy.deepcopy(carregar_perfis(tenant_slug, usar_cache=False))  # nao mexe no cache antes de gravar
     if chave not in dados["profiles"]:
         raise LookupError("perfil nao encontrado")
     em_uso = [uid for uid, cfg in dados["users"].items() if (cfg or {}).get("profile") == chave]
@@ -346,7 +378,7 @@ def excluir_perfil(tenant_slug: str, chave: str) -> None:
 def definir_acesso_usuario(tenant_slug: str, alvo: Dict[str, Any], perfil: str, ajustes: Dict[str, Any]) -> Dict[str, Any]:
     if str(alvo.get("role") or "").lower() == "owner":
         raise ValueError("o dono da conta tem acesso total e nao pode ser restringido")
-    dados = carregar_perfis(tenant_slug, usar_cache=False)
+    dados = copy.deepcopy(carregar_perfis(tenant_slug, usar_cache=False))  # nao mexe no cache antes de gravar
     perfil = str(perfil or "").strip().lower()
     if perfil and perfil not in dados["profiles"]:
         raise ValueError("perfil nao encontrado")
@@ -373,6 +405,7 @@ def _limpar_cache_para_testes() -> None:
     global _modo_cache
     with _cache_lock:
         _cache.clear()
+        _ultimo_bom.clear()
     with _modo_lock:
         _modo_cache = (0.0, "")
     with _div_lock:
