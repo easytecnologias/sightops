@@ -141,6 +141,7 @@ class ApiAuthMiddleware(BaseHTTPMiddleware):
             (("DELETE", "PATCH"), "/api/auth/tenants/", "admin"),
             (("POST",), "/api/auth/storage/migrate", "admin"),
             (("PUT",), "/api/monitoring/telegram", "admin"),
+            (("PUT",), "/api/monitoring/profiles/", "admin"),
             (("POST",), "/api/monitoring/telegram/test", "admin"),
 
             # -- operacao do dia a dia: exige operator --

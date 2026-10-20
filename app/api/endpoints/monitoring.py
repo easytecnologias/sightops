@@ -1,9 +1,17 @@
 from __future__ import annotations
 
 from typing import Any, Dict
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 
-from app.services.monitoring_service import list_entities, list_onu_signal_history, list_profiles, monitoring_summary, refresh_from_inventory
+from app.services.monitoring_service import (
+    config_health,
+    list_entities,
+    list_onu_signal_history,
+    list_profiles,
+    monitoring_summary,
+    refresh_from_inventory,
+    set_profile_threshold,
+)
 from app.services.zabbix_monitoring_service import sync_monitoring_to_zabbix
 from app.services.telegram_notification_service import get_telegram_config, process_monitoring_notifications, save_telegram_config, test_telegram
 
@@ -25,6 +33,21 @@ def api_monitoring_entities(entity_type: str = "", status: str = "", limit: int 
 def api_monitoring_profiles() -> Dict[str, Any]:
     rows = list_profiles()
     return {"ok": True, "count": len(rows), "profiles": rows}
+
+
+@router.put("/profiles/{profile_key}")
+def api_monitoring_profile_put(profile_key: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    try:
+        return {"ok": True, "profile": set_profile_threshold(profile_key, payload.get("failure_threshold"))}
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/health")
+def api_monitoring_health() -> Dict[str, Any]:
+    return config_health()
 
 
 @router.get("/onu-signals")

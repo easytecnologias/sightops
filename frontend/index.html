@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=1792600101">
+  <link rel="stylesheet" href="styles.css?v=1792600104">
 </head>
 <body>
 
@@ -3514,22 +3514,32 @@
       <!-- --- VIEW: CONFIGURA--ES --- -->
       <section class="workspace hidden" id="viewSettings">
         <div class="page-heading">
-          <div><p class="eyebrow">Administração</p><h1>Configurações</h1><p>Organização, acessos, notificações e infraestrutura da plataforma.</p></div>
+          <div><p class="eyebrow">Administração</p><h1>Configurações</h1><p>Organização, acessos, alarmes, notificações e integrações deste cliente.</p></div>
           <button class="secondary-action" id="btnSettingsRefresh" type="button"><i data-lucide="refresh-cw"></i> Atualizar</button>
         </div>
         <div class="settings-console">
           <aside class="settings-navigation" aria-label="Áreas de configuração">
             <div class="settings-navigation-head"><span>Console administrativo</span><small>Gerencie o ambiente atual</small></div>
-            <button type="button" class="settings-nav-item active" data-settings-tab="overview"><i data-lucide="layout-dashboard"></i><span><strong>Visão geral</strong><small>Resumo da conta</small></span><i data-lucide="chevron-right"></i></button>
-            <button type="button" class="settings-nav-item" data-settings-tab="users"><i data-lucide="users"></i><span><strong>Usuários e acessos</strong><small>Perfis e permissões</small></span><i data-lucide="chevron-right"></i></button>
+            <button type="button" class="settings-nav-item active" data-settings-tab="overview"><i data-lucide="layout-dashboard"></i><span><strong>Visão geral</strong><small id="settingsNavOverviewSub">Resumo e pendências</small></span><i data-lucide="chevron-right"></i></button>
             <button type="button" class="settings-nav-item" data-settings-tab="plan" id="settingsNavPlan" hidden><i data-lucide="package"></i><span><strong>Meu plano e uso</strong><small id="settingsNavPlanSub">Equipamentos e limites</small></span><i data-lucide="chevron-right"></i></button>
-            <button type="button" class="settings-nav-item" data-settings-tab="notifications"><i data-lucide="bell-ring"></i><span><strong>Notificações</strong><small>Alertas operacionais</small></span><i data-lucide="chevron-right"></i></button>
+            <button type="button" class="settings-nav-item" data-settings-tab="users"><i data-lucide="users"></i><span><strong>Usuários e acessos</strong><small>Equipe deste cliente</small></span><i data-lucide="chevron-right"></i></button>
+            <button type="button" class="settings-nav-item" data-settings-tab="alarms"><i data-lucide="siren"></i><span><strong>Alarmes</strong><small>Quando vira alerta</small></span><i data-lucide="chevron-right"></i></button>
+            <button type="button" class="settings-nav-item" data-settings-tab="notifications"><i data-lucide="bell-ring"></i><span><strong>Notificações</strong><small id="settingsNavNotifSub">Canais de aviso</small></span><i data-lucide="chevron-right"></i></button>
+            <button type="button" class="settings-nav-item" data-settings-tab="integrations"><i data-lucide="plug"></i><span><strong>Integrações</strong><small>Zabbix, conectores, WhatsApp</small></span><i data-lucide="chevron-right"></i></button>
+            <button type="button" class="settings-nav-item" data-settings-tab="audit" id="settingsNavAudit"><i data-lucide="history"></i><span><strong>Registro de auditoria</strong><small>Quem mudou o quê</small></span><i data-lucide="chevron-right"></i></button>
           </aside>
           <div class="settings-saas-grid">
-          <div class="panel settings-wide-panel settings-area active" data-settings-panel="overview">
-            <div class="panel-header"><div><h2>Visão geral da conta</h2><p>Estado administrativo do cliente e da plataforma.</p></div><span class="badge badge-green">Ambiente ativo</span></div>
+          <div class="panel settings-wide-panel settings-area so-sub active" data-settings-panel="overview">
+            <div class="panel-header"><div><h2>Visão geral da conta</h2><p>Estado administrativo deste cliente.</p></div><span class="badge badge-green">Ambiente ativo</span></div>
             <div class="settings-status-grid settings-overview-grid" id="settingsOverviewStatus"></div>
-            <div class="settings-overview-help"><i data-lucide="info"></i><span>Use o menu ao lado para administrar a equipe e as notificações deste cliente.</span></div>
+          </div>
+          <div class="panel settings-wide-panel settings-area so-sub" data-settings-panel="overview">
+            <div class="panel-header"><div><h2>Saúde da configuração</h2><p>O que deixa o cliente sem aviso quando algo cai, ou exposto.</p></div><span id="settingsHealthBadge"></span></div>
+            <div class="so-health" id="settingsHealth"><p class="text-muted" style="margin:0">Carregando.</p></div>
+          </div>
+          <div class="panel settings-wide-panel settings-area so-sub" data-settings-panel="overview" id="settingsRecentPanel">
+            <div class="panel-header"><div><h2>Mudanças recentes</h2><p>Últimas alterações de acesso e configuração.</p></div><button class="secondary-action" type="button" data-settings-goto="audit"><i data-lucide="history"></i> Ver tudo</button></div>
+            <div class="so-feed" id="settingsRecent"></div>
           </div>
           <div class="panel settings-area settings-admin-form-panel" data-settings-panel="users">
             <div class="panel-header">
@@ -3597,6 +3607,38 @@
             <div class="so-section" id="myPlanFeatures"></div>
             <div class="so-section"><div class="so-note" id="myPlanNote"><i data-lucide="info"></i><span>Conta o que está cadastrado e monitorado. Se passar do limite, há um prazo de tolerância. O monitoramento do que já existe nunca para por causa de limite. Para mudar de plano, fale com a Easy.</span></div></div>
           </div>
+          <div class="panel settings-wide-panel settings-area" data-settings-panel="alarms">
+            <div class="panel-header"><div><h2>Quando vira alarme</h2><p>Falhas seguidas até o equipamento aparecer fora do ar. Menos avisa mais rápido; mais evita alarme falso. <span id="alarmIntervalNote"></span></p></div>
+              <button class="primary-action" id="btnSaveAlarmProfiles" type="button"><i data-lucide="save"></i> Salvar alarmes</button></div>
+            <div class="so-card-grid" id="alarmProfileCards" style="padding:18px"></div>
+          </div>
+          <div class="panel settings-wide-panel settings-area so-sub" data-settings-panel="alarms">
+            <div class="panel-header"><div><h2>Sinal das ONUs</h2><p>Abaixo destes valores a ONU entra em alerta e os avisos são enviados.</p></div>
+              <button class="primary-action" id="btnSaveOnuThresholds" type="button"><i data-lucide="save"></i> Salvar limites</button></div>
+            <div class="so-section">
+              <div class="so-row"><div><strong>Alerta</strong><small>Sinal fraco, ainda funcionando.</small></div><div class="so-unit"><input id="alarmWarnRx" type="number" step="0.1"><span>dBm</span></div></div>
+              <div class="so-row"><div><strong>Crítico</strong><small>Perto de cair.</small></div><div class="so-unit"><input id="alarmCriticalRx" type="number" step="0.1"><span>dBm</span></div></div>
+            </div>
+          </div>
+          <div class="panel settings-wide-panel settings-area" data-settings-panel="integrations">
+            <div class="panel-header"><div><h2>Integrações</h2><p>Estado dos serviços que mantêm o monitoramento deste cliente.</p></div></div>
+            <div class="so-card-grid duas" id="integrationCards" style="padding:18px"></div>
+            <div class="so-section"><div class="so-note"><i data-lucide="info"></i><span>Zabbix e o servidor de WhatsApp são da plataforma: aqui aparece se estão funcionando para você, e a Easy cuida da configuração. O Telegram é configurado em Notificações.</span></div></div>
+          </div>
+          <div class="panel settings-wide-panel settings-area" data-settings-panel="audit">
+            <div class="panel-header"><div><h2>Registro de auditoria</h2><p id="settingsAuditSummary">Quem mudou o quê, e quando.</p></div></div>
+            <div class="table-wrap settings-table-wrap">
+              <table class="data-table settings-table" style="min-width:720px">
+                <colgroup><col style="width:150px"><col style="width:20%"><col style="width:22%"><col></colgroup>
+                <thead><tr><th>Quando</th><th>Quem</th><th>O quê</th><th>Detalhe</th></tr></thead>
+                <tbody id="settingsAuditBody"></tbody>
+              </table>
+            </div>
+          </div>
+          <div class="panel settings-wide-panel settings-area so-sub" data-settings-panel="notifications">
+            <div class="panel-header"><div><h2>Canais de aviso</h2><p>Por onde os avisos de queda e de sinal saem.</p></div></div>
+            <div class="so-card-grid duas" id="notifChannelCards" style="padding:18px"></div>
+          </div>
           <div class="panel settings-wide-panel settings-area" data-settings-panel="notifications">
             <div class="panel-header">
               <div><h2>Notificacoes pelo Telegram</h2><p>Alertas de queda, recuperacao e degradacao do sinal optico por cliente.</p></div>
@@ -3607,10 +3649,8 @@
                 <div class="form-group"><label for="telegramBotToken">Token do bot</label><input id="telegramBotToken" type="password" placeholder="Deixe vazio para manter o atual"></div>
                 <div class="form-group"><label for="telegramChatId">Chat ID / grupo</label><input id="telegramChatId" placeholder="Ex: -1001234567890"></div>
               </div>
-              <div class="form-row">
-                <div class="form-group"><label for="telegramWarnRx">Alerta ONU RX (dBm)</label><input id="telegramWarnRx" type="number" step="0.1" value="-27"></div>
-                <div class="form-group"><label for="telegramCriticalRx">Critico ONU RX (dBm)</label><input id="telegramCriticalRx" type="number" step="0.1" value="-29"></div>
-              </div>
+              <!-- limites de sinal da ONU agora ficam em Alarmes; aqui so acompanham o salvar do Telegram -->
+              <input type="hidden" id="telegramWarnRx" value="-27"><input type="hidden" id="telegramCriticalRx" value="-29">
               <div class="telegram-options-row">
                 <label><input id="telegramEnabled" type="checkbox"> Notificacoes ativas</label>
                 <label><input id="telegramRecovery" type="checkbox" checked> Avisar recuperacao</label>
@@ -7102,8 +7142,9 @@
        trechos do app.js original na sequencia em que estavam, entao carregar
        fora de ordem muda o comportamento. Ao adicionar um arquivo novo, entre
        antes de bootstrap.js, que e quem liga os botoes no DOMContentLoaded. -->
-  <script src="js/core.js?v=1792600102"></script>
+  <script src="js/core.js?v=1792600105"></script>
   <script src="js/licencas.js?v=1792600103"></script>
+  <script src="js/configuracoes.js?v=1792600106"></script>
   <script src="js/dashboard.js?v=1792000238"></script>
   <script src="js/liveStream.js?v=1792500018"></script>
   <script src="js/cameras.js?v=1792500023"></script>

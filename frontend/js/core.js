@@ -713,21 +713,6 @@ async function loadSettings() {
   const currentUser = me?.user || {};
   const userRows = users?.users || [];
 
-  const overview = document.getElementById('settingsOverviewStatus');
-  if (overview) {
-    const telegramState = telegram?.configured ? (telegram.enabled ? 'Ativo' : 'Configurado') : 'Não configurado';
-    // Configuracoes so mostra o que e do proprio cliente -- contagem de
-    // outros clientes/infraestrutura da plataforma vive no Painel do Dono.
-    const stats = [
-      ['Cliente atual', currentUser.tenant_name || currentUser.tenant_slug || '-'],
-      ['Seu perfil', currentUser.role || '-'],
-      ['Usuários da equipe', userRows.length],
-      ['Notificações', telegramState],
-    ];
-    overview.innerHTML = stats
-      .map(([label, value]) => `<div class="settings-status-card"><span>${esc(label)}</span><strong title="${esc(value)}">${esc(value)}</strong></div>`).join('');
-  }
-
   setText('settingsUsersSummary', `${userRows.length} usuario${userRows.length === 1 ? '' : 's'} no cliente atual (${currentUser.tenant_name || currentUser.tenant_slug || '-'}).`);
   const usersBody = document.getElementById('settingsUsersBody');
   if (usersBody) {
@@ -765,6 +750,7 @@ async function loadSettings() {
   }
 
   if (typeof loadMyPlan === 'function') await loadMyPlan(currentUser);
+  if (typeof renderSettingsConsole === 'function') await renderSettingsConsole(currentUser, userRows, telegram);
   scheduleResponsiveHydration(document.getElementById('viewSettings'));
   activateSettingsTab(sessionStorage.getItem('sightops.settings.tab') || 'overview');
   lucide.createIcons();

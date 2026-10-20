@@ -731,6 +731,83 @@ def list_profiles() -> List[Dict[str, Any]]:
     return [dict(r) for r in rows]
 
 
+def set_profile_threshold(profile_key: str, failure_threshold: Any) -> Dict[str, Any]:
+    """Quantas falhas seguidas ate o equipamento virar "fora do ar" (so do cliente atual).
+
+    Nao mexe no intervalo de verificacao: esse e da plataforma (carga no conector)."""
+    try:
+        threshold = int(failure_threshold)
+    except (TypeError, ValueError):
+        raise ValueError("falhas seguidas deve ser um numero")
+    if threshold < 1 or threshold > 10:
+        raise ValueError("falhas seguidas deve ficar entre 1 e 10")
+    ensure_default_profiles()
+    tenant = _tenant()
+    with _conn() as c:
+        row = c.execute(
+            "SELECT * FROM monitoring_profiles WHERE tenant_slug=? AND profile_key=?", (tenant, _text(profile_key))
+        ).fetchone()
+        if not row:
+            raise LookupError("perfil nao encontrado")
+        c.execute(
+            "UPDATE monitoring_profiles SET failure_threshold=?, updated_at=? WHERE tenant_slug=? AND profile_key=?",
+            (threshold, _now(), tenant, _text(profile_key)),
+        )
+        row = c.execute(
+            "SELECT * FROM monitoring_profiles WHERE tenant_slug=? AND profile_key=?", (tenant, _text(profile_key))
+        ).fetchone()
+    return dict(row)
+
+
+def refresh_interval_seconds() -> int:
+    """Ritmo real da verificacao: o mesmo calculo de _monitoring_refresh_interval_s()
+    em app/main.py. O interval_seconds dos perfis NAO e usado por laco nenhum."""
+    try:
+        return max(60, min(int(os.getenv("SIGHTOPS_MONITORING_REFRESH_INTERVAL", "120")), 3600))
+    except Exception:
+        return 120
+
+
+def config_health() -> Dict[str, Any]:
+    """Numeros do cliente atual para a "saude da configuracao" em Configuracoes."""
+    tenant = _tenant()
+    with _conn() as c:
+        row = c.execute(
+            "SELECT COUNT(1) AS total,"
+            " SUM(CASE WHEN COALESCE(zabbix_hostid,'')='' THEN 1 ELSE 0 END) AS sem_zabbix,"
+            " SUM(CASE WHEN status='down' THEN 1 ELSE 0 END) AS fora,"
+            " SUM(CASE WHEN status='unstable' THEN 1 ELSE 0 END) AS instavel,"
+            " SUM(CASE WHEN status='unknown' THEN 1 ELSE 0 END) AS sem_informacao,"
+            " MAX(last_checked_at) AS ultima_verificacao"
+            " FROM monitoring_entities WHERE tenant_slug=? AND monitoring_enabled=1",
+            (tenant,),
+        ).fetchone()
+        tipos = c.execute(
+            "SELECT entity_type, status, COUNT(1) AS n FROM monitoring_entities"
+            " WHERE tenant_slug=? AND monitoring_enabled=1 AND entity_type IN ('connector','whatsapp')"
+            " GROUP BY entity_type, status",
+            (tenant,),
+        ).fetchall()
+    r = dict(row or {})
+    por_tipo: Dict[str, Dict[str, int]] = {}
+    for t in tipos:
+        d = dict(t)
+        por_tipo.setdefault(d["entity_type"], {})[d["status"]] = int(d["n"] or 0)
+    return {
+        "ok": True,
+        "tenant": tenant,
+        "total": int(r.get("total") or 0),
+        "sem_zabbix": int(r.get("sem_zabbix") or 0),
+        "fora": int(r.get("fora") or 0),
+        "instavel": int(r.get("instavel") or 0),
+        "sem_informacao": int(r.get("sem_informacao") or 0),
+        "ultima_verificacao": str(r.get("ultima_verificacao") or ""),
+        "intervalo_verificacao_s": refresh_interval_seconds(),
+        "conectores": por_tipo.get("connector", {}),
+        "whatsapp": por_tipo.get("whatsapp", {}),
+    }
+
+
 def list_entities(entity_type: str = "", status: str = "", limit: int = 500) -> List[Dict[str, Any]]:
     where, params = ["tenant_slug=?", "monitoring_enabled=1"], [_tenant()]
     if entity_type: where.append("entity_type=?"); params.append(entity_type)

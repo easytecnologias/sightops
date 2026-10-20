@@ -12645,3 +12645,18 @@ table.recorder-tabela tbody tr:hover { background: var(--surface-soft); }
 .so-table td.num, .so-table th.num { text-align: right; font-variant-numeric: tabular-nums; }
 @media (max-width: 1250px) { .so-card-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 860px) { .so-card-grid, .so-card-grid.duas { grid-template-columns: 1fr; } .so-row { grid-template-columns: 1fr; } .so-check-item { grid-template-columns: 34px minmax(0, 1fr); } .so-check-item > button { grid-column: 2; } }
+
+/* ── Console de Configuracoes do cliente (fase 2) ── */
+.settings-saas-grid:not(:has(.settings-admin-form-panel.active)) .settings-area.active.so-sub { min-height: 0; }
+.so-health { display: grid; grid-template-columns: 150px minmax(0, 1fr); align-items: center; gap: 22px; padding: 18px; }
+.so-health .so-check { padding: 0; }
+.so-ring { width: 132px; height: 132px; justify-self: center; }
+.so-ring text { font-family: Inter, Arial, sans-serif; }
+.so-feed { padding: 6px 18px 14px; }
+.so-feed > div { display: grid; grid-template-columns: 30px minmax(0, 1fr) auto; align-items: start; gap: 10px; padding: 10px 0; border-bottom: 1px dashed var(--border); font-size: 12.5px; }
+.so-feed > div:last-child { border-bottom: 0; }
+.so-feed .avatar { width: 26px; height: 26px; font-size: 10px; }
+.so-feed time { color: var(--muted); font-size: 11.5px; white-space: nowrap; }
+.so-feed small { display: block; margin-top: 2px; color: var(--muted); font-family: Consolas, Menlo, monospace; font-size: 11.5px; overflow-wrap: anywhere; }
+.so-card .so-unit input { width: 64px; }
+@media (max-width: 860px) { .so-health { grid-template-columns: 1fr; } }
