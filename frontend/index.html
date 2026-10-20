@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=1792600118">
+  <link rel="stylesheet" href="styles.css?v=1792600121">
 </head>
 <body>
 
@@ -3548,18 +3548,30 @@
               <button class="primary-action" id="btnTeamNewUser" type="button"><i data-lucide="user-plus"></i> Novo usuário</button>
             </div>
             <div class="so-section" id="teamNewUserForm" hidden>
-              <div class="form-row">
-                <div class="form-group"><label for="newUserFullName">Nome</label><input id="newUserFullName" placeholder="Nome completo"></div>
-                <div class="form-group"><label for="newUserName">Login</label><input id="newUserName" placeholder="ex: portaria.sede" autocomplete="off"></div>
-              </div>
-              <div class="form-row">
-                <div class="form-group"><label for="newUserRole">Perfil</label>
-                  <select id="newUserRole"><option value="viewer">Visualizador: vê tudo, não altera</option><option value="operator">Operador: opera no dia a dia</option><option value="admin">Administrador: inclusive usuários</option><option value="owner">Dono da conta</option></select></div>
-                <div class="form-group"><label for="newUserPass">Senha inicial</label><input id="newUserPass" type="password" placeholder="mínimo 8 caracteres" autocomplete="new-password"></div>
-              </div>
-              <div class="page-heading-actions" style="justify-content:flex-start">
-                <button class="primary-action" id="btnCreateUser" type="button"><i data-lucide="user-plus"></i> Criar usuário</button>
-                <button class="secondary-action" id="btnTeamNewUserCancel" type="button">Cancelar</button>
+              <div class="so-edit so-novo">
+                <section><h3>Quem é</h3>
+                  <div class="form-row">
+                    <div class="form-group" style="margin:0"><label for="nuNome">Nome</label><input id="nuNome" placeholder="Ex: Marcos da Portaria" autocomplete="off"></div>
+                    <div class="form-group" style="margin:0"><label for="nuEmail">E-mail <span class="text-muted">(opcional)</span></label><input id="nuEmail" type="email" placeholder="para avisos" autocomplete="off"></div>
+                  </div>
+                  <div class="form-group" style="margin:0"><label for="nuLogin">Login para entrar</label><input id="nuLogin" placeholder="sai do nome, ex: marcos.portaria" autocomplete="off"><small class="text-muted" id="nuLoginDica">Letras, números, ponto e traço.</small></div>
+                </section>
+                <section><h3>Perfil <small>o que a pessoa pode fazer</small></h3><div class="so-roles" id="nuPerfis"></div></section>
+                <section><h3>Sites que acessa</h3><div id="nuSites"></div></section>
+                <section><h3>Senha inicial</h3>
+                  <div class="form-row">
+                    <div class="form-group" style="margin:0"><label for="nuSenha">Senha</label>
+                      <div class="so-senha"><input id="nuSenha" type="password" autocomplete="new-password" placeholder="mínimo 8 caracteres">
+                        <button class="secondary-action" type="button" id="nuMostrar" title="Mostrar senha"><i data-lucide="eye"></i></button>
+                        <button class="secondary-action" type="button" id="nuGerar"><i data-lucide="wand-2"></i> Gerar</button></div></div>
+                    <div class="form-group" style="margin:0"><label>&nbsp;</label><small class="text-muted">Passe a senha para a pessoa por um canal seguro. Ela pode ser trocada depois em Editar.</small></div>
+                  </div>
+                </section>
+                <p id="nuErro" class="login-error" hidden></p>
+                <div class="so-edit-foot">
+                  <button class="secondary-action" id="btnTeamNewUserCancel" type="button">Cancelar</button>
+                  <button class="primary-action" id="btnTeamCreate" type="button"><i data-lucide="user-plus"></i> Criar usuário</button>
+                </div>
               </div>
             </div>
             <div class="so-section" style="padding-top:0;display:flex;gap:8px;flex-wrap:wrap" id="teamFilters"></div>
@@ -7191,7 +7203,7 @@
   <script src="js/licencas.js?v=1792600103"></script>
   <script src="js/configuracoes.js?v=1792600116"></script>
   <script src="js/permissoes.js?v=1792600120"></script>
-  <script src="js/equipe.js?v=1792600119"></script>
+  <script src="js/equipe.js?v=1792600122"></script>
   <script src="js/dashboard.js?v=1792000238"></script>
   <script src="js/liveStream.js?v=1792500018"></script>
   <script src="js/cameras.js?v=1792500023"></script>

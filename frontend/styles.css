@@ -12706,3 +12706,17 @@ table.recorder-tabela tbody tr:hover { background: var(--surface-soft); }
 .so-edit-foot { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
 @media (max-width: 1100px) { .so-roles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 560px) { .so-roles { grid-template-columns: 1fr; } }
+/* novo usuario e sites */
+.so-novo { padding: 16px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-soft); }
+.so-senha { display: flex; gap: 6px; }
+.so-senha input { flex: 1; min-width: 0; }
+.so-senha .secondary-action { padding: 0 11px; }
+.so-sites { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 8px; }
+.so-sites label { display: flex; align-items: center; gap: 8px; padding: 9px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); font-size: 12.5px; cursor: pointer; }
+.so-sites label small { margin-left: auto; color: var(--muted); font-size: 11px; }
+.so-sites input { accent-color: var(--primary); }
+.so-escolha { display: flex; flex-wrap: wrap; gap: 16px; font-size: 13px; }
+.so-escolha label { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+.so-escolha input { accent-color: var(--primary); }
+@media (max-width: 900px) { .so-sites { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 560px) { .so-sites { grid-template-columns: 1fr; } }

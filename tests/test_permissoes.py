@@ -280,3 +280,18 @@ def test_falha_ao_gravar_nao_deixa_perfil_no_cache(monkeypatch):
 def test_niveis_que_nao_sao_objeto_dao_erro_claro(sem_banco):
     with pytest.raises(ValueError):
         P.salvar_perfil("cliente-x", "p", "P", ["cameras"])
+
+
+
+def test_sites_do_usuario_validados_e_mantidos(sem_banco, monkeypatch):
+    monkeypatch.setattr(P, "sites_do_cliente", lambda slug: [{"name": "SEDE", "equipamentos": 10}, {"name": "MARINA", "equipamentos": 4}])
+    u = _user("viewer", uid=12)
+    P.definir_acesso_usuario("cliente-x", u, "", {}, ["sede"])
+    assert P.sites_do_usuario(u) == ["SEDE"]  # grafia do cadastro
+    P.definir_acesso_usuario("cliente-x", u, "", {"cameras": 1})  # sem sites: mantem
+    assert P.sites_do_usuario(u) == ["SEDE"]
+    P.definir_acesso_usuario("cliente-x", u, "", {}, [])  # lista vazia: todos
+    assert P.sites_do_usuario(u) == []
+    with pytest.raises(ValueError):
+        P.definir_acesso_usuario("cliente-x", u, "", {}, ["OUTRO CLIENTE"])
+    assert P.sites_do_usuario(_user("owner")) == []

@@ -375,14 +375,70 @@ def excluir_perfil(tenant_slug: str, chave: str) -> None:
     salvar_perfis(tenant_slug, dados)
 
 
-def definir_acesso_usuario(tenant_slug: str, alvo: Dict[str, Any], perfil: str, ajustes: Dict[str, Any]) -> Dict[str, Any]:
+def sites_do_cliente(tenant_slug: str) -> List[Dict[str, Any]]:
+    """Sites do cliente: os cadastrados e os que ja aparecem nos equipamentos
+    monitorados, com quantos equipamentos cada um tem."""
+    from app.services.db_store import _conn
+
+    slug = str(tenant_slug or "").strip().lower()
+    contagem: Dict[str, int] = {}
+    with _conn() as c:
+        for row in c.execute(
+            "SELECT trim(COALESCE(name,'')) AS name FROM sites WHERE tenant_slug=? AND active=1", (slug,)
+        ).fetchall():
+            nome = str(row["name"] or "").strip()
+            if nome and nome.upper() != "GERAL":
+                contagem.setdefault(nome, 0)
+        for row in c.execute(
+            "SELECT trim(COALESCE(site,'')) AS site, COUNT(1) AS n FROM monitoring_entities"
+            " WHERE tenant_slug=? AND monitoring_enabled=1 GROUP BY trim(COALESCE(site,''))", (slug,)
+        ).fetchall():
+            nome = str(row["site"] or "").strip()
+            if nome and nome.upper() != "GERAL":
+                contagem[nome] = contagem.get(nome, 0) + int(row["n"] or 0)
+    return [{"name": n, "equipamentos": contagem[n]} for n in sorted(contagem, key=str.upper)]
+
+
+def _validar_sites(tenant_slug: str, sites: Any) -> List[str]:
+    if sites is None:
+        return []
+    if not isinstance(sites, list):
+        raise ValueError("sites deve ser uma lista")
+    validos = {s["name"].upper(): s["name"] for s in sites_do_cliente(tenant_slug)}
+    limpos: List[str] = []
+    for s in sites:
+        nome = str(s or "").strip()
+        if not nome:
+            continue
+        if nome.upper() not in validos:
+            raise ValueError(f"site desconhecido: {nome}")
+        if validos[nome.upper()] not in limpos:
+            limpos.append(validos[nome.upper()])
+    return limpos
+
+
+def sites_do_usuario(user: Dict[str, Any], dados: Optional[Dict[str, Any]] = None) -> List[str]:
+    """Sites que o usuario acessa. Lista vazia = todos (padrao; dono sempre todos)."""
+    if str(user.get("role") or "").lower() == "owner":
+        return []
+    slug = str(user.get("effective_tenant_slug") or user.get("tenant_slug") or "").strip().lower()
+    dados = dados if dados is not None else carregar_perfis(slug)
+    cfg = (dados.get("users") or {}).get(str(user.get("id"))) or {}
+    return list(cfg.get("sites") or [])
+
+
+def definir_acesso_usuario(tenant_slug: str, alvo: Dict[str, Any], perfil: str, ajustes: Dict[str, Any],
+                           sites: Any = None) -> Dict[str, Any]:
+    """`sites=None` mantem os sites atuais; lista vazia = todos os sites."""
     if str(alvo.get("role") or "").lower() == "owner":
         raise ValueError("o dono da conta tem acesso total e nao pode ser restringido")
     dados = copy.deepcopy(carregar_perfis(tenant_slug, usar_cache=False))  # nao mexe no cache antes de gravar
     perfil = str(perfil or "").strip().lower()
     if perfil and perfil not in dados["profiles"]:
         raise ValueError("perfil nao encontrado")
-    cfg = {"profile": perfil or None, "overrides": _validar_niveis(ajustes)}
+    atual = (dados["users"].get(str(alvo.get("id"))) or {})
+    lista_sites = list(atual.get("sites") or []) if sites is None else _validar_sites(tenant_slug, sites)
+    cfg = {"profile": perfil or None, "overrides": _validar_niveis(ajustes), "sites": lista_sites}
     cfg = {k: v for k, v in cfg.items() if v}
     uid = str(alvo.get("id"))
     if cfg:

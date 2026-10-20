@@ -115,6 +115,8 @@ function renderTeamDetail() {
     podeMexer && u.active_sessions ? b('Encerrar sessões', 'log-out', 'sessoes') : '',
     podeMexer ? (Number(u.active) ? b('Desativar', 'user-x', 'desativar') : b('Ativar', 'user-check', 'ativar')) : '',
     podeMexer ? b('Excluir', 'trash-2', 'excluir', true) : '',
+    voce ? '<span class="text-muted" style="font-size:12px">É você: desativar ou excluir a própria conta fica com outro administrador.</span>' : '',
+    !voce && dono && !euDono ? '<span class="text-muted" style="font-size:12px">Só o dono da conta mexe em outro dono.</span>' : '',
   ].join('');
   document.querySelectorAll('#teamDetTabs [data-team-tab]').forEach(t => t.classList.toggle('active', t.dataset.teamTab === _eq.tab));
   renderTeamTab(u);
@@ -162,7 +164,10 @@ function eqAcessoHtml(u) {
     const n = fora(m) ? 0 : nivel(m);
     return `<div class="so-mod ${n === 0 ? 'off' : ''}"><span>${esc(m.label)}</span>${fora(m) ? '<span class="badge badge-gray">fora do plano</span>' : `<span class="badge badge-${PERM_BADGE[n] || 'gray'}">${permNivelLabel(n)}</span>`}</div>`;
   }).join('');
-  return `${nota}<div class="so-mod-grid" style="margin-top:12px">${grade || '<p class="text-muted">Carregando módulos.</p>'}</div>
+  const sitesU = pu.sites || [];
+  const totalSites = (_perm?.sites_do_cliente || []).length;
+  const linhaSites = u.role === 'owner' || !totalSites ? '' : `<div class="so-note" style="margin-top:10px"><i data-lucide="map-pin"></i><span><strong>Sites:</strong> ${sitesU.length ? `${sitesU.map(esc).join(', ')} <span class="text-muted">(${sitesU.length} de ${totalSites})</span>` : `todos (${totalSites})`}${sitesU.length && !valendo ? ' <span class="text-muted">· em teste</span>' : ''}</span></div>`;
+  return `${nota}${linhaSites}<div class="so-mod-grid" style="margin-top:12px">${grade || '<p class="text-muted">Carregando módulos.</p>'}</div>
     ${podeAjustar ? `<div class="page-heading-actions" style="justify-content:flex-start;margin-top:14px"><button class="primary-action" type="button" data-team-act="editar"><i data-lucide="sliders-horizontal"></i> Ajustar acesso</button></div>` : ''}`;
 }
 
@@ -204,6 +209,7 @@ function eqEditorHtml(u) {
       <div class="so-roles">${perfis}</div>
       ${voce && !euDono ? '<p class="text-muted" style="margin:0;font-size:12px">Só o dono da conta muda o próprio perfil.</p>' : ''}
     </section>
+    ${dono || voce ? '' : `<section><h3>Sites que acessa</h3>${eqSitesHtml('eq', pu.sites || [])}</section>`}
     <section><h3>Acesso por módulo <small>o que a pessoa vê e opera</small></h3>${acesso}</section>
     ${voce ? '' : `<section><h3>Situação</h3>
       <label class="so-toggle"><input type="checkbox" id="eqAtivo" ${Number(u.active) ? 'checked' : ''} ${dono && !euDono ? 'disabled' : ''}> Usuário ativo</label>
@@ -249,6 +255,7 @@ function eqGuardarAjustes() {
 function eqLigarEditor(u) {
   _eq.ajustesTela = null;
   eqMatrizAcesso(u);
+  eqLigarSites('eq');
   document.getElementById('eqAccessProfile')?.addEventListener('change', () => { eqGuardarAjustes(); eqMatrizAcesso(u); });
   document.querySelectorAll('input[name="eqRole"]').forEach(r => r.addEventListener('change', () => { eqGuardarAjustes(); eqMatrizAcesso(u); }));
 }
@@ -280,11 +287,17 @@ async function eqSalvarEdicao(u) {
       const perfil = document.getElementById('eqAccessProfile')?.value || '';
       const overrides = {};
       matriz.querySelectorAll('[data-eq-ajuste]').forEach(sel => { if (sel.value !== '') overrides[sel.dataset.eqAjuste] = Number(sel.value); });
-      const antes = JSON.stringify([pu.profile || '', pu.overrides || {}]);
-      if (antes !== JSON.stringify([perfil, overrides])) {
-        const r = await api(`/api/auth/users/${Number(u.id)}/access`, { method: 'PUT', body: JSON.stringify({ profile: perfil, overrides }) });
+      const sitesLidos = eqSitesLidos('eq');
+      if (sitesLidos && document.querySelector('input[name="eqModo"]:checked')?.value === 'alguns' && !sitesLidos.length) {
+        btn.disabled = false;
+        return erro('Marque pelo menos um site, ou escolha "Todos os sites".');
+      }
+      const sitesNovos = sitesLidos === null ? (pu.sites || []) : sitesLidos;
+      const antes = JSON.stringify([pu.profile || '', pu.overrides || {}, pu.sites || []]);
+      if (antes !== JSON.stringify([perfil, overrides, sitesNovos])) {
+        const r = await api(`/api/auth/users/${Number(u.id)}/access`, { method: 'PUT', body: JSON.stringify({ profile: perfil, overrides, sites: sitesNovos }) });
         await jsonOrReadableError(r, 'Não foi possível salvar o acesso por módulo.');
-        feito.push('acesso');
+        feito.push('acesso e sites');
       }
     }
     const ativoEl = document.getElementById('eqAtivo');
@@ -307,6 +320,99 @@ async function eqSalvarEdicao(u) {
   _eq.tab = 'acesso';
   if (typeof loadAccessProfiles === 'function') await loadAccessProfiles(_currentUser);
   await loadTeam(_eq.me);
+}
+
+function eqSitesHtml(prefixo, escolhidos) {
+  const sites = _perm?.sites_do_cliente || [];
+  if (!sites.length) return '<p class="text-muted" style="margin:0;font-size:12.5px">Este cliente ainda não tem sites cadastrados: a pessoa vê tudo.</p>';
+  const todos = !escolhidos || !escolhidos.length;
+  const marcados = new Set((escolhidos || []).map(x => String(x).toUpperCase()));
+  return `<div class="so-escolha">
+      <label><input type="radio" name="${prefixo}Modo" value="todos" ${todos ? 'checked' : ''}> Todos os sites${sites.length > 1 ? ` (${sites.length})` : ''}</label>
+      <label><input type="radio" name="${prefixo}Modo" value="alguns" ${todos ? '' : 'checked'}> Só os sites marcados</label></div>
+    <div class="so-sites" id="${prefixo}Lista" ${todos ? 'hidden' : ''}>${sites.map(st => `<label><input type="checkbox" data-site="${esc(st.name)}" ${marcados.has(st.name.toUpperCase()) ? 'checked' : ''}> ${esc(st.name)}<small>${licNum(st.equipamentos)} equip.</small></label>`).join('')}</div>
+    ${_perm?.modo === 'valer' ? '' : '<p class="text-muted" style="margin:6px 0 0;font-size:12px">Em teste: a limitação por site passa a valer junto com os perfis de acesso.</p>'}`;
+}
+
+function eqLigarSites(prefixo) {
+  document.querySelectorAll(`input[name="${prefixo}Modo"]`).forEach(r => r.addEventListener('change', () => {
+    const lista = document.getElementById(`${prefixo}Lista`);
+    if (lista) lista.hidden = document.querySelector(`input[name="${prefixo}Modo"]:checked`)?.value !== 'alguns';
+  }));
+}
+
+// null = nao ha sites para escolher; [] = todos; [...] = so esses
+function eqSitesLidos(prefixo) {
+  const modo = document.querySelector(`input[name="${prefixo}Modo"]:checked`)?.value;
+  if (!modo) return null;
+  if (modo === 'todos') return [];
+  return [...document.querySelectorAll(`#${prefixo}Lista [data-site]:checked`)].map(c => c.dataset.site);
+}
+
+function eqLoginDoNome(nome) {
+  const partes = String(nome || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+    .replace(/[^a-z0-9 ]+/g, ' ').trim().split(/\s+/).filter(p => p && !['da', 'de', 'do', 'das', 'dos', 'e'].includes(p));
+  return partes.slice(0, 2).join('.');
+}
+
+function eqGerarSenha() {
+  const letras = 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKMNPQRSTUVWXYZ23456789';
+  const a = new Uint32Array(12);
+  crypto.getRandomValues(a);
+  return Array.from(a, n => letras[n % letras.length]).join('');
+}
+
+function eqAbrirNovo() {
+  const f = document.getElementById('teamNewUserForm');
+  if (!f.hidden) { f.hidden = true; return; }
+  const euDono = _eq.me?.role === 'owner';
+  document.getElementById('nuPerfis').innerHTML = ['viewer', 'operator', 'admin', 'owner'].map(r =>
+    `<label class="so-role"><input type="radio" name="nuRole" value="${r}" ${r === 'viewer' ? 'checked' : ''} ${r === 'owner' && !euDono ? 'disabled' : ''}>
+      <strong>${EQ_PERFIS[r]}</strong><small>${EQ_PERFIL_INFO[r]}</small></label>`).join('');
+  document.getElementById('nuSites').innerHTML = eqSitesHtml('nu', []);
+  eqLigarSites('nu');
+  ['nuNome', 'nuEmail', 'nuLogin', 'nuSenha'].forEach(id => { document.getElementById(id).value = ''; });
+  document.getElementById('nuLogin').dataset.manual = '';
+  document.getElementById('nuSenha').type = 'password';
+  document.getElementById('nuErro').hidden = true;
+  f.hidden = false;
+  document.getElementById('nuNome').focus();
+  lucide.createIcons();
+}
+
+async function eqCriarUsuario() {
+  const err = document.getElementById('nuErro');
+  const erro = msg => { err.textContent = msg; err.hidden = false; };
+  err.hidden = true;
+  const nome = document.getElementById('nuNome').value.trim();
+  const email = document.getElementById('nuEmail').value.trim();
+  const login = document.getElementById('nuLogin').value.trim();
+  const senha = document.getElementById('nuSenha').value;
+  const role = document.querySelector('input[name="nuRole"]:checked')?.value || 'viewer';
+  const sites = eqSitesLidos('nu');
+  if (!nome) return erro('Informe o nome da pessoa.');
+  if (!/^[A-Za-z0-9._-]{3,40}$/.test(login)) return erro('Login com 3 a 40 caracteres: letras, números, ponto, traço ou sublinhado.');
+  if (senha.length < 8) return erro('A senha precisa de pelo menos 8 caracteres. Use "Gerar" se preferir.');
+  if (sites && role !== 'owner' && document.querySelector('input[name="nuModo"]:checked')?.value === 'alguns' && !sites.length) return erro('Marque pelo menos um site, ou escolha "Todos os sites".');
+  const btn = document.getElementById('btnTeamCreate');
+  btn.disabled = true;
+  try {
+    const r = await api('/api/auth/users', { method: 'POST', body: JSON.stringify({ username: login, password: senha, role, full_name: nome, email }) });
+    const d = await jsonOrReadableError(r, 'Não foi possível criar o usuário.');
+    if (sites && sites.length && role !== 'owner' && d?.user?.id) {
+      const r2 = await api(`/api/auth/users/${Number(d.user.id)}/access`, { method: 'PUT', body: JSON.stringify({ profile: '', overrides: {}, sites }) });
+      await jsonOrReadableError(r2, 'Usuário criado, mas não foi possível gravar os sites.');
+    }
+    showToast(`${nome} criado. Login: ${login}`);
+    document.getElementById('teamNewUserForm').hidden = true;
+    _eq.sel = d?.user?.id || _eq.sel;
+    if (typeof loadAccessProfiles === 'function') await loadAccessProfiles(_currentUser);
+    await loadTeam(_eq.me);
+  } catch (e) {
+    erro(e?.message || 'Não foi possível criar o usuário.');
+  } finally {
+    btn.disabled = false;
+  }
 }
 
 function eqAbrirSenha(u) {
@@ -367,10 +473,21 @@ async function eqAcao(acao) {
 
 (function bindEquipe() {
   const on = (id, ev, fn) => document.getElementById(id)?.addEventListener(ev, fn);
-  on('btnTeamNewUser', 'click', () => {
-    const f = document.getElementById('teamNewUserForm');
-    f.hidden = !f.hidden;
-    if (!f.hidden) document.getElementById('newUserFullName')?.focus();
+  on('btnTeamNewUser', 'click', eqAbrirNovo);
+  on('btnTeamCreate', 'click', eqCriarUsuario);
+  on('nuNome', 'input', () => {
+    const l = document.getElementById('nuLogin');
+    if (!l.dataset.manual) l.value = eqLoginDoNome(document.getElementById('nuNome').value);
+  });
+  on('nuLogin', 'input', () => { document.getElementById('nuLogin').dataset.manual = '1'; });
+  on('nuGerar', 'click', () => {
+    const i = document.getElementById('nuSenha');
+    i.value = eqGerarSenha();
+    i.type = 'text';
+  });
+  on('nuMostrar', 'click', () => {
+    const i = document.getElementById('nuSenha');
+    i.type = i.type === 'password' ? 'text' : 'password';
   });
   on('btnTeamNewUserCancel', 'click', () => { document.getElementById('teamNewUserForm').hidden = true; });
   on('teamFilters', 'click', ev => {

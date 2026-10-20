@@ -490,9 +490,11 @@ def api_auth_access_profiles(user: Dict[str, Any] = Depends(current_user)) -> Di
             "role": u.get("role"), "active": u.get("active"),
             "profile": cfg.get("profile"), "overrides": cfg.get("overrides") or {},
             "niveis": permissions.niveis_do_usuario(alvo, dados),
+            "sites": permissions.sites_do_usuario(alvo, dados),
         })
     return {"ok": True, **permissions.catalogo(), "modo": permissions.modo(),
             "perfis": dados.get("profiles") or {}, "usuarios": usuarios,
+            "sites_do_cliente": permissions.sites_do_cliente(slug),
             "modulos_no_plano": user.get("effective_enabled_modules")}
 
 
@@ -523,7 +525,8 @@ def api_auth_user_access_put(
     if int(user_id) == int(user.get("id") or 0):
         raise HTTPException(status_code=400, detail="nao e possivel mudar o proprio acesso")
     cfg = _perm_call(permissions.definir_acesso_usuario, _tenant_efetivo(user), alvo,
-                     payload.get("profile") or "", payload.get("overrides") or {})
+                     payload.get("profile") or "", payload.get("overrides") or {},
+                     payload.get("sites") if "sites" in payload else None)
     _auditar_acesso(user, "access.user_set", alvo.get("username") or user_id, cfg)
     return {"ok": True, "acesso": cfg}
 
