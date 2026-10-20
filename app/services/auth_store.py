@@ -1245,6 +1245,15 @@ def update_user_profile(
             raise ValueError("somente owner pode editar outro owner")
         if int(current["id"]) == int(actor["id"]) and role_norm != current_role and actor_role != "owner":
             raise ValueError("somente owner pode alterar o proprio perfil administrativo")
+        if current_role == "owner" and role_norm != "owner":
+            # Mesma trava da exclusao: o cliente nunca fica sem um dono ativo.
+            donos = _fetchone(
+                c,
+                "SELECT COUNT(1) AS n FROM users WHERE tenant_id=? AND role='owner' AND active=1 AND id<>?",
+                (tenant_id, int(current["id"])),
+            ) or {}
+            if int(donos.get("n") or 0) == 0:
+                raise ValueError("este e o unico dono ativo do cliente: promova outro dono antes de mudar este perfil")
 
         _execute(
             c,

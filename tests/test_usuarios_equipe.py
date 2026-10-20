@@ -84,3 +84,11 @@ def test_admin_da_plataforma_nao_e_derrubado_pelo_cliente(auth):
     _logar(auth["admin_a"])
     with pytest.raises(ValueError):
         A.revoke_user_sessions(auth["dono_a"], auth["admin_a"]["id"])
+
+
+def test_unico_dono_nao_e_rebaixado(auth):
+    dono = auth["dono_a"]
+    with pytest.raises(ValueError):
+        A.update_user_profile(dono, dono["id"], full_name="Dono", email="", role="admin")
+    A.update_user_profile(dono, auth["admin_a"]["id"], full_name="Admin A", email="", role="owner")
+    A.update_user_profile(dono, dono["id"], full_name="Dono", email="", role="admin")  # agora ha outro dono

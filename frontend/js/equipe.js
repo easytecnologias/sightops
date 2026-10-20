@@ -124,6 +124,7 @@ async function renderTeamTab(u) {
   const box = document.getElementById('teamDetBody');
   if (!box) return;
   if (_eq.tab === 'acesso') { box.innerHTML = eqAcessoHtml(u); lucide.createIcons(); return; }
+  if (_eq.tab === 'editar') { box.innerHTML = eqEditorHtml(u); eqLigarEditor(u); lucide.createIcons(); return; }
   box.innerHTML = '<p class="text-muted" style="margin:0">Carregando.</p>';
   const d = await apiJson(`/api/auth/users/${Number(u.id)}/detail`, { forceRefresh: true });
   if (Number(_eq.sel) !== Number(u.id)) return; // trocou de usuario enquanto carregava
@@ -152,7 +153,7 @@ function eqAcessoHtml(u) {
   const nivelFixo = { owner: 3, admin: 3, operator: 2, viewer: 1 }[u.role] ?? 0;
   // Mostra o que vale DE VERDADE: em sombra, o perfil fixo; valendo, o perfil de acesso.
   const nivel = m => (valendo && pu.niveis ? Number(pu.niveis[m.key] ?? 0) : nivelFixo);
-  const podeAjustar = (valendo || !!_currentUser?.is_platform_admin) && u.role !== 'owner' && Number(u.id) !== Number(_eq.me?.id) && typeof openUserAccessModal === 'function';
+  const podeAjustar = u.role !== 'owner' && Number(u.id) !== Number(_eq.me?.id);
   let nota = '';
   if (u.role === 'owner') nota = '<div class="so-note"><i data-lucide="crown"></i><span>Dono da conta: acesso total a tudo que está no plano. Não pode ser restringido.</span></div>';
   else if (!valendo && pu.profile) nota = `<div class="so-note amber"><i data-lucide="flask-conical"></i><span>Tem o perfil de acesso <strong>${esc(eqPerfilAcesso(u))}</strong> configurado, mas ele ainda está em teste. Hoje vale o perfil fixo <strong>${esc(EQ_PERFIS[u.role] || u.role)}</strong>, mostrado abaixo.</span></div>`;
@@ -162,7 +163,150 @@ function eqAcessoHtml(u) {
     return `<div class="so-mod ${n === 0 ? 'off' : ''}"><span>${esc(m.label)}</span>${fora(m) ? '<span class="badge badge-gray">fora do plano</span>' : `<span class="badge badge-${PERM_BADGE[n] || 'gray'}">${permNivelLabel(n)}</span>`}</div>`;
   }).join('');
   return `${nota}<div class="so-mod-grid" style="margin-top:12px">${grade || '<p class="text-muted">Carregando módulos.</p>'}</div>
-    ${podeAjustar ? `<div class="page-heading-actions" style="justify-content:flex-start;margin-top:14px"><button class="primary-action" type="button" data-team-act="acesso"><i data-lucide="sliders-horizontal"></i> Ajustar acesso</button></div>` : ''}`;
+    ${podeAjustar ? `<div class="page-heading-actions" style="justify-content:flex-start;margin-top:14px"><button class="primary-action" type="button" data-team-act="editar"><i data-lucide="sliders-horizontal"></i> Ajustar acesso</button></div>` : ''}`;
+}
+
+const EQ_PERFIL_INFO = {
+  viewer: 'Vê câmeras, gravadores, mapa e relatórios. Não altera nada.',
+  operator: 'Tudo do visualizador e opera no dia a dia: reinicia câmera, abre porta, provisiona ONU, edita conector.',
+  admin: 'Tudo do operador, as ações sensíveis (trocar IP de gravador, backup de pessoas) e gerencia usuários e configurações.',
+  owner: 'Tudo do administrador. Não pode ser restringido; só um dono cria ou rebaixa outro dono.',
+};
+
+function eqEditorHtml(u) {
+  const voce = Number(u.id) === Number(_eq.me?.id);
+  const euDono = _eq.me?.role === 'owner';
+  const dono = u.role === 'owner';
+  const valendo = _perm?.modo === 'valer';
+  const pu = (_perm?.usuarios || []).find(x => Number(x.id) === Number(u.id)) || {};
+  const perfis = ['viewer', 'operator', 'admin', 'owner'].map(r => {
+    const bloqueado = (r === 'owner' && !euDono) || (voce && !euDono) || (dono && !euDono);
+    return `<label class="so-role"><input type="radio" name="eqRole" value="${r}" ${u.role === r ? 'checked' : ''} ${bloqueado ? 'disabled' : ''}>
+      <strong>${EQ_PERFIS[r]}</strong><small>${EQ_PERFIL_INFO[r]}</small></label>`;
+  }).join('');
+  const modulos = _perm?.modulos || [];
+  const acesso = dono || voce || !modulos.length ? `<p class="text-muted" style="margin:0;font-size:12.5px">${dono ? 'O dono da conta tem acesso total a tudo que está no plano.' : voce ? 'Você não pode mudar o próprio acesso.' : 'Carregando módulos.'}</p>` : `
+      ${valendo ? '' : '<div class="so-note amber"><i data-lucide="flask-conical"></i><span><strong>Em teste.</strong> Você já pode montar o acesso por módulo; ele passa a valer quando a Easy ativar. Até lá vale o perfil acima.</span></div>'}
+      <div class="form-row"><div class="form-group" style="margin:0"><label for="eqAccessProfile">Perfil de acesso</label>
+        <select id="eqAccessProfile"><option value="">Igual ao perfil acima</option>${Object.entries(_perm?.perfis || {}).map(([k, p]) => `<option value="${esc(k)}" ${pu.profile === k ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select></div>
+        <div class="form-group" style="margin:0"><label>&nbsp;</label><button class="secondary-action" type="button" data-settings-goto="profiles"><i data-lucide="key-round"></i> Criar ou editar perfis</button></div></div>
+      <div class="table-wrap settings-table-wrap"><table class="data-table settings-table so-table" style="min-width:520px"><colgroup><col style="width:44%"><col style="width:22%"><col></colgroup>
+        <thead><tr><th>Módulo</th><th>Do perfil</th><th>Só para esta pessoa</th></tr></thead><tbody id="eqAccessMatrix"></tbody></table></div>`;
+  return `<div class="so-edit">
+    <section><h3>Dados</h3>
+      <div class="form-row">
+        <div class="form-group" style="margin:0"><label for="eqNome">Nome</label><input id="eqNome" value="${esc(u.full_name || '')}" placeholder="Nome completo"></div>
+        <div class="form-group" style="margin:0"><label for="eqEmail">E-mail</label><input id="eqEmail" type="email" value="${esc(u.email || '')}" placeholder="opcional, para avisos"></div>
+      </div>
+      <div class="form-group" style="margin:0"><label for="eqLogin">Login</label><input id="eqLogin" value="${esc(u.username)}" disabled></div>
+    </section>
+    <section><h3>Perfil <small>o que a pessoa pode fazer</small></h3>
+      <div class="so-roles">${perfis}</div>
+      ${voce && !euDono ? '<p class="text-muted" style="margin:0;font-size:12px">Só o dono da conta muda o próprio perfil.</p>' : ''}
+    </section>
+    <section><h3>Acesso por módulo <small>o que a pessoa vê e opera</small></h3>${acesso}</section>
+    ${voce ? '' : `<section><h3>Situação</h3>
+      <label class="so-toggle"><input type="checkbox" id="eqAtivo" ${Number(u.active) ? 'checked' : ''} ${dono && !euDono ? 'disabled' : ''}> Usuário ativo</label>
+      <p class="text-muted" style="margin:0;font-size:12px">Inativo não consegue entrar; o histórico dele continua guardado.</p></section>
+    <section><h3>Nova senha <small>opcional</small></h3>
+      <div class="form-row">
+        <div class="form-group" style="margin:0"><label for="eqSenha">Nova senha</label><input id="eqSenha" type="password" autocomplete="new-password" placeholder="deixe vazio para manter"></div>
+        <div class="form-group" style="margin:0"><label for="eqSenha2">Repita</label><input id="eqSenha2" type="password" autocomplete="new-password"></div>
+      </div>
+      <p class="text-muted" style="margin:0;font-size:12px">Trocar a senha encerra as sessões abertas dessa pessoa.</p></section>`}
+    <p id="eqEditErro" class="login-error" hidden></p>
+    <div class="so-edit-foot">
+      <button class="secondary-action" type="button" data-team-act="cancelar">Cancelar</button>
+      <button class="primary-action" type="button" data-team-act="salvar" id="eqBtnSalvar"><i data-lucide="save"></i> Salvar alterações</button>
+    </div>
+  </div>`;
+}
+
+function eqMatrizAcesso(u) {
+  const tb = document.getElementById('eqAccessMatrix');
+  if (!tb || !_perm) return;
+  const pu = (_perm.usuarios || []).find(x => Number(x.id) === Number(u.id)) || {};
+  const sel = document.getElementById('eqAccessProfile')?.value || '';
+  // perfil fixo escolhido agora no formulario (ainda nao salvo) define o "do perfil"
+  const role = document.querySelector('input[name="eqRole"]:checked')?.value || u.role;
+  const doPerfil = permNiveisDoPerfil({ ...u, role }, sel);
+  const ajustes = _eq.ajustesTela || pu.overrides || {};
+  const plano = _perm.modulos_no_plano;
+  tb.innerHTML = (_perm.modulos || []).map(m => {
+    const fora = Array.isArray(plano) && m.views.length && !m.views.some(v => plano.includes(v));
+    return `<tr><td>${esc(m.label)}${fora ? ' <span class="badge badge-gray">fora do plano</span>' : ''}</td>
+      <td><span class="badge badge-${PERM_BADGE[doPerfil[m.key]] || 'gray'}">${permNivelLabel(doPerfil[m.key])}</span></td>
+      <td><div class="so-unit">${permSelect(ajustes[m.key] ?? '', `data-eq-ajuste="${esc(m.key)}" aria-label="Ajuste em ${esc(m.label)}"`, 'igual ao perfil')}</div></td></tr>`;
+  }).join('');
+}
+
+function eqGuardarAjustes() {
+  const atuais = {};
+  document.querySelectorAll('#eqAccessMatrix [data-eq-ajuste]').forEach(sel => { if (sel.value !== '') atuais[sel.dataset.eqAjuste] = Number(sel.value); });
+  _eq.ajustesTela = atuais;
+}
+
+function eqLigarEditor(u) {
+  _eq.ajustesTela = null;
+  eqMatrizAcesso(u);
+  document.getElementById('eqAccessProfile')?.addEventListener('change', () => { eqGuardarAjustes(); eqMatrizAcesso(u); });
+  document.querySelectorAll('input[name="eqRole"]').forEach(r => r.addEventListener('change', () => { eqGuardarAjustes(); eqMatrizAcesso(u); }));
+}
+
+async function eqSalvarEdicao(u) {
+  const err = document.getElementById('eqEditErro');
+  const erro = msg => { err.textContent = msg; err.hidden = false; };
+  err.hidden = true;
+  const voce = Number(u.id) === Number(_eq.me?.id);
+  const nome = document.getElementById('eqNome').value.trim();
+  const email = document.getElementById('eqEmail').value.trim();
+  const role = document.querySelector('input[name="eqRole"]:checked')?.value || u.role;
+  const senha = document.getElementById('eqSenha')?.value || '';
+  const senha2 = document.getElementById('eqSenha2')?.value || '';
+  if (senha && senha.length < 8) return erro('A senha precisa de pelo menos 8 caracteres.');
+  if (senha !== senha2) return erro('As duas senhas não são iguais.');
+  const btn = document.getElementById('eqBtnSalvar');
+  btn.disabled = true;
+  const feito = [];
+  try {
+    if (nome !== (u.full_name || '') || email !== (u.email || '') || role !== u.role) {
+      const r = await api(`/api/auth/users/${Number(u.id)}`, { method: 'POST', body: JSON.stringify({ full_name: nome, email, role }) });
+      await jsonOrReadableError(r, 'Não foi possível salvar os dados.');
+      feito.push('dados');
+    }
+    const matriz = document.getElementById('eqAccessMatrix');
+    if (matriz && role !== 'owner' && !voce) {
+      const pu = (_perm?.usuarios || []).find(x => Number(x.id) === Number(u.id)) || {};
+      const perfil = document.getElementById('eqAccessProfile')?.value || '';
+      const overrides = {};
+      matriz.querySelectorAll('[data-eq-ajuste]').forEach(sel => { if (sel.value !== '') overrides[sel.dataset.eqAjuste] = Number(sel.value); });
+      const antes = JSON.stringify([pu.profile || '', pu.overrides || {}]);
+      if (antes !== JSON.stringify([perfil, overrides])) {
+        const r = await api(`/api/auth/users/${Number(u.id)}/access`, { method: 'PUT', body: JSON.stringify({ profile: perfil, overrides }) });
+        await jsonOrReadableError(r, 'Não foi possível salvar o acesso por módulo.');
+        feito.push('acesso');
+      }
+    }
+    const ativoEl = document.getElementById('eqAtivo');
+    if (ativoEl && !ativoEl.disabled && ativoEl.checked !== !!Number(u.active)) {
+      const r = await api(`/api/auth/users/${Number(u.id)}/active`, { method: 'POST', body: JSON.stringify({ active: ativoEl.checked }) });
+      await jsonOrReadableError(r, 'Não foi possível mudar a situação.');
+      feito.push(ativoEl.checked ? 'ativado' : 'desativado');
+    }
+    if (senha) {
+      const r = await api(`/api/auth/users/${Number(u.id)}/password`, { method: 'POST', body: JSON.stringify({ new_password: senha }) });
+      await jsonOrReadableError(r, 'Não foi possível trocar a senha.');
+      feito.push('senha');
+    }
+  } catch (e) {
+    btn.disabled = false;
+    return erro(`${e?.message || 'Não foi possível salvar.'}${feito.length ? ` (já salvo: ${feito.join(', ')})` : ''}`);
+  }
+  btn.disabled = false;
+  showToast(feito.length ? `${u.username}: ${feito.join(', ')} salvo.` : 'Nada mudou.');
+  _eq.tab = 'acesso';
+  if (typeof loadAccessProfiles === 'function') await loadAccessProfiles(_currentUser);
+  await loadTeam(_eq.me);
 }
 
 function eqAbrirSenha(u) {
@@ -201,7 +345,9 @@ async function eqSalvarSenha() {
 async function eqAcao(acao) {
   const u = _eq.users.find(x => Number(x.id) === Number(_eq.sel));
   if (!u) return;
-  if (acao === 'editar') return openEditUserModal(u.id);
+  if (acao === 'editar') { _eq.tab = 'editar'; return renderTeamDetail(); }
+  if (acao === 'salvar') return eqSalvarEdicao(u);
+  if (acao === 'cancelar') { _eq.tab = 'acesso'; return renderTeamDetail(); }
   if (acao === 'senha') return eqAbrirSenha(u);
   if (acao === 'ativar' || acao === 'desativar') return toggleUserActive(u.id, acao === 'ativar');
   if (acao === 'excluir') return deleteUserRow(u.id, u.username);

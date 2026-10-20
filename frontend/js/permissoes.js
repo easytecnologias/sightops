@@ -45,8 +45,8 @@ async function loadAccessProfiles(currentUser) {
   }
   _perm = await apiJson('/api/auth/access-profiles', { forceRefresh: true });
   if (!_perm) return;
-  // Em teste, so a Easy (operando como o cliente) ve: o cliente nao edita algo que ainda nao vale.
-  const visivel = _perm.modo === 'valer' || !!_currentUser?.is_platform_admin;
+  // Admin do cliente ve e monta os perfis mesmo em teste; o aviso "Em teste" diz que ainda nao valem.
+  const visivel = true;
   if (nav) nav.hidden = !visivel;
   if (painelUsuarios) painelUsuarios.hidden = !visivel;
   if (!visivel && ['profiles'].includes(sessionStorage.getItem('sightops.settings.tab'))) sessionStorage.setItem('sightops.settings.tab', 'overview');
