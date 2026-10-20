@@ -449,6 +449,39 @@ def definir_acesso_usuario(tenant_slug: str, alvo: Dict[str, Any], perfil: str, 
     return cfg
 
 
+# --------------------------------------------------------------------------- para os outros caminhos
+# Quem autoriza fora do middleware (ws/web-tunnel, proxy web, conector) usa estas
+# duas. As duas respeitam o modo: em "sombra" respondem como a regra antiga (so o
+# perfil fixo, todos os sites), entao ninguem perde acesso antes do "valer".
+
+def pode(user: Dict[str, Any], modulo: str, nivel: str = "ver") -> bool:
+    """O usuario tem `nivel` (ver | operar | administrar) no `modulo`?"""
+    exigido = NIVEIS.get(str(nivel or "ver"), 1)
+    role = str(user.get("role") or "").strip().lower()
+    fixo = _ROLE_NIVEL.get(role, 0)
+    if modo() != "valer":
+        return fixo >= exigido
+    if exigido >= NIVEIS["administrar"] and fixo < NIVEIS["administrar"]:
+        return False
+    if not modulo_no_plano(modulo, user.get("effective_enabled_modules")):
+        return False
+    return niveis_do_usuario(user).get(modulo, 0) >= exigido
+
+
+def site_liberado(user: Dict[str, Any], site: Any) -> bool:
+    """O usuario pode ver/operar equipamento deste site?
+
+    Usuario sem restricao (lista vazia) ve todos. Com restricao, equipamento sem
+    site definido fica de fora: na duvida, nao mostra."""
+    if modo() != "valer":
+        return True
+    sites = sites_do_usuario(user)
+    if not sites:
+        return True
+    nome = str(site or "").strip().upper()
+    return bool(nome) and nome in {s.upper() for s in sites}
+
+
 def catalogo() -> Dict[str, Any]:
     return {
         "modulos": [{"key": m["key"], "label": m["label"], "views": m["views"]} for m in MODULOS],
@@ -473,4 +506,5 @@ __all__ = [
     "MODULOS", "NIVEIS", "PERFIS_PADRAO", "modulo_da_rota", "nivel_exigido", "modulo_no_plano",
     "niveis_do_usuario", "decidir", "modo", "definir_modo", "registrar_divergencia", "resumo_sombra",
     "carregar_perfis", "salvar_perfil", "excluir_perfil", "definir_acesso_usuario", "catalogo",
+    "pode", "site_liberado", "sites_do_usuario",
 ]

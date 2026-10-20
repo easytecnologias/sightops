@@ -295,3 +295,18 @@ def test_sites_do_usuario_validados_e_mantidos(sem_banco, monkeypatch):
     with pytest.raises(ValueError):
         P.definir_acesso_usuario("cliente-x", u, "", {}, ["OUTRO CLIENTE"])
     assert P.sites_do_usuario(_user("owner")) == []
+
+
+
+def test_pode_e_site_liberado_respeitam_o_modo(sem_banco, monkeypatch):
+    monkeypatch.setattr(P, "sites_do_cliente", lambda slug: [{"name": "INCOFORTE", "equipamentos": 66}, {"name": "JANGADEIROS", "equipamentos": 48}])
+    P.salvar_perfil("cliente-x", "portaria", "Portaria", {"conectores": 0, "cameras": 2})
+    op = _user("operator", uid=12)
+    P.definir_acesso_usuario("cliente-x", op, "portaria", {}, ["incoforte"])
+    # sombra: como a regra antiga
+    assert P.pode(op, "conectores", "operar") and P.site_liberado(op, "JANGADEIROS")
+    monkeypatch.setattr(P, "modo", lambda: "valer")
+    assert not P.pode(op, "conectores", "ver")
+    assert P.pode(op, "cameras", "operar") and not P.pode(op, "cameras", "administrar")
+    assert P.site_liberado(op, "incoforte") and not P.site_liberado(op, "JANGADEIROS") and not P.site_liberado(op, "")
+    assert P.site_liberado(_user("owner"), "JANGADEIROS")
