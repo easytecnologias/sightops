@@ -575,7 +575,10 @@ def api_auth_users_overview(user: Dict[str, Any] = Depends(current_user)) -> Dic
     """Equipe do cliente com ultimo acesso e sessoes abertas (tela Usuarios)."""
     from app.services.auth_store import users_overview
 
-    return {"ok": True, "users": users_overview(user)}
+    try:
+        return {"ok": True, "users": users_overview(user)}
+    except ValueError as e:
+        raise HTTPException(status_code=403, detail=str(e))
 
 
 @router.get("/users/{user_id}/detail")

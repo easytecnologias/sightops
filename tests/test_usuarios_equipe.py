@@ -62,3 +62,25 @@ def test_protecoes(auth):
         A.user_detail(auth["dono_a"], auth["dono_b"]["id"])  # usuario de outro cliente
     with pytest.raises(ValueError):
         A.revoke_user_sessions(auth["dono_a"], auth["dono_b"]["id"])
+
+
+def test_sessoes_operando_como_ficam_fora_e_viewer_nao_le(auth, monkeypatch):
+    tok = A.create_access_token(auth["admin_a"], label="web")["access_token"]
+    with A._conn() as c:
+        A._execute(c, "UPDATE auth_tokens SET acting_tenant_id=1 WHERE user_id=?", (auth["admin_a"]["id"],))
+    A.get_user_by_token(tok)
+    lista = {u["username"]: u for u in A.users_overview(auth["dono_a"])}
+    assert lista["admin-a"]["active_sessions"] == 0
+    assert A.user_detail(auth["dono_a"], auth["admin_a"]["id"])["sessions"] == []
+    with pytest.raises(ValueError):
+        A.users_overview(auth["portaria"])
+    with pytest.raises(ValueError):
+        A.user_detail(auth["portaria"], auth["admin_a"]["id"])
+
+
+def test_admin_da_plataforma_nao_e_derrubado_pelo_cliente(auth):
+    with A._conn() as c:
+        A._execute(c, "UPDATE users SET is_platform_admin=1 WHERE id=?", (auth["admin_a"]["id"],))
+    _logar(auth["admin_a"])
+    with pytest.raises(ValueError):
+        A.revoke_user_sessions(auth["dono_a"], auth["admin_a"]["id"])

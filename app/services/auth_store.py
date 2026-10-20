@@ -1450,11 +1450,20 @@ def _texto_data(valor: Any) -> str:
     return str(valor or "")
 
 
+def _exigir_admin_do_cliente(actor: Dict[str, Any]) -> None:
+    # O middleware ja exige admin nessas rotas; isto e a segunda trava (AUTH_ENABLED=0 etc.).
+    if str(actor.get("role") or "") not in ("admin", "owner") and not bool(actor.get("is_platform_admin")):
+        raise ValueError("permissao insuficiente")
+
+
 def users_overview(actor: Dict[str, Any]) -> List[Dict[str, Any]]:
     """Usuarios do cliente efetivo com ultimo acesso e sessoes abertas.
 
     Ultimo acesso = maior last_seen_at (atualizado a cada requisicao) ou, se o
-    token nunca foi usado, a hora em que foi criado."""
+    token nunca foi usado, a hora em que foi criado. Sessoes "operando como"
+    outro cliente (acting_tenant_id) nao entram: sao da plataforma, nao deste
+    cliente."""
+    _exigir_admin_do_cliente(actor)
     users = list_users(actor)
     if not users:
         return users
@@ -1464,7 +1473,7 @@ def users_overview(actor: Dict[str, Any]) -> List[Dict[str, Any]]:
     with _conn() as c:
         tokens = _fetchall(
             c,
-            f"SELECT user_id, label, created_at, expires_at, revoked_at, last_seen_at FROM auth_tokens WHERE user_id IN ({marcas})",
+            f"SELECT user_id, label, created_at, expires_at, revoked_at, last_seen_at FROM auth_tokens WHERE user_id IN ({marcas}) AND acting_tenant_id IS NULL",
             tuple(ids),
         )
     resumo: Dict[int, Dict[str, Any]] = {i: {"last_seen": "", "active_sessions": 0} for i in ids}
@@ -1480,6 +1489,7 @@ def users_overview(actor: Dict[str, Any]) -> List[Dict[str, Any]]:
 
 def user_detail(actor: Dict[str, Any], target_user_id: int) -> Dict[str, Any]:
     """Sessoes abertas e atividade recente de um usuario do cliente efetivo."""
+    _exigir_admin_do_cliente(actor)
     _ensure_schema()
     tenant_id = _actor_tenant_id(actor)
     agora = _utc_now()
@@ -1489,7 +1499,7 @@ def user_detail(actor: Dict[str, Any], target_user_id: int) -> Dict[str, Any]:
             raise ValueError("usuario nao encontrado")
         tokens = _fetchall(
             c,
-            "SELECT id, label, created_at, expires_at, revoked_at, last_seen_at, acting_tenant_id FROM auth_tokens WHERE user_id=? ORDER BY id DESC LIMIT 50",
+            "SELECT id, label, created_at, expires_at, revoked_at, last_seen_at FROM auth_tokens WHERE user_id=? AND acting_tenant_id IS NULL ORDER BY id DESC LIMIT 50",
             (int(target_user_id),),
         )
         eventos = _fetchall(
@@ -1524,6 +1534,9 @@ def revoke_user_sessions(actor: Dict[str, Any], target_user_id: int) -> Dict[str
             raise ValueError("para sair da propria conta use Sair")
         if str(alvo.get("role")) == "owner" and actor_role != "owner":
             raise ValueError("somente owner pode encerrar sessoes de owner")
+        plat = _fetchone(c, "SELECT is_platform_admin FROM users WHERE id=?", (int(alvo["id"]),)) or {}
+        if bool(plat.get("is_platform_admin")) and not bool(actor.get("is_platform_admin")):
+            raise ValueError("sessoes do admin da plataforma nao podem ser encerradas por aqui")
         tokens = _fetchall(c, "SELECT id, expires_at, revoked_at FROM auth_tokens WHERE user_id=?", (int(alvo["id"]),))
         ativos = [int(t["id"]) for t in tokens if _token_ativo(t, agora)]
         for tid in ativos:
