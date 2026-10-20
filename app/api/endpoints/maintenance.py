@@ -13,7 +13,7 @@ import unicodedata
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import quote, urlsplit, urlunsplit
 
 import requests
@@ -203,6 +203,65 @@ def _seed_web_proxy_scheme_from_disk(host: str) -> None:
     persistido = _load_persisted_web_proxy_schemes().get(_web_proxy_scheme_cache_key(host))
     if persistido:
         seed_scheme(host, persistido)
+
+
+def _alvo_web(ip: str) -> Tuple[str, str]:
+    """(modulo, site) do equipamento cuja pagina web abre por este IP.
+
+    _ip_belongs_to_current_tenant so diz "e do cliente"; para valer o perfil
+    por modulo e a restricao por site e preciso saber O QUE e o equipamento e
+    DE QUAL site ele e. Modulos = chaves de app.core.permissions.MODULOS.
+    """
+    def _site_do_conector(cid: Any) -> str:
+        cid = _as_str(cid)
+        if not cid:
+            return ""
+        try:
+            from app.services.connector_service import get_connector
+            return _as_str((get_connector(cid, include_token=False, enforce_tenant=True) or {}).get("site"))
+        except Exception:
+            return ""
+
+    alvo = _as_str(ip)
+    linha = _camera_row_for_ip(alvo)
+    if linha:
+        return "cameras", _as_str(linha.get("site") or linha.get("local"))
+    gravador = _recorder_row_for_host(alvo)
+    if gravador:
+        return "gravadores", _as_str(gravador.get("site") or gravador.get("local"))
+    leitor = _access_device_for_host(alvo)
+    if leitor:
+        return "acesso", _as_str(leitor.get("site")) or _site_do_conector(leitor.get("connector_id"))
+    switch = _switch_connector_for_ip(alvo)
+    if switch is not None:
+        return "rede", _site_do_conector(switch)
+    onu = _tr069_onu_connector_for_ip(alvo)
+    if onu is not None:
+        return "optica", _site_do_conector(onu)
+    dono = _connector_tunnel_ip_owner(alvo) or _ruijie_gateway_owner(alvo)
+    if dono:
+        return "conectores", _site_do_conector(dono)
+    return "", ""
+
+
+def web_liberada_para(user: Optional[Dict[str, Any]], ip: str) -> Tuple[bool, str]:
+    """O usuario pode abrir a pagina web deste equipamento? (perfil por modulo
+    + sites do usuario). Sem usuario (autenticacao desligada) nada muda.
+
+    Em modo "sombra" as funcoes de permissions respondem como a regra antiga
+    (perfil fixo, todos os sites): ligar isto nao tira acesso de ninguem; passa
+    a valer junto com o resto quando o dono liga o "valer"."""
+    if not user:
+        return True, ""
+    from app.core import permissions
+    modulo, site = _alvo_web(ip)
+    if not modulo:
+        return False, "equipamento desconhecido"
+    if not permissions.pode(user, modulo, "operar"):
+        return False, f"sem permissao para operar {modulo}"
+    if not permissions.site_liberado(user, site):
+        return False, f"o site {site or '(sem site)'} nao esta liberado para este usuario"
+    return True, ""
 
 
 def _camera_web_target_url(ip: str, path: str = "", query: str = "") -> str:
@@ -2207,6 +2266,10 @@ async def maintenance_camera_web_proxy(ip: str, request: Request, path: str = ""
     # fora do inventario do tenant) -- a URL de fato usada no fetch vem de
     # fetch_device, que tenta https e http.
     _camera_web_target_url(ip, path, str(request.url.query or ""))
+    # Antes do cache: pagina guardada tambem nao sai para quem nao pode.
+    liberada, motivo = web_liberada_para(getattr(request.state, "current_user", None), ip)
+    if not liberada:
+        raise HTTPException(status_code=403, detail=motivo)
 
     query = str(request.url.query or "")
     cacheavel = request.method == "GET" and _is_static_device_asset(path)

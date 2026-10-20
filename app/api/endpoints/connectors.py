@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Dict
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import Response
 
 from app.services.connector_service import (
@@ -28,7 +28,30 @@ from app.services.connector_service import (
     update_connector,
 )
 
-router = APIRouter(prefix="/api/connectors", tags=["connectors"])
+def _site_do_conector_liberado(request: Request) -> None:
+    """Toda rota que age sobre UM conector (/{connector_id}/...) confere se o
+    site dele esta liberado para o usuario (restricao por site). As rotas do
+    agente (/agent/...) nao tem connector_id no caminho -- autenticam pelo
+    token do conector e seguem publicas. Em modo "sombra" site_liberado
+    responde True: nada muda ate o dono ligar o "valer"."""
+    cid = str(request.path_params.get("connector_id") or "").strip()
+    _conferir_site(request, cid)
+
+
+def _conferir_site(request: Request, connector_id: str) -> None:
+    user = getattr(request.state, "current_user", None)
+    if not user or not connector_id:
+        return
+    row = get_connector(connector_id, include_token=False, enforce_tenant=True)
+    if not row:
+        return  # a propria rota responde "nao encontrado"
+    from app.core import permissions
+    if not permissions.site_liberado(user, row.get("site")):
+        raise HTTPException(status_code=403, detail=f"o site {row.get('site') or '(sem site)'} nao esta liberado para este usuario")
+
+
+router = APIRouter(prefix="/api/connectors", tags=["connectors"],
+                   dependencies=[Depends(_site_do_conector_liberado)])
 
 
 def _agent_auth(request: Request) -> tuple[str, str]:
@@ -56,8 +79,16 @@ def _request_public_base_url(request: Request) -> str:
 
 
 @router.get("")
-def api_connectors_list() -> Dict[str, Any]:
-    return list_connectors(include_token=False)
+def api_connectors_list(request: Request) -> Dict[str, Any]:
+    dados = list_connectors(include_token=False)
+    user = getattr(request.state, "current_user", None)
+    if user:
+        # Restricao por site: so os conectores dos sites liberados. Em
+        # "sombra" site_liberado responde True e a lista fica igual.
+        from app.core import permissions
+        dados["connectors"] = [c for c in dados.get("connectors") or []
+                               if permissions.site_liberado(user, c.get("site"))]
+    return dados
 
 
 @router.post("")
@@ -186,7 +217,8 @@ def api_connector_jobs(connector_id: str) -> Dict[str, Any]:
 
 
 @router.post("/jobs")
-def api_connector_create_job(payload: Dict[str, Any]) -> Dict[str, Any]:
+def api_connector_create_job(payload: Dict[str, Any], request: Request) -> Dict[str, Any]:
+    _conferir_site(request, str((payload or {}).get("connector_id") or "").strip())
     try:
         return create_job(payload if isinstance(payload, dict) else {})
     except ValueError as exc:

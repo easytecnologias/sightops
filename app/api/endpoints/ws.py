@@ -659,6 +659,13 @@ async def ws_web_tunnel(ws: WebSocket, ip: str) -> None:
         if not _is_proxy_allowed_host(host) or not _ip_belongs_to_current_tenant(host):
             await ws.close(code=4403)
             return
+        # Perfil por modulo + sites do usuario (a ponte nao passa pelo
+        # middleware de /api/, entao confere aqui). Em "sombra" nao muda nada.
+        from app.api.endpoints.maintenance import web_liberada_para
+        liberada, _motivo = web_liberada_para(current_user, host)
+        if not liberada:
+            await ws.close(code=4403)
+            return
         # Gateway Ruijie: so a interface web (eWeb). Sem isto a ponte abriria
         # TCP bruto em qualquer porta do gateway.
         try:
