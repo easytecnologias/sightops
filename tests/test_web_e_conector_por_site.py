@@ -85,6 +85,26 @@ def test_alvo_web_reconhece_cada_tipo(monkeypatch):
     assert M._alvo_web("10.9.9.9") == ("", "")
 
 
+# ------------------------------------------------- site da ROTA (revisor, 2a rodada)
+def test_ip_camera_de_um_site_e_gravador_de_outro_vale_o_site_da_rota(regras, monkeypatch):
+    """Revisor: a ponte usa o conector do GRAVADOR (rec_cid) no _reach; conferir
+    so o site da ficha da camera liberava o site A e o pacote ia ao B."""
+    _alvo(monkeypatch, "cameras", "JANGADEIROS")
+    monkeypatch.setattr(M, "_connector_for", lambda ip, hint="": hint or "gw")
+    monkeypatch.setattr(M, "_site_do_conector",
+                        lambda cid: {"gw": "JANGADEIROS", "mk": "INCOFORTE"}.get(cid, ""))
+    assert M.web_liberada_para(OPERADOR, "192.168.1.10")[0]                    # proxy: rota pelo gw
+    ok, motivo = M.web_liberada_para(OPERADOR, "192.168.1.10", conector_hint="mk")  # ponte: gravador do INCOFORTE
+    assert not ok and "INCOFORTE" in motivo
+
+
+def test_controladora_com_site_a_e_conector_de_b_nao_vira_pivo(regras, monkeypatch):
+    _alvo(monkeypatch, "acesso", "JANGADEIROS")       # site digitado no cadastro
+    monkeypatch.setattr(M, "_connector_for", lambda ip, hint="": "mk")   # mas sai pelo conector de B
+    monkeypatch.setattr(M, "_site_do_conector", lambda cid: "INCOFORTE")
+    assert M.web_liberada_para(OPERADOR, "192.168.20.200")[0] is False
+
+
 # ------------------------------------------------------------------ conectores
 CONECTORES = {"gw": {"id": "gw", "site": "JANGADEIROS"}, "mk": {"id": "mk", "site": "INCOFORTE"}}
 
@@ -94,9 +114,14 @@ def _req(user, cid=""):
 
 
 @pytest.fixture
-def conectores(monkeypatch):
+def conectores(monkeypatch, tmp_path):
+    from app.services import connector_service as CS
+    monkeypatch.setattr(CS, "CONNECTORS_PATH", tmp_path / "connectors.json")
+    monkeypatch.setattr(CS, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(CS, "get_current_tenant_slug", lambda: "grupo-jangadeiros")
+    CS._save_connectors([{**c, "tenant_slug": "grupo-jangadeiros", "type": "routeros"} for c in CONECTORES.values()])
     monkeypatch.setattr(CE, "get_connector", lambda cid, include_token=False, enforce_tenant=False: CONECTORES.get(cid))
-    monkeypatch.setattr(CE, "list_connectors", lambda include_token=False: {"connectors": list(CONECTORES.values())})
+    return CS
 
 
 def test_acao_no_conector_de_outro_site_negada(regras, conectores):
@@ -108,7 +133,8 @@ def test_acao_no_conector_de_outro_site_negada(regras, conectores):
 
 
 def test_lista_e_job_respeitam_o_site(regras, conectores):
-    assert [c["id"] for c in CE.api_connectors_list(_req(OPERADOR))["connectors"]] == ["gw"]
+    lista = CE.api_connectors_list(_req(OPERADOR))
+    assert [c["id"] for c in lista["connectors"]] == ["gw"] and lista["count"] == 1  # contagem nao vaza
     with pytest.raises(HTTPException):
         CE.api_connector_create_job({"connector_id": "mk", "type": "ping_many"}, _req(OPERADOR))
 
@@ -117,3 +143,19 @@ def test_conector_em_sombra_lista_tudo(regras, conectores):
     regras["modo"] = "sombra"
     assert len(CE.api_connectors_list(_req(OPERADOR))["connectors"]) == 2
     CE._site_do_conector_liberado(_req(OPERADOR, "mk"))
+
+
+def test_ativacao_e_tuneis_respeitam_o_site(regras, conectores, monkeypatch):
+    from app.api.endpoints import camera_activation as CA
+    from app.api.endpoints import network_map as NM
+    monkeypatch.setattr(conectores, "get_connector",
+                        lambda cid, include_token=False, enforce_tenant=False: CONECTORES.get(cid))
+    with pytest.raises(HTTPException) as e:
+        CA.api_activation_scan({"connector_id": "mk"}, _req(OPERADOR))   # varrer pelo conector do INCOFORTE
+    assert e.value.status_code == 403
+    for rota in (CA.api_activation_reboot, CA.api_activation_locate, CA.api_activation_run):
+        with pytest.raises(HTTPException) as e:
+            rota({"connector_id": "mk"}, _req(OPERADOR))
+        assert e.value.status_code == 403
+    vistos = {c["id"] for c in conectores.list_connectors(user=OPERADOR)["connectors"]}
+    assert vistos == {"gw"}

@@ -205,23 +205,26 @@ def _seed_web_proxy_scheme_from_disk(host: str) -> None:
         seed_scheme(host, persistido)
 
 
+def _site_do_conector(cid: Any) -> str:
+    cid = _as_str(cid)
+    if not cid:
+        return ""
+    try:
+        from app.services.connector_service import get_connector
+        return _as_str((get_connector(cid, include_token=False, enforce_tenant=True) or {}).get("site"))
+    except Exception:
+        return ""
+
+
 def _alvo_web(ip: str) -> Tuple[str, str]:
     """(modulo, site) do equipamento cuja pagina web abre por este IP.
 
     _ip_belongs_to_current_tenant so diz "e do cliente"; para valer o perfil
     por modulo e a restricao por site e preciso saber O QUE e o equipamento e
     DE QUAL site ele e. Modulos = chaves de app.core.permissions.MODULOS.
+    O site daqui e o da FICHA; quem leva o pacote e o conector de
+    _connector_for -- web_liberada_para confere os dois.
     """
-    def _site_do_conector(cid: Any) -> str:
-        cid = _as_str(cid)
-        if not cid:
-            return ""
-        try:
-            from app.services.connector_service import get_connector
-            return _as_str((get_connector(cid, include_token=False, enforce_tenant=True) or {}).get("site"))
-        except Exception:
-            return ""
-
     alvo = _as_str(ip)
     linha = _camera_row_for_ip(alvo)
     if linha:
@@ -244,7 +247,7 @@ def _alvo_web(ip: str) -> Tuple[str, str]:
     return "", ""
 
 
-def web_liberada_para(user: Optional[Dict[str, Any]], ip: str) -> Tuple[bool, str]:
+def web_liberada_para(user: Optional[Dict[str, Any]], ip: str, conector_hint: str = "") -> Tuple[bool, str]:
     """O usuario pode abrir a pagina web deste equipamento? (perfil por modulo
     + sites do usuario). Sem usuario (autenticacao desligada) nada muda.
 
@@ -259,8 +262,18 @@ def web_liberada_para(user: Optional[Dict[str, Any]], ip: str) -> Tuple[bool, st
         return False, "equipamento desconhecido"
     if not permissions.pode(user, modulo, "operar"):
         return False, f"sem permissao para operar {modulo}"
-    if not permissions.site_liberado(user, site):
-        return False, f"o site {site or '(sem site)'} nao esta liberado para este usuario"
+    # O pacote vai pelo conector que _reach escolhe (_connector_for, com a
+    # MESMA dica que quem chama passa ao _reach). Conferir so o site da ficha
+    # deixava passar: IP que e camera do site A e gravador do site B (a ponte
+    # usa o conector do gravador), ou controladora gravada com site A e
+    # conector de B -- permissao de A, pacote em B. Os dois tem que valer.
+    sites = [site]
+    conector_rota = _connector_for(ip, conector_hint)
+    if conector_rota:
+        sites.append(_site_do_conector(conector_rota))
+    for s in dict.fromkeys(x or "" for x in sites):
+        if not permissions.site_liberado(user, s):
+            return False, f"o site {s or '(sem site)'} nao esta liberado para este usuario"
     return True, ""
 
 

@@ -24,7 +24,7 @@ from __future__ import annotations
 import ipaddress
 from typing import Any, Dict, List
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 
 from app.services import connector_routing_vnat as _vnat
 from app.services import hikvision_activation as hikvision
@@ -180,6 +180,14 @@ def _virtual(connector_id: str, ip: str) -> str:
         return ip
 
 
+def _conferir_site_do_conector(request: Request, connector_id: str) -> None:
+    """Varrer, reiniciar, localizar e ativar camera saem pelo conector: so o de
+    um site liberado para o usuario (restricao por site; em "sombra" passa)."""
+    from app.services.connector_service import conector_do_site_liberado
+    if not conector_do_site_liberado(getattr(request.state, "current_user", None), connector_id):
+        raise HTTPException(status_code=403, detail="o site deste conector nao esta liberado para este usuario")
+
+
 @router.get("/status")
 def api_activation_status() -> Dict[str, Any]:
     """A tela chama isto antes de tudo: sem a lib do NetSDK no container nao ha
@@ -188,10 +196,11 @@ def api_activation_status() -> Dict[str, Any]:
 
 
 @router.post("/scan")
-def api_activation_scan(payload: Dict[str, Any]) -> Dict[str, Any]:
+def api_activation_scan(payload: Dict[str, Any], request: Request) -> Dict[str, Any]:
     if not isinstance(payload, dict):
         raise HTTPException(status_code=400, detail="payload invalido")
     connector_id = _text(payload.get("connector_id"))
+    _conferir_site_do_conector(request, connector_id)
     if not connector_id:
         raise HTTPException(status_code=400, detail="conector obrigatorio")
 
@@ -328,7 +337,7 @@ def _pos_ativacao_hikvision(connector_id: str, ip: str, senha: str,
 
 
 @router.post("/reboot")
-def api_activation_reboot(payload: Dict[str, Any]) -> Dict[str, Any]:
+def api_activation_reboot(payload: Dict[str, Any], request: Request) -> Dict[str, Any]:
     """Reinicia cameras recem-ativadas (botao do resultado da ativacao).
 
     Vai pelo IP virtual DESTE conector: 192.168.1.64 de fabrica existe em
@@ -338,6 +347,7 @@ def api_activation_reboot(payload: Dict[str, Any]) -> Dict[str, Any]:
     if not isinstance(payload, dict):
         raise HTTPException(status_code=400, detail="payload invalido")
     connector_id = _text(payload.get("connector_id"))
+    _conferir_site_do_conector(request, connector_id)
     senha = str(payload.get("senha") or payload.get("password") or "")
     alvos = payload.get("targets") or []
     if not connector_id:
@@ -365,7 +375,7 @@ def api_activation_reboot(payload: Dict[str, Any]) -> Dict[str, Any]:
 
 
 @router.post("/locate")
-def api_activation_locate(payload: Dict[str, Any]) -> Dict[str, Any]:
+def api_activation_locate(payload: Dict[str, Any], request: Request) -> Dict[str, Any]:
     """Que IP cada MAC assumiu depois do reinicio com DHCP.
 
     Le o ARP/DHCP que o conector reporta (o mesmo do /scan). O IP antigo e
@@ -375,6 +385,7 @@ def api_activation_locate(payload: Dict[str, Any]) -> Dict[str, Any]:
     if not isinstance(payload, dict):
         raise HTTPException(status_code=400, detail="payload invalido")
     connector_id = _text(payload.get("connector_id"))
+    _conferir_site_do_conector(request, connector_id)
     if not connector_id:
         raise HTTPException(status_code=400, detail="conector obrigatorio")
     pedidos = {
@@ -394,7 +405,7 @@ def api_activation_locate(payload: Dict[str, Any]) -> Dict[str, Any]:
 
 
 @router.post("/run")
-def api_activation_run(payload: Dict[str, Any]) -> Dict[str, Any]:
+def api_activation_run(payload: Dict[str, Any], request: Request) -> Dict[str, Any]:
     """Ativa as cameras escolhidas. Uma so ou o lote inteiro -- a diferenca e
     so o tamanho de `targets`, o caminho e identico.
 
@@ -405,6 +416,7 @@ def api_activation_run(payload: Dict[str, Any]) -> Dict[str, Any]:
         raise HTTPException(status_code=400, detail="payload invalido")
 
     connector_id = _text(payload.get("connector_id"))
+    _conferir_site_do_conector(request, connector_id)
     senha = str(payload.get("senha") or payload.get("password") or "")
     usuario = _text(payload.get("usuario") or payload.get("username")) or "admin"
     email = _text(payload.get("email"))

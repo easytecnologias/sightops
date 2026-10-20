@@ -485,13 +485,32 @@ def _public_connector(row: Dict[str, Any], include_token: bool = False) -> Dict[
     return out
 
 
-def list_connectors(include_token: bool = False) -> Dict[str, Any]:
+def list_connectors(include_token: bool = False, user: Dict[str, Any] | None = None) -> Dict[str, Any]:
+    """Conectores do cliente atual. Com `user`, so os dos sites liberados para
+    ele (restricao por site; em "sombra" site_liberado deixa todos) -- e as
+    contagens tambem, para nao revelar quantos ha nos sites ocultos."""
     with _lock:
         rows = [row for row in _load_connectors() if _visible_to_current_tenant(row)]
+        if user:
+            from app.core import permissions
+            rows = [row for row in rows if permissions.site_liberado(user, row.get("site"))]
         connectors = [_public_connector(row, include_token=include_token) for row in rows]
         jobs = [job for job in _load_jobs() if any(_text(r.get("id")) == _text(job.get("connector_id")) for r in rows)]
     queued = sum(1 for job in jobs if job.get("status") in {"queued", "running"})
     return {"ok": True, "count": len(connectors), "queued_jobs": queued, "connectors": connectors}
+
+
+def conector_do_site_liberado(user: Dict[str, Any] | None, connector_id: str) -> bool:
+    """O usuario pode agir sobre este conector (restricao por site)? Conector de
+    outro cliente ou inexistente responde True aqui: quem chama ja trata como
+    "nao encontrado" pelo filtro de cliente."""
+    if not user or not _text(connector_id):
+        return True
+    row = get_connector(connector_id, include_token=False, enforce_tenant=True)
+    if not row:
+        return True
+    from app.core import permissions
+    return permissions.site_liberado(user, row.get("site"))
 
 
 def create_connector(payload: Dict[str, Any]) -> Dict[str, Any]:

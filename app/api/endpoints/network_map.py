@@ -35,7 +35,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Request
 
 from app.services import connector_service
 from app.services.inventory_json import load_inventory_json
@@ -262,9 +262,11 @@ def _alvo_de_referencia(linha: Dict[str, Any], equipamentos: Dict[str, List[str]
 # ── GET /api/network/tunnels ──────────────────────────────────────────────────
 
 @router.get("/tunnels")
-def api_network_tunnels(medir: bool = Query(True)) -> Dict[str, Any]:
-    """Estado de todos os tuneis do cliente, medido agora."""
-    conectores = (connector_service.list_connectors() or {}).get("connectors", []) or []
+def api_network_tunnels(request: Request, medir: bool = Query(True)) -> Dict[str, Any]:
+    """Estado de todos os tuneis do cliente, medido agora (so dos sites
+    liberados para o usuario)."""
+    conectores = (connector_service.list_connectors(
+        user=getattr(request.state, "current_user", None)) or {}).get("connectors", []) or []
     atras = _contar_atras()
     equipamentos = _equipamentos_por_conector()
 

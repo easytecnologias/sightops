@@ -80,15 +80,9 @@ def _request_public_base_url(request: Request) -> str:
 
 @router.get("")
 def api_connectors_list(request: Request) -> Dict[str, Any]:
-    dados = list_connectors(include_token=False)
-    user = getattr(request.state, "current_user", None)
-    if user:
-        # Restricao por site: so os conectores dos sites liberados. Em
-        # "sombra" site_liberado responde True e a lista fica igual.
-        from app.core import permissions
-        dados["connectors"] = [c for c in dados.get("connectors") or []
-                               if permissions.site_liberado(user, c.get("site"))]
-    return dados
+    # Restricao por site: so os conectores (e as contagens) dos sites
+    # liberados. Em "sombra" site_liberado responde True e a lista fica igual.
+    return list_connectors(include_token=False, user=getattr(request.state, "current_user", None))
 
 
 @router.post("")

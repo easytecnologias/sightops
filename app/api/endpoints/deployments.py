@@ -1550,8 +1550,9 @@ def api_deployments_commit_camera(payload: Dict[str, Any]) -> Dict[str, Any]:
 
 
 @router.get("/connectors")
-def api_deployments_connectors() -> Dict[str, Any]:
-    return list_connectors(include_token=False)
+def api_deployments_connectors(request: Request) -> Dict[str, Any]:
+    # So os conectores dos sites liberados para o usuario (restricao por site).
+    return list_connectors(include_token=False, user=getattr(request.state, "current_user", None))
 
 
 @router.post("/recorder-live-stream")

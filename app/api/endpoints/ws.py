@@ -659,10 +659,22 @@ async def ws_web_tunnel(ws: WebSocket, ip: str) -> None:
         if not _is_proxy_allowed_host(host) or not _ip_belongs_to_current_tenant(host):
             await ws.close(code=4403)
             return
+        # GRAVADOR nao vive no inventario de cameras, e o _reach so resolve o
+        # conector por la -- sem este hint ele devolveria o IP real e o
+        # container nao alcanca a LAN do conector isolado (camera abria, NVR
+        # dava ERR_EMPTY_RESPONSE). Cai pro inventario de gravadores.
+        rec_cid = ""
+        try:
+            from app.api.endpoints.nvr import _recorder_connector_for_host
+            rec_cid = _recorder_connector_for_host(host)
+        except Exception:
+            rec_cid = ""
         # Perfil por modulo + sites do usuario (a ponte nao passa pelo
-        # middleware de /api/, entao confere aqui). Em "sombra" nao muda nada.
+        # middleware de /api/, entao confere aqui). Com o MESMO hint do _reach
+        # abaixo: o site conferido e o do conector por onde o pacote sai.
+        # Em "sombra" nao muda nada.
         from app.api.endpoints.maintenance import web_liberada_para
-        liberada, _motivo = web_liberada_para(current_user, host)
+        liberada, _motivo = web_liberada_para(current_user, host, rec_cid)
         if not liberada:
             await ws.close(code=4403)
             return
@@ -676,16 +688,6 @@ async def ws_web_tunnel(ws: WebSocket, ip: str) -> None:
         except Exception:
             await ws.close(code=4403)
             return
-        # GRAVADOR nao vive no inventario de cameras, e o _reach so resolve o
-        # conector por la -- sem este hint ele devolveria o IP real e o
-        # container nao alcanca a LAN do conector isolado (camera abria, NVR
-        # dava ERR_EMPTY_RESPONSE). Cai pro inventario de gravadores.
-        rec_cid = ""
-        try:
-            from app.api.endpoints.nvr import _recorder_connector_for_host
-            rec_cid = _recorder_connector_for_host(host)
-        except Exception:
-            rec_cid = ""
         reach = _reach(host, rec_cid)  # conector isolado -> IP virtual
         try:
             reader, writer = await asyncio.wait_for(
