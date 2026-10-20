@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=1792600104">
+  <link rel="stylesheet" href="styles.css?v=1792600109">
 </head>
 <body>
 
@@ -3523,6 +3523,7 @@
             <button type="button" class="settings-nav-item active" data-settings-tab="overview"><i data-lucide="layout-dashboard"></i><span><strong>Visão geral</strong><small id="settingsNavOverviewSub">Resumo e pendências</small></span><i data-lucide="chevron-right"></i></button>
             <button type="button" class="settings-nav-item" data-settings-tab="plan" id="settingsNavPlan" hidden><i data-lucide="package"></i><span><strong>Meu plano e uso</strong><small id="settingsNavPlanSub">Equipamentos e limites</small></span><i data-lucide="chevron-right"></i></button>
             <button type="button" class="settings-nav-item" data-settings-tab="users"><i data-lucide="users"></i><span><strong>Usuários e acessos</strong><small>Equipe deste cliente</small></span><i data-lucide="chevron-right"></i></button>
+            <button type="button" class="settings-nav-item" data-settings-tab="profiles" id="settingsNavProfiles" hidden><i data-lucide="key-round"></i><span><strong>Perfis de acesso</strong><small id="settingsNavProfilesSub">Módulos e níveis</small></span><i data-lucide="chevron-right"></i></button>
             <button type="button" class="settings-nav-item" data-settings-tab="alarms"><i data-lucide="siren"></i><span><strong>Alarmes</strong><small>Quando vira alerta</small></span><i data-lucide="chevron-right"></i></button>
             <button type="button" class="settings-nav-item" data-settings-tab="notifications"><i data-lucide="bell-ring"></i><span><strong>Notificações</strong><small id="settingsNavNotifSub">Canais de aviso</small></span><i data-lucide="chevron-right"></i></button>
             <button type="button" class="settings-nav-item" data-settings-tab="integrations"><i data-lucide="plug"></i><span><strong>Integrações</strong><small>Zabbix, conectores, WhatsApp</small></span><i data-lucide="chevron-right"></i></button>
@@ -3606,6 +3607,32 @@
             </div>
             <div class="so-section" id="myPlanFeatures"></div>
             <div class="so-section"><div class="so-note" id="myPlanNote"><i data-lucide="info"></i><span>Conta o que está cadastrado e monitorado. Se passar do limite, há um prazo de tolerância. O monitoramento do que já existe nunca para por causa de limite. Para mudar de plano, fale com a Easy.</span></div></div>
+          </div>
+          <div class="panel settings-wide-panel settings-area so-sub" data-settings-panel="users" id="userAccessPanel" hidden>
+            <div class="panel-header"><div><h2>Acesso por usuário</h2><p>Perfil de cada pessoa e ajustes só dela. O dono da conta tem acesso total.</p></div><span id="userAccessModeBadge"></span></div>
+            <div class="table-wrap settings-table-wrap">
+              <table class="data-table settings-table" style="min-width:720px">
+                <colgroup><col style="width:24%"><col style="width:18%"><col style="width:22%"><col><col style="width:120px"></colgroup>
+                <thead><tr><th>Usuário</th><th>Perfil fixo</th><th>Perfil de acesso</th><th>Ajustes</th><th></th></tr></thead>
+                <tbody id="userAccessBody"></tbody>
+              </table>
+            </div>
+          </div>
+          <div class="panel settings-wide-panel settings-area" data-settings-panel="profiles">
+            <div class="panel-header"><div><h2>Perfis de acesso</h2><p>Cada perfil diz o nível em cada módulo. Mude o perfil e todos os usuários dele acompanham.</p></div>
+              <button class="primary-action" id="btnNewAccessProfile" type="button"><i data-lucide="plus"></i> Novo perfil</button></div>
+            <div class="so-section" id="accessModeNote"></div>
+            <div class="so-card-grid" id="accessProfileCards" style="padding:0 18px 18px"></div>
+          </div>
+          <div class="panel settings-wide-panel settings-area so-sub" data-settings-panel="profiles" id="accessProfileEditor" hidden>
+            <div class="panel-header"><div><h2 id="accessEditorTitle">Perfil</h2><p id="accessEditorSub">Nível por módulo.</p></div>
+              <div class="panel-actions"><button class="secondary-action" id="btnDeleteAccessProfile" type="button"><i data-lucide="trash-2"></i> Excluir</button><button class="primary-action" id="btnSaveAccessProfile" type="button"><i data-lucide="save"></i> Salvar perfil</button></div></div>
+            <div class="so-section">
+              <div class="form-row"><div class="form-group"><label for="accessProfileName">Nome</label><input id="accessProfileName" placeholder="Ex: Portaria"></div>
+                <div class="form-group"><label for="accessProfileBase">Começar a partir de</label><select id="accessProfileBase"><option value="">— manter como está —</option><option value="viewer">Visualizador (ver tudo)</option><option value="operator">Operador (operar tudo)</option><option value="none">Nada (escolher módulo a módulo)</option></select></div></div>
+              <div class="table-wrap settings-table-wrap"><table class="data-table settings-table so-table" style="min-width:560px"><colgroup><col style="width:42%"><col></colgroup>
+                <thead><tr><th>Módulo</th><th>Nível</th></tr></thead><tbody id="accessProfileMatrix"></tbody></table></div>
+            </div>
           </div>
           <div class="panel settings-wide-panel settings-area" data-settings-panel="alarms">
             <div class="panel-header"><div><h2>Quando aparece fora do ar</h2><p>Falhas seguidas até o SightOps marcar o equipamento como fora do ar. Vale para a tela, para o aviso no Telegram e para o valor enviado ao Zabbix. Menos falhas avisa mais rápido; mais evita aviso falso. <span id="alarmIntervalNote"></span></p></div>
@@ -3783,6 +3810,17 @@
         <div class="page-heading">
           <div><p class="eyebrow">Administração da plataforma</p><h1>Auditoria</h1><p>Ações administrativas em todos os clientes.</p></div>
           <button class="secondary-action" id="btnOwnerAuditRefresh" type="button"><i data-lucide="refresh-cw"></i> Atualizar</button>
+        </div>
+        <div class="panel settings-wide-panel" id="ownerPermPanel">
+          <div class="panel-header"><div><h2>Permissões por módulo</h2><p id="ownerPermSub">Carregando.</p></div>
+            <div class="panel-actions"><span id="ownerPermBadge"></span><button class="secondary-action" id="btnOwnerPermMode" type="button"></button></div></div>
+          <div class="table-wrap settings-table-wrap">
+            <table class="data-table settings-table" style="min-width:760px">
+              <colgroup><col style="width:16%"><col style="width:8%"><col style="width:40%"><col style="width:20%"><col></colgroup>
+              <thead><tr><th>Cliente</th><th>Método</th><th>Rota</th><th>Mudança</th><th>Vezes</th></tr></thead>
+              <tbody id="ownerPermBody"></tbody>
+            </table>
+          </div>
         </div>
         <div class="panel settings-wide-panel">
           <div class="panel-header">
@@ -5765,6 +5803,26 @@
     </div>
   </div>
 
+  <div id="modalUserAccess" class="modal-backdrop hidden">
+    <div class="modal" style="max-width:620px">
+      <div class="modal-header">
+        <div><p class="eyebrow">Usuários · Acesso</p><h2 id="userAccessTitle">Acesso</h2><p id="userAccessSub" style="margin:2px 0 0;font-size:12px;color:var(--muted)"></p></div>
+        <button class="icon-button" id="btnCloseUserAccess" type="button" title="Fechar" aria-label="Fechar"><i data-lucide="x"></i></button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group"><label for="userAccessProfile">Perfil de acesso</label><select id="userAccessProfile"></select></div>
+        <p class="so-section-title">Ajustes só deste usuário</p>
+        <div class="table-wrap settings-table-wrap"><table class="data-table settings-table so-table" style="min-width:480px"><colgroup><col style="width:42%"><col style="width:22%"><col></colgroup>
+          <thead><tr><th>Módulo</th><th>Do perfil</th><th>Ajuste</th></tr></thead><tbody id="userAccessMatrix"></tbody></table></div>
+        <p id="userAccessErro" class="login-error" hidden></p>
+      </div>
+      <div class="modal-actions">
+        <button class="secondary-action" id="btnCancelUserAccess" type="button">Cancelar</button>
+        <button class="primary-action" id="btnSaveUserAccess" type="button"><i data-lucide="save"></i> Salvar acesso</button>
+      </div>
+    </div>
+  </div>
+
   <div id="modalTenantPlan" class="modal-backdrop hidden">
     <div class="modal" style="max-width:640px">
       <div class="modal-header">
@@ -7142,9 +7200,10 @@
        trechos do app.js original na sequencia em que estavam, entao carregar
        fora de ordem muda o comportamento. Ao adicionar um arquivo novo, entre
        antes de bootstrap.js, que e quem liga os botoes no DOMContentLoaded. -->
-  <script src="js/core.js?v=1792600105"></script>
+  <script src="js/core.js?v=1792600107"></script>
   <script src="js/licencas.js?v=1792600103"></script>
-  <script src="js/configuracoes.js?v=1792600106"></script>
+  <script src="js/configuracoes.js?v=1792600110"></script>
+  <script src="js/permissoes.js?v=1792600108"></script>
   <script src="js/dashboard.js?v=1792000238"></script>
   <script src="js/liveStream.js?v=1792500018"></script>
   <script src="js/cameras.js?v=1792500023"></script>

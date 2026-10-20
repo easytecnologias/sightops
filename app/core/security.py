@@ -1,16 +1,20 @@
 from __future__ import annotations
 
+import logging
 from typing import Iterable
 
 from fastapi import Request, Response
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
+from app.core import permissions
 from app.core.settings import AppSettings
 from app.core.tenant_context import reset_current_tenant_slug, set_current_tenant_slug
 from app.services.auth_store import get_user_by_token
 
 AUTH_COOKIE_NAME = "sightops_session"
+
+logger = logging.getLogger("cam-snapshot")
 
 ROLE_RANK = {
     "viewer": 10,
@@ -60,6 +64,11 @@ class ApiAuthMiddleware(BaseHTTPMiddleware):
             (("GET",), "/api/auth/licensing", "admin"),
             (("PUT",), "/api/auth/licensing/", "admin"),
             (("GET",), "/api/auth/my-plan", "admin"),
+            # Perfis de acesso do cliente (fase 3). Modo/sombra: o handler exige
+            # is_platform_admin.
+            (("GET", "PUT", "DELETE"), "/api/auth/access-profiles", "admin"),
+            (("PUT",), "/api/auth/users/", "admin"),
+            (("GET", "PUT"), "/api/auth/permissions/", "admin"),
             (("POST",), "/api/system/product", "admin"),
             (("POST",), "/api/db/init", "admin"),
             (("POST",), "/api/db/migrate", "admin"),
@@ -279,19 +288,28 @@ class ApiAuthMiddleware(BaseHTTPMiddleware):
         # Leitura segue no comportamento antigo de proposito: negar GET nao
         # declarado quebraria tela sem ganho de seguranca equivalente.
         if not required_role and method in self._WRITE_METHODS:
+            antiga_ok, antiga_msg = False, "rota sem perfil declarado: acesso negado por padrao"
+        elif required_role and not self._role_allows(str(user.get("role") or ""), required_role):
+            antiga_ok, antiga_msg = False, f"permissao insuficiente: requer perfil {required_role}"
+        else:
+            antiga_ok, antiga_msg = True, ""
+
+        # FASE 3 -- modulo x nivel (app/core/permissions.py). Em "sombra" vale a
+        # regra antiga e a nova so e registrada quando diverge; em "valer" vale a
+        # nova. Erro na regra nova nunca derruba a requisicao: cai na antiga.
+        permitido, motivo = antiga_ok, antiga_msg
+        try:
+            nova_ok, nova_msg = permissions.decidir(user, path, method, required_role)
+            if nova_ok != antiga_ok:
+                permissions.registrar_divergencia(user, path, method, antiga_ok, nova_ok, nova_msg)
+            if permissions.modo() == "valer":
+                permitido, motivo = nova_ok, (f"permissao insuficiente: {nova_msg}" if not nova_ok else "")
+        except Exception:
+            logger.exception("permissoes: regra nova falhou em %s %s; valeu a antiga", method, path)
+
+        if not permitido:
             try:
-                return JSONResponse(
-                    status_code=403,
-                    content={"detail": "rota sem perfil declarado: acesso negado por padrao"},
-                )
-            finally:
-                reset_current_tenant_slug(ctx_token)
-        if required_role and not self._role_allows(str(user.get("role") or ""), required_role):
-            try:
-                return JSONResponse(
-                    status_code=403,
-                    content={"detail": f"permissao insuficiente: requer perfil {required_role}"},
-                )
+                return JSONResponse(status_code=403, content={"detail": motivo})
             finally:
                 reset_current_tenant_slug(ctx_token)
 

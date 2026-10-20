@@ -95,8 +95,8 @@ async function renderSettingsConsole(currentUser, userRows, telegram) {
   if (navAudit) navAudit.hidden = !admin;
   if (!admin && sessionStorage.getItem('sightops.settings.tab') === 'audit') sessionStorage.setItem('sightops.settings.tab', 'overview');
 
-  renderSettingsOverview(currentUser, userRows, telegram, health, plan);
-  renderSettingsHealth(userRows, telegram, health, plan);
+  renderSettingsOverview(currentUser, userRows, telegram, health, plan, admin);
+  renderSettingsHealth(userRows, telegram, health, plan, admin);
   renderSettingsRecent(userRows, admin);
   renderAlarmProfiles(profiles?.profiles || [], health);
   renderNotifChannels(telegram, health);
@@ -109,7 +109,7 @@ async function renderSettingsConsole(currentUser, userRows, telegram) {
   lucide.createIcons();
 }
 
-function renderSettingsOverview(currentUser, userRows, telegram, health, plan) {
+function renderSettingsOverview(currentUser, userRows, telegram, health, plan, admin) {
   const box = document.getElementById('settingsOverviewStatus');
   if (!box) return;
   const tg = telegram?.configured ? (telegram.enabled ? 'Telegram ativo' : 'Configurado, desligado') : 'Não configurado';
@@ -119,7 +119,8 @@ function renderSettingsOverview(currentUser, userRows, telegram, health, plan) {
   const cards = [
     card('Cliente atual', esc(currentUser.tenant_name || currentUser.tenant_slug || '-'), `<small>${esc(currentUser.effective_tenant_slug || currentUser.tenant_slug || '')}</small>`),
     card('Seu perfil', esc(perfis[currentUser.role] || currentUser.role || '-'), `<small>${esc(currentUser.username || '')}</small>`),
-    card('Usuários da equipe', `${licNum(userRows.length)}${plan?.user_limit !== null && plan?.user_limit !== undefined ? ` <em>/ ${licNum(plan.user_limit)}</em>` : ''}`,
+    // Quem nao e admin nao lista a equipe: mostrar "0" seria falso.
+    !admin ? card('Usuários da equipe', '—', '<small>visível para administradores</small>') : card('Usuários da equipe', `${licNum(userRows.length)}${plan?.user_limit !== null && plan?.user_limit !== undefined ? ` <em>/ ${licNum(plan.user_limit)}</em>` : ''}`,
       plan?.user_limit ? licBar(userRows.length, plan.user_limit) : `<small>${userRows.filter(u => !Number(u.active)).length} inativo(s)</small>`),
   ];
   if (plan) {
@@ -134,7 +135,7 @@ function renderSettingsOverview(currentUser, userRows, telegram, health, plan) {
   box.innerHTML = cards.join('');
 }
 
-function renderSettingsHealth(userRows, telegram, health, plan) {
+function renderSettingsHealth(userRows, telegram, health, plan, admin) {
   const box = document.getElementById('settingsHealth');
   if (!box) return;
   const itens = [];
@@ -183,7 +184,7 @@ function renderSettingsHealth(userRows, telegram, health, plan) {
 
   const ativos = userRows.filter(u => Number(u.active));
   const donos = ativos.filter(u => ['owner', 'admin'].includes(String(u.role || '').toLowerCase()));
-  add(donos.length >= 2, donos.length >= 2
+  if (admin) add(donos.length >= 2, donos.length >= 2
     ? cfgCheck('users', 'g', `${licNum(donos.length)} pessoas podem administrar.`, `${licNum(ativos.length)} usuário(s) ativo(s) na equipe.`, '')
     : cfgCheck('user-x', 'a', 'Só uma pessoa administra este cliente.', 'Se ela sair ou esquecer a senha, ninguém da equipe consegue gerenciar.', cfgBotao('Ver usuários', vaiPara('users'))));
 

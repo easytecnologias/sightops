@@ -37,6 +37,7 @@ from app.services.auth_store import (
 )
 from app.services.zabbix_access_service import provision_zabbix_tenant_access
 from app.services import licensing_service
+from app.core import permissions
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 _LOGIN_FAILS: dict[str, list[float]] = {}
@@ -191,8 +192,16 @@ def _user_public(user: Dict[str, Any]) -> Dict[str, Any]:
         "effective_tenant_slug": user.get("effective_tenant_slug", user.get("tenant_slug")),
         "effective_tenant_name": user.get("effective_tenant_name", user.get("tenant_name")),
         "enabled_modules": user.get("effective_enabled_modules"),
+        "views_sem_acesso": _views_sem_acesso(user),
         "setup_required": setup_required,
     }
+
+
+def _views_sem_acesso(user: Dict[str, Any]) -> list:
+    try:
+        return permissions.views_sem_acesso(user)
+    except Exception:
+        return []  # menu nunca quebra por causa da regra nova; o backend continua barrando
 
 
 def _login_key(request: Request, username: str) -> str:
@@ -432,6 +441,82 @@ def api_auth_licensing_tenant(
         raise HTTPException(status_code=404, detail="cliente nao encontrado")
     summary = _licensing_call(licensing_service.set_tenant_plan, user, str(tenant.get("slug") or ""), payload)
     return {"ok": True, **summary}
+
+
+def _tenant_efetivo(user: Dict[str, Any]) -> str:
+    return str(user.get("effective_tenant_slug") or user.get("tenant_slug") or "").strip().lower()
+
+
+def _perm_call(fn, *args):
+    try:
+        return fn(*args)
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/access-profiles")
+def api_auth_access_profiles(user: Dict[str, Any] = Depends(current_user)) -> Dict[str, Any]:
+    """Perfis de acesso do cliente da sessao + nivel efetivo de cada usuario."""
+    slug = _tenant_efetivo(user)
+    dados = permissions.carregar_perfis(slug, usar_cache=False)
+    usuarios = []
+    for u in list_users(user):
+        alvo = {**u, "effective_tenant_slug": slug}
+        cfg = (dados.get("users") or {}).get(str(u.get("id"))) or {}
+        usuarios.append({
+            "id": u.get("id"), "username": u.get("username"), "full_name": u.get("full_name"),
+            "role": u.get("role"), "active": u.get("active"),
+            "profile": cfg.get("profile"), "overrides": cfg.get("overrides") or {},
+            "niveis": permissions.niveis_do_usuario(alvo, dados),
+        })
+    return {"ok": True, **permissions.catalogo(), "modo": permissions.modo(),
+            "perfis": dados.get("profiles") or {}, "usuarios": usuarios,
+            "modulos_no_plano": user.get("effective_enabled_modules")}
+
+
+@router.put("/access-profiles/{profile_key}")
+def api_auth_access_profile_put(
+    profile_key: str, payload: Dict[str, Any] = Body(...), user: Dict[str, Any] = Depends(current_user)
+) -> Dict[str, Any]:
+    perfil = _perm_call(permissions.salvar_perfil, _tenant_efetivo(user), profile_key,
+                        payload.get("name"), payload.get("levels") or {})
+    return {"ok": True, "perfil": perfil}
+
+
+@router.delete("/access-profiles/{profile_key}")
+def api_auth_access_profile_delete(profile_key: str, user: Dict[str, Any] = Depends(current_user)) -> Dict[str, Any]:
+    _perm_call(permissions.excluir_perfil, _tenant_efetivo(user), profile_key)
+    return {"ok": True}
+
+
+@router.put("/users/{user_id}/access")
+def api_auth_user_access_put(
+    user_id: int, payload: Dict[str, Any] = Body(...), user: Dict[str, Any] = Depends(current_user)
+) -> Dict[str, Any]:
+    alvo = next((u for u in list_users(user) if int(u.get("id") or 0) == int(user_id)), None)
+    if not alvo:
+        raise HTTPException(status_code=404, detail="usuario nao encontrado neste cliente")
+    if int(user_id) == int(user.get("id") or 0):
+        raise HTTPException(status_code=400, detail="nao e possivel mudar o proprio acesso")
+    cfg = _perm_call(permissions.definir_acesso_usuario, _tenant_efetivo(user), alvo,
+                     payload.get("profile") or "", payload.get("overrides") or {})
+    return {"ok": True, "acesso": cfg}
+
+
+@router.get("/permissions/shadow")
+def api_auth_permissions_shadow(user: Dict[str, Any] = Depends(current_user)) -> Dict[str, Any]:
+    _require_platform_admin(user)
+    return {"ok": True, **permissions.resumo_sombra()}
+
+
+@router.put("/permissions/mode")
+def api_auth_permissions_mode(payload: Dict[str, Any] = Body(...), user: Dict[str, Any] = Depends(current_user)) -> Dict[str, Any]:
+    _require_platform_admin(user)
+    return {"ok": True, "modo": _perm_call(permissions.definir_modo, user, str(payload.get("modo") or ""))}
 
 
 @router.post("/tenants/{tenant_id}/zabbix-access")

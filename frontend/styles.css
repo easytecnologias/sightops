@@ -12660,3 +12660,5 @@ table.recorder-tabela tbody tr:hover { background: var(--surface-soft); }
 .so-feed small { display: block; margin-top: 2px; color: var(--muted); font-family: Consolas, Menlo, monospace; font-size: 11.5px; overflow-wrap: anywhere; }
 .so-card .so-unit input { width: 64px; }
 @media (max-width: 860px) { .so-health { grid-template-columns: 1fr; } }
+/* hidden tem que vencer o display:block !important de .settings-area.active */
+.settings-area.active[hidden], .settings-area[hidden] { display: none !important; }

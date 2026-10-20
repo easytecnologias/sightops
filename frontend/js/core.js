@@ -300,20 +300,22 @@ async function loadProfile() {
 // MODULE_CATALOG em app/services/auth_store.py.
 function applyModuleVisibility() {
   const enabled = _currentUser?.enabled_modules;
+  // Telas sem acesso pelo perfil de acesso (so vem preenchido quando a regra nova vale).
+  const semAcesso = new Set(_currentUser?.views_sem_acesso || []);
   document.querySelectorAll('.nav-item[data-view]').forEach(btn => {
     const key = btn.dataset.view;
     const restricted = Array.isArray(enabled);
     const accessAddon = restricted && (key === 'access-live' || key === 'access-painel') && enabled.includes('access-control');
-    const visible = !DISABLED_VIEWS.has(key) && !isStaffOnlyView(key) && (!restricted || enabled.includes(key) || accessAddon);
+    const visible = !DISABLED_VIEWS.has(key) && !isStaffOnlyView(key) && !semAcesso.has(key) && (!restricted || enabled.includes(key) || accessAddon);
     btn.classList.toggle('nav-item-hidden', !visible);
   });
-  // Grupo "Snapshots": some por completo se as duas telas dele estiverem escondidas.
-  const snapGroup = document.getElementById('ngSnapshots');
-  if (snapGroup) {
-    const subVisible = [...snapGroup.querySelectorAll('.nav-sub-item[data-view]')]
-      .some(btn => !btn.classList.contains('nav-item-hidden'));
-    snapGroup.classList.toggle('nav-item-hidden', !subVisible);
-  }
+  // Grupo do menu (Snapshots, Redes, CFTV...) some por completo se todas as telas
+  // dele estiverem escondidas -- pelo plano do cliente ou pelo perfil de acesso.
+  document.querySelectorAll('.nav-group').forEach(group => {
+    const subs = [...group.querySelectorAll('.nav-sub-item[data-view]')];
+    if (!subs.length) return;
+    group.classList.toggle('nav-item-hidden', !subs.some(btn => !btn.classList.contains('nav-item-hidden')));
+  });
 }
 
 // Painel do Dono (menu, badge, atalhos) so existe pra quem administra a
@@ -751,6 +753,7 @@ async function loadSettings() {
 
   if (typeof loadMyPlan === 'function') await loadMyPlan(currentUser);
   if (typeof renderSettingsConsole === 'function') await renderSettingsConsole(currentUser, userRows, telegram);
+  if (typeof loadAccessProfiles === 'function') await loadAccessProfiles(currentUser);
   scheduleResponsiveHydration(document.getElementById('viewSettings'));
   activateSettingsTab(sessionStorage.getItem('sightops.settings.tab') || 'overview');
   lucide.createIcons();
@@ -947,6 +950,7 @@ async function loadOwnerAudit() {
         <td class="settings-cell-truncate" title="${esc(e.detail_json || '')}">${esc(e.detail_json || '-')}</td>
       </tr>`).join('') : '<tr class="empty-row"><td colspan="5">Nenhum evento registrado.</td></tr>';
   }
+  if (typeof renderOwnerPermissions === 'function') await renderOwnerPermissions();
   scheduleResponsiveHydration(document.getElementById('viewOwnerAudit'));
   lucide.createIcons();
 }
