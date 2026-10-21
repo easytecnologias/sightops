@@ -329,7 +329,7 @@ class ApiAuthMiddleware(BaseHTTPMiddleware):
 
         if not permitido:
             if required_role == "admin" and permissions.e_exclusao(path, method) and not self._role_allows(str(user.get("role") or ""), "admin"):
-                motivo = "Excluir e limpar sao so para administrador ou dono da conta."
+                motivo = permissions.MSG_EXCLUIR
             try:
                 return JSONResponse(status_code=403, content={"detail": motivo})
             finally:

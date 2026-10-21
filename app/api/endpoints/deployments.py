@@ -11,6 +11,7 @@ from typing import Any, Dict, List, Tuple
 from urllib.parse import urlencode
 
 import requests
+from app.core import permissions
 from fastapi import APIRouter, HTTPException, Request
 from requests.auth import HTTPBasicAuth, HTTPDigestAuth
 
@@ -1829,6 +1830,8 @@ def api_deployments_recorder_edit(payload: Dict[str, Any], request: Request) -> 
     acao = _text(payload.get("acao")).lower()
     if acao not in ("adicionar", "editar", "excluir", "renomear"):
         raise HTTPException(status_code=400, detail="acao invalida")
+    if acao == "excluir" and not permissions.pode_excluir():
+        raise HTTPException(status_code=403, detail=permissions.MSG_EXCLUIR)
     host = _text(payload.get("recorder_host") or payload.get("host"))
     user, password = _credencial_gravador(payload)
     try:
@@ -1916,6 +1919,9 @@ def api_deployments_recorder_canal_desfazer(payload: Dict[str, Any], request: Re
         plano = RC.plano_desfazer(reg, host, conector or _conector_efetivo(host))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if plano["acao"] == "excluir" and not permissions.pode_excluir():
+        # desfazer um "adicionar" apaga o canal no gravador
+        raise HTTPException(status_code=403, detail=permissions.MSG_EXCLUIR)
     user, password = _credencial_gravador(payload)
     if not password:
         raise HTTPException(status_code=428, detail="SEM_CREDENCIAL")

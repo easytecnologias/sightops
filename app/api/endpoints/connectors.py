@@ -50,6 +50,24 @@ def _conferir_site(request: Request, connector_id: str) -> None:
         raise HTTPException(status_code=403, detail=f"o site {row.get('site') or '(sem site)'} nao esta liberado para este usuario")
 
 
+def _so_admin() -> None:
+    """Criar, instalar, configurar e excluir conector e coisa de administrador
+    (decisao de 21/10/2026). O operador usa o conector -- lista, ping,
+    inventario da rede, diagnostico -- mas nao mexe na instalacao: os scripts
+    levam o token que autentica o equipamento como o conector, e o site do
+    conector decide o que os usuarios restritos alcancam."""
+    from app.core.tenant_context import get_current_user
+
+    user = get_current_user()
+    if user and str(user.get("role") or "").lower() not in ("admin", "owner"):
+        raise HTTPException(status_code=403, detail="Criar, instalar e configurar conector e so para administrador ou dono da conta.")
+
+
+# Jobs que instalam ou trocam o agente: so administrador (os demais sao uso).
+_JOBS_DE_INSTALACAO = {"wireguard_install", "agent_upgrade"}
+_ADMIN = [Depends(_so_admin)]
+
+
 router = APIRouter(prefix="/api/connectors", tags=["connectors"],
                    dependencies=[Depends(_site_do_conector_liberado)])
 
@@ -85,7 +103,7 @@ def api_connectors_list(request: Request) -> Dict[str, Any]:
     return list_connectors(include_token=False, user=getattr(request.state, "current_user", None))
 
 
-@router.post("")
+@router.post("", dependencies=_ADMIN)
 def api_connectors_create(payload: Dict[str, Any]) -> Dict[str, Any]:
     try:
         return create_connector(payload if isinstance(payload, dict) else {})
@@ -93,17 +111,15 @@ def api_connectors_create(payload: Dict[str, Any]) -> Dict[str, Any]:
         raise HTTPException(status_code=400, detail=str(exc))
 
 
-@router.delete("/{connector_id}")
+@router.delete("/{connector_id}", dependencies=_ADMIN)
 def api_connectors_delete(connector_id: str) -> Dict[str, Any]:
     return delete_connector(connector_id)
 
 
 @router.get("/{connector_id}")
 def api_connectors_get(connector_id: str) -> Dict[str, Any]:
-    # O token autentica o MikroTik/Ruijie como o conector: esta ficha so o
-    # mostra a admin (a tela nao o usa). ATENCAO: os scripts de instalacao
-    # (agent-script, routeros-script, wireguard) o levam e o operador os baixa
-    # -- quem instala precisa dele. Fechar para operador = decisao de produto.
+    # O token autentica o MikroTik/Ruijie como o conector: so admin o ve, como
+    # os scripts de instalacao que o levam (_so_admin).
     from app.core.tenant_context import get_current_user
 
     papel = str((get_current_user() or {}).get("role") or "").lower()
@@ -113,7 +129,7 @@ def api_connectors_get(connector_id: str) -> Dict[str, Any]:
     return {"ok": True, "connector": row}
 
 
-@router.put("/{connector_id}")
+@router.put("/{connector_id}", dependencies=_ADMIN)
 def api_connectors_update(connector_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     """Edita nome/cliente/site (e, no Ruijie, host/usuario/senha do gateway)."""
     try:
@@ -123,7 +139,7 @@ def api_connectors_update(connector_id: str, payload: Dict[str, Any]) -> Dict[st
         raise HTTPException(status_code=404 if "nao encontrado" in detail else 400, detail=detail)
 
 
-@router.put("/{connector_id}/ports")
+@router.put("/{connector_id}/ports", dependencies=_ADMIN)
 def api_connector_ports_save(connector_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     """Substitui a lista de portas salvas do conector. A UI manda a lista
     inteira, entao este unico endpoint cobre adicionar, editar e excluir."""
@@ -135,7 +151,7 @@ def api_connector_ports_save(connector_id: str, payload: Dict[str, Any]) -> Dict
         raise HTTPException(status_code=404 if "nao encontrado" in detail else 400, detail=detail)
 
 
-@router.get("/{connector_id}/agent-script")
+@router.get("/{connector_id}/agent-script", dependencies=_ADMIN)
 def api_connector_agent_script(connector_id: str, request: Request) -> Response:
     try:
         custom_base = str(request.query_params.get("base_url") or "").strip()
@@ -150,7 +166,7 @@ def api_connector_agent_script(connector_id: str, request: Request) -> Response:
     )
 
 
-@router.get("/{connector_id}/routeros-script")
+@router.get("/{connector_id}/routeros-script", dependencies=_ADMIN)
 def api_connector_routeros_script(connector_id: str, request: Request) -> Response:
     try:
         custom_base = str(request.query_params.get("base_url") or "").strip()
@@ -165,7 +181,7 @@ def api_connector_routeros_script(connector_id: str, request: Request) -> Respon
     )
 
 
-@router.post("/{connector_id}/wireguard")
+@router.post("/{connector_id}/wireguard", dependencies=_ADMIN)
 def api_connector_wireguard(connector_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     try:
         return ensure_wireguard_tunnel(connector_id, payload if isinstance(payload, dict) else {}, enforce_tenant=True)
@@ -173,7 +189,7 @@ def api_connector_wireguard(connector_id: str, payload: Dict[str, Any]) -> Dict[
         raise HTTPException(status_code=404, detail=str(exc))
 
 
-@router.get("/{connector_id}/wireguard-routeros-script")
+@router.get("/{connector_id}/wireguard-routeros-script", dependencies=_ADMIN)
 def api_connector_wireguard_routeros_script(connector_id: str) -> Response:
     try:
         script = build_routeros_wireguard_script(connector_id)
@@ -186,7 +202,7 @@ def api_connector_wireguard_routeros_script(connector_id: str) -> Response:
     )
 
 
-@router.post("/{connector_id}/ruijie/vpn")
+@router.post("/{connector_id}/ruijie/vpn", dependencies=_ADMIN)
 def api_connector_ruijie_vpn(connector_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     """Grava/atualiza usuario, senha e a config (.ovpn) da VPN de um
     conector Ruijie ja cadastrado."""
@@ -220,6 +236,8 @@ def api_connector_jobs(connector_id: str) -> Dict[str, Any]:
 @router.post("/jobs")
 def api_connector_create_job(payload: Dict[str, Any], request: Request) -> Dict[str, Any]:
     _conferir_site(request, str((payload or {}).get("connector_id") or "").strip())
+    if str((payload or {}).get("type") or "").strip() in _JOBS_DE_INSTALACAO:
+        _so_admin()
     try:
         return create_job(payload if isinstance(payload, dict) else {})
     except ValueError as exc:

@@ -112,12 +112,35 @@ _EXCLUSAO_NA_ROTA = re.compile(
     r"/(?:[a-z0-9]+-)*(?:delete|clear|excluir|remover|remove|revoke|limpar|apagar)(?:-[a-z0-9]+)*(?:/|$)"
 )
 _EXCLUSAO_FORA = ("/api/maintenance/web/",)
+# Tem nome de exclusao mas e operacao do dia a dia: tirar item da lista do
+# caso de investigacao que o proprio operador monta, e desligar o celular
+# perdido/roubado de um membro do alerta (acao de seguranca, nao apaga dado).
+_EXCLUSAO_LIBERADA = re.compile(
+    r"^/api/nvr/driver/casos/[^/]+/itens/[^/]+/remover/?$|^/api/alert/members/[^/]+/revoke-devices/?$"
+)
+MSG_EXCLUIR = "Excluir e limpar são só para administrador ou dono da conta."
+
+
+def pode_excluir(user: Optional[Dict[str, Any]] = None) -> bool:
+    """Para a acao destrutiva que vem DENTRO de uma rota de uso normal (editar
+    canal com acao=excluir, importar que substitui, esvaziar grupo...): a
+    regra por forma de rota nao enxerga o corpo. Sem usuario (autenticacao
+    desligada), nada muda."""
+    if user is None:
+        from app.core.tenant_context import get_current_user
+
+        user = get_current_user()
+    if not user:
+        return True
+    return str(user.get("role") or "").strip().lower() in ("admin", "owner")
 
 
 def e_exclusao(path: str, method: str) -> bool:
     path = str(path or "").lower()
     method = str(method or "").upper()
     if not path.startswith("/api/") or any(path.startswith(p) for p in _EXCLUSAO_FORA):
+        return False
+    if _EXCLUSAO_LIBERADA.match(path):
         return False
     if method == "DELETE":
         return True

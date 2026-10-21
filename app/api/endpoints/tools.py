@@ -904,7 +904,16 @@ async def api_inventory_import(file: UploadFile = File(...), mode: str = "olt") 
     if not isinstance(rows, list):
         raise HTTPException(400, "Formato invalido: esperado uma lista de cameras.")
 
-    _save_inventory_rows([r for r in rows if isinstance(r, dict)], mode=mode)
+    rows = [r for r in rows if isinstance(r, dict)]
+    if not permissions.pode_excluir():
+        # A importacao SUBSTITUI o inventario: arquivo sem uma camera que
+        # existe e exclusao (com lista vazia, e o mesmo que "limpar").
+        novos = {str(r.get("ip") or "").strip() for r in rows}
+        sumiriam = [str(r.get("ip") or "") for r in _load_inventory_rows(mode=mode)
+                    if str(r.get("ip") or "").strip() not in novos]
+        if sumiriam:
+            raise HTTPException(403, f"{permissions.MSG_EXCLUIR} O arquivo deixaria de fora {len(sumiriam)} camera(s) que ja estao no inventario.")
+    _save_inventory_rows(rows, mode=mode)
     saved = _load_inventory_rows(mode=mode)
     return {"ok": True, "count": len(saved), "inventory": saved}
 
@@ -1594,6 +1603,8 @@ def _editar_ponto_da_camada(layer_id: str, ponto: Dict[str, Any], generated: boo
         except (TypeError, ValueError):
             raise HTTPException(400, f"Valor invalido para {chave}.")
 
+    if ponto.get("remover") and not permissions.pode_excluir():
+        raise HTTPException(403, permissions.MSG_EXCLUIR)
     try:
         resultado = editar_ponto_no_kmz(
             kmz_path,

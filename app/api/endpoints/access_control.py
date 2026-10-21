@@ -902,6 +902,8 @@ def api_access_control_save_group(req: AccessGroupRequest) -> Dict[str, Any]:
     try:
         payload = req.model_dump() if hasattr(req, "model_dump") else req.dict()
         member_ids = payload.pop("member_ids", [])
+        if payload.get("id") and not member_ids and not permissions.pode_excluir() and list_group_members(str(payload["id"])):
+            raise HTTPException(status_code=403, detail=f"{permissions.MSG_EXCLUIR} (esvaziar o grupo)")
         group = save_group(payload)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
@@ -940,6 +942,18 @@ def api_access_control_save_door_group(req: AccessDoorGroupRequest) -> Dict[str,
     try:
         payload = req.model_dump() if hasattr(req, "model_dump") else req.dict()
         device_ids = payload.pop("device_ids", [])
+        if payload.get("id"):
+            from app.services.access_control_store import list_door_group_members
+
+            atuais = list_door_group_members(str(payload["id"]))
+            user = _usuario_restrito()
+            if user:
+                # Usuario restrito so ve as controladoras dos sites dele: as
+                # dos outros sites que ja estavam no grupo continuam la.
+                liberadas = {str(d.get("id")) for d in list_devices() if _controladora_liberada(user, d)}
+                device_ids = list(dict.fromkeys(list(device_ids) + [x for x in atuais if str(x) not in liberadas]))
+            if atuais and not device_ids and not permissions.pode_excluir():
+                raise HTTPException(status_code=403, detail=f"{permissions.MSG_EXCLUIR} (esvaziar o grupo de portas)")
         door_group = save_door_group(payload)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
@@ -1109,6 +1123,10 @@ class PessoaGruposRequest(BaseModel):
 def api_access_control_painel_pessoa_grupos(person_id: str, req: PessoaGruposRequest) -> Dict[str, Any]:
     """Grupos de UMA pessoa (operador, pela regra /api/access-control/)."""
     from app.services.access_control_pessoas import definir_grupos
+    if not req.grupos and not permissions.pode_excluir():
+        # Sem grupo nenhum a pessoa sai de todos os leitores: e excluir o
+        # acesso dela (a tela de excluir pessoa ja e so de administrador).
+        raise HTTPException(status_code=403, detail=f"{permissions.MSG_EXCLUIR} (tirar a pessoa de todos os grupos)")
     return definir_grupos(person_id, req.grupos)
 
 
