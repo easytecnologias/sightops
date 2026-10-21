@@ -12851,3 +12851,10 @@ table.recorder-tabela tbody tr:hover { background: var(--surface-soft); }
 .nt-aguardando { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; }
 .nt-aguardando small { color: var(--muted); }
 @media (max-width: 900px) { .nt-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } .nt-grid2 { grid-template-columns: minmax(0, 1fr); } }
+
+/* Mapa: camadas por modo (OLT / Switch / Basico) */
+.map-layer-modo-filtro { display: flex; align-items: center; gap: 8px; font-size: 12.5px; padding: 6px 4px 2px; cursor: pointer; color: var(--text); }
+.map-layer-modo-filtro input { width: 15px; height: 15px; accent-color: var(--primary); margin: 0; }
+.map-layer-modo-filtro small { color: var(--muted); font-size: 11.5px; margin-left: 4px; }
+.map-layer-modo { font-size: 10.5px; font-weight: 700; color: var(--cyan); background: var(--cyan-soft); border-radius: 999px; padding: 1px 7px; white-space: nowrap; }
+.map-layer-menu-titulo { font-size: 11px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; padding: 6px 12px 2px; }

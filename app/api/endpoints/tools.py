@@ -196,6 +196,8 @@ def _list_kmz_import_layers(include_features: bool = True) -> list[dict[str, Any
             # pontos seguem escondidas na tela)
             "origem": str(meta.get("origem") or ""),
             "cor_outros": str(meta.get("cor_outros") or ""),
+            # modo do inventario em que a camada aparece ("" = automatico)
+            "modo": str(meta.get("modo") or ""),
             "motivos": meta.get("motivos") if isinstance(meta.get("motivos"), dict) else {},
             **({"features": features, "type": geojson.get("type") or "FeatureCollection"} if include_features else {}),
         })
@@ -1644,6 +1646,8 @@ async def api_kmz_import_layer_update(layer_id: str, payload: Dict[str, Any], re
         return {"ok": True, "layer": _motivo_do_ponto(layer_id, payload["motivo_ponto"], por)}
     if "cor_outros" in payload:
         return {"ok": True, "layer": _cor_outros_da_camada(layer_id, payload.get("cor_outros"))}
+    if "modo" in payload:
+        return {"ok": True, "layer": _modo_da_camada(layer_id, payload.get("modo"))}
     layer = _rename_kmz_layer(layer_id, str(payload.get("label") or ""))
     return {"ok": True, "layer": layer}
 
@@ -1697,6 +1701,28 @@ def _cor_outros_da_camada(layer_id: str, cor: Any) -> dict[str, Any]:
     _write_kmz_layer_meta(meta_path, meta)
     layer = next((item for item in _list_kmz_import_layers(include_features=False) if item.get("id") == layer_id), None)
     return layer or {"id": layer_id, "cor_outros": meta["cor_outros"]}
+
+
+_MODOS_CAMADA = ("", "olt", "switch", "basico", "todos")
+
+
+def _modo_da_camada(layer_id: str, modo: Any) -> dict[str, Any]:
+    """Em que modo do inventario (seletor OLT/Switch/Basico do Mapa) a camada
+    aparece. Vazio = automatico (a tela conta em qual inventario estao as
+    cameras dela); "todos" = em qualquer modo (fibra, postes...)."""
+    valor = str(modo or "").strip().lower()
+    if valor not in _MODOS_CAMADA:
+        raise HTTPException(400, "Modo invalido: use olt, switch, basico, todos ou vazio (automatico).")
+    kmz_path, geojson_path, meta_path = _kmz_layer_paths(layer_id)
+    if not kmz_path.exists() or not geojson_path.exists():
+        raise HTTPException(404, "Camada KMZ nao encontrada.")
+    meta = _read_kmz_layer_meta(meta_path)
+    meta["id"] = layer_id
+    meta["modo"] = valor
+    meta["updated_at"] = datetime.now().isoformat(timespec="seconds")
+    _write_kmz_layer_meta(meta_path, meta)
+    layer = next((item for item in _list_kmz_import_layers(include_features=False) if item.get("id") == layer_id), None)
+    return layer or {"id": layer_id, "modo": valor}
 
 
 def _apagar_geradas_do_mapa(layer_id: str) -> list[str]:

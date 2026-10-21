@@ -405,10 +405,16 @@ async function mapLoadCameraIndex() {
   const modes = [mode, ...['basico', 'switch', 'olt'].filter(m => m !== mode)];
   const byName = {};
   const byIp = {};
+  // Por modo, sem a prioridade acima: diz em qual inventario esta cada camera
+  // (o modo de cada camada sai daqui -- mapLayerModo).
+  const porModo = {};
   for (const m of modes) {
     const camData = await apiJson(`/api/cameras?mode=${encodeURIComponent(m)}&_=${Date.now()}`)
       .catch(() => null);
+    const idx = porModo[m] = { names: new Set(), ips: new Set() };
     (camData?.cameras || []).forEach(c => {
+      if (c.titulo) idx.names.add(String(c.titulo).toLowerCase());
+      if (c.ip) idx.ips.add(String(c.ip));
       // O editor do mapa salva no inventario DESTE modo (/api/cameras/save?mode=).
       if (!c._mode) c._mode = m;
       const name = String(c.titulo || '').toLowerCase();
@@ -417,7 +423,7 @@ async function mapLoadCameraIndex() {
       if (ip && !byIp[ip]) byIp[ip] = c;
     });
   }
-  _mapCameraIndex = { byName, byIp };
+  _mapCameraIndex = { byName, byIp, porModo };
   return _mapCameraIndex;
 }
 
@@ -1139,6 +1145,38 @@ function camerasForaDoMapa(layer) {
   }
 }
 
+const MAP_MODO_ROTULO = { basico: 'Básico', olt: 'OLT', switch: 'Switch', todos: 'todos os modos' };
+
+// Modo da camada: o escolhido no menu dela, senao o inventario onde estao mais
+// cameras dela. Sem camera nenhuma (fibra, postes) aparece em todos os modos.
+function mapLayerModo(def, index = _mapCameraIndex) {
+  if (['olt', 'switch', 'basico', 'todos'].includes(def.modoFixo)) return def.modoFixo;
+  const conta = { basico: 0, olt: 0, switch: 0 };
+  (def.features || []).forEach(f => {
+    const name = mapFeatureName(f).toLowerCase();
+    const desc = String(f?.properties?.description || '');
+    const ip = mapExtractIp(desc) || mapExtractIp(name);
+    Object.entries(index?.porModo || {}).forEach(([m, idx]) => {
+      if ((name && idx.names.has(name)) || (ip && idx.ips.has(ip))) conta[m] = (conta[m] || 0) + 1;
+    });
+  });
+  const max = Math.max(...Object.values(conta));
+  if (!max) return 'todos';
+  const atual = mapInventoryMode();
+  return conta[atual] === max ? atual : Object.keys(conta).find(m => conta[m] === max);
+}
+
+function mapVerTodasCamadas() {
+  try { return localStorage.getItem('so_map_todas_camadas') === '1'; } catch { return false; }
+}
+
+async function mapDefinirModoCamada(def, modo) {
+  const res = await api(def.updateUrl, { method: 'PATCH', body: JSON.stringify({ modo }) });
+  if (!res?.ok) { showToast((await res?.json().catch(() => ({})))?.detail || 'Nao foi possivel mudar o modo.', true); return; }
+  showToast(modo ? `"${def.label}" aparece em ${MAP_MODO_ROTULO[modo] || modo}.` : `"${def.label}" volta ao modo automatico.`);
+  loadMapLayers();
+}
+
 async function loadMapLayers() {
   const listEl = document.getElementById('mapLayersList');
   if (!listEl) return;
@@ -1163,6 +1201,7 @@ async function loadMapLayers() {
     deleteUrl: `/api/kmz/import/layers/${encodeURIComponent(layer.id)}`,
     origem: layer.origem || '',
     corOutros: layer.cor_outros || '',
+    modoFixo: layer.modo || '',
     motivos: layer.motivos || {},
   }));
   const importedSignatures = new Set(importedLayers.map(layer => mapLayerSignature(layer.features)).filter(Boolean));
@@ -1190,11 +1229,18 @@ async function loadMapLayers() {
     && !mapLayerOverlapsImported(layer, importedPointSets)
   );
 
-  const results = [
+  const todasAsCamadas = [
     // camada criada no mapa aparece vazia: e nela que se marcam os pontos
     ...importedLayers.filter(r => r.count > 0 || r.origem === 'mapa'),
     ...generatedLayers.filter(r => r.count > 0),
   ];
+  // Seletor OLT/Switch/Basico tambem filtra as camadas: so as do modo (e as de
+  // "todos os modos"), a nao ser que "Todas as camadas" esteja marcado.
+  const modoAtual = mapInventoryMode();
+  const verTodas = mapVerTodasCamadas();
+  todasAsCamadas.forEach(r => { r.modo = mapLayerModo(r, camIndex); });
+  const results = todasAsCamadas.filter(r => verTodas || r.modo === 'todos' || r.modo === modoAtual);
+  const escondidas = todasAsCamadas.length - results.length;
   _mapFeatures = results.flatMap(layer => (layer.features || []).map(f => ({ ...f, _source: f._source || layer.source, _layerId: layer.layerId || layer.id })));
 
   // Inicializa grupos de camadas
@@ -1213,9 +1259,16 @@ async function loadMapLayers() {
   const btnNovaCamada = '<button type="button" class="map-layer-bulk-btn" data-map-layer-bulk="nova" style="grid-column:1/-1"><i data-lucide="plus"></i> Nova camada</button>';
 
   if (!results.length) {
-    listEl.innerHTML = `<div style="font-size:12px;color:var(--muted);padding:12px;text-align:center">Nenhuma camada disponivel.<br><small>Importe um KMZ, gere o mapa ou crie uma camada e marque os pontos.</small></div>
-      <div class="map-layer-bulk">${btnNovaCamada}</div>`;
+    const msgVazia = escondidas
+      ? `Nenhuma camada do modo ${esc(MAP_MODO_ROTULO[modoAtual] || modoAtual)}.<br><small>${escondidas} camada${escondidas === 1 ? '' : 's'} de outros modos escondida${escondidas === 1 ? '' : 's'}.</small>`
+      : 'Nenhuma camada disponivel.<br><small>Importe um KMZ, gere o mapa ou crie uma camada e marque os pontos.</small>';
+    listEl.innerHTML = `<div style="font-size:12px;color:var(--muted);padding:12px;text-align:center">${msgVazia}</div>
+      <div class="map-layer-bulk">${btnNovaCamada}${escondidas ? `<label class="map-layer-modo-filtro" style="grid-column:1/-1"><input type="checkbox" id="mapTodasCamadas"><span>Todas as camadas <small>mostrar as de todos os modos</small></span></label>` : ''}</div>`;
     listEl.querySelector('[data-map-layer-bulk="nova"]')?.addEventListener('click', () => criarCamadaNoMapa());
+    listEl.querySelector('#mapTodasCamadas')?.addEventListener('change', ev => {
+      try { localStorage.setItem('so_map_todas_camadas', ev.target.checked ? '1' : '0'); } catch {}
+      loadMapLayers();
+    });
     lucide.createIcons();
     return;
   }
@@ -1225,8 +1278,14 @@ async function loadMapLayers() {
   controls.innerHTML = `
     <button type="button" class="map-layer-bulk-btn" data-map-layer-bulk="all"><i data-lucide="check-square"></i> Todas</button>
     <button type="button" class="map-layer-bulk-btn" data-map-layer-bulk="none"><i data-lucide="square"></i> Nenhuma</button>
-    ${btnNovaCamada}`;
+    ${btnNovaCamada}
+    <label class="map-layer-modo-filtro" style="grid-column:1/-1"><input type="checkbox" id="mapTodasCamadas" ${verTodas ? 'checked' : ''}>
+      <span>Todas as camadas <small>${verTodas ? 'de todos os modos' : `só ${esc(MAP_MODO_ROTULO[modoAtual] || modoAtual)}${escondidas ? ` · ${escondidas} escondida${escondidas === 1 ? '' : 's'}` : ''}`}</small></span></label>`;
   listEl.appendChild(controls);
+  controls.querySelector('#mapTodasCamadas')?.addEventListener('change', ev => {
+    try { localStorage.setItem('so_map_todas_camadas', ev.target.checked ? '1' : '0'); } catch {}
+    loadMapLayers();
+  });
 
   results.forEach(def => {
     const stats = mapLayerStats(def.features, camIndex);
@@ -1238,7 +1297,8 @@ async function loadMapLayers() {
       <input type="checkbox" class="map-layer-check" data-layer-check="${esc(def.id)}">
       <span class="layer-dot" style="background:${def.color}"></span>
       <span class="map-layer-name">${esc(def.label)}</span>
-      <span class="map-layer-badge">${def.count} pts</span>`;
+      <span class="map-layer-badge">${def.count} pts</span>
+      ${verTodas || def.modo === 'todos' ? `<span class="map-layer-modo" title="Aparece no modo ${esc(MAP_MODO_ROTULO[def.modo] || def.modo)}${def.modoFixo ? ' (escolhido)' : ' (automatico)'}">${esc(def.modo === 'todos' ? 'todos' : (MAP_MODO_ROTULO[def.modo] || def.modo))}</span>` : ''}`;
     btn.querySelector('input')?.addEventListener('change', () => toggleMapLayer(def.id, def));
 
     // Botao excluir
@@ -1360,6 +1420,14 @@ async function loadMapLayers() {
       menu.appendChild(item('pencil', 'Renomear camada', () => openMapLayerRename(def)));
       if (def.source === 'imported') {
         menu.appendChild(item('palette', 'Cor dos pontos sem camera', () => escolherCorOutros(def)));
+        menu.appendChild(document.createElement('hr'));
+        const titulo = document.createElement('div');
+        titulo.className = 'map-layer-menu-titulo';
+        titulo.textContent = 'Mostrar no modo';
+        menu.appendChild(titulo);
+        [['', `Automático${def.modoFixo ? '' : ` (${MAP_MODO_ROTULO[def.modo] || def.modo})`}`], ['olt', 'OLT'], ['switch', 'Switch'], ['basico', 'Básico'], ['todos', 'Todos os modos']]
+          .forEach(([valor, rotulo]) => menu.appendChild(item((def.modoFixo || '') === valor ? 'check' : 'circle', rotulo, () => mapDefinirModoCamada(def, valor))));
+        menu.appendChild(document.createElement('hr'));
       }
       menu.appendChild(item(
         mapEditIsActive(def.id) ? 'x' : 'move',
