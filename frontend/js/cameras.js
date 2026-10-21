@@ -1239,6 +1239,24 @@ function mapVerTodasCamadas() {
   try { return localStorage.getItem('so_map_todas_camadas') === '1'; } catch { return false; }
 }
 
+// Linhas (traçados) do KMZ: excluir uma ou todas. O servidor casa nome +
+// primeiro vertice (o KMZ repete nomes) e so deixa administrador excluir.
+function mapLinhasDaCamada(def) {
+  return (def?.features || []).filter(f => f?.geometry?.type === 'LineString' && Array.isArray(f.geometry.coordinates?.[0]));
+}
+
+async function mapExcluirLinhas(def, linhas, rotulo) {
+  if (!linhas.length) return;
+  const ok = await showConfirm({ title: 'Excluir linhas do mapa', msg: `Excluir ${rotulo} da camada "${def.label}"? Sai do KMZ da camada e não volta.`, label: 'Excluir' });
+  if (!ok) return;
+  const remover = linhas.map(f => ({ nome: mapFeatureName(f), lon: +f.geometry.coordinates[0][0], lat: +f.geometry.coordinates[0][1] }));
+  const res = await api(def.updateUrl, { method: 'PATCH', body: JSON.stringify({ linhas: { remover } }) });
+  const body = await res?.json().catch(() => ({}));
+  if (!res?.ok) { showToast(body?.detail || 'Não foi possível excluir.', true); return; }
+  showToast(body.removidas ? `${body.removidas} linha(s) excluída(s).` : 'Nenhuma linha encontrada para excluir.');
+  await loadMapLayers();
+}
+
 async function mapDefinirModoCamada(def, modo) {
   const res = await api(def.updateUrl, { method: 'PATCH', body: JSON.stringify({ modo }) });
   if (!res?.ok) { showToast((await res?.json().catch(() => ({})))?.detail || 'Nao foi possivel mudar o modo.', true); return; }
@@ -1510,6 +1528,11 @@ async function loadMapLayers() {
         () => mapEditIsActive(def.id) ? exitMapPointEditor() : openMapPointEditor(def),
       ));
       menu.appendChild(item('locate', 'Ir para coordenada', () => mapPedirCoordenada(def)));
+      const linhasKmz = def.source === 'imported' ? mapLinhasDaCamada(def) : [];
+      if (linhasKmz.length) {
+        menu.appendChild(item('eraser', `Excluir as linhas do KMZ (${linhasKmz.length})`,
+          () => mapExcluirLinhas(def, linhasKmz, `as ${linhasKmz.length} linhas (traçados)`), true));
+      }
     }
     const dlUrl = mapLayerDownloadUrl(def);
     if (dlUrl) {
@@ -1607,7 +1630,16 @@ function renderMapLayerGroup(id, def, skipFit = false) {
           weight: pointType === 'fiber' ? 5 : 3,
           opacity: 0.9,
         });
-        line.bindPopup(`<div style="font-family:-apple-system,BlinkMacSystemFont,sans-serif;padding:10px;min-width:180px"><strong>${esc(name || 'Linha')}</strong><div style="font-size:12px;color:#64748b;margin-top:6px">${pointType === 'fiber' ? 'Fibra optica' : 'Linha do KMZ'}</div></div>`);
+        const podeExcluirLinha = def?.source === 'imported' && !!def?.updateUrl;
+        line.bindPopup(`<div style="font-family:-apple-system,BlinkMacSystemFont,sans-serif;padding:10px;min-width:180px"><strong>${esc(name || 'Linha')}</strong><div style="font-size:12px;color:#64748b;margin-top:6px">${pointType === 'fiber' ? 'Fibra optica' : 'Linha do KMZ'}</div>${podeExcluirLinha ? '<button type="button" data-linha-excluir style="margin-top:8px;width:100%;padding:6px;background:#fff5f5;color:#c92a2a;border-radius:6px;font-size:11px;font-weight:700;border:1px solid #ffc9c9;cursor:pointer">Excluir esta linha</button>' : ''}</div>`);
+        if (podeExcluirLinha) {
+          line.on('popupopen', (e) => {
+            e.popup.getElement()?.querySelector('[data-linha-excluir]')?.addEventListener('click', () => {
+              line.closePopup();
+              mapExcluirLinhas(def, [f], `a linha "${name || 'sem nome'}"`);
+            });
+          });
+        }
         const featureKey = mapFeatureKey(f, cam);
         if (!state.markers) state.markers = {};
         state.markers[featureKey] = line;
@@ -1624,7 +1656,7 @@ function renderMapLayerGroup(id, def, skipFit = false) {
       // Caixa de CFTV (cadastrada, ou ponto com cara de caixa): marcador e
       // painel proprios (mapaCaixas.js), com o que tem dentro e os cabos.
       if (!cam && def?.source === 'imported' && typeof cxMarcador === 'function'
-          && (cxCaixaDoPonto(def, mapFeatureName(f)) || pointType === 'box')) {
+          && (cxCaixaDoPonto(def, mapFeatureName(f), [+lat, +lng]) || pointType === 'box')) {
         const mk = cxMarcador(id, def, f, +lat, +lng);
         state.markers[mapFeatureKey(f, cam)] = mk;
         state.group.addLayer(mk);

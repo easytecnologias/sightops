@@ -180,6 +180,12 @@ def test_vlan_e_onu_na_cto(camada, inventario):
     assert cx["switch_vlan"] == "120"
     tools._cabo_da_camada("c1", {"caixa": cx["id"], "camera": {"ponto": "4", "ip": "10.45.0.104"}, "porta": 1, "caminho": _CAMINHO})
     assert inventario["switch"][0]["switch_vlan"] == "120"
+    # VLAN da porta vale sobre a da caixa; invalida e recusada
+    kid = next(iter(tools._read_kmz_layer_meta(tools._kmz_layer_paths("c1")[2])["cabos"]))
+    tools._cabo_da_camada("c1", {"id": kid, "caixa": cx["id"], "camera": {"ponto": "4", "ip": "10.45.0.104"}, "porta": 1, "caminho": _CAMINHO, "vlan": "200"})
+    assert inventario["switch"][0]["switch_vlan"] == "200"
+    with pytest.raises(HTTPException):
+        tools._cabo_da_camada("c1", {"id": kid, "caixa": cx["id"], "camera": {"ponto": "4", "ip": "10.45.0.104"}, "porta": 1, "caminho": _CAMINHO, "vlan": "abc"})
     with pytest.raises(HTTPException):
         _caixa(id=cx["id"], portas=5, switch_vlan="5000")
     # ONU da caixa na CTO: fibra drop, porta da CTO, um por caixa, nao ocupa porta do switch
@@ -191,3 +197,49 @@ def test_vlan_e_onu_na_cto(camada, inventario):
     assert "ja esta ligada na CTO" in e.value.detail
     # cabo de camera continua aceitando outra camera na porta 2 (a CTO nao ocupa porta)
     tools._cabo_da_camada("c1", {"caixa": cx["id"], "camera": {"ponto": "5", "ip": "10.45.0.105"}, "porta": 2, "caminho": _CAMINHO})
+
+
+def test_mesmo_nome_em_lugares_diferentes_sao_caixas_diferentes(camada):
+    # Porto Real: "Caixa - S 8P" em 4 lugares; renomear uma nao pode mudar as outras
+    a = tools._caixa_da_camada("c1", {"ponto": "Caixa - S 8P", "nome": "C.CFTV-02", "lat": -10.1, "lng": -36.1}, "op")
+    b = tools._caixa_da_camada("c1", {"ponto": "Caixa - S 8P", "nome": "C.CFTV-03", "lat": -10.2, "lng": -36.2}, "op")
+    assert sorted(c["nome"] for c in b["caixas"].values()) == ["C.CFTV-02", "C.CFTV-03"]
+    # o mesmo ponto (mesmo lugar) continua nao virando duas caixas
+    with pytest.raises(HTTPException) as e:
+        tools._caixa_da_camada("c1", {"ponto": "Caixa - S 8P", "nome": "X", "lat": -10.1, "lng": -36.1}, "op")
+    assert "ja e uma caixa" in e.value.detail
+    # salvar sem posicao mantem a gravada
+    cid = next(k for k, c in a["caixas"].items() if c["nome"] == "C.CFTV-02")
+    r = tools._caixa_da_camada("c1", {"id": cid, "ponto": "Caixa - S 8P", "nome": "C.CFTV-02b"}, "op")
+    assert (r["caixas"][cid]["lat"], r["caixas"][cid]["lng"]) == (-10.1, -36.1)
+
+
+def _kmz_com_linhas(path):
+    import zipfile
+    def pm(nome, lon, lat):
+        return (f"<Placemark><name>{nome}</name><LineString><coordinates>{lon},{lat},0 {lon + 0.001},{lat},0"
+                "</coordinates></LineString></Placemark>")
+    kml = ('<?xml version="1.0" encoding="UTF-8"?><kml xmlns="http://www.opengis.net/kml/2.2"><Document><Folder>'
+           + pm("69m", -36.1, -10.1) + pm("69m", -36.2, -10.2) + pm("107m", -36.3, -10.3)
+           + "<Placemark><name>CAI</name><Point><coordinates>-36.1,-10.1,0</coordinates></Point></Placemark>"
+           + "</Folder></Document></kml>")
+    with zipfile.ZipFile(path, "w") as zf:
+        zf.writestr("doc.kml", kml)
+
+
+def test_excluir_linha_so_a_pedida_e_so_admin(camada):
+    from app.services.kmz_ops import kmz_to_geojson
+    _kmz_com_linhas(camada / "c1.kmz")
+    _como("operator")
+    with pytest.raises(HTTPException) as e:
+        tools._remover_linhas_da_camada("c1", {"remover": [{"nome": "69m", "lat": -10.2, "lon": -36.2}]})
+    assert e.value.status_code == 403
+    _como("admin")
+    r = tools._remover_linhas_da_camada("c1", {"remover": [{"nome": "69m", "lat": -10.2, "lon": -36.2}]})
+    assert r["removidas"] == 1
+    feats = kmz_to_geojson(camada / "c1.kmz")["features"]
+    linhas = [(f["properties"]["name"], f["geometry"]["coordinates"][0][1]) for f in feats if f["geometry"]["type"] == "LineString"]
+    assert linhas == [("69m", -10.1), ("107m", -10.3)]  # o outro "69m" ficou
+    assert any(f["geometry"]["type"] == "Point" for f in feats)  # ponto nao e tocado
+    geo = json.loads((camada / "c1.geojson").read_text(encoding="utf-8"))
+    assert len([f for f in geo["features"] if f["geometry"]["type"] == "LineString"]) == 2

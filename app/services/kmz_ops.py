@@ -599,6 +599,53 @@ def editar_ponto_no_kmz(
     return {"acao": acao, "nome": nome}
 
 
+def remover_linhas_no_kmz(kmz_path: Path, alvos: list[dict[str, Any]]) -> int:
+    """Tira do KMZ as linhas (LineString) pedidas, casando nome + primeiro
+    vertice. So o nome nao serve: o KMZ repete nomes ("69m" aparece 4 vezes) e
+    remover por nome apagaria linhas que ninguem pediu."""
+    if not kmz_path.exists():
+        raise ValueError("Camada nao encontrada.")
+    pedidos = []
+    for a in alvos:
+        try:
+            pedidos.append((_norm_text(str(a.get("nome") or "").strip()), float(a["lat"]), float(a["lon"])))
+        except (KeyError, TypeError, ValueError):
+            raise ValueError("Linha invalida: informe nome, lat e lon do primeiro ponto.")
+    with zipfile.ZipFile(kmz_path, "r") as zf:
+        nomes = zf.namelist()
+        kml_names = [n for n in nomes if n.lower().endswith(".kml")]
+        if not kml_names:
+            raise ValueError("KMZ sem arquivo KML.")
+        kml_name = "doc.kml" if "doc.kml" in kml_names else kml_names[0]
+        conteudo = {n: zf.read(n) for n in nomes}
+
+    ET.register_namespace("", KML_NS["kml"])
+    root = ET.fromstring(sanitize_kml_xml(conteudo[kml_name]))
+    pai_de: dict[ET.Element, ET.Element] = {f: p for p in root.iter() for f in p}
+    removidas = 0
+    for pm in list(root.findall(".//kml:Placemark", KML_NS)):
+        linha = pm.find(".//kml:LineString/kml:coordinates", KML_NS)
+        if linha is None or pm.find(".//kml:Point", KML_NS) is not None:
+            continue
+        coords = _parse_coords_text(linha.text)
+        if not coords:
+            continue
+        lon0, lat0 = coords[0][0], coords[0][1]
+        nome = _norm_text((pm.findtext("kml:name", default="", namespaces=KML_NS) or "").strip())
+        if any(n == nome and abs(la - lat0) < 1e-6 and abs(lo - lon0) < 1e-6 for n, la, lo in pedidos):
+            pai_de[pm].remove(pm)
+            removidas += 1
+    if not removidas:
+        return 0
+    conteudo[kml_name] = ET.tostring(root, encoding="utf-8", xml_declaration=True)
+    tmp = kmz_path.with_suffix(".kmz.tmp")
+    with zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED) as zf:
+        for n, dados in conteudo.items():
+            zf.writestr(n, dados)
+    tmp.replace(kmz_path)
+    return removidas
+
+
 def criar_kmz_vazio(kmz_path: Path, nome: str) -> None:
     """Grava um KMZ com um Document vazio, para camada criada do zero no mapa.
 

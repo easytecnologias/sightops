@@ -12930,3 +12930,5 @@ table.recorder-tabela tbody tr:hover { background: var(--surface-soft); }
 .cx-cto > div { flex: 1; min-width: 0; display: flex; flex-direction: column; font-size: 13px; }
 .cx-cto small { color: var(--muted); font-size: 12px; }
 .cx-cto-vazio > svg { color: var(--muted); }
+.cx-vlan { width: 62px; height: 28px; padding: 0 6px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text); font: inherit; font-size: 12px; text-align: center; outline: none; }
+.cx-vlan:focus { border-color: var(--primary); }

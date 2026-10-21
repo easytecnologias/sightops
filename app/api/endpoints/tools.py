@@ -1640,10 +1640,44 @@ def _editar_ponto_da_camada(layer_id: str, ponto: Dict[str, Any], generated: boo
     return resultado
 
 
+def _remover_linhas_da_camada(layer_id: str, dados: Dict[str, Any]) -> Dict[str, Any]:
+    """Exclui linhas (traçados) do KMZ da camada -- uma ou varias. Excluir e
+    so administrador (o operador recebe o pedido de senha)."""
+    from app.services.kmz_ops import kmz_to_geojson, remover_linhas_no_kmz
+
+    alvos = dados.get("remover") if isinstance(dados.get("remover"), list) else []
+    alvos = [a for a in alvos if isinstance(a, dict)]
+    if not alvos:
+        raise HTTPException(400, "Informe as linhas a excluir.")
+    if len(alvos) > 5000:
+        raise HTTPException(400, "Linhas demais num pedido.")
+    if not permissions.pode_excluir():
+        raise permissions.erro_exige_admin()
+    kmz_path, geojson_path, meta_path = _kmz_layer_paths(layer_id)
+    if not kmz_path.exists():
+        raise HTTPException(404, "Camada KMZ nao encontrada.")
+    with _LOCK_CAIXAS:
+        try:
+            removidas = remover_linhas_no_kmz(kmz_path, alvos)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc))
+        if removidas:
+            geojson_path.write_text(json.dumps(kmz_to_geojson(kmz_path), ensure_ascii=False), encoding="utf-8")
+            meta = _read_kmz_layer_meta(meta_path)
+            meta["id"] = _safe_name(layer_id, "layer")
+            meta["updated_at"] = datetime.now().isoformat(timespec="seconds")
+            _write_kmz_layer_meta(meta_path, meta)
+    if removidas:
+        _apagar_geradas_do_mapa(layer_id)
+    return {"removidas": removidas}
+
+
 @router.patch("/kmz/import/layers/{layer_id}")
 async def api_kmz_import_layer_update(layer_id: str, payload: Dict[str, Any], request: Request) -> Dict[str, Any]:
     if isinstance(payload.get("ponto"), dict):
         return {"ok": True, **_editar_ponto_da_camada(layer_id, payload["ponto"])}
+    if isinstance(payload.get("linhas"), dict):
+        return {"ok": True, **_remover_linhas_da_camada(layer_id, payload["linhas"])}
     if isinstance(payload.get("motivo_ponto"), dict):
         u = getattr(request.state, "current_user", None) or {}
         por = str(u.get("username") or "") if isinstance(u, dict) else ""
@@ -1724,12 +1758,20 @@ _TIPOS_CABO = ("utp5e", "utp6", "drop", "coaxial", "outro")
 _UPLINK_PARA = ("onu", "fibra", "radio", "switch", "outro")
 
 
+def _vlan_valida(valor: Any) -> str:
+    vlan = str(valor or "").strip()
+    if vlan and (not vlan.isdigit() or not 1 <= int(vlan) <= 4094):
+        raise HTTPException(400, "VLAN invalida (1 a 4094).")
+    return str(int(vlan)) if vlan else ""
+
+
 def _switch_no_inventario(cabos: list, caixa: Dict[str, Any], limpar: bool = False) -> int:
     """Leva para o inventario (colunas SWITCH e PORTA de Cameras IP) o que foi
     ligado no mapa: switch_name/switch_ip/switch_port de cada camera dos cabos.
     limpar=True tira -- so se ainda for deste switch (outra fonte, como a
     tabela MAC do switch gerenciavel, pode ter escrito depois). Todos os modos
-    (basico/olt/switch): a camera pode estar em mais de um."""
+    (basico/olt/switch): a camera pode estar em mais de um. VLAN: a da porta
+    (cabo) vale sobre a da caixa."""
     nome = str(caixa.get("switch_nome") or caixa.get("nome") or "").strip()
     sw_ip = str(caixa.get("switch_ip") or "").strip()
     vlan = str(caixa.get("switch_vlan") or "").strip()
@@ -1764,8 +1806,9 @@ def _switch_no_inventario(cabos: list, caixa: Dict[str, Any], limpar: bool = Fal
             if sw_ip:
                 r["switch_ip"] = sw_ip
             r["switch_port"] = str(cabo.get("porta") or "")
-            if vlan:
-                r["switch_vlan"] = vlan
+            vlan_porta = str(cabo.get("vlan") or "") or vlan
+            if vlan_porta:
+                r["switch_vlan"] = vlan_porta
             alterou = True
         if alterou:
             save_inventory_json(linhas, mode=modo)
@@ -1836,10 +1879,28 @@ def _caixa_da_camada_sem_lock(layer_id: str, dados: Dict[str, Any], por: str = "
         ponto = _texto_curto(dados.get("ponto"), 160)
         if not ponto:
             raise HTTPException(400, "Informe o ponto do mapa que e a caixa.")
-        outra = next((c for c in caixas.values() if c.get("ponto", "").lower() == ponto.lower() and c.get("id") != cid), None)
+        atual = caixas.get(cid) if cid else None
+        # o KMZ repete nome de ponto ("Caixa - S 4P" em 14 lugares): a caixa e
+        # o ponto pelo nome E pela posicao
+        try:
+            lat = float(dados["lat"]) if dados.get("lat") not in (None, "") else None
+            lng = float(dados["lng"]) if dados.get("lng") not in (None, "") else None
+        except (TypeError, ValueError):
+            raise HTTPException(400, "Posicao da caixa invalida.")
+        if lat is None or lng is None:
+            lat, lng = (atual or {}).get("lat"), (atual or {}).get("lng")
+        elif not (-90 <= lat <= 90 and -180 <= lng <= 180):
+            raise HTTPException(400, "Posicao da caixa fora do mapa.")
+
+        def _mesmo_lugar(c: dict) -> bool:
+            if c.get("lat") is None or lat is None:
+                return c.get("lat") is None and lat is None
+            return abs(float(c["lat"]) - lat) < 3e-5 and abs(float(c["lng"]) - lng) < 3e-5
+
+        outra = next((c for c in caixas.values() if c.get("ponto", "").lower() == ponto.lower()
+                      and c.get("id") != cid and _mesmo_lugar(c)), None)
         if outra:
             raise HTTPException(400, "Este ponto ja e uma caixa.")
-        atual = caixas.get(cid) if cid else None
         if cid and not atual:
             raise HTTPException(404, "Caixa nao encontrada.")
         if not atual and len(caixas) >= 500:
@@ -1876,14 +1937,13 @@ def _caixa_da_camada_sem_lock(layer_id: str, dados: Dict[str, Any], por: str = "
             uplinks = max(0, min(int(dados.get("uplinks") if dados.get("uplinks") is not None else 1), 8))
         except (TypeError, ValueError):
             raise HTTPException(400, "Numero de portas de uplink invalido.")
-        vlan = str(dados.get("switch_vlan") or "").strip()
-        if vlan and (not vlan.isdigit() or not 1 <= int(vlan) <= 4094):
-            raise HTTPException(400, "VLAN invalida (1 a 4094).")
+        vlan = _vlan_valida(dados.get("switch_vlan"))
         uplink_para = _texto_curto(dados.get("uplink_para") or "onu", 10)
         if uplink_para not in _UPLINK_PARA:
             raise HTTPException(400, "Destino do uplink invalido.")
         caixas[cid] = {
             "id": cid, "ponto": ponto, "nome": _texto_curto(dados.get("nome"), 80) or ponto,
+            "lat": round(lat, 7) if lat is not None else None, "lng": round(lng, 7) if lng is not None else None,
             "itens": itens, "portas": portas, "obs": _texto_curto(dados.get("obs"), 300),
             # o switch da caixa: nome e portas vao para o inventario das cameras
             "switch_nome": _texto_curto(dados.get("switch_nome"), 60),
@@ -2061,6 +2121,7 @@ def _cabo_da_camada_sem_lock(layer_id: str, dados: Dict[str, Any], por: str = ""
         kid = kid or f"cb{uuid.uuid4().hex[:10]}"
         cabos[kid] = {
             "id": kid, "caixa": caixa["id"], "camera": destino, "tipo": tipo, "porta": porta, "folga_pct": folga,
+            "vlan": _vlan_valida(dados.get("vlan")),  # vazio = a VLAN da caixa
             "caminho": caminho, "metros": metros, "metros_com_folga": round(metros * (1 + folga / 100), 1),
             "criado_em": (cabos.get(kid) or {}).get("criado_em") or agora, "criado_por": (cabos.get(kid) or {}).get("criado_por") or por,
             "atualizado_em": agora,
