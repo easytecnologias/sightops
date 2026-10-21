@@ -4196,7 +4196,8 @@ function mcpCorpo(e, v) {
     return `
       <div class="mcp-video"><video id="mcpVideo" muted playsinline autoplay></video>
         <span class="mcp-live">AO VIVO</span><span class="mcp-video-ip">${esc(cam.ip)}</span>
-        <div class="mcp-video-status" id="mcpVideoStatus">conectando…</div></div>
+        <div class="mcp-video-status" id="mcpVideoStatus">conectando…</div>
+        <button type="button" class="cam-live-fullscreen mcp-ampliar" data-mcp-ampliar title="Ampliar video" aria-label="Ampliar video"><i data-lucide="maximize-2"></i></button></div>
       <div class="mcp-linha">
         <div class="mcp-seg" role="group" aria-label="Qualidade">
           <button type="button" data-mcp-sub="1" aria-pressed="${_mcp.subtype === 1}">Leve</button>
@@ -4307,6 +4308,10 @@ function renderMapCamPanel() {
     try { _mcp.live?.setSubtype(_mcp.subtype); } catch (_) {}
     el.querySelectorAll('[data-mcp-sub]').forEach(x => x.setAttribute('aria-pressed', String(Number(x.dataset.mcpSub) === _mcp.subtype)));
   }));
+  // Ampliar o ao vivo do Mapa, igual ao painel de Cameras IP e ao gravador
+  // (tela cheia; sem permissao do navegador, ocupa a janela inteira).
+  el.querySelector('[data-mcp-ampliar]')?.addEventListener('click', mcpAmpliarVideo);
+  el.querySelector('#mcpVideo')?.addEventListener('dblclick', mcpAmpliarVideo);
   el.querySelectorAll('[data-mcp-acao]').forEach(b => b.addEventListener('click', () => mcpAcao(b.dataset.mcpAcao, e)));
   el.querySelector('[data-mcp-descartar]')?.addEventListener('click', mcpDescartar);
   el.querySelector('[data-mcp-salvar]')?.addEventListener('click', mcpSalvar);
@@ -4315,6 +4320,41 @@ function renderMapCamPanel() {
   if (_mcp.aba === 'rede' && !_mcp.rede[cam.ip]) mcpLerRede(cam);
   mcpDestacarPino();
 }
+
+function mcpAmpliarVideo() {
+  const caixa = document.querySelector('.mcp-video');
+  if (!caixa) return;
+  const btn = caixa.querySelector('[data-mcp-ampliar]');
+  const icone = (ampliado) => {
+    if (!btn) return;
+    btn.innerHTML = `<i data-lucide="${ampliado ? 'minimize-2' : 'maximize-2'}"></i>`;
+    btn.title = ampliado ? 'Reduzir video' : 'Ampliar video';
+    lucide.createIcons();
+  };
+  if (caixa.classList.contains('mcp-video-cheio')) {
+    caixa.classList.remove('mcp-video-cheio');
+    icone(false);
+    return;
+  }
+  if (document.fullscreenElement) {
+    document.exitFullscreen().catch(() => {});
+    icone(false);
+    return;
+  }
+  const naJanela = () => { caixa.classList.add('mcp-video-cheio'); icone(true); };
+  if (caixa.requestFullscreen) caixa.requestFullscreen().then(() => icone(true)).catch(naJanela);
+  else naJanela();
+}
+
+document.addEventListener('fullscreenchange', () => {
+  if (document.fullscreenElement) return;
+  const btn = document.querySelector('.mcp-video [data-mcp-ampliar]');
+  if (btn && !document.querySelector('.mcp-video-cheio')) {
+    btn.innerHTML = '<i data-lucide="maximize-2"></i>';
+    btn.title = 'Ampliar video';
+    if (typeof lucide !== 'undefined') lucide.createIcons();
+  }
+});
 
 // `user`/`pass` so vem preenchidos quando o operador digita a senha no
 // formulario abaixo: o stream_register usa e GUARDA essa senha para a camera

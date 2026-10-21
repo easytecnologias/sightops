@@ -12964,3 +12964,7 @@ button.map-layer-stat.parcial .map-layer-stat-dot { box-shadow: 0 0 0 2px var(--
 /* Detalhes: item escondido no mapa (pela lista da camada) */
 .map-detail-row.map-detail-oculto { opacity: .5; cursor: default; filter: grayscale(1); }
 .map-detail-row.map-detail-oculto:hover { background: inherit; border-color: var(--border); }
+/* Mapa: ampliar o ao vivo (mesmo botao do painel de Cameras IP/gravador) */
+.mcp-video .mcp-ampliar { display: flex; }
+.mcp-video:fullscreen { aspect-ratio: auto; border-radius: 0; background: #000; }
+.mcp-video.mcp-video-cheio { position: fixed; inset: 0; z-index: 2000; aspect-ratio: auto; border-radius: 0; background: #000; }
