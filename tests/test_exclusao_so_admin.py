@@ -114,3 +114,93 @@ def test_operador_nao_exclui_por_dentro_de_rota_normal(monkeypatch):
         assert P.pode_excluir()
     finally:
         T.reset_current_user(tok)
+
+
+# --------------------------------------------------------------------------- autorizacao do administrador
+
+def _app_exclusao(monkeypatch, usuario):
+    import dataclasses
+
+    from fastapi.testclient import TestClient
+
+    app = FastAPI()
+
+    @app.delete("/api/access-control/people/{pid}")
+    def excluir(pid: str):
+        return {"ok": True, "pid": pid}
+
+    @app.post("/api/deployments/recorder-edit")
+    def editar():
+        if not P.pode_excluir():
+            raise P.erro_exige_admin()
+        return {"ok": True, "autorizado_por": (P.autorizacao_da_requisicao() or {}).get("admin")}
+
+    settings = dataclasses.replace(get_settings(), auth_enabled=True, auth_required=True)
+    app.add_middleware(SEC.ApiAuthMiddleware, settings=settings)
+    monkeypatch.setattr(SEC, "get_user_by_token", lambda tok: usuario)
+    monkeypatch.setattr(P, "modo", lambda: "sombra")
+    return TestClient(app)
+
+
+OPERADOR = {"id": 21, "username": "op", "role": "operator", "tenant_slug": "cli", "effective_tenant_slug": "cli",
+            "effective_enabled_modules": None}
+ADMIN = {"id": 2, "username": "chefe", "role": "admin", "tenant_slug": "cli"}
+H = {"Authorization": "Bearer x"}
+
+
+def test_operador_recebe_403_que_pede_senha(monkeypatch):
+    c = _app_exclusao(monkeypatch, dict(OPERADOR))
+    r = c.delete("/api/access-control/people/9", headers=H)
+    assert r.status_code == 403 and r.headers.get(P.CABECALHO_EXIGE_ADMIN) == "1"
+    r = c.post("/api/deployments/recorder-edit", headers=H)
+    assert r.status_code == 403 and r.headers.get(P.CABECALHO_EXIGE_ADMIN) == "1"
+
+
+def test_autorizacao_vale_uma_vez_e_so_para_a_mesma_acao(monkeypatch):
+    c = _app_exclusao(monkeypatch, dict(OPERADOR))
+    cod = P.emitir_autorizacao(ADMIN, OPERADOR, "DELETE", "/api/access-control/people/9")
+    # outra pessoa: nao serve (e o codigo e gasto)
+    r = c.delete("/api/access-control/people/10", headers={**H, P.CABECALHO_AUTORIZACAO: cod})
+    assert r.status_code == 403
+    cod = P.emitir_autorizacao(ADMIN, OPERADOR, "DELETE", "/api/access-control/people/9")
+    r = c.delete("/api/access-control/people/9", headers={**H, P.CABECALHO_AUTORIZACAO: cod})
+    assert r.status_code == 200
+    r = c.delete("/api/access-control/people/9", headers={**H, P.CABECALHO_AUTORIZACAO: cod})
+    assert r.status_code == 403  # uso unico
+    cod = P.emitir_autorizacao(ADMIN, OPERADOR, "POST", "/api/deployments/recorder-edit")
+    r = c.post("/api/deployments/recorder-edit", headers={**H, P.CABECALHO_AUTORIZACAO: cod})
+    assert r.status_code == 200 and r.json()["autorizado_por"] == "chefe"
+
+
+def test_autorizacao_nao_passa_para_outro_usuario_nem_viewer(monkeypatch):
+    outro = {**OPERADOR, "id": 22}
+    cod = P.emitir_autorizacao(ADMIN, OPERADOR, "DELETE", "/api/access-control/people/9")
+    c = _app_exclusao(monkeypatch, outro)
+    assert c.delete("/api/access-control/people/9", headers={**H, P.CABECALHO_AUTORIZACAO: cod}).status_code == 403
+    viewer = {**OPERADOR, "role": "viewer"}
+    cod = P.emitir_autorizacao(ADMIN, viewer, "DELETE", "/api/access-control/people/9")
+    c = _app_exclusao(monkeypatch, viewer)
+    assert c.delete("/api/access-control/people/9", headers={**H, P.CABECALHO_AUTORIZACAO: cod}).status_code == 403
+
+
+def test_rota_de_autorizar_confere_senha_papel_e_cliente(monkeypatch):
+    from types import SimpleNamespace
+
+    from app.api.endpoints import auth as A
+
+    contas = {"chefe": {**ADMIN, "is_platform_admin": False}, "op2": {**ADMIN, "id": 3, "role": "operator"},
+              "alheio": {**ADMIN, "id": 4, "tenant_slug": "outro"}}
+    monkeypatch.setattr(A, "authenticate_user", lambda u, p: contas.get(u) if p == "certa" else None)
+    monkeypatch.setattr(A, "_auditar_acesso", lambda *a, **k: None)
+    A._LOGIN_FAILS.clear()
+    req = SimpleNamespace(state=SimpleNamespace(current_user=dict(OPERADOR)), headers={}, client=SimpleNamespace(host="1.2.3.4"))
+
+    def pedir(u, p="certa"):
+        return A.api_auth_autorizar_exclusao(A.AutorizarExclusaoRequest(username=u, password=p, metodo="DELETE",
+                                                                          caminho="/api/access-control/people/9"), req)
+
+    assert pedir("chefe")["autorizado_por"] == "chefe"
+    for u, p in (("chefe", "errada"), ("op2", "certa"), ("alheio", "certa")):
+        with pytest.raises(HTTPException) as e:
+            pedir(u, p)
+        assert e.value.status_code == 403

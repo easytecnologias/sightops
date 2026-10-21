@@ -21,6 +21,7 @@ plataforma (json_state tenant "_platform", chave "permissoes_modo").
 from __future__ import annotations
 
 import collections
+import contextvars
 import copy
 import json
 import logging
@@ -125,14 +126,90 @@ def pode_excluir(user: Optional[Dict[str, Any]] = None) -> bool:
     """Para a acao destrutiva que vem DENTRO de uma rota de uso normal (editar
     canal com acao=excluir, importar que substitui, esvaziar grupo...): a
     regra por forma de rota nao enxerga o corpo. Sem usuario (autenticacao
-    desligada), nada muda."""
+    desligada), nada muda. Operador com autorizacao de um administrador
+    (senha digitada na hora, para ESTA requisicao) tambem pode."""
     if user is None:
         from app.core.tenant_context import get_current_user
 
         user = get_current_user()
     if not user:
         return True
-    return str(user.get("role") or "").strip().lower() in ("admin", "owner")
+    if str(user.get("role") or "").strip().lower() in ("admin", "owner"):
+        return True
+    return autorizacao_da_requisicao() is not None
+
+
+# --------------------------------------------------------------------------- autorizacao do administrador
+# O operador tenta excluir -> 403 com o cabecalho EXIGE_ADMIN -> a tela pede
+# usuario e senha de um administrador -> /api/auth/autorizar-exclusao devolve
+# um codigo de USO UNICO, preso ao operador, ao cliente e a esta acao exata
+# (metodo + caminho), valido por 2 minutos -> a tela repete a requisicao com o
+# codigo no cabecalho AUTORIZACAO. Em memoria: a API roda num processo so, e
+# um codigo perdido num reinicio so obriga a digitar a senha de novo.
+CABECALHO_EXIGE_ADMIN = "X-SightOps-Exige-Admin"
+CABECALHO_AUTORIZACAO = "X-SightOps-Autorizacao"
+_AUTORIZACAO_TTL = 120.0
+_autorizacoes: Dict[str, Dict[str, Any]] = {}
+_autorizacoes_lock = threading.Lock()
+_AUTORIZACAO_ATUAL: "contextvars.ContextVar[Optional[Dict[str, Any]]]" = contextvars.ContextVar(
+    "sightops_autorizacao_admin", default=None)
+
+
+def _tenant_de(user: Dict[str, Any]) -> str:
+    return str(user.get("effective_tenant_slug") or user.get("tenant_slug") or "").strip().lower()
+
+
+def emitir_autorizacao(admin: Dict[str, Any], operador: Dict[str, Any], metodo: str, caminho: str) -> str:
+    import secrets
+
+    agora = time.monotonic()
+    codigo = secrets.token_urlsafe(24)
+    with _autorizacoes_lock:
+        for k in [k for k, v in _autorizacoes.items() if v["expira"] <= agora]:
+            _autorizacoes.pop(k, None)
+        if len(_autorizacoes) > 1000:
+            _autorizacoes.clear()
+        _autorizacoes[codigo] = {
+            "expira": agora + _AUTORIZACAO_TTL, "tenant": _tenant_de(operador),
+            "operador_id": int(operador.get("id") or 0), "metodo": str(metodo or "").upper(),
+            "caminho": str(caminho or ""), "admin_id": int(admin.get("id") or 0),
+            "admin": str(admin.get("username") or ""),
+        }
+    return codigo
+
+
+def consumir_autorizacao(codigo: str, operador: Dict[str, Any], metodo: str, caminho: str) -> Optional[Dict[str, Any]]:
+    """Valida e gasta o codigo (uso unico). None se nao serve para isto."""
+    codigo = str(codigo or "").strip()
+    if not codigo or not operador:
+        return None
+    with _autorizacoes_lock:
+        item = _autorizacoes.pop(codigo, None)
+    if not item or item["expira"] <= time.monotonic():
+        return None
+    if (item["tenant"], item["operador_id"], item["metodo"], item["caminho"]) != (
+            _tenant_de(operador), int(operador.get("id") or 0), str(metodo or "").upper(), str(caminho or "")):
+        return None
+    return item
+
+
+def definir_autorizacao_da_requisicao(item: Optional[Dict[str, Any]]):
+    return _AUTORIZACAO_ATUAL.set(item)
+
+
+def limpar_autorizacao_da_requisicao(token) -> None:
+    _AUTORIZACAO_ATUAL.reset(token)
+
+
+def autorizacao_da_requisicao() -> Optional[Dict[str, Any]]:
+    return _AUTORIZACAO_ATUAL.get()
+
+
+def erro_exige_admin(detalhe: str = ""):
+    """403 que a tela entende como "peca a senha de um administrador"."""
+    from fastapi import HTTPException
+
+    return HTTPException(status_code=403, detail=detalhe or MSG_EXCLUIR, headers={CABECALHO_EXIGE_ADMIN: "1"})
 
 
 def e_exclusao(path: str, method: str) -> bool:

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Iterable
+from typing import Any, Dict, Iterable
 
 from fastapi import Request, Response
 from fastapi.responses import JSONResponse
@@ -64,6 +64,9 @@ class ApiAuthMiddleware(BaseHTTPMiddleware):
             (("POST",), "/api/auth/tenants/", "admin"),
             (("PUT",), "/api/auth/tenants/", "admin"),
             (("POST",), "/api/auth/act-as", "admin"),
+            # Administrador autoriza, com a senha dele, UMA exclusao pedida por
+            # um operador (o handler confere usuario, senha e papel).
+            (("POST",), "/api/auth/autorizar-exclusao", "operator"),
             # Licencas: o handler ainda exige is_platform_admin; o perfil aqui so
             # tira a rota do 403 padrao de escrita.
             (("GET",), "/api/auth/licensing", "admin"),
@@ -231,6 +234,19 @@ class ApiAuthMiddleware(BaseHTTPMiddleware):
             return True
         return False
 
+    def _operaria(self, user: Dict[str, Any], path: str, method: str) -> bool:
+        """A autorizacao do administrador so tira a trava de EXCLUSAO: quem a
+        recebe precisa operar este modulo (viewer, ou modulo restrito no
+        perfil com a regra valendo, continua barrado)."""
+        if not self._role_allows(str(user.get("role") or ""), "operator"):
+            return False
+        try:
+            if permissions.modo() == "valer":
+                return permissions.decidir(user, path, method, "operator")[0]
+        except Exception:
+            return False
+        return True
+
     @staticmethod
     def _role_allows(user_role: str, required_role: str) -> bool:
         have = ROLE_RANK.get(str(user_role or "").strip().lower(), 0)
@@ -327,11 +343,27 @@ class ApiAuthMiddleware(BaseHTTPMiddleware):
         except Exception:
             logger.exception("permissoes: regra nova falhou em %s %s; valeu a antiga", method, path)
 
+        # Exclusao autorizada por um administrador (senha digitada na hora):
+        # o codigo vale uma vez, para este operador e esta acao exata.
+        autorizacao = None
+        codigo = str(request.headers.get(permissions.CABECALHO_AUTORIZACAO) or "").strip()
+        if codigo and method in self._WRITE_METHODS:
+            autorizacao = permissions.consumir_autorizacao(codigo, user, method, path)
+            if autorizacao:
+                logger.warning("exclusao autorizada: %s %s por %s (operador %s), autorizada por %s",
+                               method, path, user.get("username"), user.get("id"), autorizacao.get("admin"))
+        exclusao_barrada = (required_role == "admin" and permissions.e_exclusao(path, method)
+                            and not self._role_allows(str(user.get("role") or ""), "admin"))
+        if not permitido and exclusao_barrada and autorizacao and self._operaria(user, path, method):
+            permitido, motivo = True, ""
+
         if not permitido:
-            if required_role == "admin" and permissions.e_exclusao(path, method) and not self._role_allows(str(user.get("role") or ""), "admin"):
+            headers = {}
+            if exclusao_barrada:
                 motivo = permissions.MSG_EXCLUIR
+                headers[permissions.CABECALHO_EXIGE_ADMIN] = "1"
             try:
-                return JSONResponse(status_code=403, content={"detail": motivo})
+                return JSONResponse(status_code=403, content={"detail": motivo}, headers=headers)
             finally:
                 reset_current_tenant_slug(ctx_token)
 
@@ -343,8 +375,10 @@ class ApiAuthMiddleware(BaseHTTPMiddleware):
         reset_current_tenant_slug(ctx_token)
         ctx_token = set_current_tenant_slug(request.state.current_tenant_slug)
         user_token = set_current_user(user)
+        aut_token = permissions.definir_autorizacao_da_requisicao(autorizacao)
         try:
             return await call_next(request)
         finally:
+            permissions.limpar_autorizacao_da_requisicao(aut_token)
             reset_current_user(user_token)
             reset_current_tenant_slug(ctx_token)

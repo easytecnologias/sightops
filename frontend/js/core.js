@@ -150,7 +150,7 @@ function clearApiJsonCache(match = '') {
 
 //  Helpers HTTP
 async function api(path, opts = {}) {
-  const { skipLogout, ...fetchOpts } = opts;
+  const { skipLogout, _autorizado, ...fetchOpts } = opts;
   // FormData precisa que o browser calcule o boundary sozinho no
   // Content-Type -- se a gente fixar 'application/json' aqui, o upload
   // (ex.: import de planilha) vira bytes multipart com header de json e
@@ -167,7 +167,92 @@ async function api(path, opts = {}) {
     showLoginScreen();
     return null;
   }
+  // Excluir e so para administrador: o servidor responde 403 com
+  // X-SightOps-Exige-Admin. Um administrador digita usuario e senha aqui
+  // mesmo e a MESMA acao e repetida com a autorizacao (uso unico, 2 min).
+  // Vale para toda tela que usa api(), sem mexer em cada uma.
+  if (res.status === 403 && !_autorizado && res.headers.get('X-SightOps-Exige-Admin') === '1') {
+    const detalhe = (await res.clone().json().catch(() => ({})))?.detail || '';
+    let caminho = path;
+    try { caminho = new URL(`${API_BASE}${path}`, window.location.origin).pathname; } catch {}
+    const codigo = await pedirAutorizacaoAdmin({ metodo: method, caminho, detalhe });
+    if (!codigo) return res;
+    return api(path, {
+      ...opts,
+      _autorizado: true,
+      headers: { ...(fetchOpts.headers || {}), 'X-SightOps-Autorizacao': codigo },
+    });
+  }
   return res;
+}
+
+// Modal "autorizacao do administrador". Fecha so por Cancelar/Esc (clicar
+// fora nao fecha: perdia a senha digitada). Devolve o codigo ou null.
+function pedirAutorizacaoAdmin({ metodo, caminho, detalhe }) {
+  return new Promise(resolve => {
+    document.getElementById('modalAutorizacaoAdmin')?.remove();
+    const wrap = document.createElement('div');
+    wrap.id = 'modalAutorizacaoAdmin';
+    wrap.className = 'modal-backdrop';
+    wrap.style.zIndex = '90';
+    wrap.innerHTML = `
+      <div class="modal" style="max-width:420px" role="dialog" aria-modal="true" aria-labelledby="autAdmTitulo">
+        <div class="modal-header">
+          <div>
+            <p class="eyebrow">Somente administrador</p>
+            <h2 id="autAdmTitulo">Autorização para excluir</h2>
+          </div>
+        </div>
+        <form class="modal-body" id="autAdmForm" autocomplete="off">
+          <p style="margin:0 0 12px;font-size:14px;color:var(--text)">${esc(detalhe || 'Excluir é só para administrador ou dono da conta.')}</p>
+          <p style="margin:0 0 14px;font-size:13px;color:var(--muted)">Um administrador pode liberar esta ação agora, digitando o usuário e a senha dele. Fica registrado no histórico com o nome dos dois.</p>
+          <div class="form-group"><label for="autAdmUser">Usuário do administrador</label><input id="autAdmUser" autocomplete="off" autocapitalize="none" spellcheck="false" required></div>
+          <div class="form-group"><label for="autAdmPass">Senha</label><input id="autAdmPass" type="password" autocomplete="new-password" required></div>
+          <p id="autAdmErro" style="display:none;margin:6px 0 0;font-size:13px;color:var(--danger)"></p>
+        </form>
+        <div class="modal-actions">
+          <button type="button" class="secondary-action" id="autAdmCancel">Cancelar</button>
+          <button type="submit" form="autAdmForm" class="primary-action" id="autAdmOk" style="background:var(--danger)"><i data-lucide="shield-check"></i> Autorizar e excluir</button>
+        </div>
+      </div>`;
+    document.body.appendChild(wrap);
+    if (window.lucide) lucide.createIcons();
+    const user = wrap.querySelector('#autAdmUser');
+    const pass = wrap.querySelector('#autAdmPass');
+    const erro = wrap.querySelector('#autAdmErro');
+    const ok = wrap.querySelector('#autAdmOk');
+    const fechar = (val) => {
+      document.removeEventListener('keydown', onKey, true);
+      wrap.remove();
+      resolve(val);
+    };
+    const onKey = (e) => { if (e.key === 'Escape') { e.stopPropagation(); fechar(null); } };
+    document.addEventListener('keydown', onKey, true);
+    wrap.querySelector('#autAdmCancel').addEventListener('click', () => fechar(null));
+    wrap.querySelector('#autAdmForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      erro.style.display = 'none';
+      ok.disabled = true;
+      try {
+        const r = await api('/api/auth/autorizar-exclusao', {
+          method: 'POST',
+          body: JSON.stringify({ username: user.value.trim(), password: pass.value, metodo, caminho }),
+        });
+        const data = await r?.json().catch(() => ({}));
+        if (!r?.ok || !data?.autorizacao) throw new Error(data?.detail || 'Não foi possível autorizar.');
+        showToast(`Autorizado por ${data.autorizado_por}.`);
+        fechar(data.autorizacao);
+      } catch (err) {
+        erro.textContent = err?.message || 'Não foi possível autorizar.';
+        erro.style.display = 'block';
+        pass.value = '';
+        pass.focus();
+      } finally {
+        ok.disabled = false;
+      }
+    });
+    setTimeout(() => user.focus(), 30);
+  });
 }
 
 async function apiJson(path, opts = {}) {

@@ -314,6 +314,47 @@ def api_auth_login(req: LoginRequest, request: Request, response: Response) -> D
     }
 
 
+class AutorizarExclusaoRequest(BaseModel):
+    username: str
+    password: str
+    metodo: str
+    caminho: str
+
+
+@router.post("/autorizar-exclusao")
+def api_auth_autorizar_exclusao(req: AutorizarExclusaoRequest, request: Request) -> Dict[str, Any]:
+    """Um administrador do MESMO cliente digita usuario e senha na tela do
+    operador para liberar UMA exclusao (metodo + caminho exatos, 2 minutos,
+    uso unico). Fica no registro de auditoria do cliente com os dois nomes."""
+    operador = getattr(request.state, "current_user", None) or {}
+    if not operador:
+        raise HTTPException(status_code=401, detail="autenticacao obrigatoria")
+    metodo = str(req.metodo or "").strip().upper()
+    caminho = str(req.caminho or "").strip().split("?", 1)[0]
+    if metodo not in ("POST", "PUT", "PATCH", "DELETE") or not caminho.startswith("/api/") or caminho.startswith("/api/auth/"):
+        raise HTTPException(status_code=400, detail="acao invalida para autorizar")
+    chave = _login_key(request, "autorizar|" + str(req.username or ""))
+    espera = _login_blocked(chave)
+    if espera > 0:
+        raise HTTPException(status_code=429, detail=f"muitas tentativas; tente novamente em {espera}s")
+    admin = authenticate_user(req.username, req.password)
+    papel = str((admin or {}).get("role") or "").lower()
+    mesmo_cliente = bool(admin) and (
+        str(admin.get("tenant_slug") or "").lower() == str(operador.get("effective_tenant_slug") or operador.get("tenant_slug") or "").lower()
+        or bool(admin.get("is_platform_admin")))
+    if not admin or papel not in ("admin", "owner") or not mesmo_cliente:
+        _login_record_failure(chave)
+        raise HTTPException(status_code=403, detail="Usuário ou senha inválidos, ou o usuário não é administrador deste cliente.")
+    _login_record_success(chave)
+    if int(admin.get("id") or 0) == int(operador.get("id") or -1):
+        raise HTTPException(status_code=400, detail="Use a sua própria conta de administrador para excluir direto.")
+    codigo = permissions.emitir_autorizacao(admin, operador, metodo, caminho)
+    _auditar_acesso(operador, "exclusao_autorizada", caminho,
+                    {"metodo": metodo, "caminho": caminho, "operador": operador.get("username"),
+                     "autorizado_por": admin.get("username"), "autorizado_por_id": admin.get("id")})
+    return {"ok": True, "autorizacao": codigo, "validade_s": 120, "autorizado_por": admin.get("username")}
+
+
 @router.post("/logout")
 def api_auth_logout(
     request: Request,

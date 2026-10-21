@@ -56,11 +56,10 @@ def _so_admin() -> None:
     inventario da rede, diagnostico -- mas nao mexe na instalacao: os scripts
     levam o token que autentica o equipamento como o conector, e o site do
     conector decide o que os usuarios restritos alcancam."""
-    from app.core.tenant_context import get_current_user
+    from app.core import permissions
 
-    user = get_current_user()
-    if user and str(user.get("role") or "").lower() not in ("admin", "owner"):
-        raise HTTPException(status_code=403, detail="Criar, instalar e configurar conector e so para administrador ou dono da conta.")
+    if not permissions.pode_excluir():
+        raise permissions.erro_exige_admin("Criar, instalar e configurar conector é só para administrador ou dono da conta.")
 
 
 # Jobs que instalam ou trocam o agente: so administrador (os demais sao uso).

@@ -81,9 +81,7 @@ async def detalhe_onu(serial: str) -> Dict[str, Any]:
 async def acao_onu(serial: str, payload: Dict[str, Any], request: Request) -> Dict[str, Any]:
     acao = str((payload or {}).get("acao") or "").strip()
     if acao == "reset_fabrica" and not permissions.pode_excluir():
-        from fastapi import HTTPException
-
-        raise HTTPException(status_code=403, detail="Reset de fábrica apaga a configuração da ONU: só administrador ou dono da conta.")
+        raise permissions.erro_exige_admin("Reset de fábrica apaga a configuração da ONU: só administrador ou dono da conta.")
     try:
         return await run_in_threadpool(tr.executar, serial, acao, payload or {}, _autor(request))
     except (tr.Tr069Error, ValueError) as exc:

@@ -912,7 +912,7 @@ async def api_inventory_import(file: UploadFile = File(...), mode: str = "olt") 
         sumiriam = [str(r.get("ip") or "") for r in _load_inventory_rows(mode=mode)
                     if str(r.get("ip") or "").strip() not in novos]
         if sumiriam:
-            raise HTTPException(403, f"{permissions.MSG_EXCLUIR} O arquivo deixaria de fora {len(sumiriam)} camera(s) que ja estao no inventario.")
+            raise permissions.erro_exige_admin(f"{permissions.MSG_EXCLUIR} O arquivo deixaria de fora {len(sumiriam)} câmera(s) que já estão no inventário.")
     _save_inventory_rows(rows, mode=mode)
     saved = _load_inventory_rows(mode=mode)
     return {"ok": True, "count": len(saved), "inventory": saved}
@@ -1604,7 +1604,7 @@ def _editar_ponto_da_camada(layer_id: str, ponto: Dict[str, Any], generated: boo
             raise HTTPException(400, f"Valor invalido para {chave}.")
 
     if ponto.get("remover") and not permissions.pode_excluir():
-        raise HTTPException(403, permissions.MSG_EXCLUIR)
+        raise permissions.erro_exige_admin()
     try:
         resultado = editar_ponto_no_kmz(
             kmz_path,
