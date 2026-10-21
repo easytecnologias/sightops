@@ -138,12 +138,24 @@ def _validate_frame_count(start: datetime, end: datetime, interval_seconds: int)
 
 
 @router.post("/clip")
+def _conferir_gravador(host: str) -> None:
+    """Gravacao de gravador de site que o usuario nao acessa: 403 (so com a
+    regra valendo; em sombra a funcao nao consulta nada)."""
+    from app.api.endpoints.maintenance import alvo_permitido
+    from app.core.tenant_context import get_current_user
+
+    ok, motivo = alvo_permitido(get_current_user(), str(host or "").strip(), "ver")
+    if not ok:
+        raise HTTPException(status_code=403, detail=motivo or "sem acesso a este gravador")
+
+
 def create_clip(payload: PlaybackClipRequest) -> dict:
     start = _parse_dt_or_422(payload.start)
     end = _parse_dt_or_422(payload.end)
     _validate_range(start, end)
 
     host = _clean_host_or_422(payload.host)
+    _conferir_gravador(host)
     stem = safe_stem(host, payload.channel, start, end)
     dav_path = EXPORT_DIR / f"{stem}.dav"
     _download_dav_or_http(payload, start, end, dav_path)
@@ -200,6 +212,7 @@ def create_snapshot(payload: PlaybackSnapshotRequest) -> dict:
     )
 
     host = _clean_host_or_422(payload.host)
+    _conferir_gravador(host)
     stem = safe_stem(host, payload.channel, start, end)
     dav_path = EXPORT_DIR / f"{stem}.dav"
     jpg_path = EXPORT_DIR / f"{stem}.jpg"
@@ -224,6 +237,7 @@ def create_frames(payload: PlaybackFramesRequest) -> dict:
     expected = _validate_frame_count(start, end, payload.interval_seconds)
 
     host = _clean_host_or_422(payload.host)
+    _conferir_gravador(host)
     stem = safe_stem(host, payload.channel, start, end)
     dav_path = EXPORT_DIR / f"{stem}.dav"
     _download_dav_or_http(payload, start, end, dav_path)

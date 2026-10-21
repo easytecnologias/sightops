@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, List
 
+from app.core import permissions
 from app.core.database_runtime import database_runtime_status
 from app.core.paths import (
     DATA_DIR,
@@ -319,12 +320,15 @@ def _recent_activity() -> List[Dict[str, Any]]:
 
 def build_dashboard_summary() -> Dict[str, Any]:
     settings = get_settings()
-    ip_basic_rows = load_inventory_json(mode="basic") or []
-    ip_olt_rows = load_inventory_json(mode="olt") or []
-    ip_switch_rows = load_inventory_json(mode="switch") or []
-    dvr_rows = _recorder_rows("dvr")
-    nvr_rows = _recorder_rows("nvr")
-    windows_rows = load_windows_inventory()
+    # Usuario restrito a alguns sites ve o painel so deles (sem usuario --
+    # laco de fundo -- ou sem restricao, o filtro devolve a lista intacta).
+    f = permissions.filtrar_por_site
+    ip_basic_rows = f(load_inventory_json(mode="basic") or [])
+    ip_olt_rows = f(load_inventory_json(mode="olt") or [])
+    ip_switch_rows = f(load_inventory_json(mode="switch") or [])
+    dvr_rows = f(_recorder_rows("dvr"))
+    nvr_rows = f(_recorder_rows("nvr"))
+    windows_rows = f(load_windows_inventory())
 
     # basico/olt/switch sao 3 vistas (potencialmente sobrepostas) da MESMA
     # camera, nao 3 listas que se somam -- concatenar direto contava a
@@ -374,7 +378,7 @@ def build_dashboard_summary() -> Dict[str, Any]:
 
     try:
         from app.services.monitoring_service import monitoring_summary
-        monitoring = monitoring_summary()
+        monitoring = monitoring_summary(sites=permissions.sites_da_sessao())
     except Exception:
         monitoring = {"ok": False, "types": {}, "events": []}
 

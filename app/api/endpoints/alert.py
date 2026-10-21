@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
+from app.core import permissions
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
@@ -182,7 +183,7 @@ def api_alert_nearby_cameras(
     if abs(lat) > 90 or abs(lon) > 180:
         raise HTTPException(status_code=400, detail="coordenada invalida")
     raio = effective_radius_m(radius_m, accuracy_m)
-    cams = nearby_cameras(lat, lon, limit=limit, max_distance_m=radius_m, accuracy_m=accuracy_m)
+    cams = permissions.filtrar_por_site(nearby_cameras(lat, lon, limit=limit, max_distance_m=radius_m, accuracy_m=accuracy_m))
     out: Dict[str, Any] = {
         "ok": True,
         "count": len(cams),
@@ -194,6 +195,8 @@ def api_alert_nearby_cameras(
     }
     if not cams:
         perto = nearest_camera(lat, lon)
+        if perto and not permissions.filtrar_por_site([perto]):
+            perto = None  # a mais perto e de site que o usuario nao acessa
         if perto:
             out["nearest"] = {
                 "titulo": perto.get("titulo"),
@@ -207,7 +210,7 @@ def api_alert_nearby_cameras(
 def api_alert_unit_cameras(
     connector_id: str = Query(...), lat: Optional[float] = Query(None), lon: Optional[float] = Query(None)
 ) -> Dict[str, Any]:
-    cams = connector_cameras(connector_id, lat, lon)
+    cams = permissions.filtrar_por_site(connector_cameras(connector_id, lat, lon))
     return {"ok": True, "count": len(cams), "cameras": cams}
 
 

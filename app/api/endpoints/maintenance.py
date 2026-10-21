@@ -2451,7 +2451,7 @@ async def maintenance_camera_web_proxy(ip: str, request: Request, path: str = ""
             return Response(
                 content=conteudo, status_code=status_code, media_type=media_type,
                 headers={
-                    "Cache-Control": f"public, max-age={_CDN_CACHE_MAX_AGE_SECONDS}",
+                    "Cache-Control": f"private, max-age={_CDN_CACHE_MAX_AGE_SECONDS}",
                     "X-Frame-Options": "SAMEORIGIN",
                     "X-SightOps-Proxy-Cache": "hit",
                 },
@@ -2536,13 +2536,17 @@ async def maintenance_camera_web_proxy(ip: str, request: Request, path: str = ""
         "X-Frame-Options": "SAMEORIGIN",
         **filter_response_headers(upstream.headers),
     }
+    # "private", nao "public": o Cloudflare guarda .jpg/.js/.css por URL e
+    # entregaria a QUALQUER um (sem login, outro cliente com o mesmo IP
+    # privado) por 30 min -- inclusive foto servida pela web da camera. Assim
+    # so o navegador de quem ja passou pela autorizacao guarda.
     # decisao nossa, nao da camera: sobrescreve o que veio de
     # filter_response_headers (que deixa passar um Cache-Control do proprio
     # equipamento) -- so arquivo estatico com 200 e sem Set-Cookie vira
     # publicamente cacheavel na borda do Cloudflare; qualquer outra coisa
     # (html dinamico, RPC/cgi, erro) continua no-store, sem excecao.
     resp_headers["Cache-Control"] = (
-        f"public, max-age={_CDN_CACHE_MAX_AGE_SECONDS}"
+        f"private, max-age={_CDN_CACHE_MAX_AGE_SECONDS}"
         if (cacheavel and upstream.status_code == 200 and not upstream.headers.get("set-cookie"))
         else "no-store"
     )

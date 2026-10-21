@@ -100,7 +100,12 @@ def api_connectors_delete(connector_id: str) -> Dict[str, Any]:
 
 @router.get("/{connector_id}")
 def api_connectors_get(connector_id: str) -> Dict[str, Any]:
-    row = get_connector(connector_id, include_token=True, enforce_tenant=True)
+    # O token autentica o MikroTik/Ruijie como o conector: so admin ve (para
+    # gerar o script de instalacao). Operador edita e opera sem precisar dele.
+    from app.core.tenant_context import get_current_user
+
+    papel = str((get_current_user() or {}).get("role") or "").lower()
+    row = get_connector(connector_id, include_token=papel in ("admin", "owner"), enforce_tenant=True)
     if not row:
         raise HTTPException(status_code=404, detail="conector nao encontrado")
     return {"ok": True, "connector": row}

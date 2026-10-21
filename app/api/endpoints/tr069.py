@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from typing import Any, Dict
 
+from app.core import permissions
 from fastapi import APIRouter, Request
 from fastapi.concurrency import run_in_threadpool
 
@@ -25,9 +26,32 @@ def _erro(exc: Exception) -> Dict[str, Any]:
 @router.get("/devices")
 async def listar_onus() -> Dict[str, Any]:
     try:
-        return await run_in_threadpool(tr.listar)
+        dados = await run_in_threadpool(tr.listar)
     except tr.Tr069Error as exc:
         return _erro(exc)
+    sites = permissions.sites_da_sessao()
+    if sites is not None and isinstance(dados, dict):
+        dados = {**dados, "onus": _onus_dos_sites(dados.get("onus") or [], sites)}
+    return dados
+
+
+def _onus_dos_sites(onus: list, sites: list) -> list:
+    """ONU nao tem site proprio: vale o site da OLT dela (site da OLT ou do
+    conector dela). OLT sem site conhecido fica de fora para usuario restrito."""
+    from app.api.endpoints.maintenance import _site_do_conector
+    from app.core.tenant_context import get_current_tenant_slug
+    from app.services.db_store import _conn
+
+    liberados = {s.strip().upper() for s in sites}
+    site_da_olt: Dict[str, str] = {}
+    with _conn() as c:
+        for r in c.execute(
+            "SELECT o.name, o.connector_id, s.name AS site FROM olts o LEFT JOIN sites s ON s.id = o.site_id WHERE o.tenant_slug=?",
+            (get_current_tenant_slug(),),
+        ).fetchall():
+            site = str(r["site"] or "").strip() or _site_do_conector(r["connector_id"])
+            site_da_olt[str(r["name"] or "").strip().upper()] = site.strip().upper()
+    return [o for o in onus if isinstance(o, dict) and site_da_olt.get(str(o.get("olt") or "").strip().upper(), "") in liberados]
 
 
 @router.get("/devices/{serial}")

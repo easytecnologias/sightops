@@ -5,6 +5,7 @@ import json
 from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, List, Optional
 
+from app.core import permissions
 from fastapi import Body, APIRouter, Depends, File, Header, HTTPException, Query, Request, Response, UploadFile
 from pydantic import BaseModel, Field
 from starlette.responses import PlainTextResponse, StreamingResponse
@@ -685,13 +686,33 @@ def api_access_control_sync_person(person_id: str) -> Dict[str, Any]:
 
 @router.get("/devices")
 def api_access_control_devices() -> Dict[str, Any]:
-    return {"ok": True, "devices": list_devices()}
+    return {"ok": True, "devices": permissions.filtrar_por_site(list_devices(), ("site",))}
+
+
+def _conferir_site_da_controladora(payload: Dict[str, Any]) -> None:
+    """Com a regra valendo, usuario restrito so grava controladora em site que
+    acessa, ligada a conector de site que acessa (senao a controladora vira
+    ponte para a rede do outro site)."""
+    from app.core.tenant_context import get_current_user
+
+    user = get_current_user()
+    if not user or permissions.sites_da_sessao() is None:
+        return
+    if not permissions.site_liberado(user, payload.get("site")):
+        raise HTTPException(status_code=403, detail="site da controladora fora dos seus sites")
+    cid = str(payload.get("connector_id") or "").strip()
+    if cid:
+        from app.api.endpoints.maintenance import _site_do_conector
+
+        if not permissions.site_liberado(user, _site_do_conector(cid)):
+            raise HTTPException(status_code=403, detail="conector de site fora dos seus sites")
 
 
 @router.post("/devices")
 def api_access_control_save_device(req: AccessDeviceRequest) -> Dict[str, Any]:
     try:
         payload = req.model_dump() if hasattr(req, "model_dump") else req.dict()
+        _conferir_site_da_controladora(payload)
         device = save_device(payload)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
