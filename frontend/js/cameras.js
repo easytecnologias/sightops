@@ -407,7 +407,7 @@ function mapChaveItem(f) {
 // neles (como pasta no Google Earth). Devolve { caixas, cabos, ips, pontos }.
 function mapFilhosOcultos(def) {
   const ocultos = mapOcultosDaCamada(def?.id);
-  const r = { caixas: new Set(), cabos: new Set(), ips: new Set(), pontos: new Set() };
+  const r = { caixas: new Set(), cabos: new Set(), ips: new Set(), pontos: new Set(), pai: {} };
   if (!ocultos.size || !def?.caixas || typeof cxPosDaCaixa !== 'function') return r;
   const pontos = (def.features || []).filter(f => f?.geometry?.type === 'Point');
   Object.values(def.caixas).forEach(cx => {
@@ -422,8 +422,10 @@ function mapFilhosOcultos(def) {
   Object.values(def.cabos || {}).forEach(c => {
     if (!r.caixas.has(c.caixa)) return;
     r.cabos.add(c.id);
-    if (c.camera?.ip) r.ips.add(String(c.camera.ip));
-    if (c.camera?.ponto) r.pontos.add(String(c.camera.ponto).toLowerCase());
+    const pai = def.caixas[c.caixa]?.nome || 'caixa';
+    r.pai[`cabo:${c.id}`] = pai;
+    if (c.camera?.ip) { r.ips.add(String(c.camera.ip)); r.pai[`ip:${c.camera.ip}`] = pai; }
+    if (c.camera?.ponto) { r.pontos.add(String(c.camera.ponto).toLowerCase()); r.pai[`n:${String(c.camera.ponto).toLowerCase()}`] = pai; }
   });
   return r;
 }
@@ -443,12 +445,13 @@ function mapGravarOcultos(def) {
 
 // Itens de uma categoria da legenda: { chave, nome, sub, cor, latlng }
 function mapItensDaCategoria(def, cat) {
+  const fo = mapFilhosOcultos(def);
   if (cat === 'cabos') {
     return Object.values(def.cabos || {}).map(c => {
       const cx = def.caixas?.[c.caixa];
       const dest = c.cto ? `CTO ${c.cto.ponto}` : (c.camera?.ponto || c.camera?.ip || '');
       return { chave: `cabo:${c.id}`, nome: `${cx?.nome || 'Caixa'} → ${dest}`, sub: `${Math.round(c.metros || 0)} m${c.porta ? ` · porta ${c.porta}` : ''}`,
-        cor: '#1971c2', latlng: c.caminho?.[c.caminho.length - 1] };
+        cor: '#1971c2', latlng: c.caminho?.[c.caminho.length - 1], pai: fo.pai[`cabo:${c.id}`] || '' };
     });
   }
   const cores = { online: '#16a34a', offline: '#dc2626', outros: '#d97706', fiber: '#0ea5e9', box: '#f59e0b', pole: '#64748b', cto: '#1971c2', cdo: '#7950f2' };
@@ -463,7 +466,8 @@ function mapItensDaCategoria(def, cat) {
     const nFilhos = caixa ? Object.values(def.cabos || {}).filter(x => x.caixa === caixa.id).length : 0;
     return [{ chave: mapChaveItem(f), nome: caixa?.nome || cam?.titulo || nome || '(sem nome)',
       sub: cam?.ip || (caixa ? `${nFilhos} cabo(s) e o que está ligado neles` : ''),
-      cor: cores[cats[cats.length - 1]] || '#64748b', latlng: [+p[1], +p[0]] }];
+      cor: cores[cats[cats.length - 1]] || '#64748b', latlng: [+p[1], +p[0]],
+      pai: (cam?.ip && fo.pai[`ip:${cam.ip}`]) || fo.pai[`n:${nome.toLowerCase()}`] || '' }];
   }).sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR', { numeric: true }));
 }
 
@@ -476,16 +480,16 @@ function mapRenderListaLegenda(def, statsEl) {
   const ocultos = mapOcultosDaCamada(def.id);
   const itens = mapItensDaCategoria(def, cat);
   const todosOff = ocultos.has(cat);
-  const visiveis = todosOff ? 0 : itens.filter(i => !ocultos.has(i.chave)).length;
+  const visiveis = todosOff ? 0 : itens.filter(i => !ocultos.has(i.chave) && !i.pai).length;
   const rotulo = statsEl.querySelector(`[data-map-cat="${cat}"]`)?.dataset.rotulo || cat;
   const el = document.createElement('div');
   el.className = 'map-legenda-lista';
   el.innerHTML = `<label class="map-legenda-todos"><input type="checkbox" data-leg-todos ${visiveis === itens.length ? 'checked' : ''}>
       <span>${esc(rotulo)} <small>${visiveis} de ${itens.length} no mapa</small></span></label>
     <div class="map-legenda-itens">${itens.map(i => `<div class="map-legenda-item">
-      <input type="checkbox" data-leg-item="${esc(i.chave)}" ${!todosOff && !ocultos.has(i.chave) ? 'checked' : ''} aria-label="Mostrar ${esc(i.nome)}">
+      <input type="checkbox" data-leg-item="${esc(i.chave)}" ${!todosOff && !ocultos.has(i.chave) && !i.pai ? 'checked' : ''} ${i.pai ? `disabled title="Escondida junto com a caixa ${esc(i.pai)}. Marque a caixa para mostrar."` : ''} aria-label="Mostrar ${esc(i.nome)}">
       <span class="map-layer-stat-dot" style="background:${i.cor}"></span>
-      <button type="button" data-leg-ir="${esc(i.chave)}" title="Ir até no mapa"><span>${esc(i.nome)}</span>${i.sub ? `<small>${esc(i.sub)}</small>` : ''}</button></div>`).join('')
+      <button type="button" data-leg-ir="${esc(i.chave)}" title="Ir até no mapa"><span>${esc(i.nome)}</span>${i.pai ? `<small>escondida com a caixa ${esc(i.pai)}</small>` : i.sub ? `<small>${esc(i.sub)}</small>` : ''}</button></div>`).join('')
       || '<div class="map-legenda-vazio">Nenhum item.</div>'}</div>`;
   // logo abaixo dos itens da legenda (antes dos avisos do card)
   const ult = [...statsEl.querySelectorAll('[data-map-cat]')].pop();
@@ -523,7 +527,7 @@ function mapAtualizarChips(def, statsEl) {
   statsEl.querySelectorAll('[data-map-cat]').forEach(b => {
     const cat = b.dataset.mapCat;
     const itens = mapItensDaCategoria(def, cat);
-    const escondidos = ocultos.has(cat) ? itens.length : itens.filter(i => ocultos.has(i.chave)).length;
+    const escondidos = ocultos.has(cat) ? itens.length : itens.filter(i => ocultos.has(i.chave) || i.pai).length;
     b.classList.toggle('off', itens.length > 0 && escondidos === itens.length);
     b.classList.toggle('parcial', escondidos > 0 && escondidos < itens.length);
   });
