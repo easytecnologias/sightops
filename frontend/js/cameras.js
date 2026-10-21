@@ -1976,8 +1976,8 @@ function renderMapLayerGroup(id, def, skipFit = false) {
           const el = marker.getPopup()?.getElement();
           const nomePonto = mapFeatureName(f);
           const repetidos = _porNome[nomePonto.toLowerCase()] || 1;
-          el?.querySelector('[data-map-point-rename]')?.addEventListener('click', () => openMapPointRename(def, nomePonto));
-          el?.querySelector('[data-map-point-delete]')?.addEventListener('click', () => handleMapPointDelete(def, nomePonto, repetidos));
+          el?.querySelector('[data-map-point-rename]')?.addEventListener('click', () => openMapPointRename(def, nomePonto, [+lat, +lng]));
+          el?.querySelector('[data-map-point-delete]')?.addEventListener('click', () => handleMapPointDelete(def, nomePonto, repetidos, [+lat, +lng]));
         });
       }
       // Editor ao lado (mapCamPanel): o marcador guarda o que o painel precisa
@@ -2284,9 +2284,9 @@ async function handleMapPointDragEnd(def, nome, marker, de) {
 
 let _mapPointRenameTarget = null;
 
-function openMapPointRename(def, nome) {
+function openMapPointRename(def, nome, de = null) {
   if (!def?.updateUrl || !nome) return;
-  _mapPointRenameTarget = { def, nome };
+  _mapPointRenameTarget = { def, nome, de };
   const modal = document.getElementById('modalMapPointRename');
   const input = document.getElementById('mapPointRenameInput');
   if (!modal || !input) return;
@@ -2329,23 +2329,26 @@ async function saveMapPointRename() {
   }
   closeMapPointRename();
   if (novoNome === alvo.nome) return;
-  await saveMapPoint(alvo.def, { nome: alvo.nome, novo_nome: novoNome }, `Ponto renomeado para "${novoNome}".`);
+  // de = onde o ponto esta: o KMZ repete nomes e so este deve mudar
+  const atual = alvo.de ? { lat_atual: alvo.de[0], lon_atual: alvo.de[1] } : {};
+  await saveMapPoint(alvo.def, { nome: alvo.nome, novo_nome: novoNome, ...atual }, `Ponto renomeado para "${novoNome}".`);
 }
 
-async function handleMapPointDelete(def, nome, repetidos = 1) {
+async function handleMapPointDelete(def, nome, repetidos = 1, de = null) {
   if (!def?.updateUrl || !nome) return;
-  // O backend casa por nome e remove TODOS os Placemarks que batem. Com
-  // nome repetido, apagar um apaga os outros junto -- melhor dizer antes.
-  const aviso = repetidos > 1
+  // Com a posicao (de), o servidor remove so o ponto daquele lugar. Sem ela
+  // casaria por nome e apagaria TODOS os pontos com o mesmo nome.
+  const aviso = repetidos > 1 && !de
     ? ` ATENCAO: existem ${repetidos} pontos com esse mesmo nome nesta camada, e TODOS serao removidos.`
-    : '';
+    : repetidos > 1 ? ` Existem ${repetidos} pontos com esse nome; só este sai.` : '';
   const ok = await showConfirm({
     title: 'Excluir ponto',
     msg: `Remover o ponto "${nome}" do mapa? A camera continua no inventario, so o pino some do KMZ.${aviso}`,
     label: 'Excluir',
   });
   if (!ok) return;
-  await saveMapPoint(def, { nome, remover: true }, `Ponto "${nome}" removido.`);
+  const atual = de ? { lat_atual: de[0], lon_atual: de[1] } : {};
+  await saveMapPoint(def, { nome, remover: true, ...atual }, `Ponto "${nome}" removido.`);
 }
 
 async function saveMapPoint(def, ponto, successMsg) {
@@ -2479,15 +2482,18 @@ function openMapLayerDetails(def) {
     <span class="map-detail-pill"><span class="map-layer-stat-dot" style="background:#0ea5e9"></span>${stats.fiber} fibra</span>
     <span class="map-detail-pill"><span class="map-layer-stat-dot" style="background:#f59e0b"></span>${stats.boxes} caixas</span>
     <span class="map-detail-pill"><span class="map-layer-stat-dot" style="background:#64748b"></span>${stats.poles} postes</span>
+    ${mapOcultosDaCamada(def.id).size ? `<button class="map-detail-filter" data-map-detail-filter="visiveis" title="Só o que está aparecendo no mapa"><span class="map-layer-stat-dot" style="background:#adb5bd"></span>esconder os que não estão no mapa</button>` : ''}
     <label class="map-detail-search">
       <i data-lucide="search"></i>
       <input id="mapLayerDetailsSearch" type="search" placeholder="Buscar por nome, IP, local ou modelo">
     </label>`;
 
+  const filhosOcultos = mapFilhosOcultos(def);
   const rows = (def.features || [])
     .map(f => {
       const cam = mapFindCamera(f, _mapCameraIndex);
       const type = mapFeatureType(f, cam);
+      const oculto = mapPontoOculto(def, f, cam, type, filhosOcultos);
       const status = mapFeatureStatus(f, cam);
       const name = cam?.titulo || mapFeatureName(f) || cam?.ip || mapTypeLabel(type);
       const ip = cam?.ip || mapExtractIp(f?.properties?.description) || '-';
@@ -2497,6 +2503,7 @@ function openMapLayerDetails(def) {
         : ({ fiber: '#0ea5e9', pole: '#64748b', box: '#f59e0b', cto: '#1971c2', cdo: '#7950f2' }[type] || '#d97706');
       return {
         status,
+      oculto,
       type,
       color,
       name,
@@ -2511,15 +2518,15 @@ function openMapLayerDetails(def) {
     .filter(Boolean)
     .sort((a, b) => {
       const statusOrder = { offline: 0, online: 1, outros: 2 };
-      return (statusOrder[a.status] ?? 3) - (statusOrder[b.status] ?? 3)
+      return (a.oculto - b.oculto) || (statusOrder[a.status] ?? 3) - (statusOrder[b.status] ?? 3)
         || a.name.localeCompare(b.name, 'pt', { numeric: true });
     });
 
   list.innerHTML = rows.length
     ? rows.map(r => `
-      <button class="map-detail-row" data-map-layer-id="${esc(r.layerId)}" data-map-feature-key="${esc(r.key)}" data-map-status="${esc(r.status)}" data-map-type="${esc(r.type)}" data-map-search="${esc(r.search)}" title="${esc(`${r.name} | ${r.ip} | ${r.local} | ${r.model}`)}">
-        <span class="map-layer-stat-dot" style="background:${r.color}"></span>
-        <div><strong>${esc(r.name)}</strong><span class="muted">${esc(r.model || r.status)}</span></div>
+      <button class="map-detail-row${r.oculto ? ' map-detail-oculto' : ''}" ${r.oculto ? 'disabled' : ''} data-map-layer-id="${esc(r.layerId)}" data-map-feature-key="${esc(r.key)}" data-map-status="${esc(r.status)}" data-map-type="${esc(r.type)}" data-map-search="${esc(r.search)}" title="${esc(r.oculto ? `${r.name}: escondido no mapa (marque na lista da camada para mostrar)` : `${r.name} | ${r.ip} | ${r.local} | ${r.model}`)}">
+        <span class="map-layer-stat-dot" style="background:${r.oculto ? '#adb5bd' : r.color}"></span>
+        <div><strong>${esc(r.name)}</strong><span class="muted">${r.oculto ? 'escondido no mapa' : esc(r.model || r.status)}</span></div>
         <span class="monospace">${esc(r.ip)}</span>
         <span class="muted">${esc(r.local)}</span>
       </button>`).join('')
@@ -2531,6 +2538,7 @@ function openMapLayerDetails(def) {
     let visible = 0;
     list.querySelectorAll('.map-detail-row').forEach(row => {
       const statusOk = activeFilter === 'all'
+        || (activeFilter === 'visiveis' && !row.classList.contains('map-detail-oculto'))
         || row.dataset.mapStatus === activeFilter
         || row.dataset.mapType === activeFilter;
       const searchOk = !q || String(row.dataset.mapSearch || '').includes(q);
@@ -4575,7 +4583,9 @@ async function mcpSalvarUma(e) {
     if (v.nome && v.nome !== o.nome && v.nome !== e.nomePonto) ponto.novo_nome = v.nome;
     if (Math.abs(v.lat - o.lat) > 1e-7 || Math.abs(v.lng - o.lng) > 1e-7) { ponto.lat = v.lat; ponto.lon = v.lng; }
     if (Object.keys(ponto).length) {
-      const r = await api(e.def.updateUrl, { method: 'PATCH', body: JSON.stringify({ ponto: { nome: e.nomePonto, ...ponto } }) });
+      // so o ponto deste lugar (o KMZ repete nomes)
+      const atual = Number.isFinite(+o.lat) && Number.isFinite(+o.lng) ? { lat_atual: +o.lat, lon_atual: +o.lng } : {};
+      const r = await api(e.def.updateUrl, { method: 'PATCH', body: JSON.stringify({ ponto: { nome: e.nomePonto, ...ponto, ...atual } }) });
       const d = await r?.json().catch(() => ({}));
       if (!r?.ok || d?.ok === false) throw new Error(`ponto do mapa não atualizado: ${d?.detail || d?.error || ''}`);
     }

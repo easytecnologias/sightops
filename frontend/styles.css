@@ -12961,3 +12961,6 @@ button.map-layer-stat.parcial .map-layer-stat-dot { box-shadow: 0 0 0 2px var(--
 .map-legenda-item button span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .map-legenda-item button small { color: var(--muted); font-size: 10.5px; }
 .map-legenda-vazio { padding: 8px; color: var(--muted); }
+/* Detalhes: item escondido no mapa (pela lista da camada) */
+.map-detail-row.map-detail-oculto { opacity: .5; cursor: default; filter: grayscale(1); }
+.map-detail-row.map-detail-oculto:hover { background: inherit; border-color: var(--border); }

@@ -281,3 +281,13 @@ def test_arrastar_ponto_com_nome_repetido_move_so_um(tmp_path):
     editar_ponto_no_kmz(k, nome="Caixa - S 4P", lat=-10.2, lon=-36.2, lat_atual=-10.5, lon_atual=-36.5)
     pts = sorted(f["geometry"]["coordinates"][1] for f in kmz_to_geojson(k)["features"])
     assert pts == [-10.2, -10.0]
+
+
+def test_excluir_e_renomear_ponto_com_nome_repetido_so_o_do_lugar(tmp_path):
+    from app.services.kmz_ops import editar_ponto_no_kmz, kmz_to_geojson
+    k = tmp_path / "x.kmz"
+    _kmz_com_pontos(k, [("Caixa - S 4P", -10.0, -36.0), ("Caixa - S 4P", -10.5, -36.5), ("Caixa - S 4P", -10.7, -36.7)])
+    editar_ponto_no_kmz(k, nome="Caixa - S 4P", remover=True, lat_atual=-10.5, lon_atual=-36.5)
+    editar_ponto_no_kmz(k, nome="Caixa - S 4P", novo_nome="C-CFTV-09", lat_atual=-10.7, lon_atual=-36.7)
+    pts = sorted((f["properties"]["name"], f["geometry"]["coordinates"][1]) for f in kmz_to_geojson(k)["features"])
+    assert pts == [("C-CFTV-09", -10.7), ("Caixa - S 4P", -10.0)]
