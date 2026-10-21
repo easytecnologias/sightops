@@ -451,6 +451,14 @@ function cxTerminarDesenho(camera, cto = null) {
   d.camera = camera;
   d.cto = cto;
   d.barra.hidden = true;
+  // o traçado acabou: a linha-guia para de seguir o mouse e clique no mapa
+  // nao vira mais curva enquanto o formulario esta aberto
+  _map.off('click', d.aoClicar);
+  _map.off('mousemove', d.aoMover);
+  _map.getContainer().classList.remove('cx-desenhando');
+  d.fantasma.setLatLngs([]);
+  d.linha.setLatLngs(d.pontos);
+  d.linha.setStyle({ dashArray: null });
   const padrao = cto ? 'drop' : 'utp5e';
   const campoPorta = cto
     ? '<div class="form-group" style="margin:0"><label for="cxPortaCto">Porta da CTO</label><input id="cxPortaCto" type="number" min="1" max="64" placeholder="ex.: 3"></div>'
