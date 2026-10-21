@@ -1620,6 +1620,8 @@ def _editar_ponto_da_camada(layer_id: str, ponto: Dict[str, Any], generated: boo
             descricao=str(ponto.get("descricao") or ""),
             remover=bool(ponto.get("remover")),
             novo_nome=str(ponto.get("novo_nome") or ""),
+            lat_atual=_coord("lat_atual"),
+            lon_atual=_coord("lon_atual"),
         )
     except ValueError as exc:
         raise HTTPException(400, str(exc))
@@ -1861,12 +1863,50 @@ def _caixa_da_camada(layer_id: str, dados: Dict[str, Any], por: str = "") -> dic
         return _caixa_da_camada_sem_lock(layer_id, dados, por)
 
 
+def _mover_caixa(layer_id: str, meta: dict, meta_path: Path, caixa: dict, dados: Dict[str, Any], cabos: dict) -> None:
+    """Move a caixa: o ponto no KMZ (pelo nome + posicao antiga), a posicao
+    gravada e a ponta dos cabos dela (metragem refeita)."""
+    from app.services.kmz_ops import editar_ponto_no_kmz, kmz_to_geojson
+
+    try:
+        de = [float(dados["de"]["lat"]), float(dados["de"]["lng"])]
+        para = [float(dados["mover"]["lat"]), float(dados["mover"]["lng"])]
+    except (KeyError, TypeError, ValueError):
+        raise HTTPException(400, "Informe a posicao antiga (de) e a nova (mover).")
+    if not (-90 <= para[0] <= 90 and -180 <= para[1] <= 180):
+        raise HTTPException(400, "Posicao fora do mapa.")
+    kmz_path, geojson_path, _ = _kmz_layer_paths(layer_id)
+    try:
+        editar_ponto_no_kmz(kmz_path, nome=str(caixa.get("ponto") or ""), lat=para[0], lon=para[1],
+                            lat_atual=de[0], lon_atual=de[1])
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    geojson_path.write_text(json.dumps(kmz_to_geojson(kmz_path), ensure_ascii=False), encoding="utf-8")
+    caixa["lat"], caixa["lng"] = round(para[0], 7), round(para[1], 7)
+    for c in cabos.values():
+        cam = c.get("caminho") if isinstance(c, dict) else None
+        if c.get("caixa") != caixa.get("id") or not cam:
+            continue
+        c["caminho"] = [[round(para[0], 7), round(para[1], 7)]] + cam[1:]
+        c["metros"] = _metros_do_caminho(c["caminho"])
+        c["metros_com_folga"] = round(c["metros"] * (1 + int(c.get("folga_pct") or 0) / 100), 1)
+
+
 def _caixa_da_camada_sem_lock(layer_id: str, dados: Dict[str, Any], por: str = "") -> dict[str, Any]:
     meta, meta_path = _meta_da_camada_ou_404(layer_id)
     caixas = meta.get("caixas") if isinstance(meta.get("caixas"), dict) else {}
     cabos = meta.get("cabos") if isinstance(meta.get("cabos"), dict) else {}
     cid = _texto_curto(dados.get("id"), 24)
     inventario: Optional[tuple] = None  # (cabos, caixa, limpar) para depois de gravar o meta
+    if isinstance(dados.get("mover"), dict):
+        if cid not in caixas:
+            raise HTTPException(404, "Caixa nao encontrada.")
+        _mover_caixa(layer_id, meta, meta_path, caixas[cid], dados, cabos)
+        meta["caixas"], meta["cabos"] = caixas, cabos
+        meta["updated_at"] = datetime.now().isoformat(timespec="seconds")
+        _write_kmz_layer_meta(meta_path, meta)
+        _apagar_geradas_do_mapa(layer_id)
+        return {"caixas": caixas, "cabos": cabos}
     if dados.get("excluir"):
         if cid not in caixas:
             raise HTTPException(404, "Caixa nao encontrada.")

@@ -506,8 +506,13 @@ def editar_ponto_no_kmz(
     descricao: str = "",
     remover: bool = False,
     novo_nome: str = "",
+    lat_atual: float | None = None,
+    lon_atual: float | None = None,
 ) -> dict[str, Any]:
     """Adiciona, move, renomeia ou remove um ponto no KMZ, casando pelo nome.
+
+    Com lat_atual/lon_atual, so o ponto desse nome NAQUELE lugar: o KMZ repete
+    nomes ("Caixa - S 4P" em 14 lugares) e casar so pelo nome mexia em todos.
 
     Devolve o que aconteceu para a tela poder dizer ao usuario. Nome vazio e
     recusado: sem ele o ponto nao casa com camera nenhuma e vira pino solto.
@@ -538,6 +543,13 @@ def editar_ponto_no_kmz(
     # o Placemark pode estar dentro de qualquer Folder; procura o pai real
     pai_de: dict[ET.Element, ET.Element] = {f: p for p in root.iter() for f in p}
     existentes = [pm for pm in root.findall(".//kml:Placemark", KML_NS) if _mesmo_ponto(pm, nome)]
+    if lat_atual is not None and lon_atual is not None:
+        def _ali(pm: ET.Element) -> bool:
+            c = _parse_coords_text(pm.findtext(".//kml:Point/kml:coordinates", default="", namespaces=KML_NS))
+            return bool(c) and abs(c[0][1] - float(lat_atual)) < 1e-5 and abs(c[0][0] - float(lon_atual)) < 1e-5
+        existentes = [pm for pm in existentes if _ali(pm)]
+        if not existentes:
+            raise ValueError("Ponto nao encontrado nessa posicao. Atualize o mapa e tente de novo.")
 
     if remover:
         if not existentes:

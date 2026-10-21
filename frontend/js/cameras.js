@@ -1712,7 +1712,7 @@ function renderMapLayerGroup(id, def, skipFit = false) {
       const marker = L.marker([+lat, +lng], { icon, draggable: canDrag });
       marker.on('click', () => { if (typeof cxCliqueNoPonto === 'function') cxCliqueNoPonto(def, f, cam, [+lat, +lng], marker); });
       if (canDrag) {
-        marker.on('dragend', () => handleMapPointDragEnd(def, mapFeatureName(f), marker));
+        marker.on('dragend', () => handleMapPointDragEnd(def, mapFeatureName(f), marker, [+lat, +lng]));
       }
       const featureKey = mapFeatureKey(f, cam);
       if (!state.markers) state.markers = {};
@@ -2088,13 +2088,15 @@ async function handleMapEditClick(e) {
   }, `Ponto criado para "${cam.titulo || cam.ip}".`);
 }
 
-async function handleMapPointDragEnd(def, nome, marker) {
+async function handleMapPointDragEnd(def, nome, marker, de) {
   if (!nome) {
     showToast('Nao foi possivel identificar o nome deste ponto.', true);
     return;
   }
   const latlng = marker.getLatLng();
-  await saveMapPoint(def, { nome, lat: latlng.lat, lon: latlng.lng }, `Ponto "${nome}" movido.`);
+  // de = onde o ponto estava: o KMZ repete nomes e so este deve andar
+  const atual = de ? { lat_atual: de[0], lon_atual: de[1] } : {};
+  await saveMapPoint(def, { nome, lat: latlng.lat, lon: latlng.lng, ...atual }, `Ponto "${nome}" movido.`);
 }
 
 let _mapPointRenameTarget = null;

@@ -243,3 +243,41 @@ def test_excluir_linha_so_a_pedida_e_so_admin(camada):
     assert any(f["geometry"]["type"] == "Point" for f in feats)  # ponto nao e tocado
     geo = json.loads((camada / "c1.geojson").read_text(encoding="utf-8"))
     assert len([f for f in geo["features"] if f["geometry"]["type"] == "LineString"]) == 2
+
+
+def _kmz_com_pontos(path, pontos):
+    import zipfile
+    kml = ('<?xml version="1.0" encoding="UTF-8"?><kml xmlns="http://www.opengis.net/kml/2.2"><Document>'
+           + "".join(f"<Placemark><name>{n}</name><Point><coordinates>{lon},{lat},0</coordinates></Point></Placemark>"
+                     for n, lat, lon in pontos)
+           + "</Document></kml>")
+    with zipfile.ZipFile(path, "w") as zf:
+        zf.writestr("doc.kml", kml)
+
+
+def test_mover_caixa_so_a_dela_e_cabos_acompanham(camada):
+    from app.services.kmz_ops import kmz_to_geojson
+    _kmz_com_pontos(camada / "c1.kmz", [("Caixa - S 8P", -10.0, -36.0), ("Caixa - S 8P", -10.5, -36.5)])
+    r = tools._caixa_da_camada("c1", {"ponto": "Caixa - S 8P", "nome": "C.CFTV-02", "lat": -10.0, "lng": -36.0}, "op")
+    cid = next(iter(r["caixas"]))
+    tools._cabo_da_camada("c1", {"caixa": cid, "camera": {"ponto": "14"}, "porta": 1, "caminho": _CAMINHO})
+    r = tools._caixa_da_camada("c1", {"id": cid, "de": {"lat": -10.0, "lng": -36.0}, "mover": {"lat": -10.0009, "lng": -36.0}}, "op")
+    assert (r["caixas"][cid]["lat"], r["caixas"][cid]["lng"]) == (-10.0009, -36.0)
+    cabo = next(iter(r["cabos"].values()))
+    assert cabo["caminho"][0] == [-10.0009, -36.0] and cabo["metros"] < 1  # agora a caixa esta na ponta da camera
+    pts = sorted((f["geometry"]["coordinates"][1], f["geometry"]["coordinates"][0]) for f in kmz_to_geojson(camada / "c1.kmz")["features"])
+    assert pts == [(-10.5, -36.5), (-10.0009, -36.0)]  # a outra "Caixa - S 8P" nao andou
+    # posicao antiga errada (mapa desatualizado): recusa, nao cria ponto novo
+    with pytest.raises(HTTPException) as e:
+        tools._caixa_da_camada("c1", {"id": cid, "de": {"lat": -10.0, "lng": -36.0}, "mover": {"lat": -10.1, "lng": -36.1}}, "op")
+    assert "nessa posicao" in e.value.detail
+    assert len(kmz_to_geojson(camada / "c1.kmz")["features"]) == 2
+
+
+def test_arrastar_ponto_com_nome_repetido_move_so_um(tmp_path):
+    from app.services.kmz_ops import editar_ponto_no_kmz, kmz_to_geojson
+    k = tmp_path / "x.kmz"
+    _kmz_com_pontos(k, [("Caixa - S 4P", -10.0, -36.0), ("Caixa - S 4P", -10.5, -36.5)])
+    editar_ponto_no_kmz(k, nome="Caixa - S 4P", lat=-10.2, lon=-36.2, lat_atual=-10.5, lon_atual=-36.5)
+    pts = sorted(f["geometry"]["coordinates"][1] for f in kmz_to_geojson(k)["features"])
+    assert pts == [-10.2, -10.0]

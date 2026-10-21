@@ -117,6 +117,10 @@ function cxMarcador(id, def, f, lat, lng) {
     iconSize: [34, 34], iconAnchor: [17, 17],
   });
   const marker = L.marker([lat, lng], { icon, zIndexOffset: 500 });
+  if (caixa) {
+    _cx.marcadores = _cx.marcadores || {};
+    _cx.marcadores[caixa.id] = { marker, de: [lat, lng] };
+  }
   marker.on('click', () => {
     if (_cx.desenho || _cx.edicao) return; // desenhando/editando: clicar na caixa nao abre outra coisa
     cxAbrirPainel(id, def, nome, [lat, lng]);
@@ -281,6 +285,7 @@ function cxAbrirPainel(id, def, nomePonto, latlng) {
     <p id="cxErro" class="login-error" hidden></p>`;
   const rodape = `${caixa ? `<button type="button" class="ghost-action cx-perigo" data-cx="excluir-caixa"><i data-lucide="trash-2"></i> Excluir caixa</button>` : ''}
     <span style="flex:1"></span>
+    ${caixa ? '<button type="button" class="ghost-action" data-cx="mover" title="Arrastar a caixa para outro lugar"><i data-lucide="move"></i> Mover</button>' : ''}
     ${caixa ? '<button type="button" class="secondary-action" data-cx="ligar"><i data-lucide="cable"></i> Ligar câmera</button>' : ''}
     <button type="button" class="primary-action" data-cx="salvar"><i data-lucide="save"></i> ${caixa ? 'Salvar' : 'Cadastrar caixa'}</button>`;
   const el = cxPainelBase(caixa?.nome || nomePonto || 'Caixa', corpo, rodape);
@@ -376,6 +381,7 @@ async function cxAcao(btn) {
   if (acao === 'ligar') return cxIniciarDesenho();
   if (acao === 'ligar-cto') return cxIniciarDesenho('cto');
   if (acao === 'editar-cabo') return cxEditarTracado(btn.dataset.id);
+  if (acao === 'mover') return cxMoverCaixa();
   if (acao === 'salvar-cabo') return cxSalvarCabo();
   if (acao === 'cancelar-cabo') { cxCancelarDesenho(); return; }
 }
@@ -467,6 +473,7 @@ function cxDesenharAlcas() {
 function cxFimEdicao(reabrir) {
   const ed = _cx.edicao;
   if (!ed) return;
+  if (ed.mover) { ed.fim(reabrir); return; }
   ed.linha.remove();
   ed.alcas.remove();
   ed.barra.remove();
@@ -486,6 +493,52 @@ async function cxSalvarTracado() {
   showToast(`Traçado salvo: ${cxFmtMetros(novo?.metros || cxMetros(ed.pontos))}.`);
   cxRedesenhar(p.id, p.def);
   cxAbrirPainel(p.id, p.def, p.nomePonto, p.latlng);
+}
+
+// ------------------------------------------------------------------ mover a caixa
+// A caixa vira arrastavel; ao soltar, o servidor move o ponto no KMZ (pelo
+// nome + posicao antiga), a posicao da caixa e a ponta dos cabos dela.
+
+function cxMoverCaixa() {
+  const p = _cx.painel;
+  const m = p?.caixa && _cx.marcadores?.[p.caixa.id];
+  if (!m?.marker || _cx.desenho || _cx.edicao) return;
+  if (typeof mapEditIsActive === 'function' && Object.keys(_mapLayerGroups || {}).some(k => mapEditIsActive(k))) {
+    showToast('Saia do modo de edição de pontos antes de mover a caixa.', true);
+    return;
+  }
+  p.el.hidden = true;
+  const barra = document.createElement('div');
+  barra.className = 'cx-barra';
+  barra.innerHTML = `<span class="cx-barra-dot"></span><strong>Movendo ${esc(p.caixa.nome)}</strong>
+    <span class="cx-barra-txt">Arraste a caixa para o lugar certo e solte. Os cabos dela acompanham.</span>
+    <button type="button" data-cxb="cancelar">Cancelar</button>`;
+  cxAnexar(barra);
+  const fim = (reabrir) => {
+    m.marker.dragging?.disable();
+    m.marker.off('dragend', aoSoltar);
+    barra.remove();
+    _cx.edicao = null;
+    if (reabrir) { m.marker.setLatLng(m.de); p.el.hidden = false; }
+  };
+  const aoSoltar = async () => {
+    const ll = m.marker.getLatLng();
+    try {
+      await cxGravar(p.def, { caixa: { id: p.caixa.id, de: { lat: m.de[0], lng: m.de[1] }, mover: { lat: ll.lat, lng: ll.lng } } });
+    } catch (e) {
+      showToast(e.message, true);
+      fim(true);
+      return;
+    }
+    fim(false);
+    showToast(`${p.caixa.nome} movida. Os cabos dela foram refeitos a partir do novo lugar.`);
+    await loadMapLayers();
+  };
+  barra.addEventListener('click', ev => { if (ev.target.closest('[data-cxb="cancelar"]')) fim(true); });
+  m.marker.dragging?.enable();
+  m.marker.on('dragend', aoSoltar);
+  // Esc cancela (cxEsc chama cxFimEdicao quando ha _cx.edicao)
+  _cx.edicao = { mover: true, fim };
 }
 
 // ------------------------------------------------------------------ desenhar o cabo
