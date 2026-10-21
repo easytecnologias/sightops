@@ -12937,3 +12937,8 @@ table.recorder-tabela tbody tr:hover { background: var(--surface-soft); }
 .cx-alca-meio { width: 10px; height: 10px; margin: 2px; border-width: 2px; opacity: .75; }
 .cx-barra button.cx-barra-ok { background: var(--primary); color: #fff; border-color: var(--primary); }
 .cx-acoes { white-space: nowrap; text-align: right; }
+/* rodape da caixa numa linha so */
+.cx-painel > footer { flex-wrap: nowrap; }
+.cx-painel > footer button { white-space: nowrap; }
+.cx-painel > footer .cx-ico { width: 36px; height: 36px; padding: 0; display: inline-grid; place-items: center; border-radius: 8px; }
+.cx-painel > footer .cx-ico:hover { background: var(--surface-soft); }

@@ -148,6 +148,17 @@ function cxCliqueNoPonto(def, f, cam, latlng, marker) {
   const d = _cx.desenho;
   if (!d) return false;
   setTimeout(() => marker?.closePopup?.(), 0);
+  // Um clique num ponto (camera, poste...) e curva: o cabo passa por ali e
+  // continua. Dois cliques na camera (ou CTO) terminam o cabo nela.
+  const agora = Date.now();
+  const chave = `${mapFeatureName(f)}|${latlng[0]},${latlng[1]}`;
+  const duplo = d.ultimoClique?.chave === chave && agora - d.ultimoClique.t < 500;
+  d.ultimoClique = { chave, t: agora };
+  if (!duplo) {
+    const ult = d.pontos[d.pontos.length - 1];
+    if (!cxPerto(ult, latlng)) { d.pontos.push(latlng); cxAtualizarDesenho(); }
+    return true;
+  }
   const alvo = d.alvo === 'cto' ? 'CTO' : 'câmera';
   // a mesma camera pode estar desenhada em outra camada (a gerada do
   // inventario, por exemplo) por cima da desta: com IP ela e identificada
@@ -156,13 +167,13 @@ function cxCliqueNoPonto(def, f, cam, latlng, marker) {
   if (outraCamada && (d.alvo === 'cto' || !cam?.ip)) { showToast(`A ${alvo} precisa estar na mesma camada da caixa.`, true); return true; }
   const tipo = mapFeatureType(f, cam);
   if (d.alvo === 'cto') {
-    if (tipo !== 'cto') { showToast('Clique numa CTO para terminar o cabo (ou no mapa para fazer uma curva).', true); return true; }
-    d.pontos.push(latlng);
+    if (tipo !== 'cto') { showToast('Dois cliques numa CTO terminam o cabo. Aqui ficou só uma curva.', true); return true; }
+    if (!cxPerto(d.pontos[d.pontos.length - 1], latlng)) d.pontos.push(latlng);
     cxTerminarDesenho(null, { ponto: mapFeatureName(f) });
     return true;
   }
-  if (tipo !== 'camera') { showToast('Clique numa câmera para terminar o cabo (ou no mapa para fazer uma curva).', true); return true; }
-  d.pontos.push(latlng);
+  if (tipo !== 'camera') { showToast('Dois cliques numa câmera terminam o cabo. Aqui ficou só uma curva.', true); return true; }
+  if (!cxPerto(d.pontos[d.pontos.length - 1], latlng)) d.pontos.push(latlng);
   cxTerminarDesenho({ ponto: mapFeatureName(f), ip: String(cam?.ip || '') });
   return true;
 }
@@ -283,9 +294,9 @@ function cxAbrirPainel(id, def, nomePonto, latlng) {
     </section>` : ''}
     <div class="form-group" style="margin:0"><label for="cxObs">Observação</label><input id="cxObs" maxlength="300" value="${esc(caixa?.obs || '')}" placeholder="ex.: chave do cadeado com o síndico"></div>
     <p id="cxErro" class="login-error" hidden></p>`;
-  const rodape = `${caixa ? `<button type="button" class="ghost-action cx-perigo" data-cx="excluir-caixa"><i data-lucide="trash-2"></i> Excluir caixa</button>` : ''}
+  const rodape = `${caixa ? `<button type="button" class="ghost-action cx-perigo cx-ico" data-cx="excluir-caixa" title="Excluir caixa" aria-label="Excluir caixa"><i data-lucide="trash-2"></i></button>
+    <button type="button" class="ghost-action cx-ico" data-cx="mover" title="Mover a caixa (arrastar no mapa)" aria-label="Mover caixa"><i data-lucide="move"></i></button>` : ''}
     <span style="flex:1"></span>
-    ${caixa ? '<button type="button" class="ghost-action" data-cx="mover" title="Arrastar a caixa para outro lugar"><i data-lucide="move"></i> Mover</button>' : ''}
     ${caixa ? '<button type="button" class="secondary-action" data-cx="ligar"><i data-lucide="cable"></i> Ligar câmera</button>' : ''}
     <button type="button" class="primary-action" data-cx="salvar"><i data-lucide="save"></i> ${caixa ? 'Salvar' : 'Cadastrar caixa'}</button>`;
   const el = cxPainelBase(caixa?.nome || nomePonto || 'Caixa', corpo, rodape);
@@ -557,7 +568,7 @@ function cxIniciarDesenho(alvo = 'camera') {
   const barra = document.createElement('div');
   barra.className = 'cx-barra';
   barra.innerHTML = `<span class="cx-barra-dot"></span><strong>${alvo === 'cto' ? `Ligando a ONU da ${esc(p.caixa.nome)} à CTO` : `Ligando câmera à ${esc(p.caixa.nome)}`}</strong>
-    <span class="cx-barra-txt">Clique no mapa para fazer as curvas (poste, esquina). Clique ${alvo === 'cto' ? 'na CTO' : 'na câmera'} para terminar.</span>
+    <span class="cx-barra-txt">Clique no mapa ou num ponto para fazer curva (poste, esquina, outra câmera). <b>Dois cliques ${alvo === 'cto' ? 'na CTO' : 'na câmera'}</b> terminam o cabo.</span>
     <span class="cx-barra-m" id="cxBarraM">0 m</span>
     <button type="button" data-cxb="desfazer">Desfazer ponto</button><button type="button" data-cxb="cancelar">Cancelar</button>`;
   cxAnexar(barra);
@@ -575,7 +586,9 @@ function cxIniciarDesenho(alvo = 'camera') {
   _map.on('click', aoClicar);
   _map.on('mousemove', aoMover);
   _map.getContainer().classList.add('cx-desenhando');
-  _cx.desenho = { alvo, def: p.def, id: p.id, caixa: p.caixa, pontos: [p.latlng], linha, fantasma, barra, aoClicar, aoMover };
+  const zoomDuplo = _map.doubleClickZoom.enabled();
+  _map.doubleClickZoom.disable();
+  _cx.desenho = { alvo, def: p.def, id: p.id, caixa: p.caixa, pontos: [p.latlng], linha, fantasma, barra, aoClicar, aoMover, zoomDuplo };
 }
 
 function cxAtualizarDesenho() {
@@ -595,6 +608,7 @@ function cxLimparDesenho() {
   d.linha.remove();
   d.fantasma.remove();
   d.barra.remove();
+  if (d.zoomDuplo) _map.doubleClickZoom.enable();
   _cx.desenho = null;
 }
 
