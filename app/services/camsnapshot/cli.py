@@ -205,16 +205,26 @@ def main():
             save_json(args.saida, resultados_guard)
             return
     probe_workers = min(max(int(args.workers * 0.6), 20), 200)
+
+    def _probe_com_mac(ip):
+        """Sondagem e MAC no mesmo trabalho paralelo. O MAC era buscado depois,
+        uma camera por vez, no laco dos resultados: 5 cameras = 5x a espera."""
+        info = probe_device(ip, args.usuario, args.senha,
+                            timeout=(0.6 if args.fast else 1.2, args.timeout), retries=args.retries)
+        if isinstance(info, dict) and info.get("status") != "auth_failed" and not info.get("mac"):
+            try:
+                info["mac"] = get_mac_http(ip, args.usuario, args.senha,
+                                           timeout=(0.6 if args.fast else 1.2, args.timeout), retries=args.retries)
+            except Exception:
+                pass
+        return info
+
     with ThreadPoolExecutor(max_workers=probe_workers) as executor:
         futs = {}
         for ip in ips:
             if precheck.get(ip):
                 if not args.discover:
-                    futs[executor.submit(
-                        probe_device, ip, args.usuario, args.senha,
-                        timeout=(0.6 if args.fast else 1.2, args.timeout),
-                        retries=args.retries
-                    )] = ip
+                    futs[executor.submit(_probe_com_mac, ip)] = ip
                 else:
                     # Descoberta: marca como online e coleta MAC por ARP, sem gastar HTTP.
                     resultados.append({
@@ -249,6 +259,7 @@ def main():
                 "snapshot_path": None,
                 "status": "online",
             }
+            info = None  # sem isto, uma excecao reaproveitava o resultado da camera anterior
             try:
                 info = fut.result()
                 # probe_device pode sinalizar auth_failed com razÃ£o/cÃ³digo
@@ -280,15 +291,8 @@ def main():
                 mac = get_mac_arp(ip)
             else:
                 # Reutiliza MAC que ja veio do probe_device para reduzir latencia.
-                mac = None
-                if isinstance(info, dict):
-                    mac = info.get("mac")
-                if not mac:
-                    mac = get_mac_http(
-                        ip, args.usuario, args.senha,
-                        timeout=(0.6 if args.fast else 1.2, args.timeout),
-                        retries=args.retries
-                    )
+                # (o MAC por HTTP ja veio do trabalho paralelo, _probe_com_mac)
+                mac = info.get("mac") if isinstance(info, dict) else None
                 mac = mac or get_mac_arp(ip)
             data["mac"] = mac
 

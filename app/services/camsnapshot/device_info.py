@@ -108,6 +108,44 @@ def _try_get(url, user, password, timeout, use_digest=False, stream=False):
         return None
 
 
+def _lapi_estado(r):
+    """Resposta da LAPI (UNV/Uniview): ("ok", Data) | ("bloqueado", None) |
+    ("erro", codigo) | (None, None) quando nao e LAPI.
+
+    A UNV responde HTTP 200 mesmo com o login recusado; o erro vem no JSON
+    (Response.ResponseCode != 0). StatusCode 364 / "UserLocked" = usuario
+    TRAVADO por excesso de logins errados: qualquer pedido a mais so prolonga
+    a trava."""
+    if r is None or getattr(r, "status_code", None) != 200:
+        return None, None
+    try:
+        obj = json.loads((r.text or "").replace("\ufeff", ""))
+    except Exception:
+        return None, None
+    resp = obj.get("Response") if isinstance(obj, dict) else None
+    if not isinstance(resp, dict) or "ResponseCode" not in resp:
+        return None, None
+    if str(resp.get("StatusString") or "").lower() == "userlocked" or str(resp.get("StatusCode")) == "364":
+        return "bloqueado", None
+    if str(resp.get("ResponseCode")) != "0":
+        return "erro", resp.get("StatusCode")
+    return "ok", resp.get("Data") if isinstance(resp.get("Data"), dict) else {}
+
+
+def _unv_mac(ip, user, password, timeout):
+    """MAC da UNV pela LAPI (so Digest: Basic errado conta como login falho)."""
+    r = _try_get(_base_http_url(ip) + "/LAPI/V1.0/Network/Interfaces", user, password, timeout, use_digest=True, stream=False)
+    estado, _ = _lapi_estado(r)
+    if estado != "ok":
+        return None
+    txt = r.text or ""
+    m = MAC_RE.search(txt)
+    if m:
+        return _normalize_mac(m.group(0))
+    m12 = MAC_HEX12_RE.search(txt)
+    return _normalize_mac(m12.group(0)) if m12 else None
+
+
 def _auth_fast_check(ip: str, user: str, password: str, timeout=(0.8, 1.5)) -> dict:
     """Detecta rapidamente credenciais rejeitadas.
 
@@ -130,18 +168,35 @@ def _auth_fast_check(ip: str, user: str, password: str, timeout=(0.8, 1.5)) -> d
     # Endpoints protegidos mais comuns:
     # - Intelbras/Dahua: snapshot.cgi
     # - UNV/Uniview: LAPI DeviceInfo
+    # LAPI vem PRIMEIRO: a UNV trava o usuario depois de alguns logins
+    # errados, e cada pedido de outra marca (Dahua, Hikvision...) conta como
+    # um. Em 21/10/2026 a varredura de 5 cameras UNV da RADS mandava ~70
+    # pedidos por camera, travou o admin e levou 2 min sem identificar nada.
     candidates = [
+        (_base_http_url(ip) + "/LAPI/V1.0/System/DeviceInfo"),
         (_base_http_url(ip) + "/cgi-bin/snapshot.cgi"),
         (_base_http_url(ip) + "/cgi-bin/snapshot.cgi?channel=1"),
-        (_base_http_url(ip) + "/LAPI/V1.0/System/DeviceInfo"),
     ]
 
     for url in candidates:
+        lapi = "/LAPI/" in url
         # usa digest (Ã© o que a Intelbras VIP 3230-B costuma pedir)
-        r = _try_get(url, user, password, timeout=timeout, use_digest=True, stream=True)
+        r = _try_get(url, user, password, timeout=timeout, use_digest=True, stream=not lapi)
         if r is None:
             continue
         code = getattr(r, "status_code", None)
+        if lapi:
+            estado, extra = _lapi_estado(r)
+            if estado == "bloqueado":
+                return {"auth_failed": True, "status_code": 364, "url": url, "unv": True, "bloqueado": True}
+            if estado == "erro":
+                return {"auth_failed": True, "status_code": extra, "url": url, "unv": True}
+            if estado == "ok":
+                return {"auth_failed": False, "status_code": 200, "url": url, "unv": True, "method": "digest"}
+            if code in (401, 403):
+                # UNV recusou o Digest: nao tenta Basic (seria mais um login errado)
+                return {"auth_failed": True, "status_code": int(code), "url": url, "unv": True}
+            continue
         if code in (401, 403):
             # Intelbras antiga (VIP-S3020-G2, firmware 2.520 de 2016) recusa
             # DIGEST com 401 e aceita BASIC com a mesma senha. So o digest
@@ -174,6 +229,10 @@ def _probe_unv_lapi(ip, user, password, timeout):
         r = _try_get(url, user, password, timeout, use_digest=use_digest, stream=False)
         if r is None or r.status_code != 200 or not getattr(r, "text", ""):
             continue
+        if _lapi_estado(r)[0] in ("bloqueado", "erro"):
+            # login recusado/travado: Basic com a mesma senha so conta mais
+            # um erro na camera.
+            return None
         try:
             obj = r.json()
         except Exception:
@@ -587,8 +646,25 @@ def probe_device(ip, user, password, timeout=(1.2, 2.5), retries=1):
         info["auth_url"] = chk.get("url") or ""
         info["auth_status"] = chk.get("status")
         info["auth_method"] = chk.get("method") or ""
+        if chk.get("unv"):
+            info["fabricante"] = "UNV"
+        # "usuario_bloqueado": a camera travou o usuario (excesso de logins
+        # errados). Nenhum pedido a mais: so prolongaria a trava.
+        info["auth_code"] = "usuario_bloqueado" if chk.get("bloqueado") else (chk.get("status_code") or "")
         # retorna cedo para o scan pular rÃ¡pido
         return info
+
+    if chk.get("unv"):
+        # UNV/Uniview: so a LAPI (modelo, titulo, MAC). Tentar as CGIs de
+        # outras marcas com a senha conta como login errado e trava o usuario.
+        unv = _probe_unv_lapi(ip, user, password, timeout) or {}
+        for k in ("modelo", "fabricante", "mac", "serial", "titulo", "firmware"):
+            if unv.get(k):
+                info[k] = unv[k]
+        info["fabricante"] = info.get("fabricante") or "UNV"
+        if not info.get("mac"):
+            info["mac"] = _unv_mac(ip, user, password, timeout)
+        return _canonicalize_brand_from_model(info)
 
     # 1) CGIs padrÃ£o Dahua/Intelbras
     model_urls = [
