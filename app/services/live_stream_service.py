@@ -52,6 +52,24 @@ import requests
 _registered_at: Dict[str, float] = {}
 _REAP_GRACE_SECONDS = 90.0
 
+# Qual cliente registrou cada stream. O WebSocket do player (/go2rtc/api/ws)
+# so abre se o nginx confirmar, por /api/auth/video-ok, que a sessao e desse
+# cliente -- antes abria sem login nenhum, e o nome do stream sai do IP
+# (cam_<ip>_<0|1>): quem acertasse o nome assistia a camera de outro cliente.
+# Em memoria (a API roda num processo so): apos reiniciar, o player registra
+# de novo antes de reconectar, entao o dono volta a ser conhecido.
+_dono_stream: Dict[str, str] = {}
+
+
+def marcar_dono(nome: str) -> None:
+    from app.core.tenant_context import get_current_tenant_slug
+
+    _dono_stream[nome] = str(get_current_tenant_slug() or "").strip().lower()
+
+
+def dono_do_stream(nome: str) -> str | None:
+    return _dono_stream.get(nome)
+
 # Nome do servico go2rtc dentro da rede do docker-compose (ver
 # deploy/go2rtc/go2rtc.yaml e docker-compose*.yml) -- endereco fixo, nao
 # configuravel por variavel de ambiente, porque e infraestrutura interna do
@@ -148,6 +166,7 @@ def register_stream(*, ip: str, user: str, password: str, subtype: int = 1, vend
     st = 0 if int(subtype or 0) == 0 else 1
     name = _stream_name(ip, st)
     _registered_at[name] = time.time()  # marca p/ a carencia da varredura
+    marcar_dono(name)
     sources = _source_urls(name=name, ip=ip, user=user, password=password, vendor=vendor, model=model, subtype=st)
 
     atuais = _fontes_registradas(name)
@@ -221,6 +240,7 @@ def register_recorder_stream(
     """
     nome = recorder_stream_name(host, canal, alta)
     _registered_at[nome] = time.time()
+    marcar_dono(nome)
     user_q = quote(str(user or "admin"), safe="")
     pass_q = quote(str(password or ""), safe="")
     caminho = _recorder_rtsp_path(canal, marca, alta)

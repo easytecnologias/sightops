@@ -164,6 +164,7 @@ def api_driver_playback(req: PlaybackRequest) -> Dict[str, Any]:
     fonte = f"ffmpeg:{g.url_playback(req.canal, inicio, fim)}#input=rtsp_gravacao#video=h264#timeout=90"
     nome = "rec_pb_" + hashlib.sha1(f"{req.host}|{req.canal}|{inicio}".encode()).hexdigest()[:12]
     lss._registered_at[nome] = time.time()
+    lss.marcar_dono(nome)
     try:
         if not lss._stream_registered_with_source(nome, fonte):
             put = _rq.put(f"{lss.GO2RTC_BASE_URL}/api/streams", params={"name": nome, "src": fonte}, timeout=8)

@@ -399,6 +399,23 @@ def api_auth_agent_token(user: Dict[str, Any] = Depends(current_user)) -> Dict[s
     return {"ok": True, "token": str(tok.get("access_token") or tok.get("token") or "")}
 
 
+@router.get("/video-ok")
+def api_auth_video_ok(request: Request, user: Dict[str, Any] = Depends(current_user)) -> Response:
+    """O nginx pergunta aqui (auth_request) antes de abrir o WebSocket do
+    player (/go2rtc/api/ws?src=<stream>): so passa sessao logada do MESMO
+    cliente que registrou o stream. Sem sessao: 401 (current_user)."""
+    from urllib.parse import parse_qs, urlsplit
+
+    from app.services.live_stream_service import dono_do_stream
+
+    uri = request.headers.get("x-original-uri") or ""
+    src = (parse_qs(urlsplit(uri).query).get("src") or [""])[0]
+    cliente = str(user.get("effective_tenant_slug") or user.get("tenant_slug") or "").strip().lower()
+    if src and dono_do_stream(src) == cliente:
+        return Response(status_code=204)
+    raise HTTPException(status_code=403, detail="video de outro cliente ou nao registrado")
+
+
 @router.post("/act-as")
 def api_auth_act_as(
     req: ActAsRequest,

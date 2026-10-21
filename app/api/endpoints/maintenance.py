@@ -2700,6 +2700,11 @@ def maintenance_stream_register(ip: str, payload: Dict[str, Any]):
     # VIRTUAL via o mesmo NAT do host; e o virtual e unico por conector, entao
     # dois clientes com o mesmo IP viram streams distintos no go2rtc.
     reach_ip = _reach(ip, str(payload.get("remote_connector_id") or ""))
+    from app.services.connector_routing_vnat import IP_BLOQUEADO
+    if reach_ip == IP_BLOQUEADO:
+        # conector de outro cliente: nao registra (o nome cam_240_0_0_1_* seria
+        # o mesmo para todo cliente bloqueado, com a senha dentro do go2rtc)
+        return JSONResponse({"ok": False, "error": "camera fora do alcance deste cliente"}, status_code=403)
     try:
         stream_name = register_stream(ip=reach_ip, user=user, password=password, subtype=subtype, vendor=vendor, model=model)
     except Exception as exc:
