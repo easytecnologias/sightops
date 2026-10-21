@@ -221,6 +221,15 @@ def process_monitoring_notifications() -> Dict[str, Any]:
     if not any(g.get("ativo") for g in cfg.get("grupos") or []):
         return {"ok": True, "skipped": True, "reason": "nenhum grupo do Telegram ligado", "sent": 0}
     eventos, por_site = _coletar(cfg)
+    if cfg.get("base_pendente"):
+        # Primeiro grupo ligado agora: o que ja estava fora vira linha de base
+        # (sem disparar tudo de uma vez); dai em diante so o que mudar.
+        for ev in eventos:
+            _set_state(ev["chave"], ev["kind"], ev["ativo"], ev["valor"])
+        atual = N.config()
+        atual.pop("base_pendente", None)
+        N._salvar(atual)
+        return {"ok": True, "sent": 0, "linha_de_base": len(eventos)}
     # (grupo, site, evento) -> itens; cada evento lembra os grupos que precisam recebe-lo
     caixas: Dict[tuple, List[Dict[str, Any]]] = defaultdict(list)
     grupos = {g["id"]: g for g in cfg["grupos"]}

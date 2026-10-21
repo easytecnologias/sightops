@@ -11,6 +11,8 @@ from app.services import db_store
 from app.services import notificacoes_service as N
 from app.services import telegram_notification_service as TG
 
+_TELEGRAM_REAL = N._telegram  # antes da fixture trocar pelo falso
+
 
 @pytest.fixture()
 def banco(tmp_path, monkeypatch):
@@ -34,7 +36,11 @@ def banco(tmp_path, monkeypatch):
 def _grupo(**kw):
     base = {"nome": "G", "chat_id": "-1001", "bot": "easy", "ativo": True}
     base.update(kw)
-    return N.salvar_grupo(base)
+    g = N.salvar_grupo(base)
+    cfg = N.config()
+    cfg.pop("base_pendente", None)  # testes de envio: sem a linha de base do primeiro grupo
+    N._salvar(cfg)
+    return g
 
 
 def test_quem_recebe(banco):
@@ -155,6 +161,7 @@ def test_migra_a_config_antiga(banco):
     cfg = N.config()
     g = cfg["grupos"][0]
     assert g["bot"] == "proprio" and g["padrao"] and g["chat_id"] == "-1007" and "volta" not in g["eventos"]
+    assert g["ativo"]
     assert cfg["bot_proprio_token"] == "999:x" and cfg["sinal"]["warn_rx"] == -26
     assert "999:x" not in str(N.config_publica())  # token nunca sai na resposta
 
@@ -168,3 +175,49 @@ def test_rotas_so_admin():
     mw = SEC.ApiAuthMiddleware(FastAPI(), get_settings())
     for m in ("GET", "POST", "PUT", "DELETE"):
         assert mw._match_role_rule("/api/monitoring/notificacoes/grupos", m) == "admin"
+
+
+def test_migrado_desligado_ainda_recebe_panico(banco):
+    s = db_store.load_app_settings()
+    s["telegram_notifications"] = {"enabled": False, "bot_token": "999:x", "chat_id": "-1007"}
+    db_store.save_app_settings(s)
+    g = N.config()["grupos"][0]
+    assert g["ativo"] and g["eventos"] == ["panico"]
+    assert N.destinos(N.config(), "QUALQUER", "panico", urgente=True)
+    assert not N.destinos(N.config(), "QUALQUER", "queda", "camera")
+
+
+def test_token_nunca_sai_no_erro(banco, monkeypatch):
+    import requests
+
+    def cai(*a, **k):
+        raise requests.ConnectionError("HTTPSConnectionPool(host='api.telegram.org'): /bot123456789:AAHsecreto/sendMessage")
+
+    monkeypatch.setattr(N.requests, "post", cai)
+    r = _TELEGRAM_REAL("123456789:AAHsecreto", "sendMessage", {})
+    assert r["ok"] is False and "AAHsecreto" not in str(r)
+
+    class Resp:
+        content, status_code = b"x", 400
+
+        def json(self):
+            return {"ok": False, "description": "erro em /bot123456789:AAHsecreto/x"}
+
+    monkeypatch.setattr(N.requests, "post", lambda *a, **k: Resp())
+    assert "AAHsecreto" not in str(_TELEGRAM_REAL("123456789:AAHsecreto", "sendMessage", {}))
+    assert N.sem_token("x /bot123456789:AAHsecreto/sendMessage y") == "x /bot***/sendMessage y"
+
+
+def test_primeiro_grupo_nao_dispara_o_que_ja_estava_fora(banco, monkeypatch):
+    N.salvar_bot_easy("123:abc")
+    N.salvar_grupo({"nome": "NOC", "chat_id": "-1001", "bot": "easy", "ativo": True, "padrao": True})
+    entidades = [{"entity_type": "camera", "status": "down", "entity_key": "c:1", "display_name": "C1", "site": "A", "detail_json": "{}"},
+                 {"entity_type": "camera", "status": "up", "entity_key": "c:2", "display_name": "C2", "site": "A", "detail_json": "{}"}]
+    monkeypatch.setattr(TG, "list_entities", lambda limit=2000: [dict(e) for e in entidades])
+    banco.clear()
+    r = TG.process_monitoring_notifications()
+    assert r.get("linha_de_base") == 1 and not [1 for (_, m, _) in banco if m == "sendMessage"]
+    entidades[1]["status"] = "down"  # cai depois: avisa
+    TG.process_monitoring_notifications()
+    msgs = [d for (_, m, d) in banco if m == "sendMessage"]
+    assert len(msgs) == 1 and "C2" in msgs[0]["text"] and "C1" not in msgs[0]["text"]

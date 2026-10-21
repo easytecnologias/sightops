@@ -154,10 +154,14 @@ def _migrar_antigo(settings: Dict[str, Any]) -> Dict[str, Any]:
             eventos.append("volta")
         if velho.get("enabled"):
             eventos.append("acesso")
+        if not velho.get("enabled"):
+            # Desligado so calava o monitoramento: o alerta de panico ia assim
+            # mesmo (alert_store nao olhava "enabled"). Continua indo.
+            eventos = ["panico"]
         try:
             cfg["grupos"].append(_grupo_limpo({
                 "nome": "Grupo do cliente", "chat_id": velho.get("chat_id"), "bot": "proprio", "padrao": True,
-                "ativo": bool(velho.get("enabled")), "eventos": eventos,
+                "ativo": True, "eventos": eventos,
                 "tipos": [x for x in (velho.get("types") or list(TIPOS)) if x in TIPOS],
             }))
             cfg["bot_proprio_token"] = _t(velho.get("bot_token"), 200)
@@ -184,10 +188,41 @@ def _salvar(cfg: Dict[str, Any]) -> None:
     save_app_settings(settings)
 
 
+_CHAVE_ESTADO = "notificacoes_estado_grupos"
+
+
+def _estado_grupos() -> Dict[str, Any]:
+    from app.core.tenant_context import tenant_scoped_key
+
+    est = get_json_state(tenant_scoped_key(_CHAVE_ESTADO), {}) or {}
+    return est if isinstance(est, dict) else {}
+
+
+def _marcar_estado(gid: str, ok: bool, erro: str) -> None:
+    """Ultimo envio/erro de cada grupo em json_state proprio: gravar no
+    app_settings a cada aviso disputava com o admin salvando a tela."""
+    from app.core.tenant_context import tenant_scoped_key
+
+    est = _estado_grupos()
+    item = est.get(gid) if isinstance(est.get(gid), dict) else {}
+    if ok:
+        item.update({"ultimo_envio": _iso(), "ultimo_erro": ""})
+    else:
+        item["ultimo_erro"] = f"{_iso()} {erro}"
+    est[gid] = item
+    set_json_state(tenant_scoped_key(_CHAVE_ESTADO), est)
+
+
 def config_publica() -> Dict[str, Any]:
     cfg = config()
+    est = _estado_grupos()
+    grupos = []
+    for g in cfg["grupos"]:
+        e = est.get(g["id"]) if isinstance(est.get(g["id"]), dict) else {}
+        grupos.append({**g, "ultimo_envio": e.get("ultimo_envio") or g.get("ultimo_envio") or "",
+                       "ultimo_erro": sem_token(e.get("ultimo_erro") or "")})
     return {
-        "grupos": cfg["grupos"], "sinal": cfg["sinal"],
+        "grupos": grupos, "sinal": cfg["sinal"],
         "bot_proprio": bool(cfg.get("bot_proprio_token")),
         "bot_easy": bot_easy_publico(),
         "eventos": EVENTOS, "tipos": TIPOS,
@@ -203,6 +238,8 @@ def salvar_grupo(dados: Dict[str, Any]) -> Dict[str, Any]:
     if not atual and len(cfg["grupos"]) >= _MAX_GRUPOS:
         raise ValueError("limite de grupos atingido")
     novo = _grupo_limpo(dados, atual)
+    if novo["ativo"] and not any(g.get("ativo") for g in cfg["grupos"]):
+        cfg["base_pendente"] = True
     if novo["bot"] == "proprio" and not cfg.get("bot_proprio_token") and not _t(dados.get("bot_proprio_token")):
         raise ValueError("informe o token do robo proprio")
     if _t(dados.get("bot_proprio_token")):
@@ -278,12 +315,29 @@ def destinos(cfg: Dict[str, Any], site: Any, evento: str, tipo: str = "", urgent
 
 # --------------------------------------------------------------------------- envio
 
+_RE_TOKEN = re.compile(r"bot\d+:[A-Za-z0-9_-]+")
+
+
+def sem_token(texto: Any) -> str:
+    """O token do robo vai na URL (/bot<token>/metodo) e o requests poe a URL
+    na mensagem de erro. Esse texto aparece na tela do cliente: o token da Easy
+    e o mesmo para todos, entao nunca pode sair."""
+    return _RE_TOKEN.sub("bot***", str(texto or ""))
+
+
 def _telegram(token: str, metodo: str, dados: Dict[str, Any], timeout: int = 20) -> Dict[str, Any]:
     try:
         r = requests.post(f"https://api.telegram.org/bot{token}/{metodo}", json=dados, timeout=timeout)
-        return r.json() if r.content else {"ok": False, "description": f"HTTP {r.status_code}"}
+        out = r.json() if r.content else {"ok": False, "description": f"HTTP {r.status_code}"}
+    except requests.Timeout:
+        return {"ok": False, "description": "o Telegram nao respondeu (tempo esgotado)"}
+    except requests.ConnectionError:
+        return {"ok": False, "description": "sem conexao com o Telegram"}
     except Exception as exc:
-        return {"ok": False, "description": str(exc)[:200]}
+        return {"ok": False, "description": f"falha ao falar com o Telegram ({type(exc).__name__})"}
+    if isinstance(out, dict) and out.get("description"):
+        out["description"] = sem_token(out["description"])[:200]
+    return out if isinstance(out, dict) else {"ok": False, "description": "resposta invalida do Telegram"}
 
 
 def _token_do_grupo(cfg: Dict[str, Any], g: Dict[str, Any]) -> str:
@@ -310,6 +364,7 @@ def _registrar_envio(gid: str, ok: bool, erro: str = "", agrupados: int = 1) -> 
 def enviar_para_grupo(cfg: Dict[str, Any], g: Dict[str, Any], texto: str, tela: str = "monitoring",
                       agrupados: int = 1) -> Dict[str, Any]:
     token = _token_do_grupo(cfg, g)
+    novo_chat = ""
     if not token:
         res = {"ok": False, "description": "robo do Telegram nao configurado"}
     else:
@@ -326,17 +381,15 @@ def enviar_para_grupo(cfg: Dict[str, Any], g: Dict[str, Any], texto: str, tela: 
             corpo["chat_id"] = novo_chat
             res = _telegram(token, "sendMessage", corpo)
     ok = bool(res.get("ok"))
-    erro = "" if ok else _t(res.get("description"), 160) or "falha no envio"
+    erro = "" if ok else sem_token(_t(res.get("description"), 160)) or "falha no envio"
     try:
-        atual = config()
-        for x in atual["grupos"]:
-            if x["id"] == g["id"]:
-                x["chat_id"] = g["chat_id"]
-                if ok:
-                    x["ultimo_envio"], x["ultimo_erro"] = _iso(), ""
-                else:
-                    x["ultimo_erro"] = f"{_iso()} {erro}"
-        _salvar(atual)
+        if novo_chat and ok:
+            atual = config()  # so quando o grupo trocou de numero (raro)
+            for x in atual["grupos"]:
+                if x["id"] == g["id"]:
+                    x["chat_id"] = novo_chat
+            _salvar(atual)
+        _marcar_estado(g["id"], ok, erro)
     except Exception:
         logger.exception("notificacoes: falha ao atualizar o grupo %s", g.get("id"))
     _registrar_envio(g["id"], ok, erro, agrupados)
@@ -443,6 +496,8 @@ def tratar_update(update: Dict[str, Any], responder: Optional[Callable[[str, str
         else:
             grupo = _grupo_limpo({"nome": titulo, "chat_titulo": titulo, "chat_id": chat_id, "bot": "easy",
                                   "padrao": not cfg["grupos"], "ativo": True})
+            if not any(g.get("ativo") for g in cfg["grupos"]):
+                cfg["base_pendente"] = True
             cfg["grupos"].append(grupo)
             _salvar(cfg)
     except Exception:
@@ -469,7 +524,7 @@ def ler_atualizacoes_uma_vez(timeout: int = 25) -> int:
     r = _telegram(token, "getUpdates", {"offset": offset, "timeout": timeout, "allowed_updates": ["message", "channel_post"]},
                   timeout=timeout + 10)
     if not r.get("ok"):
-        raise RuntimeError(_t(r.get("description")) or "getUpdates falhou")
+        raise RuntimeError(sem_token(_t(r.get("description"))) or "getUpdates falhou")
     updates = r.get("result") or []
 
     def responder(chat_id: str, texto: str) -> None:
