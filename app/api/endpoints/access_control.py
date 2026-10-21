@@ -684,28 +684,66 @@ def api_access_control_sync_person(person_id: str) -> Dict[str, Any]:
     return {"ok": True, **result, "provision_summary": _provision_summary_for_person(person_id)}
 
 
+def _sites_da_controladora(device: Dict[str, Any]) -> List[str]:
+    """Site gravado e site do conector por onde o pacote sai. Sem nenhum dos
+    dois, [""] (site desconhecido: usuario restrito nao alcanca)."""
+    sites = [str(device.get("site") or "").strip()]
+    cid = str(device.get("connector_id") or "").strip()
+    if cid:
+        from app.api.endpoints.maintenance import _site_do_conector
+
+        sites.append(str(_site_do_conector(cid) or "").strip())
+    return [x for x in dict.fromkeys(sites) if x] or [""]
+
+
+def _controladora_liberada(user: Optional[Dict[str, Any]], device: Dict[str, Any]) -> bool:
+    return all(permissions.site_liberado(user, x) for x in _sites_da_controladora(device))
+
+
+def _usuario_restrito() -> Optional[Dict[str, Any]]:
+    """Usuario da requisicao quando ha filtro de site valendo; senao None."""
+    from app.core.tenant_context import get_current_user
+
+    user = get_current_user()
+    if not user or permissions.sites_da_sessao() is None:
+        return None
+    return user
+
+
+def _exigir_controladora(device_id: str) -> None:
+    """Rotas por id: o id de outra controladora do cliente nao e segredo (sai
+    no painel). Restrito so mexe na de site que acessa -- abrir porta, testar
+    (que manda a senha salva ao host), importar pessoas, hora, reiniciar."""
+    user = _usuario_restrito()
+    if not user:
+        return
+    atual = next((d for d in list_devices() if str(d.get("id") or "") == str(device_id or "")), None)
+    if atual and not _controladora_liberada(user, atual):
+        raise HTTPException(status_code=403, detail="controladora de site fora dos seus sites")
+
+
 @router.get("/devices")
 def api_access_control_devices() -> Dict[str, Any]:
-    return {"ok": True, "devices": permissions.filtrar_por_site(list_devices(), ("site",))}
+    user = _usuario_restrito()
+    devices = list_devices()
+    if user:
+        devices = [d for d in devices if _controladora_liberada(user, d)]
+    return {"ok": True, "devices": devices}
 
 
 def _conferir_site_da_controladora(payload: Dict[str, Any]) -> None:
     """Com a regra valendo, usuario restrito so grava controladora em site que
     acessa, ligada a conector de site que acessa (senao a controladora vira
-    ponte para a rede do outro site)."""
-    from app.core.tenant_context import get_current_user
-
-    user = get_current_user()
-    if not user or permissions.sites_da_sessao() is None:
+    ponte para a rede do outro site). Com id de controladora que ja existe,
+    a atual tambem tem de ser dele: senao ele "puxava" a de outro site (com a
+    senha salva) para o site e o conector dele."""
+    user = _usuario_restrito()
+    if not user:
         return
-    if not permissions.site_liberado(user, payload.get("site")):
-        raise HTTPException(status_code=403, detail="site da controladora fora dos seus sites")
-    cid = str(payload.get("connector_id") or "").strip()
-    if cid:
-        from app.api.endpoints.maintenance import _site_do_conector
-
-        if not permissions.site_liberado(user, _site_do_conector(cid)):
-            raise HTTPException(status_code=403, detail="conector de site fora dos seus sites")
+    if payload.get("id"):
+        _exigir_controladora(str(payload.get("id")))
+    if not _controladora_liberada(user, payload):
+        raise HTTPException(status_code=403, detail="site ou conector da controladora fora dos seus sites")
 
 
 @router.post("/devices")
@@ -721,6 +759,7 @@ def api_access_control_save_device(req: AccessDeviceRequest) -> Dict[str, Any]:
 
 @router.post("/devices/{device_id}/test")
 def api_access_control_test_device(device_id: str) -> Dict[str, Any]:
+    _exigir_controladora(device_id)
     from app.services.access_control_store import get_device_with_password
 
     device = get_device_with_password(device_id)
@@ -742,6 +781,7 @@ def api_access_control_test_device(device_id: str) -> Dict[str, Any]:
 
 @router.delete("/devices/{device_id}")
 def api_access_control_delete_device(device_id: str) -> Dict[str, Any]:
+    _exigir_controladora(device_id)
     removed = delete_device(device_id)
     if not removed:
         raise HTTPException(status_code=404, detail="Dispositivo nao encontrado neste cliente.")
@@ -759,6 +799,7 @@ def api_access_control_open_door(
     Exige usuario identificado: abrir porta e ato de seguranca fisica e tem de
     ficar registrado com nome. Antes a rota nao recebia o usuario -- nem para
     autorizar, nem para o log."""
+    _exigir_controladora(device_id)
     from app.services.access_control_store import get_device_with_password
 
     device = get_device_with_password(device_id)
@@ -774,6 +815,7 @@ def api_access_control_open_door(
 
 @router.post("/devices/{device_id}/import-people")
 def api_access_control_import_device_people(device_id: str) -> Dict[str, Any]:
+    _exigir_controladora(device_id)
     from app.services.access_control_store import get_device_with_password
 
     device = get_device_with_password(device_id)
@@ -1038,7 +1080,19 @@ def api_access_control_painel_relatorios(site: str = Query(""), dias: int = Quer
 @router.get("/painel/dispositivos")
 def api_access_control_painel_dispositivos() -> Dict[str, Any]:
     from app.services.access_control_painel import dispositivos
-    return dispositivos()
+    dados = dispositivos()
+    user = _usuario_restrito()
+    if user and isinstance(dados, dict):
+        from app.api.endpoints.maintenance import _site_do_conector
+
+        dados = {
+            **dados,
+            "dispositivos": [d for d in dados.get("dispositivos") or [] if _controladora_liberada(user, d)],
+            "locais": permissions.filtrar_por_site(dados.get("locais") or [], ("site",)),
+            "conectores": [c for c in dados.get("conectores") or []
+                           if permissions.site_liberado(user, _site_do_conector(str(c.get("id") or "")))],
+        }
+    return dados
 
 
 @router.get("/painel/pessoas")
@@ -1142,12 +1196,14 @@ class NtpRequest(BaseModel):
 
 @router.get("/painel/controladora/{device_id}")
 def api_access_control_painel_controladora(device_id: str) -> Dict[str, Any]:
+    _exigir_controladora(device_id)
     from app.services.access_control_controladora import diagnostico
     return diagnostico(device_id)
 
 
 @router.post("/painel/controladora/{device_id}/hora")
 def api_access_control_painel_controladora_hora(device_id: str, user: Dict[str, Any] = Depends(current_user)) -> Dict[str, Any]:
+    _exigir_controladora(device_id)
     from app.services.access_control_controladora import acertar_hora
     return acertar_hora(device_id, user.get("username") or "")
 
@@ -1155,6 +1211,7 @@ def api_access_control_painel_controladora_hora(device_id: str, user: Dict[str, 
 @router.post("/painel/controladora/{device_id}/ntp")
 def api_access_control_painel_controladora_ntp(device_id: str, req: NtpRequest,
                                                user: Dict[str, Any] = Depends(current_user)) -> Dict[str, Any]:
+    _exigir_controladora(device_id)
     from app.services.access_control_controladora import configurar_ntp
     return configurar_ntp(device_id, user.get("username") or "", req.servidor, req.ativar)
 
@@ -1162,6 +1219,7 @@ def api_access_control_painel_controladora_ntp(device_id: str, req: NtpRequest,
 @router.post("/painel/controladora/{device_id}/fechar")
 def api_access_control_painel_controladora_fechar(device_id: str, canal: int = Query(1),
                                                   user: Dict[str, Any] = Depends(current_user)) -> Dict[str, Any]:
+    _exigir_controladora(device_id)
     from app.services.access_control_controladora import fechar_porta
     return fechar_porta(device_id, user.get("username") or "", canal)
 
@@ -1169,6 +1227,7 @@ def api_access_control_painel_controladora_fechar(device_id: str, canal: int = Q
 @router.post("/painel/reiniciar-controladora/{device_id}")
 def api_access_control_painel_controladora_reiniciar(device_id: str, user: Dict[str, Any] = Depends(current_user)) -> Dict[str, Any]:
     """Reiniciar deixa a porta sem leitor por ~1 min: so admin (regra em security.py)."""
+    _exigir_controladora(device_id)
     from app.services.access_control_controladora import reiniciar
     return reiniciar(device_id, user.get("username") or "")
 

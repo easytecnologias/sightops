@@ -166,6 +166,10 @@ def api_alert_summary() -> Dict[str, Any]:
     return {"ok": True, **live_summary()}
 
 
+def _camera_liberada(card: Dict[str, Any]) -> bool:
+    return bool(permissions.filtrar_por_site([card]))
+
+
 @router.get("/nearby-cameras")
 def api_alert_nearby_cameras(
     lat: float = Query(...),
@@ -183,7 +187,8 @@ def api_alert_nearby_cameras(
     if abs(lat) > 90 or abs(lon) > 180:
         raise HTTPException(status_code=400, detail="coordenada invalida")
     raio = effective_radius_m(radius_m, accuracy_m)
-    cams = permissions.filtrar_por_site(nearby_cameras(lat, lon, limit=limit, max_distance_m=radius_m, accuracy_m=accuracy_m))
+    aceita = _camera_liberada if permissions.sites_da_sessao() is not None else None
+    cams = nearby_cameras(lat, lon, limit=limit, max_distance_m=radius_m, accuracy_m=accuracy_m, aceita=aceita)
     out: Dict[str, Any] = {
         "ok": True,
         "count": len(cams),
@@ -194,9 +199,7 @@ def api_alert_nearby_cameras(
         "widened": raio > radius_m,  # raio ampliado por causa do GPS
     }
     if not cams:
-        perto = nearest_camera(lat, lon)
-        if perto and not permissions.filtrar_por_site([perto]):
-            perto = None  # a mais perto e de site que o usuario nao acessa
+        perto = nearest_camera(lat, lon, aceita=aceita)  # a mais perto entre as liberadas
         if perto:
             out["nearest"] = {
                 "titulo": perto.get("titulo"),

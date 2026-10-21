@@ -36,22 +36,37 @@ async def listar_onus() -> Dict[str, Any]:
 
 
 def _onus_dos_sites(onus: list, sites: list) -> list:
-    """ONU nao tem site proprio: vale o site da OLT dela (site da OLT ou do
-    conector dela). OLT sem site conhecido fica de fora para usuario restrito."""
+    """ONU sem site proprio vale o site da OLT dela (site da OLT ou do conector
+    dela), achada pelo IP da OLT -- o nome nao serve: e padrao de fabrica
+    ("OLT-FiberHome") e se repete entre sites. IP que aparece em OLTs de
+    sites diferentes so passa se TODOS forem liberados; OLT sem site conhecido
+    fica de fora para usuario restrito."""
     from app.api.endpoints.maintenance import _site_do_conector
     from app.core.tenant_context import get_current_tenant_slug
     from app.services.db_store import _conn
 
     liberados = {s.strip().upper() for s in sites}
-    site_da_olt: Dict[str, str] = {}
+    por_ip: Dict[str, set] = {}
+    por_nome: Dict[str, set] = {}
     with _conn() as c:
         for r in c.execute(
-            "SELECT o.name, o.connector_id, s.name AS site FROM olts o LEFT JOIN sites s ON s.id = o.site_id WHERE o.tenant_slug=?",
+            "SELECT o.name, o.host, o.connector_id, s.name AS site FROM olts o "
+            "LEFT JOIN sites s ON s.id = o.site_id AND s.tenant_slug = o.tenant_slug WHERE o.tenant_slug=?",
             (get_current_tenant_slug(),),
         ).fetchall():
-            site = str(r["site"] or "").strip() or _site_do_conector(r["connector_id"])
-            site_da_olt[str(r["name"] or "").strip().upper()] = site.strip().upper()
-    return [o for o in onus if isinstance(o, dict) and site_da_olt.get(str(o.get("olt") or "").strip().upper(), "") in liberados]
+            site = (str(r["site"] or "").strip() or str(_site_do_conector(r["connector_id"]) or "").strip()).upper()
+            por_ip.setdefault(str(r["host"] or "").strip(), set()).add(site)
+            por_nome.setdefault(str(r["name"] or "").strip().upper(), set()).add(site)
+
+    def _liberada(o: dict) -> bool:
+        proprio = str(o.get("site") or "").strip().upper()
+        if proprio:
+            return proprio in liberados
+        ip = str(o.get("olt_ip") or "").strip()
+        candidatos = por_ip.get(ip) if ip else por_nome.get(str(o.get("olt") or "").strip().upper())
+        return bool(candidatos) and candidatos <= liberados
+
+    return [o for o in onus if isinstance(o, dict) and _liberada(o)]
 
 
 @router.get("/devices/{serial}")

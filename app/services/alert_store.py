@@ -31,7 +31,7 @@ import secrets
 import threading
 import uuid
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from app.core.tenant_context import reset_current_tenant_slug, set_current_tenant_slug
 from app.services import db_store
@@ -756,19 +756,25 @@ def nearby_cameras(
     limit: int = 6,
     max_distance_m: float = NEARBY_RADIUS_M,
     accuracy_m: Optional[float] = None,
+    aceita: Optional[Callable[[Dict[str, Any]], bool]] = None,
 ) -> List[Dict[str, Any]]:
-    """Cameras IP do tenant com coordenada, dentro do raio a partir do ponto."""
+    """Cameras IP do tenant com coordenada, dentro do raio a partir do ponto.
+    `aceita` (sites do usuario) filtra ANTES do corte: filtrar depois deixava
+    lista vazia quando as mais perto eram de outro site."""
     raio = effective_radius_m(max_distance_m, accuracy_m)
     found = []
     for mode, r in _inventory_cameras():
         card = _camera_card(mode, r, lat, lon)
+        if aceita is not None and not aceita(card):
+            continue
         if card["distance_m"] is not None and card["distance_m"] <= raio:
             found.append(card)
     found.sort(key=lambda x: x["distance_m"])
     return found[: max(1, min(int(limit or 6), 20))]
 
 
-def nearest_camera(lat: float, lon: float) -> Optional[Dict[str, Any]]:
+def nearest_camera(lat: float, lon: float,
+                   aceita: Optional[Callable[[Dict[str, Any]], bool]] = None) -> Optional[Dict[str, Any]]:
     """Camera com coordenada mais proxima do ponto, SEM limite de raio.
 
     Quando nada cai dentro do raio, "nao tem camera aqui" sozinho deixa a
@@ -777,7 +783,7 @@ def nearest_camera(lat: float, lon: float) -> Optional[Dict[str, Any]]:
     melhor = None
     for mode, r in _inventory_cameras():
         card = _camera_card(mode, r, lat, lon)
-        if card["distance_m"] is None:
+        if card["distance_m"] is None or (aceita is not None and not aceita(card)):
             continue
         if melhor is None or card["distance_m"] < melhor["distance_m"]:
             melhor = card

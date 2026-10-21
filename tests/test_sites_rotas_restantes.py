@@ -125,3 +125,77 @@ def test_web_do_equipamento_nao_fica_na_borda():
     fonte = inspect.getsource(maintenance)
     assert 'f"public, max-age={_CDN_CACHE_MAX_AGE_SECONDS}"' not in fonte
     assert fonte.count('f"private, max-age={_CDN_CACHE_MAX_AGE_SECONDS}"') == 2
+
+
+def test_rotas_ligadas_as_funcoes_certas():
+    """O helper entre o decorador e a funcao roubou a rota /clip uma vez."""
+    from app.api.endpoints import access_control, alert, playback
+
+    rotas = {r.path: r.endpoint.__name__ for m in (playback, alert, access_control) for r in m.router.routes}
+    assert rotas["/api/playback/clip"] == "create_clip"
+    assert rotas["/api/alert/nearby-cameras"] == "api_alert_nearby_cameras"
+
+
+def test_reproducao_confere_o_conector_do_download(restrito, monkeypatch):
+    from app.api.endpoints import maintenance, playback
+
+    vistos = []
+    monkeypatch.setattr(maintenance, "alvo_permitido", lambda user, ip, nivel="ver", hint="": vistos.append(hint) or (True, ""))
+    monkeypatch.setattr(playback, "_conector_do_gravador", lambda host, cid="": cid or "c-inventario")
+    playback._conferir_gravador("10.0.0.1", "c-jang")
+    playback._conferir_gravador("10.0.0.1")
+    assert vistos == ["c-jang", "c-inventario"]
+
+
+def test_controladora_por_id_de_outro_site(restrito, monkeypatch):
+    from app.api.endpoints import access_control, maintenance
+
+    monkeypatch.setattr(maintenance, "_site_do_conector", lambda cid: {"c-inco": "INCOFORTE", "c-jang": "JANGADEIROS"}.get(cid, ""))
+    devs = [{"id": "d1", "site": "INCOFORTE", "connector_id": "c-inco"},
+            {"id": "d2", "site": "JANGADEIROS", "connector_id": "c-jang"},
+            {"id": "d3", "site": "", "connector_id": "c-inco"}]
+    monkeypatch.setattr(access_control, "list_devices", lambda site="": [dict(d) for d in devs])
+    access_control._exigir_controladora("d1")
+    access_control._exigir_controladora("d3")
+    with pytest.raises(HTTPException):
+        access_control._exigir_controladora("d2")
+    # "puxar" a controladora de outro site para o seu: barrado
+    with pytest.raises(HTTPException):
+        access_control._conferir_site_da_controladora({"id": "d2", "site": "INCOFORTE", "connector_id": "c-inco"})
+    assert [d["id"] for d in access_control.api_access_control_devices()["devices"]] == ["d1", "d3"]
+
+
+def test_onu_pelo_ip_da_olt_com_nome_repetido(tmp_path, monkeypatch):
+    from app.api.endpoints import maintenance, tr069
+    from app.services import db_store
+
+    monkeypatch.setenv("DATABASE_BACKEND", "sqlite")
+    monkeypatch.setattr(db_store, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(db_store, "SIGHTOPS_DB_PATH", tmp_path / "teste.db")
+    monkeypatch.setattr(T, "DATA_DIR", tmp_path)
+    db_store.init_db()
+    monkeypatch.setattr(maintenance, "_site_do_conector", lambda cid: {"c-inco": "INCOFORTE", "c-jang": "JANGADEIROS"}.get(cid, ""))
+    with db_store._conn() as c:
+        c.execute("INSERT INTO olts(tenant_slug, name, host, connector_id) VALUES(?,?,?,?)", ("cliente-x", "OLT-FiberHome", "10.1.1.1", "c-inco"))
+        c.execute("INSERT INTO olts(tenant_slug, name, host, connector_id) VALUES(?,?,?,?)", ("cliente-x", "OLT-FiberHome", "10.1.1.2", "c-jang"))
+    tok = T.set_current_tenant_slug("cliente-x")
+    try:
+        onus = [{"serial": "A", "olt": "OLT-FiberHome", "olt_ip": "10.1.1.1"},
+                {"serial": "B", "olt": "OLT-FiberHome", "olt_ip": "10.1.1.2"},
+                {"serial": "C", "olt": "OLT-FiberHome", "olt_ip": "10.1.1.2", "site": "INCOFORTE"}]
+        assert [o["serial"] for o in tr069._onus_dos_sites(onus, ["INCOFORTE"])] == ["A", "C"]
+        assert [o["serial"] for o in tr069._onus_dos_sites(onus, ["JANGADEIROS"])] == ["B"]
+    finally:
+        T.reset_current_tenant_slug(tok)
+
+
+def test_alerta_filtra_antes_do_corte(restrito, monkeypatch):
+    from app.services import alert_store as A
+
+    cams = [("olt", {"ip": f"10.0.0.{i}", "site": "JANGADEIROS" if i < 8 else "INCOFORTE", "d": i}) for i in range(10)]
+    monkeypatch.setattr(A, "_inventory_cameras", lambda: cams)
+    monkeypatch.setattr(A, "_camera_card", lambda mode, r, lat, lon: {"ip": r["ip"], "site": r["site"], "distance_m": r["d"]})
+    from app.api.endpoints import alert
+
+    r = alert.api_alert_nearby_cameras(lat=0, lon=0, limit=6, radius_m=100, accuracy_m=None)
+    assert [c["ip"] for c in r["cameras"]] == ["10.0.0.8", "10.0.0.9"]

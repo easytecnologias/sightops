@@ -66,6 +66,18 @@ def _clean_host_or_422(host: str) -> str:
         raise HTTPException(status_code=422, detail="DVR inválido.") from exc
 
 
+def _conector_do_gravador(host: str, connector_id: str = "") -> str:
+    """Conector por onde sai o download: o do request, senao o do inventario."""
+    cid = str(connector_id or "").strip()
+    if cid:
+        return cid
+    try:
+        from app.api.endpoints.nvr import _recorder_connector_for_host
+        return _recorder_connector_for_host(str(host or "").strip()) or ""
+    except Exception:
+        return ""
+
+
 def _reach_playback_host(host: str, connector_id: str = "") -> str:
     """Gravador de conector isolado -> IP virtual (vnat) pra baixar a gravacao
     pelo tunel. O download e HTTP (loadfile.cgi/RPC), entao TCP virtual passa.
@@ -76,14 +88,7 @@ def _reach_playback_host(host: str, connector_id: str = "") -> str:
         return host
     try:
         from app.services import connector_routing_vnat as _vnat
-        cid = str(connector_id or "").strip()
-        if not cid:
-            try:
-                from app.api.endpoints.nvr import _recorder_connector_for_host
-                cid = _recorder_connector_for_host(real)
-            except Exception:
-                cid = ""
-        return _vnat.virtual_ip_for(cid, real) or real
+        return _vnat.virtual_ip_for(_conector_do_gravador(real, connector_id), real) or real
     except Exception:
         return real
 
@@ -137,25 +142,28 @@ def _validate_frame_count(start: datetime, end: datetime, interval_seconds: int)
     return count
 
 
-@router.post("/clip")
-def _conferir_gravador(host: str) -> None:
+def _conferir_gravador(host: str, connector_id: str = "") -> None:
     """Gravacao de gravador de site que o usuario nao acessa: 403 (so com a
-    regra valendo; em sombra a funcao nao consulta nada)."""
+    regra valendo; em sombra a funcao nao consulta nada). Confere o site do
+    conector por onde o download SAI (o do request, senao o do inventario):
+    conferir outro deixava baixar o gravador de mesmo IP de outro site."""
     from app.api.endpoints.maintenance import alvo_permitido
     from app.core.tenant_context import get_current_user
 
-    ok, motivo = alvo_permitido(get_current_user(), str(host or "").strip(), "ver")
+    host = str(host or "").strip()
+    ok, motivo = alvo_permitido(get_current_user(), host, "ver", _conector_do_gravador(host, connector_id))
     if not ok:
         raise HTTPException(status_code=403, detail=motivo or "sem acesso a este gravador")
 
 
+@router.post("/clip")
 def create_clip(payload: PlaybackClipRequest) -> dict:
     start = _parse_dt_or_422(payload.start)
     end = _parse_dt_or_422(payload.end)
     _validate_range(start, end)
 
     host = _clean_host_or_422(payload.host)
-    _conferir_gravador(host)
+    _conferir_gravador(host, getattr(payload, "connector_id", ""))
     stem = safe_stem(host, payload.channel, start, end)
     dav_path = EXPORT_DIR / f"{stem}.dav"
     _download_dav_or_http(payload, start, end, dav_path)
@@ -212,7 +220,7 @@ def create_snapshot(payload: PlaybackSnapshotRequest) -> dict:
     )
 
     host = _clean_host_or_422(payload.host)
-    _conferir_gravador(host)
+    _conferir_gravador(host, getattr(payload, "connector_id", ""))
     stem = safe_stem(host, payload.channel, start, end)
     dav_path = EXPORT_DIR / f"{stem}.dav"
     jpg_path = EXPORT_DIR / f"{stem}.jpg"
@@ -237,7 +245,7 @@ def create_frames(payload: PlaybackFramesRequest) -> dict:
     expected = _validate_frame_count(start, end, payload.interval_seconds)
 
     host = _clean_host_or_422(payload.host)
-    _conferir_gravador(host)
+    _conferir_gravador(host, getattr(payload, "connector_id", ""))
     stem = safe_stem(host, payload.channel, start, end)
     dav_path = EXPORT_DIR / f"{stem}.dav"
     _download_dav_or_http(payload, start, end, dav_path)
@@ -297,4 +305,4 @@ def get_playback_file(filename: str) -> FileResponse:
         media = "video/mp4"
     elif path.suffix.lower() in (".jpg", ".jpeg"):
         media = "image/jpeg"
-    return FileResponse(path, media_type=media, filename=path.name, headers={"Cache-Control": "no-cache"})
+    return FileResponse(path, media_type=media, filename=path.name, headers={"Cache-Control": "private, no-store"})

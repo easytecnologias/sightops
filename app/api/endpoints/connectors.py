@@ -100,8 +100,10 @@ def api_connectors_delete(connector_id: str) -> Dict[str, Any]:
 
 @router.get("/{connector_id}")
 def api_connectors_get(connector_id: str) -> Dict[str, Any]:
-    # O token autentica o MikroTik/Ruijie como o conector: so admin ve (para
-    # gerar o script de instalacao). Operador edita e opera sem precisar dele.
+    # O token autentica o MikroTik/Ruijie como o conector: esta ficha so o
+    # mostra a admin (a tela nao o usa). ATENCAO: os scripts de instalacao
+    # (agent-script, routeros-script, wireguard) o levam e o operador os baixa
+    # -- quem instala precisa dele. Fechar para operador = decisao de produto.
     from app.core.tenant_context import get_current_user
 
     papel = str((get_current_user() or {}).get("role") or "").lower()
