@@ -629,6 +629,68 @@ async def ws_maintenance_ping(ws: WebSocket) -> None:
         reset_current_tenant_slug(ctx_token)
 
 
+_WEB_TUNNEL_CACHE: Dict[tuple, tuple] = {}  # (tenant, usuario, papel, ip, porta) -> (expira, reach)
+_WEB_TUNNEL_TTL = 60.0
+
+
+def _web_tunnel_cache_get(chave: tuple):
+    item = _WEB_TUNNEL_CACHE.get(chave)
+    if item and item[0] > time.monotonic():
+        return item[1]
+    return None
+
+
+def _web_tunnel_cache_put(chave: tuple, reach: str) -> None:
+    agora = time.monotonic()
+    if len(_WEB_TUNNEL_CACHE) > 2000:
+        for k in [k for k, v in _WEB_TUNNEL_CACHE.items() if v[0] <= agora]:
+            _WEB_TUNNEL_CACHE.pop(k, None)
+        if len(_WEB_TUNNEL_CACHE) > 2000:
+            _WEB_TUNNEL_CACHE.clear()
+    _WEB_TUNNEL_CACHE[chave] = (agora + _WEB_TUNNEL_TTL, reach)
+
+
+def _web_tunnel_destino(current_user: Dict[str, Any], host: str, port: int) -> str:
+    """Confere se o usuario pode abrir host:porta e devolve por onde o pacote
+    sai (IP virtual do conector). "" = recusado. Roda fora do laco (to_thread,
+    que leva o tenant da sessao junto)."""
+    from app.api.endpoints.maintenance import (
+        _is_proxy_allowed_host,
+        _ip_belongs_to_current_tenant,
+        _reach,
+    )
+    # mesma politica do proxy web: so IP privado/CGNAT e do tenant atual
+    if not _is_proxy_allowed_host(host) or not _ip_belongs_to_current_tenant(host):
+        return ""
+    # GRAVADOR nao vive no inventario de cameras, e o _reach so resolve o
+    # conector por la -- sem este hint ele devolveria o IP real e o
+    # container nao alcanca a LAN do conector isolado (camera abria, NVR
+    # dava ERR_EMPTY_RESPONSE). Cai pro inventario de gravadores.
+    rec_cid = ""
+    try:
+        from app.api.endpoints.nvr import _recorder_connector_for_host
+        rec_cid = _recorder_connector_for_host(host)
+    except Exception:
+        rec_cid = ""
+    # Perfil por modulo + sites do usuario (a ponte nao passa pelo
+    # middleware de /api/, entao confere aqui). Com o MESMO hint do _reach
+    # abaixo: o site conferido e o do conector por onde o pacote sai.
+    # Em "sombra" nao muda nada.
+    from app.api.endpoints.maintenance import web_liberada_para
+    liberada, _motivo = web_liberada_para(current_user, host, rec_cid)
+    if not liberada:
+        return ""
+    # Gateway Ruijie: so a interface web (eWeb). Sem isto a ponte abriria
+    # TCP bruto em qualquer porta do gateway.
+    try:
+        from app.api.endpoints.maintenance import _ruijie_gateway_owner
+        if _ruijie_gateway_owner(host) and port not in (80, 443):
+            return ""
+    except Exception:
+        return ""
+    return _reach(host, rec_cid) or ""  # conector isolado -> IP virtual
+
+
 @router.websocket("/ws/web-tunnel/{ip}")
 async def ws_web_tunnel(ws: WebSocket, ip: str) -> None:
     """Ponte WebSocket<->TCP pro AGENTE local: o agente abre 127.0.0.1:porta no
@@ -649,46 +711,22 @@ async def ws_web_tunnel(ws: WebSocket, ip: str) -> None:
         if port < 1 or port > 65535:
             await ws.close(code=4400)
             return
-        from app.api.endpoints.maintenance import (
-            _is_proxy_allowed_host,
-            _ip_belongs_to_current_tenant,
-            _reach,
-        )
         host = str(ip or "").strip()
-        # mesma politica do proxy web: so IP privado/CGNAT e do tenant atual
-        if not _is_proxy_allowed_host(host) or not _ip_belongs_to_current_tenant(host):
-            await ws.close(code=4403)
-            return
-        # GRAVADOR nao vive no inventario de cameras, e o _reach so resolve o
-        # conector por la -- sem este hint ele devolveria o IP real e o
-        # container nao alcanca a LAN do conector isolado (camera abria, NVR
-        # dava ERR_EMPTY_RESPONSE). Cai pro inventario de gravadores.
-        rec_cid = ""
-        try:
-            from app.api.endpoints.nvr import _recorder_connector_for_host
-            rec_cid = _recorder_connector_for_host(host)
-        except Exception:
-            rec_cid = ""
-        # Perfil por modulo + sites do usuario (a ponte nao passa pelo
-        # middleware de /api/, entao confere aqui). Com o MESMO hint do _reach
-        # abaixo: o site conferido e o do conector por onde o pacote sai.
-        # Em "sombra" nao muda nada.
-        from app.api.endpoints.maintenance import web_liberada_para
-        liberada, _motivo = web_liberada_para(current_user, host, rec_cid)
-        if not liberada:
-            await ws.close(code=4403)
-            return
-        # Gateway Ruijie: so a interface web (eWeb). Sem isto a ponte abriria
-        # TCP bruto em qualquer porta do gateway.
-        try:
-            from app.api.endpoints.maintenance import _ruijie_gateway_owner
-            if _ruijie_gateway_owner(host) and port not in (80, 443):
+        # A pagina de ONT/camera abre UMA conexao por arquivo, e cada uma vinha
+        # aqui refazer ~0,5 s de conferencia (inventario relido) -- rodando no
+        # laco do servidor, travando as outras telas. Agora a conferencia roda
+        # numa thread e o "pode, e o caminho e este" vale 60 s por cliente +
+        # usuario + IP + porta. Sessao/login continuam conferidos a cada conexao.
+        chave = (_effective_tenant_slug(current_user),
+                 str(current_user.get("id") or current_user.get("username") or ""),
+                 str(current_user.get("role") or ""), host, port)
+        reach = _web_tunnel_cache_get(chave)
+        if reach is None:
+            reach = await asyncio.to_thread(_web_tunnel_destino, current_user, host, port)
+            if not reach:
                 await ws.close(code=4403)
                 return
-        except Exception:
-            await ws.close(code=4403)
-            return
-        reach = _reach(host, rec_cid)  # conector isolado -> IP virtual
+            _web_tunnel_cache_put(chave, reach)
         try:
             reader, writer = await asyncio.wait_for(
                 asyncio.open_connection(reach, port), timeout=10.0

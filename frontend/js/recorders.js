@@ -1124,7 +1124,7 @@ async function runRecAction() {
 
 function recPanelAction(action) {
   if (!_recActive) return;
-  if (action === 'web') { openDeviceWeb(_recActive.host, _recActive.http_port || 80); return; }
+  if (action === 'web') { openDeviceWeb(_recActive.host, _recActive.http_port || 80, { modo: 'ip' }); return; }
   if (action === 'ping') { openPingTerminal(_recActive.camera_ip || _recActive.host, _recActive.remote_connector_id || _recActive.connector_id || ''); return; }
   openRecAction(action);
 }

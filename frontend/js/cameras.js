@@ -3735,7 +3735,7 @@ async function camAction(action) {
     return;
   }
   if (action === 'web') {
-    openDeviceWeb(cam.ip, cam.http_port || cam.port || 80);
+    openDeviceWeb(cam.ip, cam.http_port || cam.port || 80, { modo: 'ip' });
     return;
   }
 
@@ -4420,7 +4420,7 @@ async function mcpEnsinarSite(cam, user, pass, status) {
 async function mcpAcao(acao, e) {
   const cam = e.cam;
   const conector = cam.remote_connector_id || cam.connector_id || '';
-  if (acao === 'web') { openDeviceWeb(cam.ip, cam.http_port || cam.port || 80); return; }
+  if (acao === 'web') { openDeviceWeb(cam.ip, cam.http_port || cam.port || 80, { modo: 'ip' }); return; }
   if (acao === 'ping') { openPingTerminal(cam.ip, conector); return; }
   if (acao === 'mover') { mcpAlternarMover(e); return; }
   if (acao === 'iplivre') { await mcpTestarIpLivre(e); return; }

@@ -42,7 +42,19 @@ async function deviceTunnelOpen(ip, port) {
   return (data && data.ok && data.url) ? data : null;
 }
 
-async function openDeviceWeb(ip, port) {
+// opts.modo = 'ip': o agente (>= 1.2.0) abre o equipamento num IP de loopback
+// so dele e na porta dele (http://127.77.0.N/, sem ":porta"). Camera UNV monta
+// "ws://" + location.host + ":" + porta e, com porta no endereco, a pagina
+// ficava branca depois do login. Gateway Ruijie fica no modo porta: sem ":" no
+// endereco ele pula para https.
+const SIGHTOPS_AGENT_VERSAO_MODO_IP = '1.2.0';
+function agenteVersaoMenor(v, alvo) {
+  const a = String(v || '0').split('.').map(Number), b = alvo.split('.').map(Number);
+  for (let i = 0; i < 3; i++) { if ((a[i] || 0) !== (b[i] || 0)) return (a[i] || 0) < (b[i] || 0); }
+  return false;
+}
+
+async function openDeviceWeb(ip, port, opts = {}) {
   ip = String(ip || '').trim();
   if (!ip) return;
   const proxyUrl = `${API_BASE}/api/maintenance/web/${encodeURIComponent(ip)}/`;
@@ -78,7 +90,11 @@ async function openDeviceWeb(ip, port) {
       }
       const wsbase = (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host;
       const q = `wsbase=${encodeURIComponent(wsbase)}&ip=${encodeURIComponent(ip)}`
-        + `&port=${encodeURIComponent(port || 80)}&token=${encodeURIComponent(token)}`;
+        + `&port=${encodeURIComponent(port || 80)}&token=${encodeURIComponent(token)}`
+        + (opts.modo === 'ip' ? '&modo=ip' : '');
+      if (opts.modo === 'ip' && agenteVersaoMenor(health.version, SIGHTOPS_AGENT_VERSAO_MODO_IP)) {
+        showToast(`Seu SightOps Agent é a versão ${health.version || 'antiga'}. Algumas câmeras (UNV) ficam em branco nela: baixe a ${SIGHTOPS_AGENT_VERSAO_MODO_IP} em Conectores → Baixar agente.`, true);
+      }
       const res = await fetch(`${SIGHTOPS_AGENT_URL}/open?${q}`);
       openData = await res.json();
       if (openData && openData.ok && openData.url) {
