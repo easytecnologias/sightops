@@ -118,3 +118,58 @@ def test_trocar_camera_do_cabo_e_excluir(camada):
 def test_id_da_camada_saneado_no_meta(camada):
     tools._caixa_da_camada('c1.<img src=x onerror=alert(1)>', {"ponto": "CAI"})
     assert json.loads((camada / "c1.meta.json").read_text(encoding="utf-8"))["id"] == "c1"
+
+
+@pytest.fixture()
+def inventario(monkeypatch):
+    linhas = {"switch": [{"ip": "10.45.0.104", "titulo": "4 - SAIDA CIDADE"}, {"ip": "10.45.0.105", "titulo": "5"}],
+              "olt": [{"ip": "10.45.0.104", "titulo": "4 - SAIDA CIDADE"}], "basico": []}
+    monkeypatch.setattr(tools, "load_inventory_json", lambda mode="olt": [dict(r) for r in linhas[mode]])
+    monkeypatch.setattr(tools, "save_inventory_json", lambda rows, mode="olt": linhas.__setitem__(mode, [dict(r) for r in rows]))
+    return linhas
+
+
+def test_cabo_vai_para_o_inventario(camada, inventario):
+    cx = _caixa(switch_nome="SW-CFTV-01", switch_modelo="Hikvision PoE", switch_ip="10.45.0.2", uplinks=1, uplink_para="onu", portas=5)
+    assert cx["switch_nome"] == "SW-CFTV-01" and cx["uplinks"] == 1 and cx["uplink_para"] == "onu"
+    r = tools._cabo_da_camada("c1", {"caixa": cx["id"], "camera": {"ponto": "4", "ip": "10.45.0.104"}, "porta": 1, "caminho": _CAMINHO})
+    kid = next(iter(r["cabos"]))
+    for modo in ("switch", "olt"):
+        linha = next(x for x in inventario[modo] if x["ip"] == "10.45.0.104")
+        assert (linha["switch_name"], linha["switch_port"], linha["switch_ip"]) == ("SW-CFTV-01", "1", "10.45.0.2")
+    assert "switch_name" not in inventario["switch"][1]  # outra camera intacta
+    # renomear o switch atualiza as cameras dele
+    _caixa(id=cx["id"], switch_nome="SW-PORTO-01", switch_ip="10.45.0.2", portas=5)
+    assert inventario["switch"][0]["switch_name"] == "SW-PORTO-01"
+    # excluir o cabo limpa (admin)
+    tok = _como("admin")
+    try:
+        tools._cabo_da_camada("c1", {"id": kid, "excluir": True})
+    finally:
+        T.reset_current_user(tok)
+    assert "switch_name" not in inventario["switch"][0] and "switch_port" not in inventario["olt"][0]
+
+
+def test_validacao_do_switch(camada):
+    with pytest.raises(HTTPException):
+        _caixa(switch_ip="300.1.1.1")
+    with pytest.raises(HTTPException):
+        _caixa(uplink_para="satelite")
+
+
+def test_salvar_caixa_preenche_cabos_antigos(camada, inventario):
+    cx = _caixa(portas=5)  # caixa antiga, sem switch
+    tools._cabo_da_camada("c1", {"caixa": cx["id"], "camera": {"ponto": "4", "ip": "10.45.0.104"}, "porta": 3, "caminho": _CAMINHO})
+    _caixa(id=cx["id"], portas=5, switch_nome="SW-CFTV-01")
+    assert (inventario["switch"][0]["switch_name"], inventario["switch"][0]["switch_port"]) == ("SW-CFTV-01", "3")
+
+
+def test_inventario_so_nos_sites_do_usuario(camada, inventario, monkeypatch):
+    from app.core import permissions as P
+
+    inventario["switch"][0]["site"] = "PORTO REAL"
+    inventario["switch"][1]["site"] = "SANTANA"
+    monkeypatch.setattr(P, "sites_da_sessao", lambda: ["PORTO REAL"])
+    cx = _caixa(portas=5, switch_nome="SW-1")
+    tools._cabo_da_camada("c1", {"caixa": cx["id"], "camera": {"ponto": "5", "ip": "10.45.0.105"}, "porta": 2, "caminho": _CAMINHO})
+    assert "switch_name" not in inventario["switch"][1]  # SANTANA: fora dos sites do usuario

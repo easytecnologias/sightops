@@ -12,6 +12,7 @@ const CX_ITENS = {
   switch_poe: 'Switch PoE', switch: 'Switch', onu: 'ONU', fonte: 'Fonte', nobreak: 'Nobreak',
   dio: 'DIO', roteador: 'Roteador', injetor_poe: 'Injetor PoE', outro: 'Outro',
 };
+const CX_UPLINK = { onu: 'ONU', fibra: 'Fibra / conversor', radio: 'Rádio', switch: 'Outro switch', outro: 'Outro' };
 const CX_CABOS = {
   utp5e: { nome: 'UTP Cat5e', cor: '#1971c2', limite: 100 },
   utp6: { nome: 'UTP Cat6', cor: '#1864ab', limite: 100 },
@@ -175,10 +176,16 @@ function cxAbrirPainel(id, def, nomePonto, latlng) {
   const cabos = caixa ? cxCabosDaCaixa(def, caixa.id) : [];
   const porPorta = Object.fromEntries(cabos.filter(c => c.porta).map(c => [c.porta, c]));
   const statusCabo = c => cxEstadoCamera(cxCameraDoCabo(def, c));
+  const uplinks = caixa ? Number(caixa.uplinks ?? 1) : 1;
+  const uplinkPara = caixa?.uplink_para || 'onu';
   const grade = Array.from({ length: portas }, (_, i) => {
     const c = porPorta[i + 1];
     return `<span class="cx-porta ${c ? `cx-p-${statusCabo(c)}` : 'cx-p-livre'}" title="${c ? esc(`Porta ${i + 1}: ${c.camera?.ponto || c.camera?.ip}`) : `Porta ${i + 1} livre`}">${i + 1}</span>`;
-  }).join('');
+  }).join('') + Array.from({ length: uplinks }, (_, i) =>
+    `<span class="cx-porta cx-p-up" title="${esc(`Uplink ${uplinks > 1 ? i + 1 : ''} → ${CX_UPLINK[uplinkPara] || uplinkPara}${caixa?.uplink_obs ? ` (${caixa.uplink_obs})` : ''}`)}">UP${uplinks > 1 ? i + 1 : ''}</span>`).join('');
+  // modelo do switch: o salvo, senao o do item "Switch PoE" (caixas antigas)
+  const itemSwitch = (caixa?.itens || []).find(it => it.tipo === 'switch_poe' || it.tipo === 'switch');
+  const swModelo = caixa?.switch_modelo || itemSwitch?.modelo || '';
   const linhasCabo = cabos.sort((a, b) => (a.porta || 99) - (b.porta || 99)).map(c => {
     const t = CX_CABOS[c.tipo] || CX_CABOS.outro;
     const st = statusCabo(c);
@@ -191,13 +198,22 @@ function cxAbrirPainel(id, def, nomePonto, latlng) {
   }).join('');
   const corpo = `
     ${caixa ? '' : '<div class="so-note"><i data-lucide="info"></i><span>Este ponto vira uma caixa de CFTV. Diga o que tem dentro e quantas portas tem o switch.</span></div>'}
-    <div class="form-row">
-      <div class="form-group" style="margin:0"><label for="cxNome">Nome da caixa</label><input id="cxNome" maxlength="80" value="${esc(caixa?.nome || nomePonto)}"></div>
-      <div class="form-group" style="margin:0"><label for="cxPortas">Portas do switch</label><input id="cxPortas" type="number" min="0" max="64" value="${portas}"></div>
-    </div>
+    <div class="form-group" style="margin:0"><label for="cxNome">Nome da caixa</label><input id="cxNome" maxlength="80" value="${esc(caixa?.nome || nomePonto)}"></div>
+    <section class="cx-switch"><h3>Switch <small>nome e portas vão para o inventário das câmeras</small></h3>
+      <div class="form-row">
+        <div class="form-group" style="margin:0"><label for="cxSwNome">Nome do switch</label><input id="cxSwNome" maxlength="60" value="${esc(caixa?.switch_nome || '')}" placeholder="ex.: SW-CFTV-01"></div>
+        <div class="form-group" style="margin:0"><label for="cxSwModelo">Modelo</label><input id="cxSwModelo" maxlength="80" value="${esc(swModelo)}" placeholder="ex.: Hikvision 4+1 PoE"></div>
+      </div>
+      <div class="cx-sw-linha">
+        <div class="form-group" style="margin:0"><label for="cxPortas">Portas PoE</label><input id="cxPortas" type="number" min="0" max="64" value="${portas}"></div>
+        <div class="form-group" style="margin:0"><label for="cxUplinks">Uplink</label><input id="cxUplinks" type="number" min="0" max="8" value="${uplinks}"></div>
+        <div class="form-group" style="margin:0"><label for="cxUplinkPara">Uplink liga em</label><select id="cxUplinkPara">${Object.entries(CX_UPLINK).map(([k, v]) => `<option value="${k}" ${uplinkPara === k ? 'selected' : ''}>${esc(v)}</option>`).join('')}</select></div>
+        <div class="form-group" style="margin:0"><label for="cxSwIp">IP do switch</label><input id="cxSwIp" maxlength="45" value="${esc(caixa?.switch_ip || '')}" placeholder="opcional"></div>
+      </div>
+    </section>
     <section><h3>O que tem dentro</h3><div id="cxItens">${itens.map(cxLinhaItem).join('')}</div>
       <button type="button" class="ghost-action" data-cx="mais-item"><i data-lucide="plus"></i> Adicionar item</button></section>
-    ${caixa ? `<section><h3>Portas do switch <small>${cabos.filter(c => c.porta).length} de ${portas} em uso</small></h3>
+    ${caixa ? `<section><h3>Portas do switch <small>${cabos.filter(c => c.porta).length} de ${portas} PoE em uso${uplinks ? ` · uplink → ${esc(CX_UPLINK[uplinkPara] || uplinkPara)}` : ''}</small></h3>
       <div class="cx-portas">${grade || '<span class="text-muted">Sem switch informado.</span>'}</div>
       ${cabos.length ? `<table class="cx-tabela"><tbody>${linhasCabo}</tbody></table>` : '<p class="text-muted" style="margin:6px 0 0">Nenhuma câmera ligada ainda. Use "Ligar câmera".</p>'}
     </section>` : ''}
@@ -250,8 +266,11 @@ async function cxAcao(btn) {
       qtd: Number(r.querySelector('[data-cx-it="qtd"]').value || 1),
     }));
     try {
-      await cxGravar(p.def, { caixa: { id: p.caixa?.id || '', ponto: p.nomePonto, nome: document.getElementById('cxNome').value.trim(),
-        portas: Number(document.getElementById('cxPortas').value || 0), itens, obs: document.getElementById('cxObs').value.trim() } });
+      const v = idc => document.getElementById(idc)?.value ?? '';
+      await cxGravar(p.def, { caixa: { id: p.caixa?.id || '', ponto: p.nomePonto, nome: v('cxNome').trim(),
+        portas: Number(v('cxPortas') || 0), itens, obs: v('cxObs').trim(),
+        switch_nome: v('cxSwNome').trim(), switch_modelo: v('cxSwModelo').trim(), switch_ip: v('cxSwIp').trim(),
+        uplinks: Number(v('cxUplinks') || 0), uplink_para: v('cxUplinkPara') || 'onu' } });
     } catch (e) {
       const er = document.getElementById('cxErro');
       if (er) { er.textContent = e.message; er.hidden = false; }
@@ -398,9 +417,11 @@ async function cxSalvarCabo() {
     if (er) { er.textContent = e.message; er.hidden = false; }
     return;
   }
-  const { id, def, caixa } = d;
+  const { id, def, caixa, camera } = d;
+  const porta = document.getElementById('cxPorta')?.value;
   cxLimparDesenho();
-  showToast('Cabo salvo.');
+  const sw = def.caixas?.[caixa.id]?.switch_nome || caixa.nome;
+  showToast(camera?.ip ? `Cabo salvo. No inventário, ${camera.ponto || camera.ip}: switch ${sw}${porta ? `, porta ${porta}` : ''}.` : 'Cabo salvo.');
   cxRedesenhar(id, def);
   cxAbrirPainel(id, def, caixa.ponto);
 }

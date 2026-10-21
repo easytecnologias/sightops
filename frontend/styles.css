@@ -12899,3 +12899,10 @@ table.recorder-tabela tbody tr:hover { background: var(--surface-soft); }
 .cx-barra button { height: 32px; padding: 0 12px; border-radius: 8px; border: 1px solid #3c5560; background: transparent; color: #fff; font: 600 12.5px Inter, Arial, sans-serif; cursor: pointer; }
 .cx-desenhando { cursor: crosshair !important; }
 .cx-desenhando .leaflet-interactive { cursor: crosshair; }
+
+/* caixa: parte do switch e porta de uplink */
+.cx-switch { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; display: flex; flex-direction: column; gap: 10px; }
+.cx-switch h3 { margin: 0; }
+.cx-sw-linha { display: grid; grid-template-columns: 74px 64px minmax(0, 1fr) minmax(0, 1fr); gap: 8px; align-items: end; }
+.cx-sw-linha input, .cx-sw-linha select { min-width: 0; }
+.cx-porta.cx-p-up { background: var(--blue-soft); color: var(--blue); border: 1px solid var(--blue); font-size: 11px; }

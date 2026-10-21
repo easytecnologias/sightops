@@ -1721,6 +1721,53 @@ _MODOS_CAMADA = ("", "olt", "switch", "basico", "todos")
 # desenhado (curvas), tipo, porta e folga; a metragem e calculada aqui.
 _TIPOS_ITEM_CAIXA = ("switch_poe", "switch", "onu", "fonte", "nobreak", "dio", "roteador", "injetor_poe", "outro")
 _TIPOS_CABO = ("utp5e", "utp6", "drop", "coaxial", "outro")
+_UPLINK_PARA = ("onu", "fibra", "radio", "switch", "outro")
+
+
+def _switch_no_inventario(cabos: list, caixa: Dict[str, Any], limpar: bool = False) -> int:
+    """Leva para o inventario (colunas SWITCH e PORTA de Cameras IP) o que foi
+    ligado no mapa: switch_name/switch_ip/switch_port de cada camera dos cabos.
+    limpar=True tira -- so se ainda for deste switch (outra fonte, como a
+    tabela MAC do switch gerenciavel, pode ter escrito depois). Todos os modos
+    (basico/olt/switch): a camera pode estar em mais de um."""
+    nome = str(caixa.get("switch_nome") or caixa.get("nome") or "").strip()
+    sw_ip = str(caixa.get("switch_ip") or "").strip()
+    por_ip = {str((c.get("camera") or {}).get("ip") or "").strip(): c for c in cabos}
+    por_ip.pop("", None)
+    if not por_ip:
+        return 0
+    sites = permissions.sites_da_sessao()
+    sites_ok = {str(x).strip().upper() for x in sites} if sites is not None else None
+    mudou = 0
+    for modo in ("switch", "olt", "basico"):
+        try:
+            linhas = load_inventory_json(mode=modo) or []
+        except Exception:
+            continue
+        alterou = False
+        for r in linhas:
+            if not isinstance(r, dict):
+                continue
+            cabo = por_ip.get(str(r.get("ip") or r.get("IP") or "").strip())
+            if not cabo:
+                continue
+            if sites_ok is not None and permissions.site_da_linha(r).upper() not in sites_ok:
+                continue  # camera de site que o usuario nao acessa (o IP vem da tela)
+            if limpar:
+                if str(r.get("switch_name") or "") == nome:
+                    for k in ("switch_name", "switch_ip", "switch_port"):
+                        r.pop(k, None)
+                    alterou = True
+                continue
+            r["switch_name"] = nome
+            if sw_ip:
+                r["switch_ip"] = sw_ip
+            r["switch_port"] = str(cabo.get("porta") or "")
+            alterou = True
+        if alterou:
+            save_inventory_json(linhas, mode=modo)
+            mudou += 1
+    return mudou
 
 
 def _texto_curto(v: Any, limite: int) -> str:
@@ -1773,10 +1820,12 @@ def _caixa_da_camada_sem_lock(layer_id: str, dados: Dict[str, Any], por: str = "
     caixas = meta.get("caixas") if isinstance(meta.get("caixas"), dict) else {}
     cabos = meta.get("cabos") if isinstance(meta.get("cabos"), dict) else {}
     cid = _texto_curto(dados.get("id"), 24)
+    inventario: Optional[tuple] = None  # (cabos, caixa, limpar) para depois de gravar o meta
     if dados.get("excluir"):
         if cid not in caixas:
             raise HTTPException(404, "Caixa nao encontrada.")
         _exige_admin_para_excluir()
+        inventario = ([v for v in cabos.values() if (v or {}).get("caixa") == cid], caixas[cid], True)
         caixas.pop(cid, None)
         # os cabos dela saem junto (nao ficam "pendurados" no mapa)
         cabos = {k: v for k, v in cabos.items() if (v or {}).get("caixa") != cid}
@@ -1814,15 +1863,45 @@ def _caixa_da_camada_sem_lock(layer_id: str, dados: Dict[str, Any], por: str = "
             raise HTTPException(400, f"A porta {max(em_uso)} tem cabo ligado: o switch nao pode ter menos portas.")
         agora = datetime.now().isoformat(timespec="seconds")
         cid = cid or f"cx{uuid.uuid4().hex[:10]}"
+        sw_ip = _texto_curto(dados.get("switch_ip"), 45)
+        if sw_ip:
+            try:
+                ipaddress.ip_address(sw_ip)
+            except ValueError:
+                raise HTTPException(400, "IP do switch invalido.")
+        try:
+            uplinks = max(0, min(int(dados.get("uplinks") if dados.get("uplinks") is not None else 1), 8))
+        except (TypeError, ValueError):
+            raise HTTPException(400, "Numero de portas de uplink invalido.")
+        uplink_para = _texto_curto(dados.get("uplink_para") or "onu", 10)
+        if uplink_para not in _UPLINK_PARA:
+            raise HTTPException(400, "Destino do uplink invalido.")
         caixas[cid] = {
             "id": cid, "ponto": ponto, "nome": _texto_curto(dados.get("nome"), 80) or ponto,
             "itens": itens, "portas": portas, "obs": _texto_curto(dados.get("obs"), 300),
+            # o switch da caixa: nome e portas vao para o inventario das cameras
+            "switch_nome": _texto_curto(dados.get("switch_nome"), 60),
+            "switch_modelo": _texto_curto(dados.get("switch_modelo"), 80),
+            "switch_ip": sw_ip,
+            "uplinks": uplinks, "uplink_para": uplink_para,
+            "uplink_obs": _texto_curto(dados.get("uplink_obs"), 80),
             "criado_em": (atual or {}).get("criado_em") or agora, "criado_por": (atual or {}).get("criado_por") or por,
             "atualizado_em": agora, "atualizado_por": por,
         }
+        anterior_nome = str((atual or {}).get("switch_nome") or (atual or {}).get("nome") or "")
+        novo_nome = str(caixas[cid].get("switch_nome") or caixas[cid].get("nome") or "")
+        dela = [v for v in cabos.values() if (v or {}).get("caixa") == cid]
+        if atual and dela:
+            # salvar a caixa sempre leva o switch/porta das cameras dela ao
+            # inventario (cabos feitos antes de existir o switch tambem entram)
+            if anterior_nome != novo_nome:
+                _switch_no_inventario(dela, {**atual, "switch_nome": anterior_nome}, limpar=True)
+            inventario = (dela, caixas[cid], False)
     meta["caixas"], meta["cabos"] = caixas, cabos
     meta["updated_at"] = datetime.now().isoformat(timespec="seconds")
     _write_kmz_layer_meta(meta_path, meta)
+    if inventario:
+        _switch_no_inventario(*inventario)
     return {"caixas": caixas, "cabos": cabos}
 
 
@@ -1836,10 +1915,15 @@ def _cabo_da_camada_sem_lock(layer_id: str, dados: Dict[str, Any], por: str = ""
     caixas = meta.get("caixas") if isinstance(meta.get("caixas"), dict) else {}
     cabos = meta.get("cabos") if isinstance(meta.get("cabos"), dict) else {}
     kid = _texto_curto(dados.get("id"), 24)
+    inventario: Optional[tuple] = None
+    _limpar_depois: Optional[tuple] = None
+    antigo_cabo = dict(cabos[kid]) if kid in cabos else None
     if dados.get("excluir"):
         if kid not in cabos:
             raise HTTPException(404, "Cabo nao encontrado.")
         _exige_admin_para_excluir()
+        caixa_do_cabo = caixas.get(cabos[kid].get("caixa")) or {}
+        inventario = ([cabos[kid]], caixa_do_cabo, True)
         cabos.pop(kid, None)
     else:
         caixa = caixas.get(_texto_curto(dados.get("caixa"), 24))
@@ -1911,9 +1995,16 @@ def _cabo_da_camada_sem_lock(layer_id: str, dados: Dict[str, Any], por: str = ""
             "criado_em": (cabos.get(kid) or {}).get("criado_em") or agora, "criado_por": (cabos.get(kid) or {}).get("criado_por") or por,
             "atualizado_em": agora,
         }
+        inventario = ([cabos[kid]], caixa, False)
+        if antigo_cabo and not _mesma_camera(antigo_cabo):
+            _limpar_depois = ([antigo_cabo], caixas.get(antigo_cabo.get("caixa")) or caixa)
     meta["cabos"] = cabos
     meta["updated_at"] = datetime.now().isoformat(timespec="seconds")
     _write_kmz_layer_meta(meta_path, meta)
+    if _limpar_depois:
+        _switch_no_inventario(*_limpar_depois, limpar=True)
+    if inventario:
+        _switch_no_inventario(*inventario)
     return {"caixas": caixas, "cabos": cabos}
 
 
