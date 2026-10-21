@@ -12947,3 +12947,17 @@ button.map-layer-stat { border: 0; background: none; padding: 1px 4px; margin: -
 button.map-layer-stat:hover { background: var(--surface-soft); }
 button.map-layer-stat.off { opacity: .45; text-decoration: line-through; }
 button.map-layer-stat.off .map-layer-stat-dot { background: transparent !important; box-shadow: inset 0 0 0 1.5px var(--muted); }
+/* lista da legenda (estilo Google Earth): marcar o que aparece no mapa */
+button.map-layer-stat.aberta { background: var(--surface-soft); box-shadow: inset 0 0 0 1px var(--border); }
+button.map-layer-stat.parcial .map-layer-stat-dot { box-shadow: 0 0 0 2px var(--surface), 0 0 0 3px var(--muted); }
+.map-legenda-lista { grid-column: 1 / -1; width: 100%; margin-top: 6px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); overflow: hidden; }
+.map-legenda-todos { display: flex; align-items: center; gap: 8px; padding: 7px 8px; border-bottom: 1px solid var(--border); background: var(--surface-soft); font-weight: 600; color: var(--text); cursor: pointer; }
+.map-legenda-todos small { font-weight: 400; color: var(--muted); margin-left: 4px; }
+.map-legenda-itens { max-height: 240px; overflow-y: auto; padding: 2px 0; }
+.map-legenda-item { display: flex; align-items: center; gap: 7px; padding: 3px 8px; }
+.map-legenda-item:hover { background: var(--surface-soft); }
+.map-legenda-item input, .map-legenda-todos input { margin: 0; flex: none; accent-color: var(--primary); }
+.map-legenda-item button { flex: 1; min-width: 0; border: 0; background: none; padding: 2px 0; font: inherit; color: var(--text); text-align: left; cursor: pointer; display: flex; flex-direction: column; }
+.map-legenda-item button span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.map-legenda-item button small { color: var(--muted); font-size: 10.5px; }
+.map-legenda-vazio { padding: 8px; color: var(--muted); }

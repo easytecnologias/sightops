@@ -396,19 +396,110 @@ function mapOcultosDaCamada(id) {
   return _mapOcultos[id];
 }
 
-function mapPontoOculto(def, f, cam, type) {
-  const ocultos = mapOcultosDaCamada(def?.id);
-  return ocultos.size > 0 && mapCategoriasDoPonto(def, f, cam, type).some(c => ocultos.has(c));
+// Chave de um item (ponto/linha) que nao depende do inventario: nome + 1a coordenada.
+function mapChaveItem(f) {
+  const c = f?.geometry?.coordinates || [];
+  const p = Array.isArray(c[0]) ? c[0] : c;
+  return `p:${mapFeatureName(f)}|${(+p[1]).toFixed(6)},${(+p[0]).toFixed(6)}`;
 }
 
-function mapAlternarCategoria(def, cat, chip) {
-  const ocultos = mapOcultosDaCamada(def.id);
-  if (ocultos.has(cat)) ocultos.delete(cat); else ocultos.add(cat);
-  try { localStorage.setItem(`sightops.mapa.ocultos.${def.id}`, JSON.stringify([...ocultos])); } catch {}
-  chip?.classList.toggle('off', ocultos.has(cat));
-  chip?.setAttribute('aria-pressed', String(!ocultos.has(cat)));
+function mapPontoOculto(def, f, cam, type) {
+  const ocultos = mapOcultosDaCamada(def?.id);
+  return ocultos.size > 0 && (ocultos.has(mapChaveItem(f)) || mapCategoriasDoPonto(def, f, cam, type).some(c => ocultos.has(c)));
+}
+
+function mapGravarOcultos(def) {
+  try { localStorage.setItem(`sightops.mapa.ocultos.${def.id}`, JSON.stringify([...mapOcultosDaCamada(def.id)])); } catch {}
   if (_mapLayerGroups?.[def.id]?.active) reRenderMapLayerGroup(def.id, def, true);
 }
+
+// Itens de uma categoria da legenda: { chave, nome, sub, cor, latlng }
+function mapItensDaCategoria(def, cat) {
+  if (cat === 'cabos') {
+    return Object.values(def.cabos || {}).map(c => {
+      const cx = def.caixas?.[c.caixa];
+      const dest = c.cto ? `CTO ${c.cto.ponto}` : (c.camera?.ponto || c.camera?.ip || '');
+      return { chave: `cabo:${c.id}`, nome: `${cx?.nome || 'Caixa'} → ${dest}`, sub: `${Math.round(c.metros || 0)} m${c.porta ? ` · porta ${c.porta}` : ''}`,
+        cor: '#1971c2', latlng: c.caminho?.[c.caminho.length - 1] };
+    });
+  }
+  const cores = { online: '#16a34a', offline: '#dc2626', outros: '#d97706', fiber: '#0ea5e9', box: '#f59e0b', pole: '#64748b', cto: '#1971c2', cdo: '#7950f2' };
+  return (def.features || []).flatMap(f => {
+    const cam = mapFindCamera(f, _mapCameraIndex);
+    const cats = mapCategoriasDoPonto(def, f, cam);
+    if (!cats.includes(cat)) return [];
+    const c = f.geometry?.coordinates || [];
+    const p = Array.isArray(c[0]) ? c[0] : c;
+    const nome = mapFeatureName(f);
+    const caixa = cats[0] === 'box' && typeof cxCaixaDoPonto === 'function' ? cxCaixaDoPonto(def, nome, [+p[1], +p[0]]) : null;
+    return [{ chave: mapChaveItem(f), nome: caixa?.nome || cam?.titulo || nome || '(sem nome)', sub: cam?.ip || (caixa ? nome : ''),
+      cor: cores[cats[cats.length - 1]] || '#64748b', latlng: [+p[1], +p[0]] }];
+  }).sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR', { numeric: true }));
+}
+
+// Lista estilo Google Earth abaixo da legenda: marcar/desmarcar cada item.
+function mapRenderListaLegenda(def, statsEl) {
+  statsEl.querySelector('.map-legenda-lista')?.remove();
+  const cat = _mapLegendaAberta[def.id];
+  statsEl.querySelectorAll('[data-map-cat]').forEach(b => b.classList.toggle('aberta', b.dataset.mapCat === cat));
+  if (!cat) return;
+  const ocultos = mapOcultosDaCamada(def.id);
+  const itens = mapItensDaCategoria(def, cat);
+  const todosOff = ocultos.has(cat);
+  const visiveis = todosOff ? 0 : itens.filter(i => !ocultos.has(i.chave)).length;
+  const rotulo = statsEl.querySelector(`[data-map-cat="${cat}"]`)?.dataset.rotulo || cat;
+  const el = document.createElement('div');
+  el.className = 'map-legenda-lista';
+  el.innerHTML = `<label class="map-legenda-todos"><input type="checkbox" data-leg-todos ${visiveis === itens.length ? 'checked' : ''}>
+      <span>${esc(rotulo)} <small>${visiveis} de ${itens.length} no mapa</small></span></label>
+    <div class="map-legenda-itens">${itens.map(i => `<div class="map-legenda-item">
+      <input type="checkbox" data-leg-item="${esc(i.chave)}" ${!todosOff && !ocultos.has(i.chave) ? 'checked' : ''} aria-label="Mostrar ${esc(i.nome)}">
+      <span class="map-layer-stat-dot" style="background:${i.cor}"></span>
+      <button type="button" data-leg-ir="${esc(i.chave)}" title="Ir até no mapa"><span>${esc(i.nome)}</span>${i.sub ? `<small>${esc(i.sub)}</small>` : ''}</button></div>`).join('')
+      || '<div class="map-legenda-vazio">Nenhum item.</div>'}</div>`;
+  // logo abaixo dos itens da legenda (antes dos avisos do card)
+  const ult = [...statsEl.querySelectorAll('[data-map-cat]')].pop();
+  if (ult) ult.after(el); else statsEl.appendChild(el);
+  // parte escondida: caixinha do topo com traco (indeterminada), como no Google Earth
+  const cbTodos = el.querySelector('[data-leg-todos]');
+  if (cbTodos) cbTodos.indeterminate = visiveis > 0 && visiveis < itens.length;
+  el.addEventListener('click', e => e.stopPropagation());
+  el.addEventListener('change', e => {
+    const todos = e.target.closest('[data-leg-todos]');
+    const item = e.target.closest('[data-leg-item]');
+    if (todos) {
+      ocultos.delete(cat);
+      itens.forEach(i => (todos.checked ? ocultos.delete(i.chave) : ocultos.add(i.chave)));
+    } else if (item) {
+      if (ocultos.has(cat)) { // categoria inteira escondida: marcar um mostra so ele
+        ocultos.delete(cat);
+        itens.forEach(i => ocultos.add(i.chave));
+      }
+      if (item.checked) ocultos.delete(item.dataset.legItem); else ocultos.add(item.dataset.legItem);
+    }
+    mapGravarOcultos(def);
+    mapAtualizarChips(def, statsEl);
+    mapRenderListaLegenda(def, statsEl);
+  });
+  el.querySelectorAll('[data-leg-ir]').forEach(b => b.addEventListener('click', () => {
+    const i = itens.find(x => x.chave === b.dataset.legIr);
+    if (i?.latlng && _map) _map.setView(i.latlng, Math.max(_map.getZoom(), 18));
+  }));
+}
+
+// Chip riscado = nada daquele tipo no mapa; tracejado = parte escondida.
+function mapAtualizarChips(def, statsEl) {
+  const ocultos = mapOcultosDaCamada(def.id);
+  statsEl.querySelectorAll('[data-map-cat]').forEach(b => {
+    const cat = b.dataset.mapCat;
+    const itens = mapItensDaCategoria(def, cat);
+    const escondidos = ocultos.has(cat) ? itens.length : itens.filter(i => ocultos.has(i.chave)).length;
+    b.classList.toggle('off', itens.length > 0 && escondidos === itens.length);
+    b.classList.toggle('parcial', escondidos > 0 && escondidos < itens.length);
+  });
+}
+
+const _mapLegendaAberta = {};
 
 function mapLayerStats(features, index = _mapCameraIndex, def = null) {
   return (features || []).reduce((acc, f) => {
@@ -1475,7 +1566,7 @@ async function loadMapLayers() {
 
     // cada item da legenda esconde/mostra aquele tipo no mapa
     const ocultos = mapOcultosDaCamada(def.id);
-    const chip = (cat, cor, n, rotulo) => `<button type="button" class="map-layer-stat${ocultos.has(cat) ? ' off' : ''}" data-map-cat="${cat}" aria-pressed="${!ocultos.has(cat)}" title="Clique para esconder ou mostrar no mapa"><span class="map-layer-stat-dot" style="background:${cor}"></span><strong>${n}</strong> ${rotulo}</button>`;
+    const chip = (cat, cor, n, rotulo) => `<button type="button" class="map-layer-stat${ocultos.has(cat) ? ' off' : ''}" data-map-cat="${cat}" data-rotulo="${rotulo}" title="Ver a lista e marcar o que aparece no mapa"><span class="map-layer-stat-dot" style="background:${cor}"></span><strong>${n}</strong> ${rotulo}</button>`;
     const nCabos = Object.keys(def.cabos || {}).length;
     const infraStats = [
       stats.fiber ? chip('fiber', '#0ea5e9', stats.fiber, 'fibra') : '',
@@ -1495,8 +1586,11 @@ async function loadMapLayers() {
       const b = e.target.closest('[data-map-cat]');
       if (!b) return;
       e.stopPropagation();
-      mapAlternarCategoria(def, b.dataset.mapCat, b);
+      _mapLegendaAberta[def.id] = _mapLegendaAberta[def.id] === b.dataset.mapCat ? null : b.dataset.mapCat;
+      mapRenderListaLegenda(def, statsEl);
     });
+    mapAtualizarChips(def, statsEl);
+    mapRenderListaLegenda(def, statsEl);
 
     try {
       const fora = camerasForaDoMapa(def);

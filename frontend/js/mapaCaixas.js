@@ -129,8 +129,10 @@ function cxMarcador(id, def, f, lat, lng) {
 }
 
 function cxDesenharCabos(id, def, group) {
-  if (typeof mapOcultosDaCamada === 'function' && mapOcultosDaCamada(id).has('cabos')) return;
+  const ocultos = typeof mapOcultosDaCamada === 'function' ? mapOcultosDaCamada(id) : new Set();
+  if (ocultos.has('cabos')) return;
   Object.values(def?.cabos || {}).forEach(cabo => {
+    if (ocultos.has(`cabo:${cabo.id}`)) return;
     if (!Array.isArray(cabo.caminho) || cabo.caminho.length < 2) return;
     const t = CX_CABOS[cabo.tipo] || CX_CABOS.outro;
     const fora = !cabo.cto && cxEstadoCamera(cxCameraDoCabo(def, cabo)) === 'off';
