@@ -186,7 +186,11 @@ function discardActiveRecorderScan() {
     channel: scan.start + i,
   }));
   removeRecHostLocally(scan.type, scan.host);
-  api(`/api/${scan.type}/delete`, { method: 'POST', body: JSON.stringify({ items }), skipLogout: true }).catch(() => {});
+  // Excluir do inventario e so para administrador: para os demais a
+  // varredura sai desta tela, mas o que ja foi salvo fica no servidor.
+  api(`/api/${scan.type}/delete`, { method: 'POST', body: JSON.stringify({ items }), skipLogout: true })
+    .then(res => { if (res && res.status === 403) showToast('Varredura descartada nesta tela. O que ja foi salvo fica no inventario: excluir e com o administrador.', true); })
+    .catch(() => {});
   updateNvrTabs();
   populateNvrFilters();
   applyNvrFilters();

@@ -201,6 +201,11 @@ class ApiAuthMiddleware(BaseHTTPMiddleware):
             if method not in methods:
                 continue
             if path == prefix or path.startswith(prefix):
+                # Excluir/limpar/remover: so administrador e dono, nos dois
+                # modos de permissao (permissions.e_exclusao). Rota sem regra
+                # continua negada por padrao.
+                if permissions.e_exclusao(path, method) and ROLE_RANK.get(min_role, 0) < ROLE_RANK["admin"]:
+                    return "admin"
                 return min_role
         return ""
 
@@ -323,6 +328,8 @@ class ApiAuthMiddleware(BaseHTTPMiddleware):
             logger.exception("permissoes: regra nova falhou em %s %s; valeu a antiga", method, path)
 
         if not permitido:
+            if required_role == "admin" and permissions.e_exclusao(path, method) and not self._role_allows(str(user.get("role") or ""), "admin"):
+                motivo = "Excluir e limpar sao so para administrador ou dono da conta."
             try:
                 return JSONResponse(status_code=403, content={"detail": motivo})
             finally:

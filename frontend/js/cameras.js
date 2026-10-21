@@ -1250,13 +1250,21 @@ async function loadMapLayers() {
       e.stopPropagation();
       const ok = await showConfirm({ title: 'Excluir camada', msg: `Remover "${def.label}" do mapa e do servidor?`, label: 'Excluir' });
       if (!ok) return;
+      // Servidor primeiro: excluir e so para administrador (403 para os
+      // demais). Antes o erro era engolido e a camada sumia so da tela,
+      // voltando na proxima carga.
+      if (def.deleteUrl) {
+        const res = await api(def.deleteUrl, { method: 'DELETE' }).catch(() => null);
+        if (!res?.ok) {
+          const data = await res?.json().catch(() => ({}));
+          showToast(data?.detail || 'Nao foi possivel excluir a camada.', true);
+          return;
+        }
+      }
       // Remove do mapa
       const state = _mapLayerGroups[def.id];
       if (state?.active) { _map.removeLayer(state.group); state.active = false; }
       delete _mapLayerGroups[def.id];
-      if (def.deleteUrl) {
-        await api(def.deleteUrl, { method: 'DELETE' }).catch(() => {});
-      }
       btn.closest('.map-layer-card')?.remove();
       setText('mapCounter', 'Camada removida');
       showToast(`"${def.label}" removida do mapa.`);

@@ -24,6 +24,7 @@ import collections
 import copy
 import json
 import logging
+import re
 import threading
 import time
 from datetime import datetime, timezone
@@ -99,6 +100,28 @@ def nivel_exigido(min_role: str, method: str) -> Optional[int]:
     if min_role:
         return _ROLE_NIVEL.get(str(min_role).lower(), 99)
     return NIVEIS["ver"] if method in ("GET", "HEAD") else None
+
+
+# Excluir, limpar e remover: so administrador e dono (decisao do dono do
+# produto em 21/10/2026). O operador faz todo o resto -- reiniciar camera,
+# consultar, mapa, gravacao, cadastrar pessoa na controladora --, so nao
+# destroi. Regra por FORMA da rota, nao por lista: rota nova de excluir nasce
+# coberta. O proxy da pagina web do equipamento fica de fora: ali o DELETE e
+# da propria camera/gravador, nao do SightOps.
+_EXCLUSAO_NA_ROTA = re.compile(
+    r"/(?:[a-z0-9]+-)*(?:delete|clear|excluir|remover|remove|revoke|limpar|apagar)(?:-[a-z0-9]+)*(?:/|$)"
+)
+_EXCLUSAO_FORA = ("/api/maintenance/web/",)
+
+
+def e_exclusao(path: str, method: str) -> bool:
+    path = str(path or "").lower()
+    method = str(method or "").upper()
+    if not path.startswith("/api/") or any(path.startswith(p) for p in _EXCLUSAO_FORA):
+        return False
+    if method == "DELETE":
+        return True
+    return method in ("POST", "PUT", "PATCH") and bool(_EXCLUSAO_NA_ROTA.search(path))
 
 
 def modulo_no_plano(modulo: str, enabled_modules: Any) -> bool:
