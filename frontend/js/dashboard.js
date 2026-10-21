@@ -403,15 +403,15 @@ function renderDashboardPriorities(data) {
   const monitoring = data.monitoring?.types || {};
   const attentionCount = (status) => _dashNum(status?.down ?? status?.offline) + _dashNum(status?.unstable) + _dashNum(status?.unknown);
   const priorities = [
-    { label: 'Cameras offline', sub: 'Abrir cameras com falha', count: _dashNum(ip.offline), icon: 'alert-circle', level: 'danger', action: 'ip_offline' },
-    { label: 'ONUs em atencao', sub: 'Down, instaveis ou nao verificadas', count: attentionCount(monitoring.onu), icon: 'wifi-off', level: 'danger', action: 'onu_attention' },
-    { label: 'OLTs em atencao', sub: 'Conexao down ou ainda nao verificada', count: attentionCount(monitoring.olt), icon: 'radio-tower', level: 'danger', action: 'olt_attention' },
-    { label: 'Conectores em atencao', sub: 'Conectores offline ou sem verificacao', count: attentionCount(monitoring.connector), icon: 'plug-zap', level: 'danger', action: 'connector_attention' },
-    { label: 'Sem snapshot', sub: 'Cameras sem imagem recente', count: _dashNum(ip.missing_snapshot), icon: 'image-off', level: 'warning', action: 'no_snapshot' },
+    { label: 'Cameras offline', sub: 'Abrir cameras com falha', count: _dashNum(ip.offline), icon: 'alert-circle', level: 'danger', action: 'ip_offline', tipo: 'ip' },
+    { label: 'ONUs em atencao', sub: 'Down, instaveis ou nao verificadas', count: attentionCount(monitoring.onu), icon: 'wifi-off', level: 'danger', action: 'onu_attention', tipo: 'onu' },
+    { label: 'OLTs em atencao', sub: 'Conexao down ou ainda nao verificada', count: attentionCount(monitoring.olt), icon: 'radio-tower', level: 'danger', action: 'olt_attention', tipo: 'olt' },
+    { label: 'Conectores em atencao', sub: 'Conectores offline ou sem verificacao', count: attentionCount(monitoring.connector), icon: 'plug-zap', level: 'danger', action: 'connector_attention', tipo: 'connector' },
+    { label: 'Sem snapshot', sub: 'Cameras sem imagem recente', count: _dashNum(ip.missing_snapshot), icon: 'image-off', level: 'warning', action: 'no_snapshot', tipo: 'ip' },
     { label: 'Sem local', sub: 'Itens sem site/local definido', count: _dashNum(ip.missing_local) + _dashNum(dvr.missing_local) + _dashNum(nvr.missing_local), icon: 'map-pin-off', level: 'info', action: 'map' },
-    { label: 'Gravadores offline', sub: 'DVR/NVR com erro ou sem resposta', count: _dashNum(dvr.offline) + _dashNum(nvr.offline), icon: 'hard-drive', level: 'danger', action: 'dvr_offline' },
-    { label: 'Windows offline', sub: 'Computadores sem resposta', count: _dashNum(win.offline), icon: 'monitor-x', level: 'info', action: 'windows_offline' },
-  ].filter(item => item.count > 0).slice(0, 6);
+    { label: 'Gravadores offline', sub: 'DVR/NVR com erro ou sem resposta', count: _dashNum(dvr.offline) + _dashNum(nvr.offline), icon: 'hard-drive', level: 'danger', action: 'dvr_offline', tipo: 'recorders' },
+    { label: 'Windows offline', sub: 'Computadores sem resposta', count: _dashNum(win.offline), icon: 'monitor-x', level: 'info', action: 'windows_offline', tipo: 'windows' },
+  ].filter(item => item.count > 0 && (!item.tipo || _dashVisivel(item.tipo))).slice(0, 6);
 
   const el = document.getElementById('dashPriorityList');
   if (!el) return;
@@ -458,18 +458,18 @@ function renderDashboardHealth(data) {
   const pending = _dashAttentionTotal(monitoring);
   const monitoredTotal = Object.values(monitoring).reduce((sum, item) => sum + _dashNum(item?.total), 0);
   const health = [
-    { label: 'Cameras IP', value: cameras.pct == null ? '--' : `${cameras.pct}%`, sub: cameras.total ? `${cameras.online} online de ${cameras.total}` : 'nenhuma cadastrada', pct: cameras.pct, action: 'cameras' },
-    { label: 'ONUs / ONTs', value: onus.pct == null ? '--' : `${onus.pct}%`, sub: onus.total ? `${onus.online} up de ${onus.total}` : 'nenhuma monitorada', pct: onus.pct, action: 'onus' },
-    { label: 'OLTs', value: olts.pct == null ? '--' : `${olts.pct}%`, sub: olts.total ? `${olts.online} up de ${olts.total}` : 'nenhuma cadastrada', pct: olts.pct, action: 'olts' },
-    { label: 'Conectores', value: connectors.pct == null ? '--' : `${connectors.pct}%`, sub: connectors.total ? `${connectors.online} online de ${connectors.total}` : 'nenhum cadastrado', pct: connectors.pct, action: 'connectors' },
-    { label: 'Controladoras de Acesso', value: accessDevices.pct == null ? '--' : `${accessDevices.pct}%`, sub: accessDevices.total ? `${accessDevices.online} online de ${accessDevices.total}` : 'nenhuma cadastrada', pct: accessDevices.pct, action: 'access_devices' },
-    { label: 'WhatsApp', value: whatsapp.pct == null ? '--' : `${whatsapp.pct}%`, sub: whatsapp.total ? `${whatsapp.online} conectado(s) de ${whatsapp.total} configurado(s)` : 'nenhum canal configurado', pct: whatsapp.pct, action: 'whatsapp' },
-    { label: 'Gravadores', value: recorders.pct == null ? '--' : `${recorders.pct}%`, sub: recorders.total ? `${recorders.online} canais online de ${recorders.total}` : 'nenhum canal cadastrado', pct: recorders.pct, action: 'recorders' },
+    { label: 'Cameras IP', value: cameras.pct == null ? '--' : `${cameras.pct}%`, sub: cameras.total ? `${cameras.online} online de ${cameras.total}` : 'nenhuma cadastrada', pct: cameras.pct, action: 'cameras', tipo: 'ip' },
+    { label: 'ONUs / ONTs', value: onus.pct == null ? '--' : `${onus.pct}%`, sub: onus.total ? `${onus.online} up de ${onus.total}` : 'nenhuma monitorada', pct: onus.pct, action: 'onus', tipo: 'onu' },
+    { label: 'OLTs', value: olts.pct == null ? '--' : `${olts.pct}%`, sub: olts.total ? `${olts.online} up de ${olts.total}` : 'nenhuma cadastrada', pct: olts.pct, action: 'olts', tipo: 'olt' },
+    { label: 'Conectores', value: connectors.pct == null ? '--' : `${connectors.pct}%`, sub: connectors.total ? `${connectors.online} online de ${connectors.total}` : 'nenhum cadastrado', pct: connectors.pct, action: 'connectors', tipo: 'connector' },
+    { label: 'Controladoras de Acesso', value: accessDevices.pct == null ? '--' : `${accessDevices.pct}%`, sub: accessDevices.total ? `${accessDevices.online} online de ${accessDevices.total}` : 'nenhuma cadastrada', pct: accessDevices.pct, action: 'access_devices', tipo: 'access_device' },
+    { label: 'WhatsApp', value: whatsapp.pct == null ? '--' : `${whatsapp.pct}%`, sub: whatsapp.total ? `${whatsapp.online} conectado(s) de ${whatsapp.total} configurado(s)` : 'nenhum canal configurado', pct: whatsapp.pct, action: 'whatsapp', tipo: 'whatsapp' },
+    { label: 'Gravadores', value: recorders.pct == null ? '--' : `${recorders.pct}%`, sub: recorders.total ? `${recorders.online} canais online de ${recorders.total}` : 'nenhum canal cadastrado', pct: recorders.pct, action: 'recorders', tipo: 'recorders' },
     { label: 'Pendencias', value: pending, sub: 'equipamentos exigem verificacao', pct: pending ? Math.max(8, 100 - _dashPct(pending, monitoredTotal)) : 100, action: 'attention', state: pending ? 'warning' : 'healthy' },
   ];
   const el = document.getElementById('dashHealthGrid');
   if (!el) return;
-  el.innerHTML = health.map(item => `
+  el.innerHTML = health.filter(item => !item.tipo || _dashVisivel(item.tipo)).map(item => `
     <button type="button" class="dash-health-card ${item.state || (item.pct == null ? 'neutral' : item.pct >= 95 ? 'healthy' : item.pct >= 75 ? 'warning' : 'critical')}" data-health-action="${item.action}">
       <div class="dash-health-label">${esc(item.label)}</div>
       <div class="dash-health-value">${esc(item.value)}</div>
@@ -522,10 +522,34 @@ function renderDashboardSiteSummary(data) {
 }
 
 // 
+// Cartao/atalho do painel -> modulo de acesso (perfil do usuario). O servidor
+// manda em modulos_ocultos o que ele nao ve, e os numeros desses nem chegam.
+const DASH_MODULO_DO_TIPO = {
+  ip: 'cameras', recorders: 'gravadores', dvr: 'gravadores', nvr: 'gravadores', onu: 'optica', olt: 'optica',
+  connector: 'conectores', windows: 'computadores', access_device: 'acesso', whatsapp: 'acesso',
+};
+let _dashOcultos = new Set();
+
+function _dashVisivel(tipo) {
+  return !_dashOcultos.has(DASH_MODULO_DO_TIPO[tipo] || '');
+}
+
+function _dashAplicarModulos() {
+  document.querySelectorAll('#dashMetrics [data-dash-type]').forEach(card => {
+    card.hidden = !_dashVisivel(card.dataset.dashType);
+  });
+  const semAcesso = new Set(_currentUser?.views_sem_acesso || []);
+  document.querySelectorAll('.dash-action-btn[data-dash-nav]').forEach(btn => {
+    btn.hidden = semAcesso.has(btn.dataset.dashNav);
+  });
+}
+
 async function loadDashboard() {
   _dashDrawerData = null; // limpa cache ao recarregar
   const data = await apiJson('/api/dashboard/summary');
   if (!data) return;
+  _dashOcultos = new Set(data.modulos_ocultos || []);
+  _dashAplicarModulos();
 
   const inv = data.inventory || {};
   const ip  = inv.ip  || {};
@@ -618,16 +642,16 @@ async function loadDashboard() {
   // Status por tipo  clicaveis
   const statusGrid = document.getElementById('dashStatusGrid');
   const statusTypes = [
-    { label: 'Conectores', icon: 'plug',        s: monitoring.connector || {}, type: 'monitoring' },
-    { label: 'OLTs',       icon: 'radio-tower', s: monitoring.olt || {},       type: 'monitoring' },
-    { label: 'ONUs/ONTs',  icon: 'wifi',        s: monitoring.onu || {},       type: 'monitoring' },
-    { label: 'Controladoras', icon: 'shield-check', s: monitoring.access_device || {}, type: 'monitoring' },
-    { label: 'WhatsApp',      icon: 'message-circle', s: monitoring.whatsapp || {},    type: 'monitoring' },
-    { label: 'Cameras IP',  icon: 'camera',     s: ip,  type: 'ip'      },
-    { label: 'DVR canais',  icon: 'hard-drive',  s: dvr, type: 'dvr'     },
-    { label: 'NVR canais',  icon: 'hard-drive',  s: nvr, type: 'nvr'     },
-    { label: 'Windows',     icon: 'monitor',     s: win, type: 'windows' },
-  ];
+    { label: 'Conectores', icon: 'plug',        s: monitoring.connector || {}, type: 'monitoring', tipo: 'connector' },
+    { label: 'OLTs',       icon: 'radio-tower', s: monitoring.olt || {},       type: 'monitoring', tipo: 'olt' },
+    { label: 'ONUs/ONTs',  icon: 'wifi',        s: monitoring.onu || {},       type: 'monitoring', tipo: 'onu' },
+    { label: 'Controladoras', icon: 'shield-check', s: monitoring.access_device || {}, type: 'monitoring', tipo: 'access_device' },
+    { label: 'WhatsApp',      icon: 'message-circle', s: monitoring.whatsapp || {},    type: 'monitoring', tipo: 'whatsapp' },
+    { label: 'Cameras IP',  icon: 'camera',     s: ip,  type: 'ip', tipo: 'ip' },
+    { label: 'DVR canais',  icon: 'hard-drive',  s: dvr, type: 'dvr', tipo: 'dvr' },
+    { label: 'NVR canais',  icon: 'hard-drive',  s: nvr, type: 'nvr', tipo: 'nvr' },
+    { label: 'Windows',     icon: 'monitor',     s: win, type: 'windows', tipo: 'windows' },
+  ].filter(t => _dashVisivel(t.tipo));
   statusGrid.innerHTML = statusTypes.map(t => {
     const total   = t.s.total   ?? 0;
     const online  = t.s.online  ?? t.s.up ?? 0;

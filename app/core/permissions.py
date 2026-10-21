@@ -40,6 +40,10 @@ _ROLE_NIVEL = {"viewer": 1, "operator": 2, "admin": 3, "owner": 3}
 # `views` = chaves de MODULE_CATALOG (auth_store) que ligam o modulo no plano do
 # cliente. Modulo sem views (Administracao) nunca e desligado pelo plano.
 MODULOS: List[Dict[str, Any]] = [
+    # Painel inicial: o plano do cliente nunca o desliga (nao esta no catalogo
+    # do plano), so o perfil do usuario.
+    {"key": "painel", "label": "Dashboard (painel inicial)", "views": ["dashboard"],
+     "prefixos": ["/api/dashboard"], "sempre_no_plano": True},
     {"key": "cameras", "label": "Câmeras e snapshots",
      "views": ["inv-olt", "snap-cam", "mnt-cam", "deploy-new", "deploy-activation"],
      "prefixos": ["/api/cameras", "/api/snapshot", "/api/inventory", "/api/inventory-last", "/api/maintenance",
@@ -55,8 +59,11 @@ MODULOS: List[Dict[str, Any]] = [
      "views": ["switch", "net-operate"],
      "prefixos": ["/api/switch", "/api/network"]},
     {"key": "conectores", "label": "Conectores", "views": ["connectors"], "prefixos": ["/api/connectors"]},
-    {"key": "mapa", "label": "Mapa e projetos", "views": ["kmz", "planning"],
-     "prefixos": ["/api/kmz", "/api/planning", "/api/mapa"]},
+    {"key": "mapa", "label": "Mapa", "views": ["kmz"], "prefixos": ["/api/kmz", "/api/mapa"]},
+    # Projetos (Implantacao > Projetos) era parte de "Mapa e projetos": quem ja
+    # tinha nivel em "mapa" e nada em "projetos" herda o de "mapa"
+    # (niveis_do_usuario), para ninguem ganhar ou perder acesso na separacao.
+    {"key": "projetos", "label": "Projetos", "views": ["planning"], "prefixos": ["/api/planning"]},
     {"key": "monitoramento", "label": "Monitoramento e Zabbix",
      "views": ["monitoring", "script-zabbix", "script-grafana"],
      "prefixos": ["/api/monitoring", "/api/scripts", "/api/telegram"]},
@@ -244,7 +251,7 @@ def modulo_no_plano(modulo: str, enabled_modules: Any) -> bool:
     if enabled_modules is None:
         return True
     mod = next((m for m in MODULOS if m["key"] == modulo), None)
-    if not mod or not mod["views"]:
+    if not mod or not mod["views"] or mod.get("sempre_no_plano"):
         return True
     habilitados = set(enabled_modules or [])
     return any(v in habilitados for v in mod["views"])
@@ -340,15 +347,42 @@ def niveis_do_usuario(user: Dict[str, Any], dados: Optional[Dict[str, Any]] = No
     dados = dados if dados is not None else carregar_perfis(slug)
     cfg = (dados.get("users") or {}).get(str(user.get("id"))) or {}
     perfil = (dados.get("profiles") or {}).get(str(cfg.get("profile") or ""))
+    definidos: set = set()
     if perfil:
         for m, v in (perfil.get("levels") or {}).items():
             if m in niveis:
                 niveis[m] = _nivel_int(v)
+                definidos.add(m)
     for m, v in (cfg.get("overrides") or {}).items():
         if m in niveis:
             niveis[m] = _nivel_int(v)
+            definidos.add(m)
+    if "mapa" in definidos and "projetos" not in definidos:
+        niveis["projetos"] = niveis["mapa"]  # antes era um modulo so
     niveis["administracao"] = min(niveis["administracao"], base_role)
     return niveis
+
+
+# Tipo de equipamento do monitoramento -> modulo que da acesso a ele.
+MODULO_DO_TIPO = {
+    "camera": "cameras", "nvr": "gravadores", "dvr": "gravadores", "onu": "optica", "olt": "optica",
+    "switch": "rede", "access_point": "rede", "access_device": "acesso", "whatsapp": "acesso",
+    "connector": "conectores", "windows": "computadores",
+}
+
+
+def modulos_ocultos_da_sessao() -> List[str]:
+    """Modulos sem acesso (nem "ver") do usuario da requisicao, com a regra
+    valendo. Vazio sem usuario, em sombra ou sem restricao: telas que juntam
+    varios modulos (o painel inicial) escondem so o que ele nao ve."""
+    if modo() != "valer":
+        return []
+    from app.core.tenant_context import get_current_user
+
+    user = get_current_user()
+    if not user:
+        return []
+    return sorted(m for m, n in niveis_do_usuario(user).items() if n <= 0)
 
 
 def views_sem_acesso(user: Dict[str, Any]) -> List[str]:

@@ -379,3 +379,24 @@ def test_export_nao_grava_em_pasta_comum_e_migrate_le_so_o_cliente(tmp_path, mon
     monkeypatch.setattr(tenant_context, "DATA_DIR", tmp_path)
     assert db_store._arquivo_do_cliente("cliente-b", tmp_path / "nao-existe.json", legado) == tmp_path / "nao-existe.json"
     assert db_store._arquivo_do_cliente("default", tmp_path / "nao-existe.json", legado) == legado
+
+
+def test_dashboard_e_projetos_viram_modulos(sem_banco):
+    assert P.modulo_da_rota("/api/dashboard/summary") == "painel"
+    assert P.modulo_da_rota("/api/planning/projects") == "projetos"
+    assert P.modulo_da_rota("/api/kmz/import") == "mapa"
+    # o plano do cliente nunca desliga o painel inicial
+    assert P.modulo_no_plano("painel", ["inv-olt"])
+    op = _user("operator", uid=31)
+    P.definir_acesso_usuario("cliente-x", op, "", {"painel": "sem_acesso", "projetos": "sem_acesso"})
+    n = P.niveis_do_usuario(op)
+    assert n["painel"] == 0 and n["projetos"] == 0 and n["mapa"] == 2
+
+
+def test_projetos_herda_o_mapa_de_quem_ja_tinha(sem_banco):
+    antigo = _user("operator", uid=32)
+    P.definir_acesso_usuario("cliente-x", antigo, "", {"mapa": "sem_acesso"})
+    assert P.niveis_do_usuario(antigo)["projetos"] == 0  # antes "mapa" cobria projetos
+    novo = _user("operator", uid=33)
+    P.definir_acesso_usuario("cliente-x", novo, "", {"mapa": "sem_acesso", "projetos": "operar"})
+    assert P.niveis_do_usuario(novo)["projetos"] == 2

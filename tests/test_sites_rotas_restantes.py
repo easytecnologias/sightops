@@ -199,3 +199,27 @@ def test_alerta_filtra_antes_do_corte(restrito, monkeypatch):
 
     r = alert.api_alert_nearby_cameras(lat=0, lon=0, limit=6, radius_m=100, accuracy_m=None)
     assert [c["ip"] for c in r["cameras"]] == ["10.0.0.8", "10.0.0.9"]
+
+
+def test_painel_sem_dados_dos_modulos_ocultos(monkeypatch):
+    from app.services import dashboard_service as D
+    import app.services.monitoring_service as M
+
+    u = _user("operator")
+    monkeypatch.setattr(P, "modo", lambda: "valer")
+    monkeypatch.setattr(P, "sites_do_usuario", lambda user, dados=None: [])
+    monkeypatch.setattr(P, "niveis_do_usuario", lambda user, dados=None: {**{m: 2 for m in P._MODULO_KEYS}, "cameras": 0, "optica": 0})
+    monkeypatch.setattr(D, "load_inventory_json", lambda mode="olt": [{"ip": "10.0.0.1", "status": "online"}])
+    monkeypatch.setattr(D, "_recorder_rows", lambda tipo: [])
+    monkeypatch.setattr(D, "load_windows_inventory", lambda: [])
+    monkeypatch.setattr(M, "monitoring_summary", lambda sites=None: {"ok": True, "types": {"onu": {"total": 9}, "access_device": {"total": 2}},
+                                                                     "events": [{"entity_type": "onu"}, {"entity_type": "access_device"}]})
+    tok = T.set_current_user(u)
+    try:
+        r = D.build_dashboard_summary()
+    finally:
+        T.reset_current_user(tok)
+    assert r["inventory"]["ip"]["total"] == 0
+    assert list(r["monitoring"]["types"]) == ["access_device"]
+    assert [e["entity_type"] for e in r["monitoring"]["events"]] == ["access_device"]
+    assert set(r["modulos_ocultos"]) == {"cameras", "optica"}

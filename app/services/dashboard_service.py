@@ -323,12 +323,16 @@ def build_dashboard_summary() -> Dict[str, Any]:
     # Usuario restrito a alguns sites ve o painel so deles (sem usuario --
     # laco de fundo -- ou sem restricao, o filtro devolve a lista intacta).
     f = permissions.filtrar_por_site
-    ip_basic_rows = f(load_inventory_json(mode="basic") or [])
-    ip_olt_rows = f(load_inventory_json(mode="olt") or [])
-    ip_switch_rows = f(load_inventory_json(mode="switch") or [])
-    dvr_rows = f(_recorder_rows("dvr"))
-    nvr_rows = f(_recorder_rows("nvr"))
-    windows_rows = f(load_windows_inventory())
+    # E so os modulos que ele acessa: perfil sem Cameras nao recebe nem a
+    # contagem de cameras (a tela esconde o cartao, o dado nem chega).
+    ocultos = set(permissions.modulos_ocultos_da_sessao())
+    sem_cam = "cameras" in ocultos
+    ip_basic_rows = [] if sem_cam else f(load_inventory_json(mode="basic") or [])
+    ip_olt_rows = [] if sem_cam else f(load_inventory_json(mode="olt") or [])
+    ip_switch_rows = [] if sem_cam else f(load_inventory_json(mode="switch") or [])
+    dvr_rows = [] if "gravadores" in ocultos else f(_recorder_rows("dvr"))
+    nvr_rows = [] if "gravadores" in ocultos else f(_recorder_rows("nvr"))
+    windows_rows = [] if "computadores" in ocultos else f(load_windows_inventory())
 
     # basico/olt/switch sao 3 vistas (potencialmente sobrepostas) da MESMA
     # camera, nao 3 listas que se somam -- concatenar direto contava a
@@ -381,6 +385,15 @@ def build_dashboard_summary() -> Dict[str, Any]:
         monitoring = monitoring_summary(sites=permissions.sites_da_sessao())
     except Exception:
         monitoring = {"ok": False, "types": {}, "events": []}
+    if ocultos and isinstance(monitoring, dict):
+        def _visivel(tipo: Any) -> bool:
+            return permissions.MODULO_DO_TIPO.get(str(tipo or ""), "") not in ocultos
+
+        monitoring = {
+            **monitoring,
+            "types": {k: v for k, v in (monitoring.get("types") or {}).items() if _visivel(k)},
+            "events": [e for e in (monitoring.get("events") or []) if isinstance(e, dict) and _visivel(e.get("entity_type"))],
+        }
 
     return {
         "ok": True,
@@ -402,19 +415,19 @@ def build_dashboard_summary() -> Dict[str, Any]:
                 "switch_inventory_total": len(ip_switch_rows),
                 "duplicate_ips": duplicate_ips,
                 "duplicate_macs": duplicate_macs,
-                "snapshot_files": _snapshot_file_count("ip"),
+                "snapshot_files": 0 if sem_cam else _snapshot_file_count("ip"),
             },
             "dvr": {
                 **dvr_status,
                 **_missing_counts(dvr_rows),
                 "recorders": _recorders_count(dvr_rows),
-                "snapshot_files": _snapshot_file_count("dvr"),
+                "snapshot_files": 0 if "gravadores" in ocultos else _snapshot_file_count("dvr"),
             },
             "nvr": {
                 **nvr_status,
                 **_missing_counts(nvr_rows),
                 "recorders": _recorders_count(nvr_rows),
-                "snapshot_files": _snapshot_file_count("nvr"),
+                "snapshot_files": 0 if "gravadores" in ocultos else _snapshot_file_count("nvr"),
             },
             "windows": {
                 **windows_status,
@@ -428,11 +441,13 @@ def build_dashboard_summary() -> Dict[str, Any]:
             "offline": offline_total,
             "unknown": ip_status["unknown"] + dvr_status["unknown"] + nvr_status["unknown"] + windows_status["unknown"],
             "sites": len(site_names),
-            "snapshots": _snapshot_file_count("ip") + _snapshot_file_count("dvr") + _snapshot_file_count("nvr"),
+            "snapshots": (0 if sem_cam else _snapshot_file_count("ip"))
+            + (0 if "gravadores" in ocultos else _snapshot_file_count("dvr") + _snapshot_file_count("nvr")),
         },
         "sites": site_names[:20],
         "site_summary": _site_summary(ip_rows, resolve_local_snapshots=True),
         "alerts": alerts,
         "recent_activity": _recent_activity(),
         "monitoring": monitoring,
+        "modulos_ocultos": sorted(ocultos),
     }

@@ -416,6 +416,27 @@ function applyModuleVisibility() {
     if (!subs.length) return;
     group.classList.toggle('nav-item-hidden', !subs.some(btn => !btn.classList.contains('nav-item-hidden')));
   });
+  // Titulo de secao (Inventario, Manutencao...) some quando nenhum item ate o
+  // proximo titulo ficou visivel: sem isto sobrava o titulo solto no menu.
+  document.querySelectorAll('.nav-section-label').forEach(label => {
+    let visivel = false;
+    for (let el = label.nextElementSibling; el && !el.classList.contains('nav-section-label'); el = el.nextElementSibling) {
+      if ((el.classList.contains('nav-item') || el.classList.contains('nav-group')) && !el.classList.contains('nav-item-hidden')) {
+        visivel = true;
+        break;
+      }
+    }
+    label.classList.toggle('nav-item-hidden', !visivel);
+  });
+}
+
+// Primeira tela do menu que o usuario abre (quando a pedida esta bloqueada --
+// inclusive o Dashboard, que e o pouso padrao). Sem nenhuma, Configuracoes.
+function primeiraTelaLiberada() {
+  const btn = [...document.querySelectorAll('#navClientMode .nav-item[data-view], .sidebar .nav-item[data-view]')]
+    .find(b => !b.closest('#navOwnerMode') && !b.classList.contains('nav-item-hidden')
+      && !b.closest('.nav-item-hidden') && b.dataset.view && !String(b.dataset.view).startsWith('owner-'));
+  return btn?.dataset.view || 'settings';
 }
 
 // Painel do Dono (menu, badge, atalhos) so existe pra quem administra a
@@ -656,6 +677,8 @@ function navigateTo(view) {
   // (ex: digitando no console) sem ser, cai no Dashboard normal.
   if (String(view).startsWith('owner-') && !_currentUser?.is_platform_admin) view = 'dashboard';
   if (DISABLED_VIEWS.has(view) || isStaffOnlyView(view)) view = 'dashboard';
+  // Tela sem acesso pelo perfil do usuario (so com a regra valendo).
+  if ((_currentUser?.views_sem_acesso || []).includes(view)) view = primeiraTelaLiberada();
 
   // Sair de Gravadores fecha o gravador aberto. Sem isto ele sobrevivia a troca
   // de tela E a troca de cliente: ao entrar na conta da RADS, a tela ainda
