@@ -414,8 +414,12 @@ def views_sem_acesso(user: Dict[str, Any]) -> List[str]:
 
 # Rota de um modulo que outra tela tambem usa: o nivel no modulo alternativo
 # tambem vale. A tela Projetos importa e desenha o KMZ do projeto pelas rotas
-# do Mapa (/api/kmz/import...).
-_MODULO_ALTERNATIVO: List[Tuple[str, str]] = [("/api/kmz/import", "projetos")]
+# do Mapa. So as rotas EXATAS que ela chama: o prefixo inteiro abria editar
+# camada do Mapa e gravar coordenadas no inventario.
+_MODULO_ALTERNATIVO: List[Tuple[str, str, str]] = [
+    ("POST", "/api/kmz/import", "projetos"),
+    ("GET", "/api/kmz/import/layers", "projetos"),
+]
 
 
 def decidir(user: Dict[str, Any], path: str, method: str, min_role: str) -> Tuple[bool, str]:
@@ -440,8 +444,8 @@ def decidir(user: Dict[str, Any], path: str, method: str, min_role: str) -> Tupl
         return False, f"modulo {modulo} fora do plano do cliente"
     niveis = niveis_do_usuario(user)
     tem = niveis.get(modulo, 0)
-    for prefixo, alternativo in _MODULO_ALTERNATIVO:
-        if (path == prefixo or path.startswith(prefixo + "/")) and modulo_no_plano(alternativo, user.get("effective_enabled_modules")):
+    for metodo, caminho, alternativo in _MODULO_ALTERNATIVO:
+        if method == metodo and path.rstrip("/") == caminho and modulo_no_plano(alternativo, user.get("effective_enabled_modules")):
             tem = max(tem, niveis.get(alternativo, 0))
     if tem < exigido:
         return False, f"requer {NIVEL_NOME.get(exigido, exigido)} em {modulo} (tem {NIVEL_NOME.get(tem, tem)})"

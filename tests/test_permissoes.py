@@ -430,3 +430,12 @@ def test_projetos_sem_mapa_ainda_abre_o_kmz_do_projeto(sem_banco):
     assert P.decidir(op, "/api/kmz/import/layers", "GET", "")[0]
     assert P.decidir(op, "/api/kmz/import", "POST", "operator")[0]
     assert not P.decidir(op, "/api/kmz/generate", "POST", "operator")[0]
+
+
+def test_projetos_nao_abre_o_resto_do_mapa(sem_banco):
+    op = _user("operator", uid=43)
+    P.definir_acesso_usuario("cliente-x", op, "", {"mapa": "ver", "projetos": "operar"})
+    assert P.decidir(op, "/api/kmz/import", "POST", "operator")[0]
+    assert not P.decidir(op, "/api/kmz/import/layers/x1", "PATCH", "operator")[0]
+    assert not P.decidir(op, "/api/kmz/import/locations/apply", "POST", "operator")[0]
+    assert not P.decidir(op, "/api/kmz/import/layers", "POST", "operator")[0]

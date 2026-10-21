@@ -192,7 +192,7 @@ function eqEditorHtml(u) {
   const modulos = _perm?.modulos || [];
   const acesso = dono || voce || !modulos.length ? `<p class="text-muted" style="margin:0;font-size:12.5px">${dono ? 'O dono da conta tem acesso total a tudo que está no plano.' : voce ? 'Você não pode mudar o próprio acesso.' : 'Carregando módulos.'}</p>` : `
       ${valendo ? '' : '<div class="so-note amber"><i data-lucide="flask-conical"></i><span><strong>Em teste.</strong> Você já pode montar o acesso por módulo; ele passa a valer quando a Easy ativar. Até lá vale o perfil acima.</span></div>'}
-      <p class="text-muted" style="margin:0 0 10px;font-size:12.5px">Marque as telas do menu que a pessoa vê. Desmarcar a seção inteira tira o título do menu dela.</p>
+      <p class="text-muted" style="margin:0 0 10px;font-size:12.5px">Marque as telas do menu que a pessoa vê. Desmarcar a seção inteira tira o título do menu dela. Quando <strong>todas</strong> as telas de um assunto (por exemplo, todas as de câmeras) ficam desmarcadas, o sistema também bloqueia esse assunto por completo; desmarcar só uma tela a tira do menu.</p>
       <div class="so-tree" id="eqAccessTree"></div>
       <details class="so-avancado">
         <summary><i data-lucide="sliders-horizontal"></i> Pode alterar ou só ver <small>por módulo · avançado</small></summary>
@@ -349,6 +349,14 @@ function eqMarcarTela(u, view, marcar) {
       mods.forEach(m => {
         const s = document.querySelector(`#eqAccessMatrix [data-eq-ajuste="${CSS.escape(m.key)}"]`);
         if (s) s.value = Number(doPerfil[m.key] ?? 0) > 0 ? '' : String(Math.max(1, PERM_PADRAO[role] ?? 1));
+      });
+      eqGuardarAjustes();
+      // "igual ao perfil" ainda pode dar 0 (Projetos herda o Mapa bloqueado):
+      // ai o modulo ganha ajuste proprio.
+      const depois = eqNiveisDoForm(u);
+      mods.forEach(m => {
+        const s = document.querySelector(`#eqAccessMatrix [data-eq-ajuste="${CSS.escape(m.key)}"]`);
+        if (s && !(Number(depois[m.key] ?? 0) > 0)) s.value = String(Math.max(1, PERM_PADRAO[role] ?? 1));
       });
       eqGuardarAjustes();
     }
