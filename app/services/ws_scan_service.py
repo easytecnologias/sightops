@@ -370,7 +370,11 @@ def _tag_rows_for_connector(payload: Dict[str, Any], result: Dict[str, Any], ten
             _ec = str(row.get("remote_connector_id") or "").strip()
             if _ec and _ec != str(connector.get("id") or ""):
                 continue  # linha de OUTRO conector -- nao re-tagueia (senao colapsa mesmo-IP)
-            _cs = str(connector.get("site") or connector.get("client") or connector.get("name") or site).strip()
+            # O site escolhido na varredura vale; o do conector so quando nao
+            # se escolheu nenhum (igual ao caminho pelo MikroTik, abaixo). Um
+            # conector atende mais de um site: com o dele na frente, a camera
+            # do JARDINS II varrida pelo conector do PERUCABA virava PERUCABA.
+            _cs = str(site or connector.get("site") or connector.get("client") or connector.get("name") or "").strip()
             if _cs:
                 row["local"] = _cs
                 row["site"] = _cs
