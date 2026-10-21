@@ -369,10 +369,52 @@ function mapInventoryMode() {
   return ['basico', 'olt', 'switch'].includes(current) ? current : 'olt';
 }
 
-function mapLayerStats(features, index = _mapCameraIndex) {
+// Categorias de um ponto para a legenda da camada e para esconder no mapa.
+// Caixa cadastrada (botao "Este ponto e uma caixa") conta como caixa mesmo
+// sem o nome ter cara de caixa.
+function mapCategoriasDoPonto(def, f, cam, type = mapFeatureType(f, cam)) {
+  if (def && typeof cxCaixaDoPonto === 'function' && f?.geometry?.type === 'Point') {
+    const c = f.geometry.coordinates || [];
+    if (cxCaixaDoPonto(def, mapFeatureName(f), [+c[1], +c[0]])) return ['box'];
+  }
+  if (type === 'camera') {
+    const st = mapFeatureStatus(f, cam);
+    return ['cameras', st === 'online' || st === 'offline' ? st : 'outros'];
+  }
+  if (['fiber', 'pole', 'box', 'cto', 'cdo'].includes(type)) return [type];
+  return ['outros'];
+}
+
+// Itens escondidos no mapa, por camada (so neste navegador).
+const _mapOcultos = {};
+function mapOcultosDaCamada(id) {
+  if (!_mapOcultos[id]) {
+    let v = [];
+    try { v = JSON.parse(localStorage.getItem(`sightops.mapa.ocultos.${id}`) || '[]'); } catch {}
+    _mapOcultos[id] = new Set(Array.isArray(v) ? v : []);
+  }
+  return _mapOcultos[id];
+}
+
+function mapPontoOculto(def, f, cam, type) {
+  const ocultos = mapOcultosDaCamada(def?.id);
+  return ocultos.size > 0 && mapCategoriasDoPonto(def, f, cam, type).some(c => ocultos.has(c));
+}
+
+function mapAlternarCategoria(def, cat, chip) {
+  const ocultos = mapOcultosDaCamada(def.id);
+  if (ocultos.has(cat)) ocultos.delete(cat); else ocultos.add(cat);
+  try { localStorage.setItem(`sightops.mapa.ocultos.${def.id}`, JSON.stringify([...ocultos])); } catch {}
+  chip?.classList.toggle('off', ocultos.has(cat));
+  chip?.setAttribute('aria-pressed', String(!ocultos.has(cat)));
+  if (_mapLayerGroups?.[def.id]?.active) reRenderMapLayerGroup(def.id, def, true);
+}
+
+function mapLayerStats(features, index = _mapCameraIndex, def = null) {
   return (features || []).reduce((acc, f) => {
     const cam = mapFindCamera(f, index);
-    const type = mapFeatureType(f, cam);
+    const cats = mapCategoriasDoPonto(def, f, cam);
+    const type = cats[0] === 'box' ? 'box' : mapFeatureType(f, cam);
     acc.total += 1;
     if (type === 'camera') {
       acc.cameras += 1;
@@ -1381,7 +1423,7 @@ async function loadMapLayers() {
   });
 
   results.forEach(def => {
-    const stats = mapLayerStats(def.features, camIndex);
+    const stats = mapLayerStats(def.features, camIndex, def);
     const btn = document.createElement('label');
     btn.className = 'map-layer-btn';
     btn.dataset.layerId = def.id;
@@ -1431,19 +1473,30 @@ async function loadMapLayers() {
     const statsEl = document.createElement('div');
     statsEl.className = 'map-layer-stats';
 
+    // cada item da legenda esconde/mostra aquele tipo no mapa
+    const ocultos = mapOcultosDaCamada(def.id);
+    const chip = (cat, cor, n, rotulo) => `<button type="button" class="map-layer-stat${ocultos.has(cat) ? ' off' : ''}" data-map-cat="${cat}" aria-pressed="${!ocultos.has(cat)}" title="Clique para esconder ou mostrar no mapa"><span class="map-layer-stat-dot" style="background:${cor}"></span><strong>${n}</strong> ${rotulo}</button>`;
+    const nCabos = Object.keys(def.cabos || {}).length;
     const infraStats = [
-      stats.fiber ? `<span class="map-layer-stat"><span class="map-layer-stat-dot" style="background:#0ea5e9"></span><strong>${stats.fiber}</strong> fibra</span>` : '',
-      stats.boxes ? `<span class="map-layer-stat"><span class="map-layer-stat-dot" style="background:#f59e0b"></span><strong>${stats.boxes}</strong> caixas</span>` : '',
-      stats.poles ? `<span class="map-layer-stat"><span class="map-layer-stat-dot" style="background:#64748b"></span><strong>${stats.poles}</strong> postes</span>` : '',
-      stats.cto ? `<span class="map-layer-stat"><span class="map-layer-stat-dot" style="background:#1971c2"></span><strong>${stats.cto}</strong> CTO</span>` : '',
-      stats.cdo ? `<span class="map-layer-stat"><span class="map-layer-stat-dot" style="background:#7950f2"></span><strong>${stats.cdo}</strong> CDO</span>` : '',
+      stats.fiber ? chip('fiber', '#0ea5e9', stats.fiber, 'fibra') : '',
+      stats.boxes ? chip('box', '#f59e0b', stats.boxes, 'caixas') : '',
+      nCabos ? chip('cabos', '#1971c2', nCabos, 'cabos') : '',
+      stats.poles ? chip('pole', '#64748b', stats.poles, 'postes') : '',
+      stats.cto ? chip('cto', '#1971c2', stats.cto, 'CTO') : '',
+      stats.cdo ? chip('cdo', '#7950f2', stats.cdo, 'CDO') : '',
     ].filter(Boolean).join('');
     statsEl.innerHTML = `
-      <span class="map-layer-stat"><span class="map-layer-stat-dot" style="background:#16a34a"></span><strong>${stats.online}</strong> online</span>
-      <span class="map-layer-stat"><span class="map-layer-stat-dot" style="background:#dc2626"></span><strong>${stats.offline}</strong> offline</span>
-      <span class="map-layer-stat"><span class="map-layer-stat-dot" style="background:#64748b"></span><strong>${stats.cameras}</strong> cameras</span>
+      ${chip('online', '#16a34a', stats.online, 'online')}
+      ${chip('offline', '#dc2626', stats.offline, 'offline')}
+      ${chip('cameras', '#64748b', stats.cameras, 'cameras')}
       ${infraStats}
-      <span class="map-layer-stat"><span class="map-layer-stat-dot" style="background:#d97706"></span><strong>${stats.outros}</strong> outros</span>`;
+      ${chip('outros', '#d97706', stats.outros, 'outros')}`;
+    statsEl.addEventListener('click', (e) => {
+      const b = e.target.closest('[data-map-cat]');
+      if (!b) return;
+      e.stopPropagation();
+      mapAlternarCategoria(def, b.dataset.mapCat, b);
+    });
 
     try {
       const fora = camerasForaDoMapa(def);
@@ -1618,6 +1671,7 @@ function renderMapLayerGroup(id, def, skipFit = false) {
       if (typeFilter && pointType !== typeFilter) return;
       if (statusFilter && (pointType !== 'camera' || featureStatus !== statusFilter)) return;
       if (siteFilter && featureLocal !== siteFilter) return;
+      if (mapPontoOculto(def, f, cam, pointType)) return;
 
       if (geomType === 'LineString') {
         const coords = Array.isArray(f.geometry.coordinates) ? f.geometry.coordinates : [];
@@ -2286,7 +2340,7 @@ function openMapLayerDetails(def) {
   const list = document.getElementById('mapLayerDetailsList');
   if (!modal || !summary || !list) return;
 
-  const stats = mapLayerStats(def.features, _mapCameraIndex);
+  const stats = mapLayerStats(def.features, _mapCameraIndex, def);
   if (title) title.textContent = def.label || 'Detalhes da camada';
   summary.innerHTML = `
     <button class="map-detail-filter active" data-map-detail-filter="all"><span class="map-layer-stat-dot" style="background:#64748b"></span>${stats.total} itens</button>

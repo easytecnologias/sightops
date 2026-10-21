@@ -129,6 +129,7 @@ function cxMarcador(id, def, f, lat, lng) {
 }
 
 function cxDesenharCabos(id, def, group) {
+  if (typeof mapOcultosDaCamada === 'function' && mapOcultosDaCamada(id).has('cabos')) return;
   Object.values(def?.cabos || {}).forEach(cabo => {
     if (!Array.isArray(cabo.caminho) || cabo.caminho.length < 2) return;
     const t = CX_CABOS[cabo.tipo] || CX_CABOS.outro;

@@ -12942,3 +12942,8 @@ table.recorder-tabela tbody tr:hover { background: var(--surface-soft); }
 .cx-painel > footer button { white-space: nowrap; }
 .cx-painel > footer .cx-ico { width: 36px; height: 36px; padding: 0; display: inline-grid; place-items: center; border-radius: 8px; }
 .cx-painel > footer .cx-ico:hover { background: var(--surface-soft); }
+/* legenda da camada: cada item esconde/mostra aquele tipo no mapa */
+button.map-layer-stat { border: 0; background: none; padding: 1px 4px; margin: -1px -4px; border-radius: 6px; font: inherit; color: inherit; cursor: pointer; text-align: left; }
+button.map-layer-stat:hover { background: var(--surface-soft); }
+button.map-layer-stat.off { opacity: .45; text-decoration: line-through; }
+button.map-layer-stat.off .map-layer-stat-dot { background: transparent !important; box-shadow: inset 0 0 0 1.5px var(--muted); }
