@@ -12906,3 +12906,27 @@ table.recorder-tabela tbody tr:hover { background: var(--surface-soft); }
 .cx-sw-linha { display: grid; grid-template-columns: 74px 64px minmax(0, 1fr) minmax(0, 1fr); gap: 8px; align-items: end; }
 .cx-sw-linha input, .cx-sw-linha select { min-width: 0; }
 .cx-porta.cx-p-up { background: var(--blue-soft); color: var(--blue); border: 1px solid var(--blue); font-size: 11px; }
+
+/* caixa: itens no padrao dos campos, VLAN e ligacao da ONU na CTO */
+.cx-bloco { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; }
+.cx-bloco h3 { margin: 0 0 8px; }
+.cx-sw-linha { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.cx-item, .cx-item-cab { grid-template-columns: minmax(0, 1.1fr) minmax(0, 1.4fr) 56px 30px; }
+.cx-item-cab { display: grid; gap: 6px; font-size: 11.5px; font-weight: 500; color: var(--muted); margin-bottom: 4px; }
+.cx-item select, .cx-item input {
+  height: 36px; padding: 0 10px; border: 1px solid var(--border); border-radius: 8px;
+  background: var(--surface); color: var(--text); font: inherit; font-size: 13px; outline: none; transition: border-color .15s;
+}
+.cx-item input[type="number"] { padding: 0 6px; text-align: center; }
+.cx-item select:focus, .cx-item input:focus { border-color: var(--primary); }
+.cx-item-x { width: 30px; height: 30px; border: 0; border-radius: 8px; background: transparent; color: var(--muted); display: grid; place-items: center; cursor: pointer; }
+.cx-item-x:hover { background: var(--surface-soft); color: var(--danger); }
+.cx-item-x svg { width: 15px; height: 15px; }
+.cx-mais { margin-top: 2px; border: 1px dashed var(--border); border-radius: 8px; background: transparent; color: var(--primary); width: 100%; height: 34px; display: flex; align-items: center; justify-content: center; gap: 6px; font: inherit; font-size: 13px; font-weight: 500; cursor: pointer; }
+.cx-mais:hover { border-color: var(--primary); background: var(--surface-soft); }
+.cx-mais svg { width: 15px; height: 15px; }
+.cx-cto { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 8px; background: var(--surface-soft); border: 1px solid var(--border); }
+.cx-cto > svg { width: 18px; height: 18px; color: #0ea5e9; flex: none; }
+.cx-cto > div { flex: 1; min-width: 0; display: flex; flex-direction: column; font-size: 13px; }
+.cx-cto small { color: var(--muted); font-size: 12px; }
+.cx-cto-vazio > svg { color: var(--muted); }

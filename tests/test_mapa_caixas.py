@@ -173,3 +173,21 @@ def test_inventario_so_nos_sites_do_usuario(camada, inventario, monkeypatch):
     cx = _caixa(portas=5, switch_nome="SW-1")
     tools._cabo_da_camada("c1", {"caixa": cx["id"], "camera": {"ponto": "5", "ip": "10.45.0.105"}, "porta": 2, "caminho": _CAMINHO})
     assert "switch_name" not in inventario["switch"][1]  # SANTANA: fora dos sites do usuario
+
+
+def test_vlan_e_onu_na_cto(camada, inventario):
+    cx = _caixa(portas=5, switch_nome="SW-1", switch_vlan="120")
+    assert cx["switch_vlan"] == "120"
+    tools._cabo_da_camada("c1", {"caixa": cx["id"], "camera": {"ponto": "4", "ip": "10.45.0.104"}, "porta": 1, "caminho": _CAMINHO})
+    assert inventario["switch"][0]["switch_vlan"] == "120"
+    with pytest.raises(HTTPException):
+        _caixa(id=cx["id"], portas=5, switch_vlan="5000")
+    # ONU da caixa na CTO: fibra drop, porta da CTO, um por caixa, nao ocupa porta do switch
+    r = tools._cabo_da_camada("c1", {"caixa": cx["id"], "cto": {"ponto": "CTO-07", "porta": 3}, "tipo": "drop", "caminho": _CAMINHO})
+    cto = next(c for c in r["cabos"].values() if c.get("cto"))
+    assert cto["cto"] == {"ponto": "CTO-07", "porta": 3} and cto["tipo"] == "drop" and cto["porta"] is None
+    with pytest.raises(HTTPException) as e:
+        tools._cabo_da_camada("c1", {"caixa": cx["id"], "cto": {"ponto": "CTO-08"}, "caminho": _CAMINHO})
+    assert "ja esta ligada na CTO" in e.value.detail
+    # cabo de camera continua aceitando outra camera na porta 2 (a CTO nao ocupa porta)
+    tools._cabo_da_camada("c1", {"caixa": cx["id"], "camera": {"ponto": "5", "ip": "10.45.0.105"}, "porta": 2, "caminho": _CAMINHO})

@@ -4,6 +4,8 @@
 // camera = fim) e a metragem sai do traçado. Tudo no meta da camada, pela
 // mesma rota de edicao de camada (PATCH {caixa} / {cabo}). Excluir caixa ou
 // cabo e so administrador (o servidor pede a senha dele para os demais).
+// A ONU da caixa pode ser ligada numa CTO (cabo {cto:{ponto,porta}}, fibra drop):
+// um por caixa, nao vai para o inventario de cameras.
 // O painel lateral nao fecha ao clicar fora: so X, Cancelar ou Esc.
 
 const _cx = { painel: null, desenho: null };
@@ -74,7 +76,16 @@ function cxEstadoCamera(cam) {
 }
 
 function cxCabosDaCaixa(def, caixaId) {
-  return Object.values(def?.cabos || {}).filter(c => c.caixa === caixaId);
+  return Object.values(def?.cabos || {}).filter(c => c.caixa === caixaId && !c.cto);
+}
+
+function cxCaboDaCto(def, caixaId) {
+  return Object.values(def?.cabos || {}).find(c => c.caixa === caixaId && c.cto) || null;
+}
+
+function cxDestinoDoCabo(c) {
+  if (c?.cto) return `${c.cto.ponto}${c.cto.porta ? ` porta ${c.cto.porta}` : ''}`;
+  return c?.camera?.ponto || c?.camera?.ip || '';
 }
 
 // ------------------------------------------------------------------ desenho no mapa
@@ -103,12 +114,12 @@ function cxDesenharCabos(id, def, group) {
   Object.values(def?.cabos || {}).forEach(cabo => {
     if (!Array.isArray(cabo.caminho) || cabo.caminho.length < 2) return;
     const t = CX_CABOS[cabo.tipo] || CX_CABOS.outro;
-    const fora = cxEstadoCamera(cxCameraDoCabo(def, cabo)) === 'off';
+    const fora = !cabo.cto && cxEstadoCamera(cxCameraDoCabo(def, cabo)) === 'off';
     const linha = L.polyline(cabo.caminho, {
       color: fora ? '#c92a2a' : t.cor, weight: 4, opacity: 0.95, dashArray: t.tracejado || null,
     });
     const caixa = def.caixas?.[cabo.caixa];
-    linha.bindTooltip(`${esc(t.nome)} · ${cxFmtMetros(cabo.metros || 0)}${cabo.porta ? ` · porta ${cabo.porta}` : ''} → ${esc(cabo.camera?.ponto || cabo.camera?.ip || '')}${fora ? ' · câmera fora do ar' : ''}`, { sticky: true });
+    linha.bindTooltip(`${esc(t.nome)} · ${cxFmtMetros(cabo.metros || 0)}${cabo.porta ? ` · porta ${cabo.porta}` : ''} → ${cabo.cto ? 'CTO ' : ''}${esc(cxDestinoDoCabo(cabo))}${fora ? ' · câmera fora do ar' : ''}`, { sticky: true });
     linha.on('click', () => { if (!_cx.desenho && caixa) cxAbrirPainel(id, def, caixa.ponto); });
     group.addLayer(linha);
   });
@@ -119,8 +130,15 @@ function cxCliqueNoPonto(def, f, cam, latlng, marker) {
   const d = _cx.desenho;
   if (!d) return false;
   setTimeout(() => marker?.closePopup?.(), 0);
-  if (d.def !== def) { showToast('A câmera precisa estar na mesma camada da caixa.', true); return true; }
+  const alvo = d.alvo === 'cto' ? 'CTO' : 'câmera';
+  if (d.def !== def) { showToast(`A ${alvo} precisa estar na mesma camada da caixa.`, true); return true; }
   const tipo = mapFeatureType(f, cam);
+  if (d.alvo === 'cto') {
+    if (tipo !== 'cto') { showToast('Clique numa CTO para terminar o cabo (ou no mapa para fazer uma curva).', true); return true; }
+    d.pontos.push(latlng);
+    cxTerminarDesenho(null, { ponto: mapFeatureName(f) });
+    return true;
+  }
   if (tipo !== 'camera') { showToast('Clique numa câmera para terminar o cabo (ou no mapa para fazer uma curva).', true); return true; }
   d.pontos.push(latlng);
   cxTerminarDesenho({ ponto: mapFeatureName(f), ip: String(cam?.ip || '') });
@@ -160,18 +178,23 @@ function cxPainelBase(titulo, corpo, rodape) {
   return el;
 }
 
+// O switch tem a parte propria; aqui ficam os outros itens (ONU, fonte...).
+const cxEItemSwitch = it => it?.tipo === 'switch_poe' || it?.tipo === 'switch';
+
 function cxLinhaItem(it = {}) {
+  const opcoes = Object.entries(CX_ITENS).filter(([k]) => !cxEItemSwitch({ tipo: k }));
   return `<div class="cx-item">
-    <select data-cx-it="tipo" aria-label="Tipo">${Object.entries(CX_ITENS).map(([k, v]) => `<option value="${k}" ${it.tipo === k ? 'selected' : ''}>${esc(v)}</option>`).join('')}</select>
-    <input data-cx-it="modelo" placeholder="modelo" maxlength="80" value="${esc(it.modelo || '')}" aria-label="Modelo">
-    <input data-cx-it="qtd" type="number" min="1" max="99" value="${Number(it.qtd || 1)}" aria-label="Quantidade">
-    <button type="button" class="ghost-action" data-cx="tirar-item" aria-label="Tirar item"><i data-lucide="x"></i></button></div>`;
+    <select data-cx-it="tipo" aria-label="Tipo">${opcoes.map(([k, v]) => `<option value="${k}" ${it.tipo === k ? 'selected' : ''}>${esc(v)}</option>`).join('')}</select>
+    <input data-cx-it="modelo" placeholder="Modelo (opcional)" maxlength="80" value="${esc(it.modelo || '')}" aria-label="Modelo">
+    <input data-cx-it="qtd" type="number" min="1" max="99" value="${Number(it.qtd || 1)}" aria-label="Quantidade" title="Quantidade">
+    <button type="button" class="cx-item-x" data-cx="tirar-item" aria-label="Tirar item" title="Tirar item"><i data-lucide="x"></i></button></div>`;
 }
 
 function cxAbrirPainel(id, def, nomePonto, latlng) {
   if (!def?.updateUrl || def.source !== 'imported') { showToast('Caixas só em camadas importadas (KMZ).', true); return; }
   const caixa = cxCaixaDoPonto(def, nomePonto);
-  const itens = caixa?.itens?.length ? caixa.itens : [{ tipo: 'switch_poe', qtd: 1 }, { tipo: 'fonte', qtd: 1 }];
+  const itens = caixa?.itens?.length ? caixa.itens.filter(it => !cxEItemSwitch(it)) : [{ tipo: 'onu', qtd: 1 }, { tipo: 'fonte', qtd: 1 }];
+  const caboCto = caixa ? cxCaboDaCto(def, caixa.id) : null;
   const portas = caixa ? Number(caixa.portas || 0) : 8;
   const cabos = caixa ? cxCabosDaCaixa(def, caixa.id) : [];
   const porPorta = Object.fromEntries(cabos.filter(c => c.porta).map(c => [c.porta, c]));
@@ -186,6 +209,15 @@ function cxAbrirPainel(id, def, nomePonto, latlng) {
   // modelo do switch: o salvo, senao o do item "Switch PoE" (caixas antigas)
   const itemSwitch = (caixa?.itens || []).find(it => it.tipo === 'switch_poe' || it.tipo === 'switch');
   const swModelo = caixa?.switch_modelo || itemSwitch?.modelo || '';
+  const temOnu = (caixa?.itens || []).some(it => it.tipo === 'onu') || uplinkPara === 'onu';
+  const blocoCto = !caixa ? '' : caboCto ? `<div class="cx-cto">
+      <i data-lucide="git-commit-horizontal"></i>
+      <div><strong>ONU → CTO ${esc(cxDestinoDoCabo(caboCto))}</strong>
+        <small>${esc((CX_CABOS[caboCto.tipo] || CX_CABOS.outro).nome)} · ${cxFmtMetros(caboCto.metros || 0)} (${cxFmtMetros(caboCto.metros_com_folga || caboCto.metros || 0)} com folga)</small></div>
+      <button type="button" class="ghost-action" data-cx="excluir-cabo" data-id="${esc(caboCto.id)}" aria-label="Excluir cabo da CTO"><i data-lucide="trash-2"></i></button></div>`
+    : temOnu ? `<div class="cx-cto cx-cto-vazio"><i data-lucide="git-commit-horizontal"></i>
+      <div><strong>ONU sem CTO</strong><small>Se a ONU desta caixa vem de uma CTO, ligue com o cabo drop.</small></div>
+      <button type="button" class="secondary-action" data-cx="ligar-cto">Ligar à CTO</button></div>` : '';
   const linhasCabo = cabos.sort((a, b) => (a.porta || 99) - (b.porta || 99)).map(c => {
     const t = CX_CABOS[c.tipo] || CX_CABOS.outro;
     const st = statusCabo(c);
@@ -207,12 +239,18 @@ function cxAbrirPainel(id, def, nomePonto, latlng) {
       <div class="cx-sw-linha">
         <div class="form-group" style="margin:0"><label for="cxPortas">Portas PoE</label><input id="cxPortas" type="number" min="0" max="64" value="${portas}"></div>
         <div class="form-group" style="margin:0"><label for="cxUplinks">Uplink</label><input id="cxUplinks" type="number" min="0" max="8" value="${uplinks}"></div>
+        <div class="form-group" style="margin:0"><label for="cxSwVlan">VLAN</label><input id="cxSwVlan" type="number" min="1" max="4094" value="${esc(caixa?.switch_vlan || '')}" placeholder="ex.: 120"></div>
+      </div>
+      <div class="form-row">
         <div class="form-group" style="margin:0"><label for="cxUplinkPara">Uplink liga em</label><select id="cxUplinkPara">${Object.entries(CX_UPLINK).map(([k, v]) => `<option value="${k}" ${uplinkPara === k ? 'selected' : ''}>${esc(v)}</option>`).join('')}</select></div>
         <div class="form-group" style="margin:0"><label for="cxSwIp">IP do switch</label><input id="cxSwIp" maxlength="45" value="${esc(caixa?.switch_ip || '')}" placeholder="opcional"></div>
       </div>
+      ${blocoCto}
     </section>
-    <section><h3>O que tem dentro</h3><div id="cxItens">${itens.map(cxLinhaItem).join('')}</div>
-      <button type="button" class="ghost-action" data-cx="mais-item"><i data-lucide="plus"></i> Adicionar item</button></section>
+    <section class="cx-bloco"><h3>O que tem dentro <small>além do switch</small></h3>
+      <div class="cx-item-cab"><span>Item</span><span>Modelo</span><span>Qtd</span><span></span></div>
+      <div id="cxItens">${itens.map(cxLinhaItem).join('')}</div>
+      <button type="button" class="cx-mais" data-cx="mais-item"><i data-lucide="plus"></i> Adicionar item</button></section>
     ${caixa ? `<section><h3>Portas do switch <small>${cabos.filter(c => c.porta).length} de ${portas} PoE em uso${uplinks ? ` · uplink → ${esc(CX_UPLINK[uplinkPara] || uplinkPara)}` : ''}</small></h3>
       <div class="cx-portas">${grade || '<span class="text-muted">Sem switch informado.</span>'}</div>
       ${cabos.length ? `<table class="cx-tabela"><tbody>${linhasCabo}</tbody></table>` : '<p class="text-muted" style="margin:6px 0 0">Nenhuma câmera ligada ainda. Use "Ligar câmera".</p>'}
@@ -253,23 +291,24 @@ async function cxAcao(btn) {
   const acao = btn.dataset.cx;
   if (acao === 'fechar') return cxFecharPainel();
   if (acao === 'mais-item') {
-    document.getElementById('cxItens')?.insertAdjacentHTML('beforeend', cxLinhaItem({ tipo: 'outro', qtd: 1 }));
+    document.getElementById('cxItens')?.insertAdjacentHTML('beforeend', cxLinhaItem({ tipo: 'onu', qtd: 1 }));
     lucide.createIcons();
     return;
   }
   if (acao === 'tirar-item') { btn.closest('.cx-item')?.remove(); return; }
   if (!p) return;
   if (acao === 'salvar') {
-    const itens = [...p.el.querySelectorAll('.cx-item')].map(r => ({
+    const sw = (p.caixa?.itens || []).filter(cxEItemSwitch); // nao aparecem na lista, mas ficam
+    const itens = [...sw, ...[...p.el.querySelectorAll('.cx-item')].map(r => ({
       tipo: r.querySelector('[data-cx-it="tipo"]').value,
       modelo: r.querySelector('[data-cx-it="modelo"]').value.trim(),
       qtd: Number(r.querySelector('[data-cx-it="qtd"]').value || 1),
-    }));
+    }))];
     try {
       const v = idc => document.getElementById(idc)?.value ?? '';
       await cxGravar(p.def, { caixa: { id: p.caixa?.id || '', ponto: p.nomePonto, nome: v('cxNome').trim(),
         portas: Number(v('cxPortas') || 0), itens, obs: v('cxObs').trim(),
-        switch_nome: v('cxSwNome').trim(), switch_modelo: v('cxSwModelo').trim(), switch_ip: v('cxSwIp').trim(),
+        switch_nome: v('cxSwNome').trim(), switch_modelo: v('cxSwModelo').trim(), switch_ip: v('cxSwIp').trim(), switch_vlan: v('cxSwVlan').trim(),
         uplinks: Number(v('cxUplinks') || 0), uplink_para: v('cxUplinkPara') || 'onu' } });
     } catch (e) {
       const er = document.getElementById('cxErro');
@@ -283,7 +322,7 @@ async function cxAcao(btn) {
   }
   if (acao === 'excluir-cabo') {
     const cabo = p.def.cabos?.[btn.dataset.id];
-    if (!cabo || !(await showConfirm({ title: 'Excluir cabo', msg: `Tirar do mapa o cabo da ${cabo.porta ? `porta ${cabo.porta}` : 'caixa'} até ${cabo.camera?.ponto || cabo.camera?.ip}?`, label: 'Excluir' }))) return;
+    if (!cabo || !(await showConfirm({ title: 'Excluir cabo', msg: cabo.cto ? `Tirar do mapa o cabo da ONU até a CTO ${cxDestinoDoCabo(cabo)}?` : `Tirar do mapa o cabo da ${cabo.porta ? `porta ${cabo.porta}` : 'caixa'} até ${cabo.camera?.ponto || cabo.camera?.ip}?`, label: 'Excluir' }))) return;
     await cxGravar(p.def, { cabo: { id: cabo.id, excluir: true } });
     showToast('Cabo excluído.');
     cxRedesenhar(p.id, p.def);
@@ -291,7 +330,7 @@ async function cxAcao(btn) {
     return;
   }
   if (acao === 'excluir-caixa') {
-    const n = cxCabosDaCaixa(p.def, p.caixa.id).length;
+    const n = cxCabosDaCaixa(p.def, p.caixa.id).length + (cxCaboDaCto(p.def, p.caixa.id) ? 1 : 0);
     if (!(await showConfirm({ title: 'Excluir caixa', msg: `Excluir a caixa "${p.caixa.nome}"${n ? ` e os ${n} cabo(s) dela` : ''}? O ponto continua no mapa.`, label: 'Excluir' }))) return;
     await cxGravar(p.def, { caixa: { id: p.caixa.id, excluir: true } });
     showToast('Caixa excluída.');
@@ -300,26 +339,28 @@ async function cxAcao(btn) {
     return;
   }
   if (acao === 'ligar') return cxIniciarDesenho();
+  if (acao === 'ligar-cto') return cxIniciarDesenho('cto');
   if (acao === 'salvar-cabo') return cxSalvarCabo();
   if (acao === 'cancelar-cabo') { cxCancelarDesenho(); return; }
 }
 
 // ------------------------------------------------------------------ desenhar o cabo
 
-function cxIniciarDesenho() {
+function cxIniciarDesenho(alvo = 'camera') {
   const p = _cx.painel;
   if (!p?.caixa || !p.latlng) return;
   if (typeof mapEditIsActive === 'function' && Object.keys(_mapLayerGroups || {}).some(k => mapEditIsActive(k))) {
-    showToast('Saia do modo de edição de pontos antes de ligar uma câmera.', true);
+    showToast('Saia do modo de edição de pontos antes de ligar um cabo.', true);
     return;
   }
   p.el.hidden = true;
-  const linha = L.polyline([p.latlng], { color: '#1971c2', weight: 4, dashArray: '10 8' }).addTo(_map);
-  const fantasma = L.polyline([], { color: '#1971c2', weight: 2, dashArray: '4 6', opacity: 0.7 }).addTo(_map);
+  const cor = alvo === 'cto' ? CX_CABOS.drop.cor : '#1971c2';
+  const linha = L.polyline([p.latlng], { color: cor, weight: 4, dashArray: '10 8' }).addTo(_map);
+  const fantasma = L.polyline([], { color: cor, weight: 2, dashArray: '4 6', opacity: 0.7 }).addTo(_map);
   const barra = document.createElement('div');
   barra.className = 'cx-barra';
-  barra.innerHTML = `<span class="cx-barra-dot"></span><strong>Ligando câmera à ${esc(p.caixa.nome)}</strong>
-    <span class="cx-barra-txt">Clique no mapa para fazer as curvas (poste, esquina). Clique na câmera para terminar.</span>
+  barra.innerHTML = `<span class="cx-barra-dot"></span><strong>${alvo === 'cto' ? `Ligando a ONU da ${esc(p.caixa.nome)} à CTO` : `Ligando câmera à ${esc(p.caixa.nome)}`}</strong>
+    <span class="cx-barra-txt">Clique no mapa para fazer as curvas (poste, esquina). Clique ${alvo === 'cto' ? 'na CTO' : 'na câmera'} para terminar.</span>
     <span class="cx-barra-m" id="cxBarraM">0 m</span>
     <button type="button" data-cxb="desfazer">Desfazer ponto</button><button type="button" data-cxb="cancelar">Cancelar</button>`;
   cxAnexar(barra);
@@ -337,7 +378,7 @@ function cxIniciarDesenho() {
   _map.on('click', aoClicar);
   _map.on('mousemove', aoMover);
   _map.getContainer().classList.add('cx-desenhando');
-  _cx.desenho = { def: p.def, id: p.id, caixa: p.caixa, pontos: [p.latlng], linha, fantasma, barra, aoClicar, aoMover };
+  _cx.desenho = { alvo, def: p.def, id: p.id, caixa: p.caixa, pontos: [p.latlng], linha, fantasma, barra, aoClicar, aoMover };
 }
 
 function cxAtualizarDesenho() {
@@ -368,27 +409,32 @@ function cxCancelarDesenho() {
   else if (p?.el) p.el.hidden = false;
 }
 
-function cxTerminarDesenho(camera) {
+function cxTerminarDesenho(camera, cto = null) {
   const d = _cx.desenho;
   const metros = cxMetros(d.pontos);
   const caixa = d.caixa;
   const ocupadas = new Set(cxCabosDaCaixa(d.def, caixa.id).map(c => c.porta).filter(Boolean));
   const livres = Array.from({ length: Number(caixa.portas || 0) }, (_, i) => i + 1).filter(n => !ocupadas.has(n));
   d.camera = camera;
+  d.cto = cto;
   d.barra.hidden = true;
+  const padrao = cto ? 'drop' : 'utp5e';
+  const campoPorta = cto
+    ? '<div class="form-group" style="margin:0"><label for="cxPortaCto">Porta da CTO</label><input id="cxPortaCto" type="number" min="1" max="64" placeholder="ex.: 3"></div>'
+    : `<div class="form-group" style="margin:0"><label for="cxPorta">Porta do switch</label><select id="cxPorta"><option value="">sem porta</option>${livres.map((n, i) => `<option value="${n}" ${i === 0 ? 'selected' : ''}>Porta ${n} (livre)</option>`).join('')}</select></div>`;
   const corpo = `
-    <p style="margin:0"><strong>${esc(caixa.nome)}</strong> → <strong>${esc(camera.ponto || camera.ip)}</strong></p>
-    <fieldset class="cx-tipos"><legend>Tipo de cabo</legend>${Object.entries(CX_CABOS).map(([k, v], i) => `<label class="nt-pill"><input type="radio" name="cxTipo" value="${k}" ${i === 0 ? 'checked' : ''}><span>${esc(v.nome)}</span></label>`).join('')}</fieldset>
+    <p style="margin:0"><strong>${esc(caixa.nome)}</strong>${cto ? ' (ONU)' : ''} → <strong>${cto ? `CTO ${esc(cto.ponto)}` : esc(camera.ponto || camera.ip)}</strong></p>
+    <fieldset class="cx-tipos"><legend>Tipo de cabo</legend>${Object.entries(CX_CABOS).map(([k, v]) => `<label class="nt-pill"><input type="radio" name="cxTipo" value="${k}" ${k === padrao ? 'checked' : ''}><span>${esc(v.nome)}</span></label>`).join('')}</fieldset>
     <div class="form-row">
-      <div class="form-group" style="margin:0"><label for="cxPorta">Porta do switch</label><select id="cxPorta"><option value="">sem porta</option>${livres.map((n, i) => `<option value="${n}" ${i === 0 ? 'selected' : ''}>Porta ${n} (livre)</option>`).join('')}</select></div>
+      ${campoPorta}
       <div class="form-group" style="margin:0"><label for="cxFolga">Folga (%)</label><input id="cxFolga" type="number" min="0" max="100" value="10"></div>
     </div>
     <div class="cx-conta" id="cxConta"></div>
     <p id="cxErro" class="login-error" hidden></p>`;
-  const el = cxPainelBase('Novo cabo', corpo, '<span style="flex:1"></span><button type="button" class="secondary-action" data-cx="cancelar-cabo">Cancelar</button><button type="button" class="primary-action" data-cx="salvar-cabo"><i data-lucide="save"></i> Salvar cabo</button>');
+  const el = cxPainelBase(cto ? 'Cabo até a CTO' : 'Novo cabo', corpo, '<span style="flex:1"></span><button type="button" class="secondary-action" data-cx="cancelar-cabo">Cancelar</button><button type="button" class="primary-action" data-cx="salvar-cabo"><i data-lucide="save"></i> Salvar cabo</button>');
   _cx.painel = { el, id: d.id, def: d.def, caixa, nomePonto: caixa.ponto, latlng: d.pontos[0], novoCabo: true };
   const conta = () => {
-    const tipo = el.querySelector('input[name="cxTipo"]:checked')?.value || 'utp5e';
+    const tipo = el.querySelector('input[name="cxTipo"]:checked')?.value || padrao;
     const folga = Number(document.getElementById('cxFolga')?.value || 0);
     const comFolga = metros * (1 + folga / 100);
     const lim = CX_CABOS[tipo]?.limite;
@@ -406,22 +452,25 @@ async function cxSalvarCabo() {
   const p = _cx.painel;
   if (!d || !p) return;
   try {
-    await cxGravar(d.def, { cabo: {
-      caixa: d.caixa.id, camera: d.camera, caminho: d.pontos,
-      tipo: p.el.querySelector('input[name="cxTipo"]:checked')?.value || 'utp5e',
-      porta: document.getElementById('cxPorta')?.value || null,
+    const comum = {
+      caixa: d.caixa.id, caminho: d.pontos,
+      tipo: p.el.querySelector('input[name="cxTipo"]:checked')?.value || (d.cto ? 'drop' : 'utp5e'),
       folga_pct: Number(document.getElementById('cxFolga')?.value || 0),
-    } });
+    };
+    await cxGravar(d.def, { cabo: d.cto
+      ? { ...comum, cto: { ponto: d.cto.ponto, porta: document.getElementById('cxPortaCto')?.value || null } }
+      : { ...comum, camera: d.camera, porta: document.getElementById('cxPorta')?.value || null } });
   } catch (e) {
     const er = document.getElementById('cxErro');
     if (er) { er.textContent = e.message; er.hidden = false; }
     return;
   }
-  const { id, def, caixa, camera } = d;
+  const { id, def, caixa, camera, cto } = d;
   const porta = document.getElementById('cxPorta')?.value;
   cxLimparDesenho();
   const sw = def.caixas?.[caixa.id]?.switch_nome || caixa.nome;
-  showToast(camera?.ip ? `Cabo salvo. No inventário, ${camera.ponto || camera.ip}: switch ${sw}${porta ? `, porta ${porta}` : ''}.` : 'Cabo salvo.');
+  if (cto) showToast(`ONU ligada à CTO ${cto.ponto}.`);
+  else showToast(camera?.ip ? `Cabo salvo. No inventário, ${camera.ponto || camera.ip}: switch ${sw}${porta ? `, porta ${porta}` : ''}.` : 'Cabo salvo.');
   cxRedesenhar(id, def);
   cxAbrirPainel(id, def, caixa.ponto);
 }

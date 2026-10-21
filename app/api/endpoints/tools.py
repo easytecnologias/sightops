@@ -1732,6 +1732,7 @@ def _switch_no_inventario(cabos: list, caixa: Dict[str, Any], limpar: bool = Fal
     (basico/olt/switch): a camera pode estar em mais de um."""
     nome = str(caixa.get("switch_nome") or caixa.get("nome") or "").strip()
     sw_ip = str(caixa.get("switch_ip") or "").strip()
+    vlan = str(caixa.get("switch_vlan") or "").strip()
     por_ip = {str((c.get("camera") or {}).get("ip") or "").strip(): c for c in cabos}
     por_ip.pop("", None)
     if not por_ip:
@@ -1755,7 +1756,7 @@ def _switch_no_inventario(cabos: list, caixa: Dict[str, Any], limpar: bool = Fal
                 continue  # camera de site que o usuario nao acessa (o IP vem da tela)
             if limpar:
                 if str(r.get("switch_name") or "") == nome:
-                    for k in ("switch_name", "switch_ip", "switch_port"):
+                    for k in ("switch_name", "switch_ip", "switch_port", "switch_vlan"):
                         r.pop(k, None)
                     alterou = True
                 continue
@@ -1763,6 +1764,8 @@ def _switch_no_inventario(cabos: list, caixa: Dict[str, Any], limpar: bool = Fal
             if sw_ip:
                 r["switch_ip"] = sw_ip
             r["switch_port"] = str(cabo.get("porta") or "")
+            if vlan:
+                r["switch_vlan"] = vlan
             alterou = True
         if alterou:
             save_inventory_json(linhas, mode=modo)
@@ -1873,6 +1876,9 @@ def _caixa_da_camada_sem_lock(layer_id: str, dados: Dict[str, Any], por: str = "
             uplinks = max(0, min(int(dados.get("uplinks") if dados.get("uplinks") is not None else 1), 8))
         except (TypeError, ValueError):
             raise HTTPException(400, "Numero de portas de uplink invalido.")
+        vlan = str(dados.get("switch_vlan") or "").strip()
+        if vlan and (not vlan.isdigit() or not 1 <= int(vlan) <= 4094):
+            raise HTTPException(400, "VLAN invalida (1 a 4094).")
         uplink_para = _texto_curto(dados.get("uplink_para") or "onu", 10)
         if uplink_para not in _UPLINK_PARA:
             raise HTTPException(400, "Destino do uplink invalido.")
@@ -1882,7 +1888,7 @@ def _caixa_da_camada_sem_lock(layer_id: str, dados: Dict[str, Any], por: str = "
             # o switch da caixa: nome e portas vao para o inventario das cameras
             "switch_nome": _texto_curto(dados.get("switch_nome"), 60),
             "switch_modelo": _texto_curto(dados.get("switch_modelo"), 80),
-            "switch_ip": sw_ip,
+            "switch_ip": sw_ip, "switch_vlan": vlan,
             "uplinks": uplinks, "uplink_para": uplink_para,
             "uplink_obs": _texto_curto(dados.get("uplink_obs"), 80),
             "criado_em": (atual or {}).get("criado_em") or agora, "criado_por": (atual or {}).get("criado_por") or por,
@@ -1891,7 +1897,7 @@ def _caixa_da_camada_sem_lock(layer_id: str, dados: Dict[str, Any], por: str = "
         anterior_nome = str((atual or {}).get("switch_nome") or (atual or {}).get("nome") or "")
         novo_nome = str(caixas[cid].get("switch_nome") or caixas[cid].get("nome") or "")
         dela = [v for v in cabos.values() if (v or {}).get("caixa") == cid]
-        if atual and dela:
+        if atual and dela and any((c.get("camera") or {}).get("ip") for c in dela):
             # salvar a caixa sempre leva o switch/porta das cameras dela ao
             # inventario (cabos feitos antes de existir o switch tambem entram)
             if anterior_nome != novo_nome:
@@ -1902,6 +1908,48 @@ def _caixa_da_camada_sem_lock(layer_id: str, dados: Dict[str, Any], por: str = "
     _write_kmz_layer_meta(meta_path, meta)
     if inventario:
         _switch_no_inventario(*inventario)
+    return {"caixas": caixas, "cabos": cabos}
+
+
+def _caminho_do_cabo(dados: Dict[str, Any]) -> list:
+    bruto = dados.get("caminho") if isinstance(dados.get("caminho"), list) else []
+    caminho = []
+    for p in bruto[:300]:
+        try:
+            lat, lng = float(p[0]), float(p[1])
+        except (TypeError, ValueError, IndexError):
+            raise HTTPException(400, "Caminho do cabo invalido.")
+        if not (-90 <= lat <= 90 and -180 <= lng <= 180):
+            raise HTTPException(400, "Coordenada fora do mapa.")
+        caminho.append([round(lat, 7), round(lng, 7)])
+    if len(caminho) < 2:
+        raise HTTPException(400, "O cabo precisa de pelo menos dois pontos.")
+    return caminho
+
+
+def _gravar_cabo(meta: dict, meta_path: Path, caixas: dict, cabos: dict, kid: str, caixa: dict,
+                 dados: Dict[str, Any], por: str, cto: dict) -> dict[str, Any]:
+    """Cabo da ONU da caixa ate a CTO (fibra drop). Nao vai ao inventario de cameras."""
+    tipo = _texto_curto(dados.get("tipo") or "drop", 10)
+    if tipo not in _TIPOS_CABO:
+        raise HTTPException(400, "Tipo de cabo invalido.")
+    caminho = _caminho_do_cabo(dados)
+    try:
+        folga = max(0, min(int(dados.get("folga_pct") if dados.get("folga_pct") is not None else 10), 100))
+    except (TypeError, ValueError):
+        folga = 10
+    metros = _metros_do_caminho(caminho)
+    agora = datetime.now().isoformat(timespec="seconds")
+    kid = kid or f"cb{uuid.uuid4().hex[:10]}"
+    cabos[kid] = {
+        "id": kid, "caixa": caixa["id"], "cto": cto, "camera": {}, "tipo": tipo, "porta": None, "folga_pct": folga,
+        "caminho": caminho, "metros": metros, "metros_com_folga": round(metros * (1 + folga / 100), 1),
+        "criado_em": (cabos.get(kid) or {}).get("criado_em") or agora, "criado_por": (cabos.get(kid) or {}).get("criado_por") or por,
+        "atualizado_em": agora,
+    }
+    meta["cabos"] = cabos
+    meta["updated_at"] = datetime.now().isoformat(timespec="seconds")
+    _write_kmz_layer_meta(meta_path, meta)
     return {"caixas": caixas, "cabos": cabos}
 
 
@@ -1948,12 +1996,34 @@ def _cabo_da_camada_sem_lock(layer_id: str, dados: Dict[str, Any], por: str = ""
             caminho.append([round(lat, 7), round(lng, 7)])
         if len(caminho) < 2:
             raise HTTPException(400, "O cabo precisa de pelo menos dois pontos.")
+        cto = dados.get("cto") if isinstance(dados.get("cto"), dict) else None
         camera = dados.get("camera") if isinstance(dados.get("camera"), dict) else {}
         destino = {"ponto": _texto_curto(camera.get("ponto"), 160), "ip": _texto_curto(camera.get("ip"), 45)}
+        if cto is not None:
+            # ONU da caixa ligada numa CTO: um por caixa, porta da CTO (nao do switch)
+            ponto_cto = _texto_curto(cto.get("ponto"), 160)
+            if not ponto_cto:
+                raise HTTPException(400, "Informe a CTO.")
+            try:
+                porta_cto = int(cto.get("porta")) if cto.get("porta") not in (None, "") else None
+            except (TypeError, ValueError):
+                raise HTTPException(400, "Porta da CTO invalida.")
+            if porta_cto is not None and not 1 <= porta_cto <= 64:
+                raise HTTPException(400, "Porta da CTO invalida (1 a 64).")
+            if kid:
+                antigo = cabos[kid]
+                if antigo.get("caixa") != caixa["id"] or (antigo.get("cto") or {}).get("ponto") != ponto_cto:
+                    _exige_admin_para_excluir()  # trocar a CTO = excluir + criar
+            outro = next((c for k, c in cabos.items() if k != kid and c.get("caixa") == caixa["id"] and c.get("cto")), None)
+            if outro:
+                raise HTTPException(400, f"Esta caixa ja esta ligada na CTO {outro['cto'].get('ponto')}. Exclua o cabo antigo antes.")
+            return _gravar_cabo(meta, meta_path, caixas, cabos, kid, caixa, dados, por, cto={"ponto": ponto_cto, "porta": porta_cto})
         if not destino["ponto"] and not destino["ip"]:
             raise HTTPException(400, "Informe a camera do cabo.")
 
         def _mesma_camera(c: dict) -> bool:
+            if c.get("cto"):
+                return False
             outra = c.get("camera") or {}
             if destino["ip"] and outra.get("ip"):
                 return outra.get("ip") == destino["ip"]
