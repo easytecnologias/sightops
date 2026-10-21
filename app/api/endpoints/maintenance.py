@@ -2570,6 +2570,10 @@ async def maintenance_camera_web_proxy(ip: str, request: Request, path: str = ""
 _PROVAS_DE_SENHA = (
     "/cgi-bin/magicBox.cgi?action=getSystemInfo",  # Intelbras / Dahua
     "/ISAPI/System/deviceInfo",                    # Hikvision
+    # UNV: sem esta prova as duas acima davam 404 ("inconclusivo") e a senha
+    # errada era aprovada. No RTSP a UNV nao devolve 401 a senha errada: fica
+    # muda, e o go2rtc so mostrava "Invalid data found" (Porto Real, 21/10/2026).
+    "/LAPI/V1.0/System/DeviceBasicInfo",
 )
 
 
@@ -2605,13 +2609,19 @@ def _senha_aceita(alvo_rede: str, user: str, senha: str) -> bool:
     return not viu_recusa
 
 
-def _credencial_que_responde(ip: str, user: str, password: str, connector_id: str = "") -> tuple[str, str]:
+def _credencial_que_responde(ip: str, user: str, password: str, connector_id: str = "",
+                             pedir_se_recusada: bool = False) -> tuple[str, str]:
     """resolve_camera_password, mas conferindo se a senha salva ainda vale.
 
     Senha por MAC tem prioridade sobre a do site e e gravada na ativacao da
     camera -- quando o instalador troca a senha depois, aquele registro fica
     velho e manda em tudo. Aqui a senha do site assume se a salva for
     recusada, e a nova e gravada para o MAC.
+
+    pedir_se_recusada (ao vivo): a camera RECUSOU a salva e nao ha outra que
+    sirva -> devolve senha vazia, e a tela pede a senha ao operador (que fica
+    gravada para esta camera). Antes seguia com a recusada e o video falhava
+    sem pedir nada.
     """
     user, senha = resolve_camera_password(ip, user, password, connector_id)
     if password or not senha:
@@ -2623,11 +2633,12 @@ def _credencial_que_responde(ip: str, user: str, password: str, connector_id: st
     if _senha_aceita(alvo_rede, user, senha):
         return user, senha
 
+    recusada = (user, "") if pedir_se_recusada else (user, senha)
     linha = _camera_row_for_ip(ip, connector_id) or {}
     site = _as_str(linha.get("site") or linha.get("site_name") or linha.get("local"))
     mac = _as_str(linha.get("mac"))
     if not site:
-        return user, senha
+        return recusada
 
     from app.services.camera_credentials import resolve_camera_credential, save_camera_credential
 
@@ -2637,10 +2648,10 @@ def _credencial_que_responde(ip: str, user: str, password: str, connector_id: st
     user_site = _as_str(do_site.get("username")) or user
     senha_site = do_site.get("password") or ""
     if not senha_site or senha_site == senha:
-        return user, senha
+        return recusada
 
     if not _senha_aceita(alvo_rede, user_site, senha_site):
-        return user, senha
+        return recusada
 
     if mac:
         # Grava para o MAC: assim reboot, PTZ e raio-x desta camera tambem
@@ -2670,6 +2681,7 @@ def maintenance_stream_register(ip: str, payload: Dict[str, Any]):
         _as_str(payload.get("user")),
         _as_str(payload.get("password")),
         _as_str(payload.get("remote_connector_id")),
+        pedir_se_recusada=True,
     )
     if not password:
         return {"ok": False, "error": "credential_required"}
