@@ -8,7 +8,7 @@
 // um por caixa, nao vai para o inventario de cameras.
 // O painel lateral nao fecha ao clicar fora: so X, Cancelar ou Esc.
 
-const _cx = { painel: null, desenho: null };
+const _cx = { painel: null, desenho: null, edicao: null };
 
 const CX_ITENS = {
   switch_poe: 'Switch PoE', switch: 'Switch', onu: 'ONU', fonte: 'Fonte', nobreak: 'Nobreak',
@@ -118,7 +118,7 @@ function cxMarcador(id, def, f, lat, lng) {
   });
   const marker = L.marker([lat, lng], { icon, zIndexOffset: 500 });
   marker.on('click', () => {
-    if (_cx.desenho) return; // desenhando: clicar na caixa nao abre outra coisa
+    if (_cx.desenho || _cx.edicao) return; // desenhando/editando: clicar na caixa nao abre outra coisa
     cxAbrirPainel(id, def, nome, [lat, lng]);
   });
   return marker;
@@ -134,7 +134,7 @@ function cxDesenharCabos(id, def, group) {
     });
     const caixa = def.caixas?.[cabo.caixa];
     linha.bindTooltip(`${esc(t.nome)} · ${cxFmtMetros(cabo.metros || 0)}${cabo.porta ? ` · porta ${cabo.porta}` : ''} → ${cabo.cto ? 'CTO ' : ''}${esc(cxDestinoDoCabo(cabo))}${fora ? ' · câmera fora do ar' : ''}`, { sticky: true });
-    linha.on('click', () => { if (!_cx.desenho && caixa) cxAbrirPainel(id, def, caixa.ponto, cxPosDaCaixa(def, caixa)); });
+    linha.on('click', () => { if (!_cx.desenho && !_cx.edicao && caixa) cxAbrirPainel(id, def, caixa.ponto, cxPosDaCaixa(def, caixa)); });
     group.addLayer(linha);
   });
 }
@@ -174,7 +174,8 @@ function cxFecharPainel() {
 function cxEsc(e) {
   if (e.key !== 'Escape') return;
   e.stopPropagation();
-  if (_cx.desenho) cxCancelarDesenho(); else cxFecharPainel();
+  if (_cx.edicao) cxFimEdicao(true);
+  else if (_cx.desenho) cxCancelarDesenho(); else cxFecharPainel();
 }
 
 function cxPainelBase(titulo, corpo, rodape) {
@@ -233,6 +234,7 @@ function cxAbrirPainel(id, def, nomePonto, latlng) {
       <i data-lucide="git-commit-horizontal"></i>
       <div><strong>ONU → CTO ${esc(cxDestinoDoCabo(caboCto))}</strong>
         <small>${esc((CX_CABOS[caboCto.tipo] || CX_CABOS.outro).nome)} · ${cxFmtMetros(caboCto.metros || 0)} (${cxFmtMetros(caboCto.metros_com_folga || caboCto.metros || 0)} com folga)</small></div>
+      <button type="button" class="ghost-action" data-cx="editar-cabo" data-id="${esc(caboCto.id)}" aria-label="Editar traçado" title="Editar traçado"><i data-lucide="pencil"></i></button>
       <button type="button" class="ghost-action" data-cx="excluir-cabo" data-id="${esc(caboCto.id)}" aria-label="Excluir cabo da CTO"><i data-lucide="trash-2"></i></button></div>`
     : temOnu ? `<div class="cx-cto cx-cto-vazio"><i data-lucide="git-commit-horizontal"></i>
       <div><strong>ONU sem CTO</strong><small>Se a ONU desta caixa vem de uma CTO, ligue com o cabo drop.</small></div>
@@ -246,7 +248,7 @@ function cxAbrirPainel(id, def, nomePonto, latlng) {
       <td><strong>${esc(cam?.titulo || c.camera?.ponto || c.camera?.ip || '')}</strong>${cam?.ip ? ` <small>${esc(cam.ip)}</small>` : ''}${st === 'off' ? ' <small class="cx-off">fora do ar</small>' : ''}</td>
       <td><input class="cx-vlan" data-cx-vlan="${esc(c.id)}" type="number" min="1" max="4094" value="${esc(c.vlan || '')}" placeholder="${esc(caixa?.switch_vlan || 'VLAN')}" title="VLAN desta porta (vazio = a da caixa)" aria-label="VLAN da porta"></td>
       <td>${esc(t.nome)} ${cxFmtMetros(c.metros || 0)}${longe ? ` <small class="cx-off" title="Acima de ${t.limite} m o PoE/UTP perde sinal">acima de ${t.limite} m</small>` : ''}</td>
-      <td><button type="button" class="ghost-action" data-cx="excluir-cabo" data-id="${esc(c.id)}" aria-label="Excluir cabo"><i data-lucide="trash-2"></i></button></td></tr>`;
+      <td class="cx-acoes"><button type="button" class="ghost-action" data-cx="editar-cabo" data-id="${esc(c.id)}" aria-label="Editar traçado" title="Editar traçado"><i data-lucide="pencil"></i></button><button type="button" class="ghost-action" data-cx="excluir-cabo" data-id="${esc(c.id)}" aria-label="Excluir cabo" title="Excluir cabo"><i data-lucide="trash-2"></i></button></td></tr>`;
   }).join('');
   const corpo = `
     ${caixa ? '' : '<div class="so-note"><i data-lucide="info"></i><span>Este ponto vira uma caixa de CFTV. Diga o que tem dentro e quantas portas tem o switch.</span></div>'}
@@ -373,15 +375,124 @@ async function cxAcao(btn) {
   }
   if (acao === 'ligar') return cxIniciarDesenho();
   if (acao === 'ligar-cto') return cxIniciarDesenho('cto');
+  if (acao === 'editar-cabo') return cxEditarTracado(btn.dataset.id);
   if (acao === 'salvar-cabo') return cxSalvarCabo();
   if (acao === 'cancelar-cabo') { cxCancelarDesenho(); return; }
+}
+
+// ------------------------------------------------------------------ editar o traçado de um cabo
+// Pontas presas (caixa e camera/CTO). Arrastar uma curva move; arrastar a
+// bolinha do meio de um trecho cria curva; dois cliques numa curva apaga.
+
+function cxAlca(latlng, meio) {
+  return L.marker(latlng, {
+    draggable: true, zIndexOffset: 1000, bubblingMouseEvents: false,
+    icon: L.divIcon({ className: '', html: `<span class="cx-alca${meio ? ' cx-alca-meio' : ''}"></span>`, iconSize: [16, 16], iconAnchor: [8, 8] }),
+  });
+}
+
+function cxEditarTracado(caboId) {
+  const p = _cx.painel;
+  const cabo = p?.def?.cabos?.[caboId];
+  if (!cabo || !Array.isArray(cabo.caminho) || cabo.caminho.length < 2) return;
+  if (typeof mapEditIsActive === 'function' && Object.keys(_mapLayerGroups || {}).some(k => mapEditIsActive(k))) {
+    showToast('Saia do modo de edição de pontos antes de editar um cabo.', true);
+    return;
+  }
+  p.el.hidden = true;
+  const t = CX_CABOS[cabo.tipo] || CX_CABOS.outro;
+  const ed = {
+    p, cabo, pontos: cabo.caminho.map(x => [+x[0], +x[1]]),
+    linha: L.polyline(cabo.caminho, { color: '#f59f00', weight: 5, opacity: 0.95 }).addTo(_map),
+    alcas: L.layerGroup().addTo(_map),
+  };
+  const barra = document.createElement('div');
+  barra.className = 'cx-barra';
+  barra.innerHTML = `<span class="cx-barra-dot"></span><strong>Editando ${esc(t.nome)} até ${cabo.cto ? 'CTO ' : ''}${esc(cxDestinoDoCabo(cabo))}</strong>
+    <span class="cx-barra-txt">Arraste as curvas. A bolinha do meio cria curva nova. Dois cliques numa curva apaga.</span>
+    <span class="cx-barra-m" id="cxBarraM">${cxFmtMetros(cxMetros(ed.pontos))}</span>
+    <button type="button" data-cxb="cancelar">Cancelar</button><button type="button" data-cxb="salvar" class="cx-barra-ok">Salvar traçado</button>`;
+  cxAnexar(barra);
+  ed.barra = barra;
+  barra.addEventListener('click', ev => {
+    const b = ev.target.closest('[data-cxb]');
+    if (b?.dataset.cxb === 'cancelar') cxFimEdicao(true);
+    if (b?.dataset.cxb === 'salvar') cxSalvarTracado().catch(e => showToast(e?.message || 'Não foi possível salvar.', true));
+  });
+  ed.zoomDuplo = _map.doubleClickZoom.enabled();
+  _map.doubleClickZoom.disable();
+  _cx.edicao = ed;
+  cxDesenharAlcas();
+}
+
+function cxAtualizarEdicao() {
+  const ed = _cx.edicao;
+  ed.linha.setLatLngs(ed.pontos);
+  const m = document.getElementById('cxBarraM');
+  if (m) m.textContent = cxFmtMetros(cxMetros(ed.pontos));
+}
+
+function cxDesenharAlcas() {
+  const ed = _cx.edicao;
+  if (!ed) return;
+  ed.alcas.clearLayers();
+  const ult = ed.pontos.length - 1;
+  // curvas (as pontas ficam presas na caixa e na camera/CTO)
+  for (let i = 1; i < ult; i++) {
+    const mk = cxAlca(ed.pontos[i], false);
+    mk.on('drag', e => { const ll = e.target.getLatLng(); ed.pontos[i] = [ll.lat, ll.lng]; cxAtualizarEdicao(); });
+    mk.on('dragend', cxDesenharAlcas);
+    mk.on('dblclick', e => {
+      L.DomEvent.stop(e);
+      ed.pontos.splice(i, 1);
+      cxAtualizarEdicao();
+      cxDesenharAlcas();
+    });
+    mk.bindTooltip('Arraste para mover · dois cliques apaga', { direction: 'top', offset: [0, -8] });
+    ed.alcas.addLayer(mk);
+  }
+  // meio de cada trecho: arrastar cria uma curva ali
+  for (let i = 0; i < ult; i++) {
+    const a = ed.pontos[i], b = ed.pontos[i + 1];
+    const mk = cxAlca([(a[0] + b[0]) / 2, (a[1] + b[1]) / 2], true);
+    let novo = -1;
+    mk.on('dragstart', () => { novo = i + 1; ed.pontos.splice(novo, 0, [a[0], a[1]]); });
+    mk.on('drag', e => { const ll = e.target.getLatLng(); if (novo > 0) { ed.pontos[novo] = [ll.lat, ll.lng]; cxAtualizarEdicao(); } });
+    mk.on('dragend', cxDesenharAlcas);
+    mk.bindTooltip('Arraste para criar uma curva', { direction: 'top', offset: [0, -8] });
+    ed.alcas.addLayer(mk);
+  }
+}
+
+function cxFimEdicao(reabrir) {
+  const ed = _cx.edicao;
+  if (!ed) return;
+  ed.linha.remove();
+  ed.alcas.remove();
+  ed.barra.remove();
+  if (ed.zoomDuplo) _map.doubleClickZoom.enable();
+  _cx.edicao = null;
+  if (reabrir && ed.p?.el) ed.p.el.hidden = false;
+}
+
+async function cxSalvarTracado() {
+  const ed = _cx.edicao;
+  if (!ed) return;
+  const c = ed.cabo, p = ed.p;
+  const base = { id: c.id, caixa: c.caixa, caminho: ed.pontos, tipo: c.tipo, folga_pct: c.folga_pct };
+  await cxGravar(p.def, { cabo: c.cto ? { ...base, cto: c.cto } : { ...base, camera: c.camera, porta: c.porta, vlan: c.vlan || '' } });
+  cxFimEdicao(false);
+  const novo = p.def.cabos?.[c.id];
+  showToast(`Traçado salvo: ${cxFmtMetros(novo?.metros || cxMetros(ed.pontos))}.`);
+  cxRedesenhar(p.id, p.def);
+  cxAbrirPainel(p.id, p.def, p.nomePonto, p.latlng);
 }
 
 // ------------------------------------------------------------------ desenhar o cabo
 
 function cxIniciarDesenho(alvo = 'camera') {
   const p = _cx.painel;
-  if (!p?.caixa || !p.latlng) return;
+  if (!p?.caixa || !p.latlng || _cx.edicao) return;
   if (typeof mapEditIsActive === 'function' && Object.keys(_mapLayerGroups || {}).some(k => mapEditIsActive(k))) {
     showToast('Saia do modo de edição de pontos antes de ligar um cabo.', true);
     return;

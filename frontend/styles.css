@@ -12932,3 +12932,8 @@ table.recorder-tabela tbody tr:hover { background: var(--surface-soft); }
 .cx-cto-vazio > svg { color: var(--muted); }
 .cx-vlan { width: 62px; height: 28px; padding: 0 6px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text); font: inherit; font-size: 12px; text-align: center; outline: none; }
 .cx-vlan:focus { border-color: var(--primary); }
+/* editar traçado do cabo */
+.cx-alca { display: block; width: 14px; height: 14px; border-radius: 50%; background: #fff; border: 3px solid #f59f00; box-shadow: 0 1px 4px rgba(0,0,0,.35); cursor: grab; }
+.cx-alca-meio { width: 10px; height: 10px; margin: 2px; border-width: 2px; opacity: .75; }
+.cx-barra button.cx-barra-ok { background: var(--primary); color: #fff; border-color: var(--primary); }
+.cx-acoes { white-space: nowrap; text-align: right; }
