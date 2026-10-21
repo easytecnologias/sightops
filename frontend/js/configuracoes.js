@@ -19,6 +19,9 @@ const AUDIT_ACOES = {
   'access.user_set': 'Mudou o acesso de um usuário',
   'tenant.update': 'Alterou dados do cliente',
   'tenant.set_modules': 'Alterou módulos do cliente',
+  'user.rename': 'Trocou o login de um usuário',
+  'licensing.tenant_plan': 'Alterou o plano do cliente',
+  'exclusao_autorizada': 'Autorizou uma exclusão (senha do administrador)',
 };
 const ALARME_TIPOS = {
   camera: 'Câmeras', nvr: 'Gravadores NVR', dvr: 'Gravadores DVR', onu: 'ONUs', olt: 'OLTs',
@@ -30,7 +33,7 @@ const ALARME_ICONES = {
   access_point: 'router', access_device: 'scan-face', connector: 'plug', windows: 'monitor', whatsapp: 'message-circle',
 };
 
-let _cfgAudit = [];
+let _cfgAudit = []; // ultimos eventos, para o cartao "mudancas recentes" da visao geral
 let _cfgTelegram = null; // configuracao do Telegram como esta salva (nao como esta na tela)
 
 function cfgQuando(iso) {
@@ -105,7 +108,7 @@ async function renderSettingsConsole(currentUser, userRows, telegram) {
   renderAlarmProfiles(profiles?.profiles || [], health);
   renderNotifChannels(telegram, health);
   renderIntegrationCards(health, telegram);
-  renderSettingsAudit(userRows);
+  if (admin) renderSettingsAudit(userRows);
   const alarmW = document.getElementById('alarmWarnRx');
   const alarmC = document.getElementById('alarmCriticalRx');
   if (alarmW) alarmW.value = telegram?.warn_rx ?? -27;
@@ -208,11 +211,11 @@ function renderSettingsRecent(userRows, admin) {
   if (!box) return;
   if (panel) panel.hidden = !admin;
   const nomes = Object.fromEntries(userRows.map(u => [Number(u.id), u.username]));
-  const mudancas = _cfgAudit.filter(e => !['auth.login', 'auth.logout'].includes(e.action)).slice(0, 5);
+  const mudancas = _cfgAudit.filter(e => !['auth.login', 'auth.logout', 'acao.negada'].includes(e.action)).slice(0, 5);
   box.innerHTML = mudancas.length ? mudancas.map(e => {
     const quem = nomes[Number(e.user_id)] || 'Easy (suporte)';
     return `<div><span class="avatar">${esc(String(quem).slice(0, 1).toUpperCase())}</span>
-      <span><strong>${esc(quem)}</strong> · ${esc(AUDIT_ACOES[e.action] || e.action)}${e.resource_id ? ` <span class="text-muted">${esc(e.resource_id)}</span>` : ''}</span>
+      <span><strong>${esc(quem)}</strong> · ${esc(histOque(e, histDetalhe(e)))}${e.resource_id ? ` <span class="text-muted">${esc(e.resource_id)}</span>` : ''}</span>
       <time>${esc(cfgMinutos(e.created_at))}</time></div>`;
   }).join('') : '<p class="text-muted" style="margin:8px 0">Nenhuma mudança registrada ainda.</p>';
 }
@@ -370,20 +373,128 @@ function renderIntegrationCards(health, telegram) {
   ].join('');
 }
 
-function renderSettingsAudit(userRows) {
-  const body = document.getElementById('settingsAuditBody');
-  if (!body) return;
-  const nomes = Object.fromEntries(userRows.map(u => [Number(u.id), u.username]));
-  setText('settingsAuditSummary', `${_cfgAudit.length} evento${_cfgAudit.length === 1 ? '' : 's'} recente${_cfgAudit.length === 1 ? '' : 's'} deste cliente.`);
-  body.innerHTML = _cfgAudit.length ? _cfgAudit.map(e => {
-    const quem = nomes[Number(e.user_id)] || 'Easy (suporte)';
-    return `<tr>
-      <td class="settings-cell-date"><span class="text-muted">${esc(cfgQuando(e.created_at))}</span></td>
-      <td class="settings-cell-truncate" title="${esc(quem)}">${esc(quem)}</td>
-      <td class="settings-cell-truncate" title="${esc(e.action)}">${esc(AUDIT_ACOES[e.action] || e.action)}</td>
-      <td class="settings-cell-truncate" title="${esc(`${e.resource_id || ''} ${e.detail_json || ''}`)}">${esc(e.action.startsWith('auth.log') ? '' : (e.resource_id || ''))} <span class="text-muted">${esc(e.detail_json && e.detail_json !== '{}' ? e.detail_json : '')}</span></td></tr>`;
-  }).join('') : '<tr class="empty-row"><td colspan="4">Nenhum evento registrado.</td></tr>';
+// --------------------------------------------------------------- Historico
+// Tudo que a equipe mudou (rota /api/auth/historico): logins, usuarios e cada
+// acao nos equipamentos, com filtro e "carregar mais" (pagina por id).
+const _hist = { linhas: [], proximo: null, nomes: {}, carregando: false, pedido: 0 };
+
+function histFiltros() {
+  const v = id => document.getElementById(id)?.value || '';
+  return { usuario: v('histUsuario'), tipo: v('histTipo'), de: v('histDe'), ate: v('histAte'), q: v('histBusca').trim() };
 }
+
+function histDetalhe(e) {
+  try { return e.detail_json ? JSON.parse(e.detail_json) : {}; } catch { return {}; }
+}
+
+function histQuem(e) {
+  return e.username || _hist.nomes[Number(e.user_id)] || 'Easy (suporte)';
+}
+
+function histOque(e, d) {
+  const acao = String(e.action || '');
+  return acao.startsWith('acao') ? (d.r || acao) : (AUDIT_ACOES[acao] || acao);
+}
+
+function histLinha(e) {
+  const d = histDetalhe(e);
+  const acao = String(e.action || '');
+  const ehAcao = acao.startsWith('acao');
+  const oque = histOque(e, d);
+  let alvo = e.resource_id || '';
+  if (acao.startsWith('auth.log')) alvo = '';
+  if (acao === 'exclusao_autorizada') alvo = `${d.operador || ''} → ${d.caminho || alvo}`;
+  let res = '<span class="so-hist-res ok">ok</span>';
+  if (acao === 'acao.negada') res = '<span class="so-hist-res negada">barrada</span>';
+  else if (ehAcao && d.ok === false) res = `<span class="so-hist-res falha" title="código ${esc(String(d.s || ''))}">falhou</span>`;
+  const extra = [d.autorizado_por ? `autorizado por ${d.autorizado_por}` : '', d.suporte ? 'suporte Easy' : '', d.ip ? `IP ${d.ip}` : '']
+    .filter(Boolean).join(' · ');
+  return `<tr>
+    <td class="settings-cell-date"><span class="text-muted">${esc(cfgQuando(e.created_at))}</span></td>
+    <td class="settings-cell-truncate" title="${esc(e.full_name || histQuem(e))}">${esc(histQuem(e))}</td>
+    <td class="settings-cell-truncate ${acao === 'acao.exclusao' ? 'so-hist-exc' : ''}" title="${esc(oque)}">${esc(oque)}</td>
+    <td class="settings-cell-truncate" title="${esc(alvo)}">${esc(alvo)}${extra ? `<span class="so-hist-aut">${esc(extra)}</span>` : ''}</td>
+    <td>${res}</td></tr>`;
+}
+
+async function histCarregar(continuar = false) {
+  const body = document.getElementById('settingsAuditBody');
+  const mais = document.getElementById('histMais');
+  if (!body) return;
+  if (continuar && _hist.carregando) return;
+  // Filtro novo enquanto o anterior carrega: vale so a resposta do ultimo pedido.
+  const pedido = ++_hist.pedido;
+  _hist.carregando = true;
+  try {
+    const f = histFiltros();
+    const qs = new URLSearchParams({ limite: '100' });
+    Object.entries(f).forEach(([k, v]) => { if (v) qs.set(k, v); });
+    if (continuar && _hist.proximo) qs.set('antes', String(_hist.proximo));
+    if (!continuar) body.innerHTML = '<tr class="empty-row"><td colspan="5">Carregando…</td></tr>';
+    const res = await api(`/api/auth/historico?${qs}`);
+    const data = await res?.json().catch(() => ({}));
+    if (pedido !== _hist.pedido) return;
+    if (!res?.ok) throw new Error(data?.detail || 'falha ao consultar');
+    const novos = data?.eventos || [];
+    _hist.linhas = continuar ? _hist.linhas.concat(novos) : novos;
+    _hist.proximo = data?.mais ? data.proximo : null;
+    body.innerHTML = _hist.linhas.length ? _hist.linhas.map(histLinha).join('')
+      : '<tr class="empty-row"><td colspan="5">Nada encontrado com esses filtros.</td></tr>';
+    if (mais) mais.hidden = !_hist.proximo;
+    const filtrado = Object.values(f).some(Boolean);
+    const n = _hist.linhas.length;
+    setText('settingsAuditSummary', `${n}${_hist.proximo ? '+' : ''} registro${n === 1 ? '' : 's'}${filtrado ? ' com esses filtros' : ''}. Tudo que a equipe mudou no sistema: quem, quando, o quê e se deu certo.`);
+  } catch (err) {
+    if (pedido === _hist.pedido) body.innerHTML = `<tr class="empty-row"><td colspan="5">Não foi possível carregar o histórico: ${esc(err?.message || err)}</td></tr>`;
+  } finally {
+    if (pedido === _hist.pedido) _hist.carregando = false;
+  }
+}
+
+function histCsv() {
+  const cel = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
+  const linhas = [['Quando', 'Quem', 'O quê', 'Em quê', 'Resultado', 'Autorizado por', 'IP'].map(cel).join(';')];
+  _hist.linhas.forEach(e => {
+    const d = histDetalhe(e);
+    const acao = String(e.action || '');
+    const res = acao === 'acao.negada' ? 'barrada' : (d.ok === false ? 'falhou' : 'ok');
+    linhas.push([cfgQuando(e.created_at), histQuem(e), histOque(e, d), e.resource_id || '', res,
+      d.autorizado_por || '', d.ip || ''].map(cel).join(';'));
+  });
+  const blob = new Blob(['﻿' + linhas.join('\r\n')], { type: 'text/csv;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `historico-${new Date().toISOString().slice(0, 10)}.csv`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+}
+
+function renderSettingsAudit(userRows) {
+  _hist.nomes = Object.fromEntries((userRows || []).map(u => [Number(u.id), u.username]));
+  const sel = document.getElementById('histUsuario');
+  if (sel) {
+    const atual = sel.value;
+    sel.innerHTML = '<option value="">Todos</option>' + (userRows || [])
+      .slice().sort((a, b) => String(a.username).localeCompare(String(b.username)))
+      .map(u => `<option value="${Number(u.id)}">${esc(u.full_name ? `${u.full_name} (${u.username})` : u.username)}</option>`).join('');
+    sel.value = atual;
+  }
+  histCarregar(false);
+}
+
+let _histTimer = null;
+(function bindHistorico() {
+  const form = document.getElementById('histFiltros');
+  if (!form) return;
+  form.addEventListener('submit', ev => { ev.preventDefault(); histCarregar(false); });
+  form.addEventListener('change', ev => { if (ev.target.id !== 'histBusca') histCarregar(false); });
+  document.getElementById('histBusca')?.addEventListener('input', () => {
+    clearTimeout(_histTimer);
+    _histTimer = setTimeout(() => histCarregar(false), 400);
+  });
+  document.getElementById('histMais')?.addEventListener('click', () => histCarregar(true));
+  document.getElementById('histExportar')?.addEventListener('click', histCsv);
+})();
 
 (function bindConfiguracoes() {
   document.getElementById('btnSaveAlarmProfiles')?.addEventListener('click', saveAlarmProfiles);

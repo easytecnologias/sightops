@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any, Dict, Iterable
 
 from fastapi import Request, Response
@@ -8,6 +9,7 @@ from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.core import permissions
+from app.services import historico_service
 from app.core.settings import AppSettings
 from app.core.tenant_context import (
     reset_current_tenant_slug,
@@ -67,6 +69,8 @@ class ApiAuthMiddleware(BaseHTTPMiddleware):
             # Administrador autoriza, com a senha dele, UMA exclusao pedida por
             # um operador (o handler confere usuario, senha e papel).
             (("POST",), "/api/auth/autorizar-exclusao", "operator"),
+            # Historico de acoes do cliente: so administrador.
+            (("GET",), "/api/auth/historico", "admin"),
             # Licencas: o handler ainda exige is_platform_admin; o perfil aqui so
             # tira a rota do 403 padrao de escrita.
             (("GET",), "/api/auth/licensing", "admin"),
@@ -247,6 +251,33 @@ class ApiAuthMiddleware(BaseHTTPMiddleware):
             return True
         return False
 
+    @staticmethod
+    def _modelo_da_rota(request: Request, path: str) -> str:
+        """Caminho com {parametros} (o que da nome a acao no historico)."""
+        rota = request.scope.get("route")
+        if getattr(rota, "path", None):
+            return str(rota.path)
+        try:
+            from starlette.routing import Match
+
+            for r in request.scope["app"].router.routes:
+                if r.matches(request.scope)[0] == Match.FULL:
+                    return str(getattr(r, "path", "") or path)
+        except Exception:
+            pass
+        return path
+
+    def _historico(self, request: Request, user: Dict[str, Any], method: str, path: str, status: int,
+                   corpo: Any, duracao_ms: int, autorizado_por: str = "") -> None:
+        if not historico_service.registravel(method, path):
+            return
+        ip = (request.headers.get("cf-connecting-ip") or request.headers.get("x-real-ip")
+              or (request.client.host if request.client else "") or "")
+        historico_service.registrar(
+            user, method, path, self._modelo_da_rota(request, path), status,
+            path_params=dict(request.scope.get("path_params") or {}), corpo=corpo or b"", ip=ip,
+            autorizado_por=autorizado_por, duracao_ms=duracao_ms)
+
     def _operaria(self, user: Dict[str, Any], path: str, method: str) -> bool:
         """A autorizacao do administrador so tira a trava de EXCLUSAO: quem a
         recebe precisa operar este modulo (viewer, ou modulo restrito no
@@ -378,6 +409,7 @@ class ApiAuthMiddleware(BaseHTTPMiddleware):
                 # So oferece a senha do administrador a quem ela adiantaria.
                 if self.autorizavel(path, method) and self._operaria(user, path, method):
                     headers[permissions.CABECALHO_EXIGE_ADMIN] = "1"
+            self._historico(request, user, method, path, 403, None, 0)
             try:
                 return JSONResponse(status_code=403, content={"detail": motivo}, headers=headers)
             finally:
@@ -392,9 +424,23 @@ class ApiAuthMiddleware(BaseHTTPMiddleware):
         ctx_token = set_current_tenant_slug(request.state.current_tenant_slug)
         user_token = set_current_user(user)
         aut_token = permissions.definir_autorizacao_da_requisicao(autorizacao)
+        # Historico: le o corpo JSON ANTES (o handler o consome depois; o
+        # Starlette guarda a copia) para tirar o alvo da acao (IP, canal...).
+        corpo = b""
+        if historico_service.registravel(method, path) and "json" in str(request.headers.get("content-type") or ""):
+            try:
+                corpo = await request.body()
+            except Exception:
+                corpo = b""
+        inicio = time.monotonic()
+        status = 500
         try:
-            return await call_next(request)
+            response = await call_next(request)
+            status = response.status_code
+            return response
         finally:
+            self._historico(request, user, method, path, status, corpo, int((time.monotonic() - inicio) * 1000),
+                            (autorizacao or {}).get("admin", ""))
             permissions.limpar_autorizacao_da_requisicao(aut_token)
             reset_current_user(user_token)
             reset_current_tenant_slug(ctx_token)

@@ -765,6 +765,22 @@ def api_auth_update_user(user_id: int, req: UserUpdateRequest, user: Dict[str, A
     return {"ok": True, "user": updated}
 
 
+@router.get("/historico")
+def api_auth_historico(usuario: int = 0, de: str = "", ate: str = "", tipo: str = "", q: str = "",
+                       antes: int = 0, limite: int = 100, user: Dict[str, Any] = Depends(current_user)) -> Dict[str, Any]:
+    """Historico de acoes do cliente atual (logins, usuarios e tudo que a equipe
+    mudou nos equipamentos). So administrador; cada cliente ve o dele."""
+    if str(user.get("role") or "").lower() not in ("admin", "owner"):
+        raise HTTPException(status_code=403, detail="permissao insuficiente")
+    from app.services import historico_service
+
+    try:
+        return historico_service.consultar(user, usuario_id=usuario or None, de=de, ate=ate, tipo=tipo, q=q,
+                                           antes_id=antes or None, limite=limite)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 @router.get("/audit")
 def api_auth_audit(limit: int = 50, user: Dict[str, Any] = Depends(current_user)) -> Dict[str, Any]:
     return {"ok": True, "events": recent_audit_events(user, limit=limit)}

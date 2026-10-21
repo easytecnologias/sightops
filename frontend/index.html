@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=1792600123">
+  <link rel="stylesheet" href="styles.css?v=1792600130">
 </head>
 <body>
 
@@ -3527,7 +3527,7 @@
             <button type="button" class="settings-nav-item" data-settings-tab="alarms"><i data-lucide="siren"></i><span><strong>Alarmes</strong><small>Quando vira alerta</small></span><i data-lucide="chevron-right"></i></button>
             <button type="button" class="settings-nav-item" data-settings-tab="notifications"><i data-lucide="bell-ring"></i><span><strong>Notificações</strong><small id="settingsNavNotifSub">Canais de aviso</small></span><i data-lucide="chevron-right"></i></button>
             <button type="button" class="settings-nav-item" data-settings-tab="integrations"><i data-lucide="plug"></i><span><strong>Integrações</strong><small>Zabbix, conectores, WhatsApp</small></span><i data-lucide="chevron-right"></i></button>
-            <button type="button" class="settings-nav-item" data-settings-tab="audit" id="settingsNavAudit"><i data-lucide="history"></i><span><strong>Registro de auditoria</strong><small>Quem mudou o quê</small></span><i data-lucide="chevron-right"></i></button>
+            <button type="button" class="settings-nav-item" data-settings-tab="audit" id="settingsNavAudit"><i data-lucide="history"></i><span><strong>Histórico</strong><small>Tudo que a equipe fez</small></span><i data-lucide="chevron-right"></i></button>
           </aside>
           <div class="settings-saas-grid">
           <div class="panel settings-wide-panel settings-area so-sub active" data-settings-panel="overview">
@@ -3631,14 +3631,36 @@
             <div class="so-section"><div class="so-note"><i data-lucide="info"></i><span>Zabbix e o servidor de WhatsApp são da plataforma: aqui aparece se estão funcionando para você, e a Easy cuida da configuração. O Telegram é configurado em Notificações.</span></div></div>
           </div>
           <div class="panel settings-wide-panel settings-area" data-settings-panel="audit">
-            <div class="panel-header"><div><h2>Registro de auditoria</h2><p id="settingsAuditSummary">Quem mudou o quê, e quando.</p></div></div>
+            <div class="panel-header"><div><h2>Histórico</h2><p id="settingsAuditSummary">Tudo que a equipe mudou no sistema: quem, quando, o quê e se deu certo.</p></div>
+              <div class="so-hist-acoes"><button type="button" class="secondary-action" id="histExportar"><i data-lucide="download"></i> Baixar CSV</button></div></div>
+            <form class="so-hist-filtros" id="histFiltros" autocomplete="off">
+              <label>Usuário<select id="histUsuario"><option value="">Todos</option></select></label>
+              <label>Tipo<select id="histTipo">
+                <option value="">Tudo</option>
+                <option value="exclusoes">Exclusões</option>
+                <option value="negadas">Tentativas barradas</option>
+                <option value="acesso">Entradas no sistema</option>
+                <option value="usuarios">Usuários e acessos</option>
+                <optgroup label="Por módulo">
+                  <option value="cameras">Câmeras</option><option value="gravadores">Gravadores</option>
+                  <option value="optica">Rede óptica (OLT, ONU)</option><option value="rede">Switches e rede</option>
+                  <option value="conectores">Conectores</option><option value="mapa">Mapa e projetos</option>
+                  <option value="monitoramento">Monitoramento</option><option value="acesso">Controle de acesso</option>
+                  <option value="alerta">Alerta de pânico</option><option value="investigacao">Investigação</option>
+                  <option value="computadores">Computadores</option><option value="implantacao">Implantação</option>
+                </optgroup></select></label>
+              <label>De<input type="date" id="histDe"></label>
+              <label>Até<input type="date" id="histAte"></label>
+              <label class="so-hist-busca">Buscar<input type="search" id="histBusca" placeholder="IP, nome, serial…"></label>
+            </form>
             <div class="table-wrap settings-table-wrap">
-              <table class="data-table settings-table" style="min-width:720px">
-                <colgroup><col style="width:150px"><col style="width:20%"><col style="width:22%"><col></colgroup>
-                <thead><tr><th>Quando</th><th>Quem</th><th>O quê</th><th>Detalhe</th></tr></thead>
+              <table class="data-table settings-table" style="min-width:820px">
+                <colgroup><col style="width:140px"><col style="width:16%"><col style="width:26%"><col><col style="width:110px"></colgroup>
+                <thead><tr><th>Quando</th><th>Quem</th><th>O quê</th><th>Em quê</th><th>Resultado</th></tr></thead>
                 <tbody id="settingsAuditBody"></tbody>
               </table>
             </div>
+            <div class="so-hist-mais"><button type="button" class="secondary-action" id="histMais" hidden>Carregar mais</button></div>
           </div>
           <div class="panel settings-wide-panel settings-area so-sub" data-settings-panel="notifications">
             <div class="panel-header"><div><h2>Canais de aviso</h2><p>Por onde os avisos de queda e de sinal saem.</p></div></div>
@@ -7199,7 +7221,7 @@
        antes de bootstrap.js, que e quem liga os botoes no DOMContentLoaded. -->
   <script src="js/core.js?v=1792600128"></script>
   <script src="js/licencas.js?v=1792600103"></script>
-  <script src="js/configuracoes.js?v=1792600116"></script>
+  <script src="js/configuracoes.js?v=1792600129"></script>
   <script src="js/permissoes.js?v=1792600120"></script>
   <script src="js/equipe.js?v=1792600124"></script>
   <script src="js/dashboard.js?v=1792000238"></script>
