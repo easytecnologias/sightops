@@ -161,6 +161,8 @@ class ApiAuthMiddleware(BaseHTTPMiddleware):
             (("POST",), "/api/system/bootstrap", "admin"),
             (("DELETE", "PATCH"), "/api/auth/tenants/", "admin"),
             (("POST",), "/api/auth/storage/migrate", "admin"),
+            # Notificacoes por site (grupos do Telegram): so administrador.
+            (("GET", "POST", "PUT", "DELETE"), "/api/monitoring/notificacoes", "admin"),
             (("PUT",), "/api/monitoring/telegram", "admin"),
             (("PUT",), "/api/monitoring/profiles/", "admin"),
             (("POST",), "/api/monitoring/telegram/test", "admin"),

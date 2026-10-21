@@ -106,7 +106,11 @@ async function renderSettingsConsole(currentUser, userRows, telegram) {
   renderSettingsHealth(userRows, telegram, health, plan, admin);
   renderSettingsRecent(userRows, admin);
   renderAlarmProfiles(profiles?.profiles || [], health);
-  renderNotifChannels(telegram, health);
+  if (admin && typeof ntCarregar === 'function') ntCarregar();
+  else if (!admin) {
+    const nt = document.getElementById('ntConteudo');
+    if (nt) nt.innerHTML = '<div class="so-note"><i data-lucide="lock"></i><span>Só administradores configuram as notificações.</span></div>';
+  }
   renderIntegrationCards(health, telegram);
   if (admin) renderSettingsAudit(userRows);
   const alarmW = document.getElementById('alarmWarnRx');
@@ -273,55 +277,13 @@ async function saveOnuThresholds() {
   const crit = Number(document.getElementById('alarmCriticalRx')?.value);
   if (!Number.isFinite(warn) || !Number.isFinite(crit)) { showToast('Informe os dois limites em dBm.', true); return; }
   if (crit >= warn) { showToast('O crítico precisa ser menor (mais negativo) que o alerta.', true); return; }
-  // Mesmo PUT do Telegram. O resto vai como esta SALVO (nao como esta na tela),
-  // para nao gravar junto uma mudanca do formulario do Telegram que ninguem salvou.
-  // bot_token vazio = o backend mantem o atual.
   const t = _cfgTelegram || {};
-  const payload = {
-    bot_token: '',
-    chat_id: t.chat_id || '',
-    warn_rx: warn,
-    critical_rx: crit,
-    enabled: !!t.enabled,
-    notify_recovery: t.notify_recovery !== false,
-    ...(Array.isArray(t.types) && t.types.length ? { types: t.types } : {}),
-  };
   try {
-    const res = await api('/api/monitoring/telegram', { method: 'PUT', body: JSON.stringify(payload) });
+    const res = await api('/api/monitoring/notificacoes/sinal', { method: 'PUT', body: JSON.stringify({ warn_rx: warn, critical_rx: crit }) });
     await jsonOrReadableError(res, 'Não foi possível salvar os limites.');
     _cfgTelegram = { ...t, warn_rx: warn, critical_rx: crit };
-    document.getElementById('telegramWarnRx').value = warn;
-    document.getElementById('telegramCriticalRx').value = crit;
     showToast('Limites de sinal da ONU salvos.');
   } catch (e) { showToast(e?.message || 'Não foi possível salvar os limites.', true); }
-}
-
-function renderNotifChannels(telegram, health) {
-  const box = document.getElementById('notifChannelCards');
-  if (!box) return;
-  const tgOk = !!telegram?.configured;
-  const wa = health?.whatsapp || {};
-  const waTotal = Object.values(wa).reduce((a, b) => a + b, 0);
-  setText('settingsNavNotifSub', tgOk && telegram.enabled ? 'Telegram ativo' : 'Nenhum canal ligado');
-  box.innerHTML = soCard({
-    logo: '<i data-lucide="send"></i>', cor: 'b', title: 'Telegram',
-    badge: tgOk ? (telegram.enabled ? '<span class="badge badge-green so-dot">Ativo</span>' : '<span class="badge badge-amber so-dot">Configurado, desligado</span>') : '<span class="badge badge-gray so-dot">Não configurado</span>',
-    actions: `<button class="secondary-action" type="button" data-cfg-scroll="telegramChatId"><i data-lucide="pencil"></i> ${tgOk ? 'Editar' : 'Ligar'}</button>`,
-    rows: [
-      ['Grupo / chat', esc(telegram?.chat_id || '—')],
-      ['Avisa queda', tgOk && telegram.enabled ? 'sim' : 'não'],
-      ['Avisa quando volta', telegram?.notify_recovery ? 'sim' : 'não'],
-      ['Sinal da ONU', `alerta ${licNum(telegram?.warn_rx ?? -27)} · crítico ${licNum(telegram?.critical_rx ?? -29)} dBm`],
-    ],
-  }) + soCard({
-    logo: '<i data-lucide="message-circle"></i>', cor: 'g', title: 'WhatsApp',
-    badge: waTotal ? ((wa.up || 0) === waTotal ? '<span class="badge badge-green so-dot">Conectado</span>' : '<span class="badge badge-red so-dot">Com problema</span>') : '<span class="badge badge-gray so-dot">Não usado</span>',
-    actions: '<span class="so-tag">gerenciado pela Easy</span>',
-    rows: [
-      ['Canais', waTotal ? licNum(waTotal) : '—'],
-      ['Usado em', waTotal ? 'controle de acesso e alerta' : '—'],
-    ],
-  });
 }
 
 function renderIntegrationCards(health, telegram) {

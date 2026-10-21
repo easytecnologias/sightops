@@ -863,16 +863,8 @@ async function loadSettings() {
     }).join('') : '<tr class="empty-row"><td colspan="6">Nenhum usuario cadastrado.</td></tr>';
     lucide.createIcons();
   }
-  if (telegram) {
-    document.getElementById('telegramChatId').value = telegram.chat_id || '';
-    document.getElementById('telegramWarnRx').value = telegram.warn_rx ?? -27;
-    document.getElementById('telegramCriticalRx').value = telegram.critical_rx ?? -29;
-    document.getElementById('telegramEnabled').checked = !!telegram.enabled;
-    document.getElementById('telegramRecovery').checked = !!telegram.notify_recovery;
-    const status = document.getElementById('telegramConfigStatus');
-    status.textContent = telegram.configured ? (telegram.enabled ? 'Ativo' : 'Configurado') : 'Nao configurado';
-    status.className = `badge ${telegram.configured ? 'badge-green' : 'badge-gray'}`;
-  }
+  // O Telegram agora e configurado por grupo/site em Configuracoes >
+  // Notificacoes (notificacoes.js); `telegram` so alimenta os cartoes.
 
   if (typeof loadMyPlan === 'function') await loadMyPlan(currentUser);
   if (typeof renderSettingsConsole === 'function') await renderSettingsConsole(currentUser, userRows, telegram);

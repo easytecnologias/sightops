@@ -204,11 +204,13 @@ def test_erro_do_gateway_nao_guarda_resposta_crua():
 
 
 def test_telegram_avisa_alarme_de_ap(monkeypatch):
+    from app.services import notificacoes_service as N
     from app.services import telegram_notification_service as tg
     estado, enviados = {}, []
-    monkeypatch.setattr(tg, "load_app_settings", lambda: {"telegram_notifications": {
-        "enabled": True, "bot_token": "t", "chat_id": "c"}})
-    monkeypatch.setattr(tg, "_send", lambda cfg, msg: enviados.append(msg) or {"ok": True})
+    grupo = {"id": "g1", "nome": "NOC", "chat_id": "-1", "bot": "easy", "padrao": True, "ativo": True, "sites": [],
+             "eventos": ["alarme", "volta"], "tipos": list(N.TIPOS), "juntar": True, "silencio": {"ativo": False}}
+    monkeypatch.setattr(N, "config", lambda: {"grupos": [grupo], "sinal": {"warn_rx": -27, "critical_rx": -29}})
+    monkeypatch.setattr(N, "enviar_para_grupo", lambda cfg, g, msg, tela="monitoring", agrupados=1: enviados.append(msg) or {"ok": True, "erro": ""})
     monkeypatch.setattr(tg, "_state", lambda k, t: estado.get((k, t), {}))
     monkeypatch.setattr(tg, "_set_state", lambda k, t, a, v: estado.__setitem__((k, t), {"active": a, "last_value": v}))
     [ap] = ms._access_point_entities([_conector_publico()])
@@ -217,7 +219,7 @@ def test_telegram_avisa_alarme_de_ap(monkeypatch):
     monkeypatch.setattr(tg, "list_entities", lambda limit=2000: [linha])
     tg.process_monitoring_notifications()
     tg.process_monitoring_notifications()  # mesmo alarme: nao repete
-    assert len(enviados) == 1 and "ALARME NO EQUIPAMENTO" in enviados[0] and "Alimentacao insuficiente" in enviados[0]
+    assert len(enviados) == 1 and "Alarme no equipamento" in enviados[0] and "Alimentacao insuficiente" in enviados[0]
 
 
 def test_editar_conector_so_campos_de_cadastro_e_do_proprio_cliente(conectores, monkeypatch):

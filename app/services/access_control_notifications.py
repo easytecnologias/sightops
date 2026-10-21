@@ -250,28 +250,15 @@ def _access_whatsapp_cfg(settings: Dict[str, Any], site: Any = "") -> Dict[str, 
     return merged
 
 
-def _send_telegram(settings: Dict[str, Any], message: str) -> str:
-    cfg = settings.get("telegram_notifications") or {}
-    if not cfg.get("enabled"):
+def _send_telegram(settings: Dict[str, Any], message: str, site: Any = "") -> str:
+    """Pelos grupos do site que recebem "passagens no controle de acesso"
+    (Configuracoes > Notificacoes)."""
+    from app.services import notificacoes_service as N
+
+    res = N.enviar_evento("acesso", site, html.escape(message), tipo="access_device", tela="access-live")
+    if not res["destinos"]:
         return "telegram_skipped"
-    token = _text(cfg.get("bot_token"), 200)
-    chat_id = _text(cfg.get("chat_id"), 120)
-    if not token or not chat_id:
-        return "telegram_skipped"
-    response = requests.post(
-        f"https://api.telegram.org/bot{token}/sendMessage",
-        json={
-            "chat_id": chat_id,
-            "text": html.escape(message),
-            "parse_mode": "HTML",
-            "disable_web_page_preview": True,
-        },
-        timeout=20,
-    )
-    data = response.json() if response.content else {}
-    if response.ok and data.get("ok"):
-        return "telegram_sent"
-    return "telegram_failed"
+    return "telegram_sent" if res["ok"] else "telegram_failed"
 
 
 _GRAPH_VERSION = "v21.0"
@@ -975,7 +962,7 @@ def notify_access_event(event: Dict[str, Any]) -> Dict[str, Any]:
     statuses: list[str] = []
     for sender in (_send_telegram,):
         try:
-            statuses.append(sender(settings, message))
+            statuses.append(sender(settings, message, context.get("site")))
         except Exception as exc:
             logger.warning("Falha ao enviar Telegram de acesso: %s", exc)
             statuses.append("telegram_failed")

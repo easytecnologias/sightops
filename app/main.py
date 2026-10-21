@@ -573,6 +573,26 @@ async def _access_control_sync_loop() -> None:
         await asyncio.sleep(interval)
 
 
+async def _telegram_bot_loop() -> None:
+    """Robo do Telegram da Easy: le as mensagens (getUpdates, espera longa de
+    25 s) para o "/vincular CODIGO" que liga o grupo de um cliente. Sem robo
+    configurado no Painel do Dono, so confere de novo a cada 30 s."""
+    from app.services.notificacoes_service import bot_easy, ler_atualizacoes_uma_vez
+
+    await asyncio.sleep(15)
+    while True:
+        try:
+            if not (await asyncio.to_thread(bot_easy)).get("token"):
+                await asyncio.sleep(30)
+                continue
+            await asyncio.to_thread(ler_atualizacoes_uma_vez, 25)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.warning("robo do Telegram: %s", exc)
+            await asyncio.sleep(15)
+
+
 async def _alert_escalation_loop() -> None:
     """Modulo Alerta: alerta de panico que ninguem assumiu em 60s vai pro
     Telegram do cliente. Barato (1 SELECT indexado) -- roda a cada 15s."""
@@ -673,6 +693,7 @@ async def startup_events() -> None:
     )
     app.state.nvr_status_task = asyncio.create_task(_nvr_status_loop(), name="nvr-status-loop")
     app.state.ruijie_poll_task = asyncio.create_task(_ruijie_poll_loop(), name="ruijie-poll-loop")
+    app.state.telegram_bot_task = asyncio.create_task(_telegram_bot_loop(), name="telegram-bot-loop")
 
 
 @app.on_event("shutdown")
@@ -687,6 +708,7 @@ async def shutdown_events() -> None:
         "alert_escalation_task",
         "nvr_status_task",
         "ruijie_poll_task",
+        "telegram_bot_task",
     ):
         task = getattr(app.state, task_name, None)
         if task:

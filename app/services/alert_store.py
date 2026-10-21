@@ -834,16 +834,34 @@ def _format_message(inc: Dict[str, Any], reason: str) -> str:
     return "\n".join(lines)
 
 
+def _site_do_alerta(inc: Dict[str, Any]) -> str:
+    """Site do alerta: o do conector da lotacao do membro, senao o nome da lotacao."""
+    m = inc.get("member") or {}
+    cid = str(m.get("unit_connector_id") or "").strip()
+    if cid:
+        try:
+            from app.api.endpoints.maintenance import _site_do_conector
+
+            site = str(_site_do_conector(cid) or "").strip()
+            if site:
+                return site
+        except Exception:
+            pass
+    return str(m.get("unit_name") or "").strip()
+
+
 def _send_telegram_for(tenant: str, incident_id: str, reason: str) -> Dict[str, Any]:
-    from app.services.telegram_notification_service import _send
+    """Pelos grupos do site (Configuracoes > Notificacoes). Panico e sempre
+    urgente: passa por cima do silencio da noite."""
+    from app.services import notificacoes_service as N
 
     ctx_token = set_current_tenant_slug(tenant)
     try:
-        cfg = db_store.load_app_settings().get("telegram_notifications") or {}
-        if not (cfg.get("bot_token") and cfg.get("chat_id")):
-            return {"ok": False, "error": "Telegram nao configurado."}
         inc = get_incident(incident_id)
-        return _send(cfg, _format_message(inc, reason))
+        res = N.enviar_evento("panico", _site_do_alerta(inc), _format_message(inc, reason), urgente=True, tela="alert-live")
+        if not res["destinos"]:
+            return {"ok": False, "error": "Nenhum grupo do Telegram recebe alerta de panico deste site."}
+        return {"ok": res["ok"], "error": "; ".join(res["erros"])} if not res["ok"] else {"ok": True, "enviados": res["enviados"]}
     except Exception as exc:
         logger.exception("alerta: falha ao enviar Telegram (%s/%s)", tenant, incident_id)
         return {"ok": False, "error": str(exc)}

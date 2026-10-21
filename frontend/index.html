@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=1792600135">
+  <link rel="stylesheet" href="styles.css?v=1792600141">
 </head>
 <body>
 
@@ -3662,31 +3662,15 @@
             </div>
             <div class="so-hist-mais"><button type="button" class="secondary-action" id="histMais" hidden>Carregar mais</button></div>
           </div>
-          <div class="panel settings-wide-panel settings-area so-sub" data-settings-panel="notifications">
-            <div class="panel-header"><div><h2>Canais de aviso</h2><p>Por onde os avisos de queda e de sinal saem.</p></div></div>
-            <div class="so-card-grid duas" id="notifChannelCards" style="padding:18px"></div>
-          </div>
           <div class="panel settings-wide-panel settings-area" data-settings-panel="notifications">
             <div class="panel-header">
-              <div><h2>Notificacoes pelo Telegram</h2><p>Alertas de queda, recuperacao e degradacao do sinal optico por cliente.</p></div>
-              <span class="badge badge-gray" id="telegramConfigStatus">Nao configurado</span>
-            </div>
-            <div class="settings-form telegram-settings-form">
-              <div class="form-row">
-                <div class="form-group"><label for="telegramBotToken">Token do bot</label><input id="telegramBotToken" type="password" placeholder="Deixe vazio para manter o atual"></div>
-                <div class="form-group"><label for="telegramChatId">Chat ID / grupo</label><input id="telegramChatId" placeholder="Ex: -1001234567890"></div>
-              </div>
-              <!-- limites de sinal da ONU agora ficam em Alarmes; aqui so acompanham o salvar do Telegram -->
-              <input type="hidden" id="telegramWarnRx" value="-27"><input type="hidden" id="telegramCriticalRx" value="-29">
-              <div class="telegram-options-row">
-                <label><input id="telegramEnabled" type="checkbox"> Notificacoes ativas</label>
-                <label><input id="telegramRecovery" type="checkbox" checked> Avisar recuperacao</label>
-              </div>
-              <div class="page-heading-actions telegram-actions">
-                <button class="secondary-action" id="btnTelegramTest" type="button"><i data-lucide="send"></i> Enviar teste</button>
-                <button class="primary-action" id="btnTelegramSave" type="button"><i data-lucide="save"></i> Salvar Telegram</button>
+              <div><h2>Quem recebe cada aviso</h2><p>Cada site manda os avisos para os grupos dele. Site sem grupo próprio usa o grupo padrão.</p></div>
+              <div class="nt-acoes">
+                <button type="button" class="secondary-action" data-nt="testar-todos"><i data-lucide="send"></i> Testar todos</button>
+                <button type="button" class="primary-action" data-nt="vincular"><i data-lucide="plus"></i> Vincular grupo</button>
               </div>
             </div>
+            <div id="ntConteudo" class="nt-conteudo"><p class="text-muted">Carregando…</p></div>
           </div>
           </div>
         </div>
@@ -7219,9 +7203,10 @@
        trechos do app.js original na sequencia em que estavam, entao carregar
        fora de ordem muda o comportamento. Ao adicionar um arquivo novo, entre
        antes de bootstrap.js, que e quem liga os botoes no DOMContentLoaded. -->
-  <script src="js/core.js?v=1792600132"></script>
+  <script src="js/core.js?v=1792600140"></script>
   <script src="js/licencas.js?v=1792600103"></script>
-  <script src="js/configuracoes.js?v=1792600131"></script>
+  <script src="js/configuracoes.js?v=1792600138"></script>
+  <script src="js/notificacoes.js?v=1792600139"></script>
   <script src="js/permissoes.js?v=1792600120"></script>
   <script src="js/equipe.js?v=1792600136"></script>
   <script src="js/dashboard.js?v=1792600133"></script>
