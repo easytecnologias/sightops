@@ -12740,3 +12740,23 @@ table.recorder-tabela tbody tr:hover { background: var(--surface-soft); }
 .so-hist-aut { display: block; font-size: 11px; color: var(--muted); }
 .so-hist-exc { color: var(--danger); }
 @media (max-width: 640px) { .so-hist-filtros label { min-width: calc(50% - 6px); } }
+
+/* Equipe > editor: arvore do menu (telas que a pessoa ve) */
+.so-tree { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 10px; }
+.so-tree-sec { margin: 0; padding: 10px 12px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface, transparent); min-width: 0; }
+.so-tree-sec legend { padding: 0 4px; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+.so-tree-sec legend label { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+.so-tree-sec legend strong { font-weight: 700; }
+.so-tree-itens { display: flex; flex-direction: column; gap: 2px; }
+.so-tree-item { display: flex; align-items: center; gap: 8px; padding: 4px 2px; font-size: 13.5px; color: var(--text); cursor: pointer; border-radius: 6px; }
+.so-tree-item:hover { background: color-mix(in srgb, var(--primary) 7%, transparent); }
+.so-tree-item.sub { padding-left: 18px; }
+.so-tree-item input, .so-tree-sec legend input { width: 16px; height: 16px; accent-color: var(--primary); margin: 0; flex: 0 0 auto; }
+.so-tree-item input:not(:checked) + span { color: var(--muted); text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--muted) 60%, transparent); }
+.so-tree-grp { display: flex; flex-direction: column; gap: 2px; margin-top: 2px; }
+.so-tree-grp-nome { font-size: 12.5px; color: var(--muted); padding: 4px 2px 0; }
+.so-avancado { margin-top: 14px; border: 1px dashed var(--border); border-radius: 10px; padding: 10px 12px; }
+.so-avancado summary { cursor: pointer; display: flex; align-items: center; gap: 8px; font-size: 13.5px; font-weight: 600; color: var(--text); list-style: none; }
+.so-avancado summary::-webkit-details-marker { display: none; }
+.so-avancado summary small { font-weight: 400; color: var(--muted); }
+.so-avancado[open] summary { margin-bottom: 12px; }

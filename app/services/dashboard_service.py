@@ -318,6 +318,25 @@ def _recent_activity() -> List[Dict[str, Any]]:
     return rows[:8]
 
 
+def _atividade_visivel(itens: List[Dict[str, Any]], ocultos: set) -> List[Dict[str, Any]]:
+    """Atividade recente sem item de modulo que o usuario nao ve."""
+    if not ocultos:
+        return itens
+
+    def modulo(item: Dict[str, Any]) -> str:
+        nome = str(item.get("label") or item.get("name") or item.get("title") or "")
+        tipo = str(item.get("kind") or item.get("type") or "")
+        if tipo == "kmz" or nome.startswith("KMZ"):
+            return "mapa"
+        if nome.startswith(("Inventario DVR", "Inventario NVR")):
+            return "gravadores"
+        if nome.startswith(("Inventario IP", "Inventario Switch")):
+            return "cameras"
+        return ""
+
+    return [i for i in itens if isinstance(i, dict) and modulo(i) not in ocultos]
+
+
 def build_dashboard_summary() -> Dict[str, Any]:
     settings = get_settings()
     # Usuario restrito a alguns sites ve o painel so deles (sem usuario --
@@ -447,7 +466,7 @@ def build_dashboard_summary() -> Dict[str, Any]:
         "sites": site_names[:20],
         "site_summary": _site_summary(ip_rows, resolve_local_snapshots=True),
         "alerts": alerts,
-        "recent_activity": _recent_activity(),
+        "recent_activity": _atividade_visivel(_recent_activity(), ocultos),
         "monitoring": monitoring,
         "modulos_ocultos": sorted(ocultos),
     }

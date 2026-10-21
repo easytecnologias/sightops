@@ -192,11 +192,16 @@ function eqEditorHtml(u) {
   const modulos = _perm?.modulos || [];
   const acesso = dono || voce || !modulos.length ? `<p class="text-muted" style="margin:0;font-size:12.5px">${dono ? 'O dono da conta tem acesso total a tudo que está no plano.' : voce ? 'Você não pode mudar o próprio acesso.' : 'Carregando módulos.'}</p>` : `
       ${valendo ? '' : '<div class="so-note amber"><i data-lucide="flask-conical"></i><span><strong>Em teste.</strong> Você já pode montar o acesso por módulo; ele passa a valer quando a Easy ativar. Até lá vale o perfil acima.</span></div>'}
-      <div class="form-row"><div class="form-group" style="margin:0"><label for="eqAccessProfile">Perfil de acesso</label>
-        <select id="eqAccessProfile"><option value="">Igual ao perfil acima</option>${Object.entries(_perm?.perfis || {}).map(([k, p]) => `<option value="${esc(k)}" ${pu.profile === k ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select></div>
-        <div class="form-group" style="margin:0"><label>&nbsp;</label><button class="secondary-action" type="button" data-settings-goto="profiles"><i data-lucide="key-round"></i> Criar ou editar perfis</button></div></div>
-      <div class="table-wrap settings-table-wrap"><table class="data-table settings-table so-table" style="min-width:520px"><colgroup><col style="width:44%"><col style="width:22%"><col></colgroup>
-        <thead><tr><th>Módulo</th><th>Do perfil</th><th>Só para esta pessoa</th></tr></thead><tbody id="eqAccessMatrix"></tbody></table></div>`;
+      <p class="text-muted" style="margin:0 0 10px;font-size:12.5px">Marque as telas do menu que a pessoa vê. Desmarcar a seção inteira tira o título do menu dela.</p>
+      <div class="so-tree" id="eqAccessTree"></div>
+      <details class="so-avancado">
+        <summary><i data-lucide="sliders-horizontal"></i> Pode alterar ou só ver <small>por módulo · avançado</small></summary>
+        <div class="form-row"><div class="form-group" style="margin:0"><label for="eqAccessProfile">Perfil de acesso</label>
+          <select id="eqAccessProfile"><option value="">Igual ao perfil acima</option>${Object.entries(_perm?.perfis || {}).map(([k, p]) => `<option value="${esc(k)}" ${pu.profile === k ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select></div>
+          <div class="form-group" style="margin:0"><label>&nbsp;</label><button class="secondary-action" type="button" data-settings-goto="profiles"><i data-lucide="key-round"></i> Criar ou editar perfis</button></div></div>
+        <div class="table-wrap settings-table-wrap"><table class="data-table settings-table so-table" style="min-width:520px"><colgroup><col style="width:44%"><col style="width:22%"><col></colgroup>
+          <thead><tr><th>Módulo</th><th>Do perfil</th><th>Só para esta pessoa</th></tr></thead><tbody id="eqAccessMatrix"></tbody></table></div>
+      </details>`;
   return `<div class="so-edit">
     <section><h3>Dados</h3>
       <div class="form-row">
@@ -210,7 +215,7 @@ function eqEditorHtml(u) {
       ${voce && !euDono ? '<p class="text-muted" style="margin:0;font-size:12px">Só o dono da conta muda o próprio perfil.</p>' : ''}
     </section>
     ${dono || voce ? '' : `<section><h3>Sites que acessa</h3>${eqSitesHtml('eq', pu.sites || [])}</section>`}
-    <section><h3>Acesso por módulo <small>o que a pessoa vê e opera</small></h3>${acesso}</section>
+    <section><h3>O que aparece no menu <small>telas que a pessoa vê</small></h3>${acesso}</section>
     ${voce ? '' : `<section><h3>Situação</h3>
       <label class="so-toggle"><input type="checkbox" id="eqAtivo" ${Number(u.active) ? 'checked' : ''} ${dono && !euDono ? 'disabled' : ''}> Usuário ativo</label>
       <p class="text-muted" style="margin:0;font-size:12px">Inativo não consegue entrar; o histórico dele continua guardado.</p></section>
@@ -252,12 +257,129 @@ function eqGuardarAjustes() {
   _eq.ajustesTela = atuais;
 }
 
+// ------------------------------------------------- arvore do menu (telas que a pessoa ve)
+// Montada a partir do PROPRIO menu lateral: secao > tela (> sub-tela). Assim o
+// que se marca aqui e exatamente o que a pessoa vai ver no menu dela.
+function eqMenuArvore() {
+  const raiz = document.getElementById('navClientMode');
+  if (!raiz) return [];
+  const plano = _perm?.modulos_no_plano;
+  const fora = v => (typeof DISABLED_VIEWS !== 'undefined' && DISABLED_VIEWS.has(v))
+    || (typeof isStaffOnlyView === 'function' && isStaffOnlyView(v))
+    || (Array.isArray(plano) && !plano.includes(v) && v !== 'dashboard' && !(v === 'access-painel' && plano.includes('access-control')));
+  const texto = el => (el?.querySelector('span')?.textContent || el?.textContent || '').trim();
+  const secoes = [];
+  let atual = { label: 'Geral', itens: [] };
+  for (const el of raiz.children) {
+    if (el.classList.contains('nav-section-label')) {
+      if (atual.itens.length) secoes.push(atual);
+      atual = { label: el.textContent.trim(), itens: [] };
+    } else if (el.classList.contains('nav-group')) {
+      const subs = [...el.querySelectorAll('.nav-sub-item[data-view]')]
+        .filter(b => !fora(b.dataset.view)).map(b => ({ view: b.dataset.view, label: texto(b) }));
+      if (subs.length) atual.itens.push({ label: texto(el.querySelector('.nav-group-toggle')), subs });
+    } else if (el.classList.contains('nav-item') && el.dataset.view && el.dataset.view !== 'access-whatsapp-triage' && !fora(el.dataset.view)) {
+      atual.itens.push({ view: el.dataset.view, label: texto(el) });
+    }
+  }
+  if (atual.itens.length) secoes.push(atual);
+  return secoes;
+}
+
+// Niveis que o formulario mostra agora: perfil escolhido + ajustes da tabela avancada.
+function eqNiveisDoForm(u) {
+  const role = document.querySelector('input[name="eqRole"]:checked')?.value || u.role;
+  const sel = document.getElementById('eqAccessProfile')?.value || '';
+  const niveis = permNiveisDoPerfil({ ...u, role }, sel);
+  const ajuste = {};
+  document.querySelectorAll('#eqAccessMatrix [data-eq-ajuste]').forEach(s => { if (s.value !== '') ajuste[s.dataset.eqAjuste] = Number(s.value); });
+  Object.assign(niveis, ajuste);
+  // Mesma regra do servidor: Projetos era parte do Mapa e herda o ajuste dele.
+  if ('mapa' in ajuste && !('projetos' in ajuste)) niveis.projetos = ajuste.mapa;
+  return niveis;
+}
+
+function eqModulosDaTela(view) {
+  return (_perm?.modulos || []).filter(m => (m.views || []).includes(view));
+}
+
+function eqTelaMarcada(view, niveis) {
+  if (_eq.telasOcultas?.has(view)) return false;
+  const mods = eqModulosDaTela(view);
+  return !mods.length || mods.some(m => Number(niveis[m.key] ?? 0) > 0);
+}
+
+function eqRenderArvore(u) {
+  const box = document.getElementById('eqAccessTree');
+  if (!box) return;
+  const niveis = eqNiveisDoForm(u);
+  const item = (t, sub) => `<label class="so-tree-item${sub ? ' sub' : ''}"><input type="checkbox" data-eq-tela="${esc(t.view)}" ${eqTelaMarcada(t.view, niveis) ? 'checked' : ''}><span>${esc(t.label)}</span></label>`;
+  box.innerHTML = eqMenuArvore().map((sec, i) => `
+    <fieldset class="so-tree-sec">
+      <legend><label><input type="checkbox" data-eq-secao="${i}"><strong>${esc(sec.label)}</strong></label></legend>
+      <div class="so-tree-itens">${sec.itens.map(it => it.subs
+        ? `<div class="so-tree-grp"><span class="so-tree-grp-nome">${esc(it.label)}</span>${it.subs.map(s => item(s, true)).join('')}</div>`
+        : item(it, false)).join('')}</div>
+    </fieldset>`).join('') || '<p class="text-muted">Menu indisponível.</p>';
+  eqSincronizarSecoes();
+}
+
+function eqSincronizarSecoes() {
+  document.querySelectorAll('#eqAccessTree .so-tree-sec').forEach(sec => {
+    const filhos = [...sec.querySelectorAll('[data-eq-tela]')];
+    const marcados = filhos.filter(c => c.checked).length;
+    const chefe = sec.querySelector('[data-eq-secao]');
+    if (!chefe) return;
+    chefe.checked = marcados === filhos.length && filhos.length > 0;
+    chefe.indeterminate = marcados > 0 && marcados < filhos.length;
+  });
+}
+
+// Marcar/desmarcar uma tela. Marcar tela de modulo que esta "sem acesso"
+// libera o modulo (volta ao perfil, ou ao nivel do perfil fixo).
+function eqMarcarTela(u, view, marcar) {
+  if (marcar) {
+    _eq.telasOcultas.delete(view);
+    const niveis = eqNiveisDoForm(u);
+    const mods = eqModulosDaTela(view);
+    if (mods.length && !mods.some(m => Number(niveis[m.key] ?? 0) > 0)) {
+      const role = document.querySelector('input[name="eqRole"]:checked')?.value || u.role;
+      const sel = document.getElementById('eqAccessProfile')?.value || '';
+      const doPerfil = permNiveisDoPerfil({ ...u, role }, sel);
+      mods.forEach(m => {
+        const s = document.querySelector(`#eqAccessMatrix [data-eq-ajuste="${CSS.escape(m.key)}"]`);
+        if (s) s.value = Number(doPerfil[m.key] ?? 0) > 0 ? '' : String(Math.max(1, PERM_PADRAO[role] ?? 1));
+      });
+      eqGuardarAjustes();
+    }
+  } else {
+    _eq.telasOcultas.add(view);
+  }
+}
+
+function eqLigarArvore(u) {
+  const box = document.getElementById('eqAccessTree');
+  if (!box) return;
+  box.addEventListener('change', ev => {
+    const tela = ev.target.closest('[data-eq-tela]');
+    const secao = ev.target.closest('[data-eq-secao]');
+    if (tela) eqMarcarTela(u, tela.dataset.eqTela, tela.checked);
+    if (secao) secao.closest('.so-tree-sec').querySelectorAll('[data-eq-tela]').forEach(c => eqMarcarTela(u, c.dataset.eqTela, secao.checked));
+    eqRenderArvore(u);
+  });
+  document.getElementById('eqAccessMatrix')?.addEventListener('change', () => { eqGuardarAjustes(); eqRenderArvore(u); });
+}
+
 function eqLigarEditor(u) {
   _eq.ajustesTela = null;
+  const pu0 = (_perm?.usuarios || []).find(x => Number(x.id) === Number(u.id)) || {};
+  _eq.telasOcultas = new Set(pu0.telas_ocultas || []);
   eqMatrizAcesso(u);
+  eqRenderArvore(u);
+  eqLigarArvore(u);
   eqLigarSites('eq');
-  document.getElementById('eqAccessProfile')?.addEventListener('change', () => { eqGuardarAjustes(); eqMatrizAcesso(u); });
-  document.querySelectorAll('input[name="eqRole"]').forEach(r => r.addEventListener('change', () => { eqGuardarAjustes(); eqMatrizAcesso(u); }));
+  document.getElementById('eqAccessProfile')?.addEventListener('change', () => { eqGuardarAjustes(); eqMatrizAcesso(u); eqRenderArvore(u); });
+  document.querySelectorAll('input[name="eqRole"]').forEach(r => r.addEventListener('change', () => { eqGuardarAjustes(); eqMatrizAcesso(u); eqRenderArvore(u); }));
 }
 
 async function eqSalvarEdicao(u) {
@@ -295,9 +417,10 @@ async function eqSalvarEdicao(u) {
         return erro('Marque pelo menos um site, ou escolha "Todos os sites".');
       }
       const sitesNovos = sitesLidos === null ? (pu.sites || []) : sitesLidos;
-      const antes = JSON.stringify([pu.profile || '', pu.overrides || {}, pu.sites || []]);
-      if (antes !== JSON.stringify([perfil, overrides, sitesNovos])) {
-        const r = await api(`/api/auth/users/${Number(u.id)}/access`, { method: 'PUT', body: JSON.stringify({ profile: perfil, overrides, sites: sitesNovos }) });
+      const telas = [...(_eq.telasOcultas || new Set(pu.telas_ocultas || []))].sort();
+      const antes = JSON.stringify([pu.profile || '', pu.overrides || {}, pu.sites || [], [...(pu.telas_ocultas || [])].sort()]);
+      if (antes !== JSON.stringify([perfil, overrides, sitesNovos, telas])) {
+        const r = await api(`/api/auth/users/${Number(u.id)}/access`, { method: 'PUT', body: JSON.stringify({ profile: perfil, overrides, sites: sitesNovos, telas_ocultas: telas }) });
         await jsonOrReadableError(r, 'Não foi possível salvar o acesso por módulo.');
         feito.push('acesso e sites');
       }

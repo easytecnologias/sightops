@@ -400,3 +400,33 @@ def test_projetos_herda_o_mapa_de_quem_ja_tinha(sem_banco):
     novo = _user("operator", uid=33)
     P.definir_acesso_usuario("cliente-x", novo, "", {"mapa": "sem_acesso", "projetos": "operar"})
     assert P.niveis_do_usuario(novo)["projetos"] == 2
+
+
+def test_telas_desmarcadas_no_menu(sem_banco, monkeypatch):
+    monkeypatch.setattr(P, "modo", lambda: "valer")
+    op = _user("operator", uid=41)
+    cameras = next(m for m in P.MODULOS if m["key"] == "cameras")["views"]
+    # so uma tela de cameras: some do menu, o modulo continua (outras telas usam)
+    P.definir_acesso_usuario("cliente-x", op, "", {}, telas_ocultas=["snap-cam", "dashboard"])
+    assert {"snap-cam", "dashboard"} <= set(P.views_sem_acesso(op))
+    assert P.niveis_do_usuario(op)["cameras"] == 2
+    assert P.niveis_do_usuario(op)["painel"] == 0  # unica tela do painel
+    # todas as telas de cameras: modulo sem acesso tambem nas rotas
+    P.definir_acesso_usuario("cliente-x", op, "", {}, telas_ocultas=cameras)
+    assert P.niveis_do_usuario(op)["cameras"] == 0
+    assert not P.decidir(op, "/api/cameras/list", "GET", "")[0]
+    # None mantem; lista vazia limpa
+    P.definir_acesso_usuario("cliente-x", op, "", {})
+    assert P.niveis_do_usuario(op)["cameras"] == 0
+    P.definir_acesso_usuario("cliente-x", op, "", {}, telas_ocultas=[])
+    assert P.niveis_do_usuario(op)["cameras"] == 2
+    with pytest.raises(ValueError):
+        P.definir_acesso_usuario("cliente-x", op, "", {}, telas_ocultas=["<script>"])
+
+
+def test_projetos_sem_mapa_ainda_abre_o_kmz_do_projeto(sem_banco):
+    op = _user("operator", uid=42)
+    P.definir_acesso_usuario("cliente-x", op, "", {"mapa": "sem_acesso", "projetos": "operar"})
+    assert P.decidir(op, "/api/kmz/import/layers", "GET", "")[0]
+    assert P.decidir(op, "/api/kmz/import", "POST", "operator")[0]
+    assert not P.decidir(op, "/api/kmz/generate", "POST", "operator")[0]

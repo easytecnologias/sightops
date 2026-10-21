@@ -68,7 +68,7 @@ MODULOS: List[Dict[str, Any]] = [
      "views": ["monitoring", "script-zabbix", "script-grafana"],
      "prefixos": ["/api/monitoring", "/api/scripts", "/api/telegram"]},
     {"key": "acesso", "label": "Controle de acesso",
-     "views": ["access-live", "access-messenger", "access-control"],
+     "views": ["access-live", "access-messenger", "access-control", "access-painel"],
      "prefixos": ["/api/access-control"]},
     {"key": "alerta", "label": "Alerta de pânico", "views": ["alert-live", "alert-members"], "prefixos": ["/api/alert"]},
     {"key": "investigacao", "label": "Investigação e IA", "views": ["playback", "ia-nvr"],
@@ -359,6 +359,13 @@ def niveis_do_usuario(user: Dict[str, Any], dados: Optional[Dict[str, Any]] = No
             definidos.add(m)
     if "mapa" in definidos and "projetos" not in definidos:
         niveis["projetos"] = niveis["mapa"]  # antes era um modulo so
+    # Telas desmarcadas no editor (arvore do menu): modulo com TODAS as telas
+    # desmarcadas fica sem acesso tambem nas rotas, nao so some do menu.
+    ocultas = set(cfg.get("telas_ocultas") or [])
+    if ocultas:
+        for m in MODULOS:
+            if m["views"] and all(v in ocultas for v in m["views"]):
+                niveis[m["key"]] = 0
     niveis["administracao"] = min(niveis["administracao"], base_role)
     return niveis
 
@@ -397,7 +404,18 @@ def views_sem_acesso(user: Dict[str, Any]) -> List[str]:
     for m in MODULOS:
         for v in m["views"]:
             por_view.setdefault(v, []).append(niveis.get(m["key"], 0))
-    return sorted(v for v, ns in por_view.items() if max(ns) <= 0)
+    sem = {v for v, ns in por_view.items() if max(ns) <= 0}
+    if str(user.get("role") or "").strip().lower() != "owner":
+        slug = str(user.get("effective_tenant_slug") or user.get("tenant_slug") or "").strip().lower()
+        cfg = (carregar_perfis(slug).get("users") or {}).get(str(user.get("id"))) or {}
+        sem |= set(cfg.get("telas_ocultas") or [])
+    return sorted(sem)
+
+
+# Rota de um modulo que outra tela tambem usa: o nivel no modulo alternativo
+# tambem vale. A tela Projetos importa e desenha o KMZ do projeto pelas rotas
+# do Mapa (/api/kmz/import...).
+_MODULO_ALTERNATIVO: List[Tuple[str, str]] = [("/api/kmz/import", "projetos")]
 
 
 def decidir(user: Dict[str, Any], path: str, method: str, min_role: str) -> Tuple[bool, str]:
@@ -420,7 +438,11 @@ def decidir(user: Dict[str, Any], path: str, method: str, min_role: str) -> Tupl
         return (tem >= exigido), ("" if tem >= exigido else f"requer {NIVEL_NOME.get(exigido, exigido)}")
     if not modulo_no_plano(modulo, user.get("effective_enabled_modules")):
         return False, f"modulo {modulo} fora do plano do cliente"
-    tem = niveis_do_usuario(user).get(modulo, 0)
+    niveis = niveis_do_usuario(user)
+    tem = niveis.get(modulo, 0)
+    for prefixo, alternativo in _MODULO_ALTERNATIVO:
+        if (path == prefixo or path.startswith(prefixo + "/")) and modulo_no_plano(alternativo, user.get("effective_enabled_modules")):
+            tem = max(tem, niveis.get(alternativo, 0))
     if tem < exigido:
         return False, f"requer {NIVEL_NOME.get(exigido, exigido)} em {modulo} (tem {NIVEL_NOME.get(tem, tem)})"
     return True, ""
@@ -600,9 +622,23 @@ def sites_do_usuario(user: Dict[str, Any], dados: Optional[Dict[str, Any]] = Non
     return list(cfg.get("sites") or [])
 
 
+_TELA_VALIDA = re.compile(r"^[a-z0-9][a-z0-9-]{0,39}$")
+
+
+def _validar_telas(telas: Any) -> List[str]:
+    if not isinstance(telas, list):
+        raise ValueError("telas_ocultas deve ser uma lista")
+    limpas = sorted({str(t or "").strip().lower() for t in telas if str(t or "").strip()})
+    if len(limpas) > 120 or any(not _TELA_VALIDA.match(t) for t in limpas):
+        raise ValueError("tela invalida")
+    return limpas
+
+
 def definir_acesso_usuario(tenant_slug: str, alvo: Dict[str, Any], perfil: str, ajustes: Dict[str, Any],
-                           sites: Any = None) -> Dict[str, Any]:
-    """`sites=None` mantem os sites atuais; lista vazia = todos os sites."""
+                           sites: Any = None, telas_ocultas: Any = None) -> Dict[str, Any]:
+    """`sites=None` mantem os sites atuais; lista vazia = todos os sites.
+    `telas_ocultas=None` mantem as atuais; lista = telas do menu que a pessoa
+    nao ve (desmarcadas na arvore do editor)."""
     if str(alvo.get("role") or "").lower() == "owner":
         raise ValueError("o dono da conta tem acesso total e nao pode ser restringido")
     dados = copy.deepcopy(carregar_perfis(tenant_slug, usar_cache=False))  # nao mexe no cache antes de gravar
@@ -611,7 +647,9 @@ def definir_acesso_usuario(tenant_slug: str, alvo: Dict[str, Any], perfil: str, 
         raise ValueError("perfil nao encontrado")
     atual = (dados["users"].get(str(alvo.get("id"))) or {})
     lista_sites = list(atual.get("sites") or []) if sites is None else _validar_sites(tenant_slug, sites)
-    cfg = {"profile": perfil or None, "overrides": _validar_niveis(ajustes), "sites": lista_sites}
+    telas = list(atual.get("telas_ocultas") or []) if telas_ocultas is None else _validar_telas(telas_ocultas)
+    cfg = {"profile": perfil or None, "overrides": _validar_niveis(ajustes), "sites": lista_sites,
+           "telas_ocultas": telas}
     cfg = {k: v for k, v in cfg.items() if v}
     uid = str(alvo.get("id"))
     if cfg:

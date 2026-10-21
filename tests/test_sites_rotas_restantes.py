@@ -223,3 +223,12 @@ def test_painel_sem_dados_dos_modulos_ocultos(monkeypatch):
     assert list(r["monitoring"]["types"]) == ["access_device"]
     assert [e["entity_type"] for e in r["monitoring"]["events"]] == ["access_device"]
     assert set(r["modulos_ocultos"]) == {"cameras", "optica"}
+
+
+def test_atividade_recente_sem_modulo_oculto():
+    from app.services import dashboard_service as D
+
+    itens = [{"label": "Inventario IP", "kind": "inventory"}, {"label": "Inventario NVR", "kind": "inventory"},
+             {"label": "KMZ rede.kmz", "kind": "kmz"}, {"label": "Configuracoes", "kind": "settings"}]
+    assert [i["label"] for i in D._atividade_visivel(itens, {"cameras", "mapa"})] == ["Inventario NVR", "Configuracoes"]
+    assert D._atividade_visivel(itens, set()) == itens
