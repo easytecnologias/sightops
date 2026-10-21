@@ -1885,7 +1885,7 @@ def _mover_caixa(layer_id: str, meta: dict, meta_path: Path, caixa: dict, dados:
     caixa["lat"], caixa["lng"] = round(para[0], 7), round(para[1], 7)
     for c in cabos.values():
         cam = c.get("caminho") if isinstance(c, dict) else None
-        if c.get("caixa") != caixa.get("id") or not cam:
+        if not cam or c.get("caixa") != caixa.get("id"):
             continue
         c["caminho"] = [[round(para[0], 7), round(para[1], 7)]] + cam[1:]
         c["metros"] = _metros_do_caminho(c["caminho"])
