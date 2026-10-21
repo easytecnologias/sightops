@@ -24,6 +24,12 @@ from typing import Any, Dict, List, Optional
 logger = logging.getLogger("cam-snapshot")
 
 RETENCAO_DIAS = 365
+try:
+    from zoneinfo import ZoneInfo
+
+    _FUSO = ZoneInfo("America/Sao_Paulo")
+except Exception:  # sem base de fusos: Brasilia e UTC-3 o ano todo desde 2019
+    _FUSO = timezone(timedelta(hours=-3))
 
 # Rotas que so leem ou abrem algo (nao mudam nada): fora do historico.
 _RUIDO = re.compile(
@@ -233,7 +239,7 @@ def descrever(method: str, modelo: str, path: str) -> str:
 _fila: "queue.Queue[Dict[str, Any]]" = queue.Queue(maxsize=5000)
 _thread: Optional[threading.Thread] = None
 _thread_lock = threading.Lock()
-_ultima_limpeza = 0.0
+_ultima_limpeza: Optional[float] = None  # None: limpa no primeiro lote
 
 
 def registrar(user: Dict[str, Any], method: str, path: str, modelo: str, status: int,
@@ -255,13 +261,17 @@ def registrar(user: Dict[str, Any], method: str, path: str, modelo: str, status:
             acao = "acao"
         detalhe = {
             "r": descrever(method, modelo, path), "m": str(method).upper(), "rota": path, "s": status,
-            "ok": 200 <= status < 400, "ip": str(ip or "")[:64], "ms": int(duracao_ms or 0),
-            "papel": str(user.get("role") or ""),
+            "ok": 200 <= status < 400, "ms": int(duracao_ms or 0),
         }
+        if user.get("acting_as"):
+            # Suporte da Easy operando a conta: o cliente ve "suporte Easy",
+            # nao o login, o papel nem o IP do funcionario (outro cliente).
+            detalhe["suporte"] = True
+        else:
+            detalhe["ip"] = str(ip or "")[:64]
+            detalhe["papel"] = str(user.get("role") or "")
         if autorizado_por:
             detalhe["autorizado_por"] = autorizado_por
-        if user.get("acting_as"):
-            detalhe["suporte"] = True
         item = {
             "tenant_id": _actor_tenant_id(user), "user_id": int(user.get("id") or 0) or None, "action": acao,
             "resource_type": permissions.modulo_da_rota(path) or "", "resource_id": _alvo(path_params or {}, _corpo_dict(corpo)),
@@ -310,7 +320,7 @@ def gravar_lote(lote: List[Dict[str, Any]]) -> None:
         for it in lote:
             _audit(c, action=it["action"], tenant_id=it["tenant_id"], user_id=it["user_id"],
                    resource_type=it["resource_type"], resource_id=it["resource_id"], detail_json=it["detail_json"])
-        if time.monotonic() - _ultima_limpeza > 86400:
+        if _ultima_limpeza is None or time.monotonic() - _ultima_limpeza > 86400:
             _ultima_limpeza = time.monotonic()
             limite = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=RETENCAO_DIAS)
             # Padrao LIKE como parametro: % literal no SQL quebra no psycopg.
@@ -346,6 +356,8 @@ def consultar(actor: Dict[str, Any], usuario_id: Optional[int] = None, de: str =
                 dia = datetime.strptime(str(valor)[:10], "%Y-%m-%d") + timedelta(days=extra)
             except ValueError:
                 raise ValueError("data invalida (use AAAA-MM-DD)")
+            # O dia escolhido na tela e de Brasilia; created_at e UTC.
+            dia = dia.replace(tzinfo=_FUSO).astimezone(timezone.utc).replace(tzinfo=None)
             where.append(f"a.created_at {op} ?")
             params.append(dia)
     tipo = str(tipo or "").strip().lower()
@@ -367,7 +379,10 @@ def consultar(actor: Dict[str, Any], usuario_id: Optional[int] = None, de: str =
         params.append(int(antes_id))
     sql = (
         "SELECT a.id, a.action, a.resource_type, a.resource_id, a.detail_json, a.created_at, a.user_id, "
-        "u.username, u.full_name FROM audit_log a LEFT JOIN users u ON u.id = a.user_id "
+        "u.username, u.full_name FROM audit_log a "
+        # So usuario do proprio cliente: o suporte da Easy (act-as) grava com o
+        # id dele, de outro cliente -- o nome nao pode aparecer aqui.
+        "LEFT JOIN users u ON u.id = a.user_id AND u.tenant_id = a.tenant_id "
         f"WHERE {' AND '.join(where)} ORDER BY a.id DESC LIMIT ?"
     )
     params.append(lim + 1)

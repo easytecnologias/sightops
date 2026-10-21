@@ -144,3 +144,28 @@ def test_middleware_registra_acao_e_tentativa_barrada(monkeypatch):
     assert vistos[0][:3] == ("POST", "/api/cameras/reboot", 200) and b"10.0.0.9" in vistos[0][4]
     assert vistos[1][:3] == ("DELETE", "/api/access-control/people/{person_id}", 403)
     assert len(vistos) == 2  # leitura nao entra
+
+
+def test_suporte_easy_nao_aparece_com_nome_nem_ip(auth):
+    dono = A.authenticate_user("dono-teste", "dono-teste-123")  # outro cliente (plataforma)
+    suporte = {**dono, "acting_as": True, "effective_tenant_id": auth["dono_a"]["tenant_id"],
+               "effective_tenant_slug": "cliente-a"}
+    H.registrar(suporte, "POST", "/api/cameras/reboot", "/api/cameras/reboot", 200, ip="9.9.9.9")
+    _gravar(auth)
+    ev = [e for e in H.consultar(auth["dono_a"])["eventos"] if e["action"] == "acao"]
+    assert len(ev) == 1
+    assert ev[0]["username"] is None and ev[0]["full_name"] is None
+    d = json.loads(ev[0]["detail_json"])
+    assert d.get("suporte") is True and "ip" not in d and "papel" not in d
+    assert not H.consultar(auth["dono_a"], q="dono-teste")["eventos"]
+
+
+def test_filtro_de_data_no_horario_de_brasilia(auth):
+    from app.services.auth_store import _audit, _conn
+
+    with _conn() as c:  # 22/10 01:30 UTC = 21/10 22:30 em Brasilia
+        _audit(c, action="acao", tenant_id=auth["dono_a"]["tenant_id"], user_id=None, resource_type="cameras",
+               resource_id="x", detail_json="{}")
+        c.execute("UPDATE audit_log SET created_at='2026-10-22 01:30:00' WHERE resource_id='x'")
+    assert H.consultar(auth["dono_a"], de="2026-10-21", ate="2026-10-21", tipo="cameras")["eventos"]
+    assert not H.consultar(auth["dono_a"], de="2026-10-22", tipo="cameras")["eventos"]

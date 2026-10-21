@@ -376,7 +376,7 @@ function renderIntegrationCards(health, telegram) {
 // --------------------------------------------------------------- Historico
 // Tudo que a equipe mudou (rota /api/auth/historico): logins, usuarios e cada
 // acao nos equipamentos, com filtro e "carregar mais" (pagina por id).
-const _hist = { linhas: [], proximo: null, nomes: {}, carregando: false, pedido: 0 };
+const _hist = { linhas: [], proximo: null, nomes: {}, carregando: false, pedido: 0, filtros: {} };
 
 function histFiltros() {
   const v = id => document.getElementById(id)?.value || '';
@@ -426,7 +426,9 @@ async function histCarregar(continuar = false) {
   const pedido = ++_hist.pedido;
   _hist.carregando = true;
   try {
-    const f = histFiltros();
+    // "Carregar mais" continua com os filtros da lista que esta na tela.
+    const f = continuar ? _hist.filtros : histFiltros();
+    if (!continuar) _hist.filtros = f;
     const qs = new URLSearchParams({ limite: '100' });
     Object.entries(f).forEach(([k, v]) => { if (v) qs.set(k, v); });
     if (continuar && _hist.proximo) qs.set('antes', String(_hist.proximo));
@@ -452,7 +454,13 @@ async function histCarregar(continuar = false) {
 }
 
 function histCsv() {
-  const cel = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
+  // Texto digitado por operador (nome de camera) que comeca com = + - @ vira
+  // formula no Excel: o apostrofo o mantem como texto.
+  const cel = v => {
+    let t = String(v ?? '');
+    if (/^[=+\-@\t\r]/.test(t)) t = `'${t}`;
+    return `"${t.replace(/"/g, '""')}"`;
+  };
   const linhas = [['Quando', 'Quem', 'O quê', 'Em quê', 'Resultado', 'Autorizado por', 'IP'].map(cel).join(';')];
   _hist.linhas.forEach(e => {
     const d = histDetalhe(e);
