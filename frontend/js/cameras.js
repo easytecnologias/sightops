@@ -403,9 +403,37 @@ function mapChaveItem(f) {
   return `p:${mapFeatureName(f)}|${(+p[1]).toFixed(6)},${(+p[0]).toFixed(6)}`;
 }
 
-function mapPontoOculto(def, f, cam, type) {
+// Caixa escondida esconde os "filhos": os cabos dela e as cameras ligadas
+// neles (como pasta no Google Earth). Devolve { caixas, cabos, ips, pontos }.
+function mapFilhosOcultos(def) {
   const ocultos = mapOcultosDaCamada(def?.id);
-  return ocultos.size > 0 && (ocultos.has(mapChaveItem(f)) || mapCategoriasDoPonto(def, f, cam, type).some(c => ocultos.has(c)));
+  const r = { caixas: new Set(), cabos: new Set(), ips: new Set(), pontos: new Set() };
+  if (!ocultos.size || !def?.caixas || typeof cxPosDaCaixa !== 'function') return r;
+  const pontos = (def.features || []).filter(f => f?.geometry?.type === 'Point');
+  Object.values(def.caixas).forEach(cx => {
+    if (!ocultos.has('box')) {
+      const pos = cxPosDaCaixa(def, cx);
+      const f = pontos.find(x => mapFeatureName(x).toLowerCase() === String(cx.ponto || '').toLowerCase()
+        && cxPerto([+x.geometry.coordinates[1], +x.geometry.coordinates[0]], pos));
+      if (!f || !ocultos.has(mapChaveItem(f))) return;
+    }
+    r.caixas.add(cx.id);
+  });
+  Object.values(def.cabos || {}).forEach(c => {
+    if (!r.caixas.has(c.caixa)) return;
+    r.cabos.add(c.id);
+    if (c.camera?.ip) r.ips.add(String(c.camera.ip));
+    if (c.camera?.ponto) r.pontos.add(String(c.camera.ponto).toLowerCase());
+  });
+  return r;
+}
+
+function mapPontoOculto(def, f, cam, type, filhos = null) {
+  const ocultos = mapOcultosDaCamada(def?.id);
+  if (!ocultos.size) return false;
+  if (ocultos.has(mapChaveItem(f)) || mapCategoriasDoPonto(def, f, cam, type).some(c => ocultos.has(c))) return true;
+  const fo = filhos || mapFilhosOcultos(def);
+  return (!!cam?.ip && fo.ips.has(String(cam.ip))) || fo.pontos.has(mapFeatureName(f).toLowerCase());
 }
 
 function mapGravarOcultos(def) {
@@ -432,7 +460,9 @@ function mapItensDaCategoria(def, cat) {
     const p = Array.isArray(c[0]) ? c[0] : c;
     const nome = mapFeatureName(f);
     const caixa = cats[0] === 'box' && typeof cxCaixaDoPonto === 'function' ? cxCaixaDoPonto(def, nome, [+p[1], +p[0]]) : null;
-    return [{ chave: mapChaveItem(f), nome: caixa?.nome || cam?.titulo || nome || '(sem nome)', sub: cam?.ip || (caixa ? nome : ''),
+    const nFilhos = caixa ? Object.values(def.cabos || {}).filter(x => x.caixa === caixa.id).length : 0;
+    return [{ chave: mapChaveItem(f), nome: caixa?.nome || cam?.titulo || nome || '(sem nome)',
+      sub: cam?.ip || (caixa ? `${nFilhos} cabo(s) e o que está ligado neles` : ''),
       cor: cores[cats[cats.length - 1]] || '#64748b', latlng: [+p[1], +p[0]] }];
   }).sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR', { numeric: true }));
 }
@@ -1745,6 +1775,7 @@ function renderMapLayerGroup(id, def, skipFit = false) {
   const bounds = [];
   let drawnCount = 0;
   const editing = mapEditIsActive(id);
+  const filhosOcultos = mapFilhosOcultos(def);
   // Quantos pontos dividem cada nome. A exclusao no backend casa por nome
   // e remove TODOS os Placemarks que batem -- o aviso precisa dizer isso.
   const _porNome = {};
@@ -1765,7 +1796,7 @@ function renderMapLayerGroup(id, def, skipFit = false) {
       if (typeFilter && pointType !== typeFilter) return;
       if (statusFilter && (pointType !== 'camera' || featureStatus !== statusFilter)) return;
       if (siteFilter && featureLocal !== siteFilter) return;
-      if (mapPontoOculto(def, f, cam, pointType)) return;
+      if (mapPontoOculto(def, f, cam, pointType, filhosOcultos)) return;
 
       if (geomType === 'LineString') {
         const coords = Array.isArray(f.geometry.coordinates) ? f.geometry.coordinates : [];
