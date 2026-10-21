@@ -311,6 +311,20 @@ def carregar_perfis(tenant_slug: str, usar_cache: bool = True) -> Dict[str, Any]
     return dados
 
 
+# Sobe a cada perfil/modo salvo: quem guarda "pode abrir" (ponte do acesso
+# web, app/api/endpoints/ws.py) poe isto na chave e o que mudou vale na hora.
+_versao_autorizacao = 0
+
+
+def versao_autorizacao() -> int:
+    return _versao_autorizacao
+
+
+def _nova_versao_autorizacao() -> None:
+    global _versao_autorizacao
+    _versao_autorizacao += 1
+
+
 def salvar_perfis(tenant_slug: str, dados: Dict[str, Any]) -> None:
     from app.services.db_store import set_json_state
 
@@ -319,6 +333,7 @@ def salvar_perfis(tenant_slug: str, dados: Dict[str, Any]) -> None:
         raise RuntimeError("nao foi possivel gravar os perfis de acesso")
     with _cache_lock:
         _cache.pop(slug, None)
+    _nova_versao_autorizacao()
 
 
 def _nivel_int(v: Any) -> int:
@@ -496,6 +511,7 @@ def definir_modo(actor: Dict[str, Any], novo: str) -> str:
         raise RuntimeError("nao foi possivel gravar o modo")
     with _modo_lock:
         _modo_cache = (time.monotonic(), novo)
+    _nova_versao_autorizacao()
     return novo
 
 

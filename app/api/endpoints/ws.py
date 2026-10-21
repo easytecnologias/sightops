@@ -659,6 +659,7 @@ def _web_tunnel_destino(current_user: Dict[str, Any], host: str, port: int) -> s
         _ip_belongs_to_current_tenant,
         _reach,
     )
+    from app.services.connector_routing_vnat import IP_BLOQUEADO
     # mesma politica do proxy web: so IP privado/CGNAT e do tenant atual
     if not _is_proxy_allowed_host(host) or not _ip_belongs_to_current_tenant(host):
         return ""
@@ -688,7 +689,10 @@ def _web_tunnel_destino(current_user: Dict[str, Any], host: str, port: int) -> s
             return ""
     except Exception:
         return ""
-    return _reach(host, rec_cid) or ""  # conector isolado -> IP virtual
+    reach = _reach(host, rec_cid) or ""  # conector isolado -> IP virtual
+    # conector de outro cliente: o _reach devolve o IP de bloqueio -- recusa
+    # (antes ia para a conexao, falhava e ainda ficaria guardado no cache)
+    return "" if reach == IP_BLOQUEADO else reach
 
 
 @router.websocket("/ws/web-tunnel/{ip}")
@@ -717,9 +721,10 @@ async def ws_web_tunnel(ws: WebSocket, ip: str) -> None:
         # laco do servidor, travando as outras telas. Agora a conferencia roda
         # numa thread e o "pode, e o caminho e este" vale 60 s por cliente +
         # usuario + IP + porta. Sessao/login continuam conferidos a cada conexao.
-        chave = (_effective_tenant_slug(current_user),
-                 str(current_user.get("id") or current_user.get("username") or ""),
-                 str(current_user.get("role") or ""), host, port)
+        from app.core.permissions import versao_autorizacao
+        u = current_user or {}  # login desligado: _accept_ws_session devolve None
+        chave = (_effective_tenant_slug(current_user), str(u.get("id") or u.get("username") or ""),
+                 str(u.get("role") or ""), host, port, versao_autorizacao())
         reach = _web_tunnel_cache_get(chave)
         if reach is None:
             reach = await asyncio.to_thread(_web_tunnel_destino, current_user, host, port)

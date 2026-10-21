@@ -132,3 +132,35 @@ def test_conferencia_vale_60s_por_cliente_usuario_ip(monkeypatch):
                 except Exception:
                     pass
         assert len(chamadas) == 4  # recusa nao fica guardada
+        # perfil salvo (tirou site/modulo de alguem): o guardado deixa de valer na hora
+        from app.core import permissions
+        usuario["u"] = {"id": 1, "username": "a", "role": "operator", "tenant_slug": "t1"}
+        liberar["ok"] = True
+        porta2 = _equipamento_varias(2)
+
+        def abrir2():
+            with cli.websocket_connect(f"/ws/web-tunnel/10.0.0.9?port={porta2}") as wsc:
+                wsc.send_bytes(b"GET / HTTP/1.0" + bytes([13, 10, 13, 10]))
+                return wsc.receive_bytes()
+
+        abrir2()
+        n = len(chamadas)
+        abrir2()
+        assert len(chamadas) == n  # guardado
+        monkeypatch.setattr(permissions, "_versao_autorizacao", permissions.versao_autorizacao() + 1)
+        porta2 = _equipamento_varias(1)
+        abrir2()
+        assert len(chamadas) == n + 1  # conferiu de novo depois de salvar perfis
+
+
+def test_conector_de_outro_cliente_e_recusa(monkeypatch):
+    from app.services.connector_routing_vnat import IP_BLOQUEADO
+    monkeypatch.setattr(maintenance, "_is_proxy_allowed_host", lambda h: True)
+    monkeypatch.setattr(maintenance, "_ip_belongs_to_current_tenant", lambda h: True)
+    monkeypatch.setattr(maintenance, "web_liberada_para", lambda u, h, c="": (True, ""))
+    monkeypatch.setattr(maintenance, "_ruijie_gateway_owner", lambda h: "")
+    monkeypatch.setattr(nvr, "_recorder_connector_for_host", lambda h: "")
+    monkeypatch.setattr(maintenance, "_reach", lambda h, c="": IP_BLOQUEADO)
+    assert ws_mod._web_tunnel_destino({"role": "admin"}, "10.0.0.9", 80) == ""
+    monkeypatch.setattr(maintenance, "_reach", lambda h, c="": "10.211.1.9")
+    assert ws_mod._web_tunnel_destino({"role": "admin"}, "10.0.0.9", 80) == "10.211.1.9"
