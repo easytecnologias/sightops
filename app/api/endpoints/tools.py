@@ -198,6 +198,9 @@ def _list_kmz_import_layers(include_features: bool = True) -> list[dict[str, Any
             "cor_outros": str(meta.get("cor_outros") or ""),
             # modo do inventario em que a camada aparece ("" = automatico)
             "modo": str(meta.get("modo") or ""),
+            # caixas de CFTV e cabos desenhados no mapa (meta da camada)
+            "caixas": meta.get("caixas") if isinstance(meta.get("caixas"), dict) else {},
+            "cabos": meta.get("cabos") if isinstance(meta.get("cabos"), dict) else {},
             "motivos": meta.get("motivos") if isinstance(meta.get("motivos"), dict) else {},
             **({"features": features, "type": geojson.get("type") or "FeatureCollection"} if include_features else {}),
         })
@@ -1648,6 +1651,12 @@ async def api_kmz_import_layer_update(layer_id: str, payload: Dict[str, Any], re
         return {"ok": True, "layer": _cor_outros_da_camada(layer_id, payload.get("cor_outros"))}
     if "modo" in payload:
         return {"ok": True, "layer": _modo_da_camada(layer_id, payload.get("modo"))}
+    if isinstance(payload.get("caixa"), dict):
+        u = getattr(request.state, "current_user", None) or {}
+        return {"ok": True, **_caixa_da_camada(layer_id, payload["caixa"], str(u.get("username") or "") if isinstance(u, dict) else "")}
+    if isinstance(payload.get("cabo"), dict):
+        u = getattr(request.state, "current_user", None) or {}
+        return {"ok": True, **_cabo_da_camada(layer_id, payload["cabo"], str(u.get("username") or "") if isinstance(u, dict) else "")}
     layer = _rename_kmz_layer(layer_id, str(payload.get("label") or ""))
     return {"ok": True, "layer": layer}
 
@@ -1704,6 +1713,181 @@ def _cor_outros_da_camada(layer_id: str, cor: Any) -> dict[str, Any]:
 
 
 _MODOS_CAMADA = ("", "olt", "switch", "basico", "todos")
+
+# --------------------------------------------------------------------------- caixas de CFTV e cabos
+# Caixa = um ponto da camada (pelo NOME, como motivos e edicao de ponto) com o
+# que tem dentro e as portas do switch. Cabo = caixa -> camera, com o caminho
+# desenhado (curvas), tipo, porta e folga; a metragem e calculada aqui.
+_TIPOS_ITEM_CAIXA = ("switch_poe", "switch", "onu", "fonte", "nobreak", "dio", "roteador", "injetor_poe", "outro")
+_TIPOS_CABO = ("utp5e", "utp6", "drop", "coaxial", "outro")
+
+
+def _texto_curto(v: Any, limite: int) -> str:
+    return " ".join(str(v or "").split())[:limite]
+
+
+def _metros_do_caminho(caminho: list) -> float:
+    import math
+
+    total = 0.0
+    for (la1, lo1), (la2, lo2) in zip(caminho, caminho[1:]):
+        p1, p2 = math.radians(la1), math.radians(la2)
+        dp, dl = p2 - p1, math.radians(lo2 - lo1)
+        a = math.sin(dp / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
+        total += 2 * 6371000 * math.asin(min(1.0, math.sqrt(a)))
+    return round(total, 1)
+
+
+def _meta_da_camada_ou_404(layer_id: str) -> tuple[dict[str, Any], Path]:
+    kmz_path, geojson_path, meta_path = _kmz_layer_paths(layer_id)
+    if not kmz_path.exists() or not geojson_path.exists():
+        raise HTTPException(404, "Camada KMZ nao encontrada.")
+    meta = _read_kmz_layer_meta(meta_path)
+    meta["id"] = layer_id
+    return meta, meta_path
+
+
+def _exige_admin_para_excluir() -> None:
+    from app.core import permissions
+
+    if not permissions.pode_excluir():
+        raise permissions.erro_exige_admin()
+
+
+def _caixa_da_camada(layer_id: str, dados: Dict[str, Any], por: str = "") -> dict[str, Any]:
+    meta, meta_path = _meta_da_camada_ou_404(layer_id)
+    caixas = meta.get("caixas") if isinstance(meta.get("caixas"), dict) else {}
+    cabos = meta.get("cabos") if isinstance(meta.get("cabos"), dict) else {}
+    cid = _texto_curto(dados.get("id"), 24)
+    if dados.get("excluir"):
+        if cid not in caixas:
+            raise HTTPException(404, "Caixa nao encontrada.")
+        _exige_admin_para_excluir()
+        caixas.pop(cid, None)
+        # os cabos dela saem junto (nao ficam "pendurados" no mapa)
+        cabos = {k: v for k, v in cabos.items() if (v or {}).get("caixa") != cid}
+    else:
+        ponto = _texto_curto(dados.get("ponto"), 160)
+        if not ponto:
+            raise HTTPException(400, "Informe o ponto do mapa que e a caixa.")
+        outra = next((c for c in caixas.values() if c.get("ponto", "").lower() == ponto.lower() and c.get("id") != cid), None)
+        if outra:
+            raise HTTPException(400, "Este ponto ja e uma caixa.")
+        atual = caixas.get(cid) if cid else None
+        if cid and not atual:
+            raise HTTPException(404, "Caixa nao encontrada.")
+        if not atual and len(caixas) >= 500:
+            raise HTTPException(400, "Limite de caixas na camada.")
+        itens = []
+        for it in (dados.get("itens") if isinstance(dados.get("itens"), list) else [])[:30]:
+            if not isinstance(it, dict):
+                continue
+            tipo = _texto_curto(it.get("tipo"), 20)
+            if tipo not in _TIPOS_ITEM_CAIXA:
+                raise HTTPException(400, f"Item invalido: {tipo}")
+            try:
+                qtd = max(1, min(int(it.get("qtd") or 1), 99))
+            except (TypeError, ValueError):
+                qtd = 1
+            itens.append({"tipo": tipo, "modelo": _texto_curto(it.get("modelo"), 80), "qtd": qtd,
+                          "obs": _texto_curto(it.get("obs"), 120)})
+        try:
+            portas = max(0, min(int(dados.get("portas") if dados.get("portas") is not None else 8), 64))
+        except (TypeError, ValueError):
+            raise HTTPException(400, "Numero de portas invalido.")
+        em_uso = [int(v.get("porta")) for v in cabos.values() if (v or {}).get("caixa") == cid and v.get("porta")]
+        if em_uso and max(em_uso) > portas:
+            raise HTTPException(400, f"A porta {max(em_uso)} tem cabo ligado: o switch nao pode ter menos portas.")
+        agora = datetime.now().isoformat(timespec="seconds")
+        cid = cid or f"cx{uuid.uuid4().hex[:10]}"
+        caixas[cid] = {
+            "id": cid, "ponto": ponto, "nome": _texto_curto(dados.get("nome"), 80) or ponto,
+            "itens": itens, "portas": portas, "obs": _texto_curto(dados.get("obs"), 300),
+            "criado_em": (atual or {}).get("criado_em") or agora, "criado_por": (atual or {}).get("criado_por") or por,
+            "atualizado_em": agora, "atualizado_por": por,
+        }
+    meta["caixas"], meta["cabos"] = caixas, cabos
+    meta["updated_at"] = datetime.now().isoformat(timespec="seconds")
+    _write_kmz_layer_meta(meta_path, meta)
+    return {"caixas": caixas, "cabos": cabos}
+
+
+def _cabo_da_camada(layer_id: str, dados: Dict[str, Any], por: str = "") -> dict[str, Any]:
+    meta, meta_path = _meta_da_camada_ou_404(layer_id)
+    caixas = meta.get("caixas") if isinstance(meta.get("caixas"), dict) else {}
+    cabos = meta.get("cabos") if isinstance(meta.get("cabos"), dict) else {}
+    kid = _texto_curto(dados.get("id"), 24)
+    if dados.get("excluir"):
+        if kid not in cabos:
+            raise HTTPException(404, "Cabo nao encontrado.")
+        _exige_admin_para_excluir()
+        cabos.pop(kid, None)
+    else:
+        caixa = caixas.get(_texto_curto(dados.get("caixa"), 24))
+        if not caixa:
+            raise HTTPException(400, "Caixa nao encontrada nesta camada.")
+        if kid and kid not in cabos:
+            raise HTTPException(404, "Cabo nao encontrado.")
+        tipo = _texto_curto(dados.get("tipo") or "utp5e", 10)
+        if tipo not in _TIPOS_CABO:
+            raise HTTPException(400, "Tipo de cabo invalido.")
+        bruto = dados.get("caminho") if isinstance(dados.get("caminho"), list) else []
+        caminho = []
+        for p in bruto[:300]:
+            try:
+                lat, lng = float(p[0]), float(p[1])
+            except (TypeError, ValueError, IndexError):
+                raise HTTPException(400, "Caminho do cabo invalido.")
+            if not (-90 <= lat <= 90 and -180 <= lng <= 180):
+                raise HTTPException(400, "Coordenada fora do mapa.")
+            caminho.append([round(lat, 7), round(lng, 7)])
+        if len(caminho) < 2:
+            raise HTTPException(400, "O cabo precisa de pelo menos dois pontos.")
+        camera = dados.get("camera") if isinstance(dados.get("camera"), dict) else {}
+        destino = {"ponto": _texto_curto(camera.get("ponto"), 160), "ip": _texto_curto(camera.get("ip"), 45)}
+        if not destino["ponto"] and not destino["ip"]:
+            raise HTTPException(400, "Informe a camera do cabo.")
+
+        def _mesma_camera(c: dict) -> bool:
+            outra = c.get("camera") or {}
+            if destino["ip"] and outra.get("ip"):
+                return outra.get("ip") == destino["ip"]
+            return bool(destino["ponto"]) and str(outra.get("ponto") or "").lower() == destino["ponto"].lower()
+
+        repetido = next((c for k, c in cabos.items() if k != kid and _mesma_camera(c)), None)
+        if repetido:
+            cx_nome = (caixas.get(repetido.get("caixa")) or {}).get("nome") or "outra caixa"
+            raise HTTPException(400, f"Esta camera ja tem cabo ({cx_nome}{', porta ' + str(repetido['porta']) if repetido.get('porta') else ''}). Exclua o antigo antes.")
+        porta = dados.get("porta")
+        if porta not in (None, "", 0):
+            try:
+                porta = int(porta)
+            except (TypeError, ValueError):
+                raise HTTPException(400, "Porta invalida.")
+            if not 1 <= porta <= int(caixa.get("portas") or 0):
+                raise HTTPException(400, f"A caixa tem {caixa.get('portas') or 0} portas.")
+            ocupada = next((c for k, c in cabos.items() if k != kid and c.get("caixa") == caixa["id"] and c.get("porta") == porta), None)
+            if ocupada:
+                raise HTTPException(400, f"A porta {porta} ja tem cabo ({ocupada.get('camera', {}).get('ponto') or ocupada.get('camera', {}).get('ip')}).")
+        else:
+            porta = None
+        try:
+            folga = max(0, min(int(dados.get("folga_pct") if dados.get("folga_pct") is not None else 10), 100))
+        except (TypeError, ValueError):
+            folga = 10
+        metros = _metros_do_caminho(caminho)
+        agora = datetime.now().isoformat(timespec="seconds")
+        kid = kid or f"cb{uuid.uuid4().hex[:10]}"
+        cabos[kid] = {
+            "id": kid, "caixa": caixa["id"], "camera": destino, "tipo": tipo, "porta": porta, "folga_pct": folga,
+            "caminho": caminho, "metros": metros, "metros_com_folga": round(metros * (1 + folga / 100), 1),
+            "criado_em": (cabos.get(kid) or {}).get("criado_em") or agora, "criado_por": (cabos.get(kid) or {}).get("criado_por") or por,
+            "atualizado_em": agora,
+        }
+    meta["cabos"] = cabos
+    meta["updated_at"] = datetime.now().isoformat(timespec="seconds")
+    _write_kmz_layer_meta(meta_path, meta)
+    return {"caixas": caixas, "cabos": cabos}
 
 
 def _modo_da_camada(layer_id: str, modo: Any) -> dict[str, Any]:

@@ -255,11 +255,57 @@ function mapFeatureLocal(feature, cam) {
   return m ? m[1].trim() : '';
 }
 
+// Numero da camera no comeco do titulo: "14 - R. SAO VICENTE 2" -> 14.
+function mapNumeroDoTitulo(titulo) {
+  const m = String(titulo || '').match(/^\s*(\d{1,4})\s*(?:[-–.:]|\s|$)/);
+  return m ? Number(m[1]) : null;
+}
+
+// Numeros do nome do ponto: "14" -> [14]; "15 e 16" -> [15, 16]; "26 Speed dome" -> [26].
+function mapNumerosDoPonto(nome) {
+  const m = String(nome || '').match(/^\s*\d{1,4}(?:\s*(?:e|,|\/|&|-)\s*\d{1,4})*(?=\s|$|[^\d])/i);
+  return m ? (m[0].match(/\d{1,4}/g) || []).map(Number) : [];
+}
+
+function mapSiteChave(site) {
+  return String(site || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toUpperCase();
+}
+
 function mapFindCamera(feature, index = _mapCameraIndex) {
   const name = mapFeatureName(feature);
   const desc = String(feature?.properties?.description || '');
   const ip = mapExtractIp(desc) || mapExtractIp(name);
-  return index.byName[name.toLowerCase()] || index.byIp[ip] || null;
+  const direto = index.byName[name.toLowerCase()] || index.byIp[ip];
+  if (direto) return direto;
+  // KMZ que so numera o ponto ("14") e inventario que titula "14 - RUA X":
+  // casa pelo numero, so entre as cameras do site da camada (outro site tem
+  // a sua "14"). Ponto com duas ("15 e 16"): vale a que esta fora do ar.
+  const cams = mapCamerasPorNumero(feature, index);
+  return cams.find(c => String(c.status || '').toLowerCase() !== 'online') || cams[0] || null;
+}
+
+// Todas as cameras que o ponto numera ("15 e 16" -> as duas), no site da camada.
+function mapCamerasPorNumero(feature, index = _mapCameraIndex) {
+  const porNumero = feature?._site && index?.byNumero?.[feature._site];
+  if (!porNumero) return [];
+  return mapNumerosDoPonto(mapFeatureName(feature)).map(n => porNumero[n]).filter(Boolean);
+}
+
+// Site da camada: o das cameras que ela ja casa (nome/IP); senao o nome da
+// camada que contem o nome de um site ("Porto Real do Colegio outubro 2026").
+function mapLayerSite(def, index = _mapCameraIndex) {
+  const conta = {};
+  (def.features || []).forEach(f => {
+    const name = mapFeatureName(f);
+    const ip = mapExtractIp(String(f?.properties?.description || '')) || mapExtractIp(name);
+    const cam = index?.byName?.[name.toLowerCase()] || index?.byIp?.[ip];
+    const s = mapSiteChave(cam?.local || cam?.site || cam?.site_name);
+    if (s) conta[s] = (conta[s] || 0) + 1;
+  });
+  const porCamera = Object.keys(conta).sort((a, b) => conta[b] - conta[a])[0];
+  if (porCamera) return porCamera;
+  const rotulo = mapSiteChave(def.label);
+  return Object.keys(index?.byNumero || {}).filter(s => s && rotulo.includes(s)).sort((a, b) => b.length - a.length)[0] || '';
 }
 
 function mapFeatureType(feature, cam) {
@@ -269,6 +315,7 @@ function mapFeatureType(feature, cam) {
   if (/^fibra\b|\bfibra\b|fiber|cabo optico|cabo óptico/i.test(name) || geomType === 'linestring') return 'fiber';
   if (/^pt[-\s]?\d+\b|\bposte\b|\bpostes\b|\bpole\b/i.test(name)) return 'pole';
   if (/caixa\s*herm[eé]tica|caixa\s*cftv|hermetica|hermética/i.test(name)) return 'box';
+  if (!cam && typeof cxPontoPareceCaixa === 'function' && geomType === 'point' && cxPontoPareceCaixa(name)) return 'box';
   if (cam || (!feature?._source && geomType === 'point') || feature?._source === 'generated') return 'camera';
   if (/\bcto\b|^cto/i.test(name)) return 'cto';
   if (/\bcdo\b|^cdo|emenda|splice/i.test(name)) return 'cdo';
@@ -408,6 +455,7 @@ async function mapLoadCameraIndex() {
   // Por modo, sem a prioridade acima: diz em qual inventario esta cada camera
   // (o modo de cada camada sai daqui -- mapLayerModo).
   const porModo = {};
+  const byNumero = {};
   for (const m of modes) {
     const camData = await apiJson(`/api/cameras?mode=${encodeURIComponent(m)}&_=${Date.now()}`)
       .catch(() => null);
@@ -415,6 +463,12 @@ async function mapLoadCameraIndex() {
     (camData?.cameras || []).forEach(c => {
       if (c.titulo) idx.names.add(String(c.titulo).toLowerCase());
       if (c.ip) idx.ips.add(String(c.ip));
+      const num = mapNumeroDoTitulo(c.titulo);
+      const site = mapSiteChave(c.local || c.site || c.site_name);
+      if (num !== null && site) {
+        const doSite = byNumero[site] = byNumero[site] || {};
+        if (!doSite[num]) doSite[num] = c;   // primeiro modo ganha, como byName
+      }
       // O editor do mapa salva no inventario DESTE modo (/api/cameras/save?mode=).
       if (!c._mode) c._mode = m;
       const name = String(c.titulo || '').toLowerCase();
@@ -423,7 +477,7 @@ async function mapLoadCameraIndex() {
       if (ip && !byIp[ip]) byIp[ip] = c;
     });
   }
-  _mapCameraIndex = { byName, byIp, porModo };
+  _mapCameraIndex = { byName, byIp, porModo, byNumero };
   return _mapCameraIndex;
 }
 
@@ -1111,6 +1165,8 @@ function camerasForaDoMapa(layer) {
       const cam = mapFindCamera(f, idx);
       const ip = String(cam?.ip || '').trim();
       if (ip) noMapa.add(ip);
+      // ponto com duas cameras ("15 e 16"): as duas estao no mapa
+      mapCamerasPorNumero(f, idx).forEach(c => { if (c?.ip) noMapa.add(String(c.ip).trim()); });
     });
     if (!noMapa.size) return { total: 0, offline: 0 };
     const siteDe = c => String(c.local || c.site || c.site_name || '').trim().toUpperCase();
@@ -1156,8 +1212,10 @@ function mapLayerModo(def, index = _mapCameraIndex) {
     const name = mapFeatureName(f).toLowerCase();
     const desc = String(f?.properties?.description || '');
     const ip = mapExtractIp(desc) || mapExtractIp(name);
+    const porNum = !(name && index?.byName?.[name]) && !(ip && index?.byIp?.[ip]) ? mapFindCamera(f, index) : null;
     Object.entries(index?.porModo || {}).forEach(([m, idx]) => {
       if ((name && idx.names.has(name)) || (ip && idx.ips.has(ip))) conta[m] = (conta[m] || 0) + 1;
+      else if (porNum && porNum._mode === m) conta[m] = (conta[m] || 0) + 1;
     });
   });
   const max = Math.max(...Object.values(conta));
@@ -1202,6 +1260,8 @@ async function loadMapLayers() {
     origem: layer.origem || '',
     corOutros: layer.cor_outros || '',
     modoFixo: layer.modo || '',
+    caixas: layer.caixas || {},
+    cabos: layer.cabos || {},
     motivos: layer.motivos || {},
   }));
   const importedSignatures = new Set(importedLayers.map(layer => mapLayerSignature(layer.features)).filter(Boolean));
@@ -1238,7 +1298,11 @@ async function loadMapLayers() {
   // "todos os modos"), a nao ser que "Todas as camadas" esteja marcado.
   const modoAtual = mapInventoryMode();
   const verTodas = mapVerTodasCamadas();
-  todasAsCamadas.forEach(r => { r.modo = mapLayerModo(r, camIndex); });
+  todasAsCamadas.forEach(r => {
+    r.site = mapLayerSite(r, camIndex);
+    (r.features || []).forEach(f => { f._site = r.site; });
+    r.modo = mapLayerModo(r, camIndex);
+  });
   const results = todasAsCamadas.filter(r => verTodas || r.modo === 'todos' || r.modo === modoAtual);
   const escondidas = todasAsCamadas.length - results.length;
   _mapFeatures = results.flatMap(layer => (layer.features || []).map(f => ({ ...f, _source: f._source || layer.source, _layerId: layer.layerId || layer.id })));
@@ -1546,6 +1610,18 @@ function renderMapLayerGroup(id, def, skipFit = false) {
       const [lng, lat] = f.geometry.coordinates;
       if (lat == null || lng == null || isNaN(+lat) || isNaN(+lng)) return;
 
+      // Caixa de CFTV (cadastrada, ou ponto com cara de caixa): marcador e
+      // painel proprios (mapaCaixas.js), com o que tem dentro e os cabos.
+      if (!cam && def?.source === 'imported' && typeof cxMarcador === 'function'
+          && (cxCaixaDoPonto(def, mapFeatureName(f)) || pointType === 'box')) {
+        const mk = cxMarcador(id, def, f, +lat, +lng);
+        state.markers[mapFeatureKey(f, cam)] = mk;
+        state.group.addLayer(mk);
+        bounds.push([+lat, +lng]);
+        drawnCount += 1;
+        return;
+      }
+
       const isOnlinePop = cam?.status
         ? String(cam.status).toLowerCase() === 'online'
         : String(f.properties?.description || '').toUpperCase().includes('ONLINE');
@@ -1591,6 +1667,7 @@ function renderMapLayerGroup(id, def, skipFit = false) {
           className: '', iconSize: [40, 22], iconAnchor: [20, 11], popupAnchor: [0, -14],
         });
       const marker = L.marker([+lat, +lng], { icon, draggable: canDrag });
+      marker.on('click', () => { if (typeof cxCliqueNoPonto === 'function') cxCliqueNoPonto(def, f, cam, [+lat, +lng], marker); });
       if (canDrag) {
         marker.on('dragend', () => handleMapPointDragEnd(def, mapFeatureName(f), marker));
       }
@@ -1650,6 +1727,7 @@ function renderMapLayerGroup(id, def, skipFit = false) {
           </div>` : ''}
           ${!cam && pointType === 'other' && !podeEditarPonto ? `<div style="margin-top:8px;padding:6px 8px;background:#fff4e6;border:1px solid #ffd8a8;border-radius:6px;font-size:11px;color:#9a3412">Ponto sem camera cadastrada: nenhuma camera do inventario tem este nome. Se for uma camera, renomeie o ponto (Editar pontos) com o nome exato dela; se nao existir mais, apague o ponto ou informe o motivo abaixo.</div>` : ''}
           ${motivoHtml}
+          ${semCamera && def?.source === 'imported' && def?.updateUrl ? `<button type="button" data-map-point-caixa style="margin-top:8px;width:100%;padding:6px;background:#fff6df;color:#8a5100;border-radius:6px;font-size:11px;font-weight:700;border:1px solid #ffd8a8;cursor:pointer">Este ponto é uma caixa de CFTV</button>` : ''}
           ${podeEditarPonto ? `${!cam ? `<div style="margin-top:8px;padding:6px 8px;background:#fff9db;border:1px solid #ffec99;border-radius:6px;font-size:11px;color:#997404">Este ponto nao casa com nenhuma camera do inventario. Renomeie com o nome exato da camera para ele passar a casar.</div>` : ''}
           <div style="margin-top:8px;display:flex;gap:6px">
             <button type="button" data-map-point-rename style="flex:1;text-align:center;padding:6px;background:#fff3bf;color:#997404;border-radius:6px;font-size:11px;font-weight:600;border:1px solid #ffe066;cursor:pointer">Renomear ponto</button>
@@ -1658,8 +1736,13 @@ function renderMapLayerGroup(id, def, skipFit = false) {
         </div>`, { maxWidth: 320, className: 'sightops-popup' });
       if (semCamera && def?.updateUrl) {
         marker.on('popupopen', () => {
-          marker.getPopup()?.getElement()?.querySelector('[data-map-point-motivo]')
+          const el = marker.getPopup()?.getElement();
+          el?.querySelector('[data-map-point-motivo]')
             ?.addEventListener('click', () => informarMotivoPonto(def, mapFeatureName(f) || name, motivoPonto?.motivo || ''));
+          el?.querySelector('[data-map-point-caixa]')?.addEventListener('click', () => {
+            marker.closePopup();
+            cxAbrirPainel(id, def, mapFeatureName(f) || name, [+lat, +lng]);
+          });
         });
       }
       if (podeEditarPonto) {
@@ -1683,6 +1766,7 @@ function renderMapLayerGroup(id, def, skipFit = false) {
           }));
         });
         marker.on('click', () => {
+          if (typeof _cx !== 'undefined' && _cx.desenho) return; // ligando cabo
           // Com o painel aberto, clicar em outro pino troca a camera do painel.
           if (_mcp.key && _mcp.key !== featureKey) {
             marker.closePopup();
@@ -1695,6 +1779,7 @@ function renderMapLayerGroup(id, def, skipFit = false) {
       bounds.push([+lat, +lng]);
       drawnCount += 1;
   });
+  if (typeof cxDesenharCabos === 'function') cxDesenharCabos(id, def, state.group);
   _map.addLayer(state.group);
   state.active = true;
   state.drawnCount = drawnCount;
@@ -1941,6 +2026,7 @@ async function criarPontoLivre(def, latlng) {
 
 async function handleMapEditClick(e) {
   if (!_mapEditPendingCam || !_mapEditLayerId) return;
+  if (_mapPointRenameTarget) return; // renomeando: clique no mapa nao cria ponto
   const def = _mapLayerGroups[_mapEditLayerId]?.def || _mapEditDef;
   if (!def?.updateUrl) return;
   if (_mapEditPendingCam.livre) {
@@ -1977,14 +2063,26 @@ function openMapPointRename(def, nome) {
   const input = document.getElementById('mapPointRenameInput');
   if (!modal || !input) return;
   input.value = nome;
+  // Com o painel de edicao aberto, o fundo do modal deixa o clique passar:
+  // clicar numa camera da lista "sem ponto no mapa" preenche o nome.
+  const comLista = !document.getElementById('mapEditPanel')?.classList.contains('hidden');
+  modal.style.pointerEvents = comLista ? 'none' : '';
+  modal.style.background = comLista ? 'rgba(0,0,0,.12)' : '';
+  const caixa = modal.querySelector('.modal');
+  if (caixa) caixa.style.pointerEvents = comLista ? 'auto' : '';
   modal.classList.remove('hidden');
+  if (comLista) renderMapEditBanner();
   setTimeout(() => { input.focus(); input.select(); }, 30);
   lucide.createIcons();
 }
 
 function closeMapPointRename() {
-  document.getElementById('modalMapPointRename')?.classList.add('hidden');
+  const modal = document.getElementById('modalMapPointRename');
+  modal?.classList.add('hidden');
+  if (modal) { modal.style.pointerEvents = ''; modal.style.background = ''; }
+  const estavaAberto = !!_mapPointRenameTarget;
   _mapPointRenameTarget = null;
+  if (estavaAberto) renderMapEditBanner();
 }
 
 function handleMapPointRenameKey(event) {
@@ -2104,6 +2202,7 @@ function renderMapEditBanner() {
     <div class="map-edit-hint">Arraste um ponto existente pra move-lo. Use "Marcar ponto novo" e clique no mapa, ou escolha uma camera na lista abaixo.</div>
     ${_mapEditPendingCam?.livre ? '' : '<button type="button" class="map-layer-bulk-btn" id="mapEditNovoPonto" style="width:100%;margin:6px 0"><i data-lucide="map-pin-plus"></i> Marcar ponto novo</button>'}
     ${pendingHtml}
+    ${_mapPointRenameTarget ? `<div class="map-edit-pending">Clique numa camera abaixo para usar o nome dela em <strong>${esc(_mapPointRenameTarget.nome)}</strong>.</div>` : ''}
     <div class="map-edit-cam-list-title">Sem ponto no mapa</div>
     <div class="map-edit-cam-list">${listHtml}</div>`;
 
@@ -2120,6 +2219,11 @@ function renderMapEditBanner() {
     btn.addEventListener('click', () => {
       const ip = btn.dataset.mapEditCamIp;
       const cam = lista.find(c => c.ip === ip);
+      if (cam && _mapPointRenameTarget) {
+        const input = document.getElementById('mapPointRenameInput');
+        if (input) { input.value = cam.titulo || cam.ip; input.focus(); input.select(); }
+        return;
+      }
       if (cam) {
         _mapEditPendingCam = cam;
         renderMapEditBanner();
