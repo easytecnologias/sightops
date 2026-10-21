@@ -11,6 +11,7 @@ import asyncio
 import re
 import requests
 import secrets
+import threading
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -1738,12 +1739,20 @@ def _metros_do_caminho(caminho: list) -> float:
     return round(total, 1)
 
 
+# Le-altera-grava do meta (caixas/cabos) sob um lock: dois operadores salvando
+# ao mesmo tempo nao apagam o cabo um do outro (a API roda num processo so).
+_LOCK_CAIXAS = threading.Lock()
+_MAX_CABOS = 2000
+
+
 def _meta_da_camada_ou_404(layer_id: str) -> tuple[dict[str, Any], Path]:
     kmz_path, geojson_path, meta_path = _kmz_layer_paths(layer_id)
     if not kmz_path.exists() or not geojson_path.exists():
         raise HTTPException(404, "Camada KMZ nao encontrada.")
     meta = _read_kmz_layer_meta(meta_path)
-    meta["id"] = layer_id
+    # o id SANEADO (o da URL pode trazer lixo depois do ponto, que o
+    # _safe_name corta mas iria cru para o meta e para a tela)
+    meta["id"] = _safe_name(layer_id, "layer")
     return meta, meta_path
 
 
@@ -1755,6 +1764,11 @@ def _exige_admin_para_excluir() -> None:
 
 
 def _caixa_da_camada(layer_id: str, dados: Dict[str, Any], por: str = "") -> dict[str, Any]:
+    with _LOCK_CAIXAS:
+        return _caixa_da_camada_sem_lock(layer_id, dados, por)
+
+
+def _caixa_da_camada_sem_lock(layer_id: str, dados: Dict[str, Any], por: str = "") -> dict[str, Any]:
     meta, meta_path = _meta_da_camada_ou_404(layer_id)
     caixas = meta.get("caixas") if isinstance(meta.get("caixas"), dict) else {}
     cabos = meta.get("cabos") if isinstance(meta.get("cabos"), dict) else {}
@@ -1813,6 +1827,11 @@ def _caixa_da_camada(layer_id: str, dados: Dict[str, Any], por: str = "") -> dic
 
 
 def _cabo_da_camada(layer_id: str, dados: Dict[str, Any], por: str = "") -> dict[str, Any]:
+    with _LOCK_CAIXAS:
+        return _cabo_da_camada_sem_lock(layer_id, dados, por)
+
+
+def _cabo_da_camada_sem_lock(layer_id: str, dados: Dict[str, Any], por: str = "") -> dict[str, Any]:
     meta, meta_path = _meta_da_camada_ou_404(layer_id)
     caixas = meta.get("caixas") if isinstance(meta.get("caixas"), dict) else {}
     cabos = meta.get("cabos") if isinstance(meta.get("cabos"), dict) else {}
@@ -1828,6 +1847,8 @@ def _cabo_da_camada(layer_id: str, dados: Dict[str, Any], por: str = "") -> dict
             raise HTTPException(400, "Caixa nao encontrada nesta camada.")
         if kid and kid not in cabos:
             raise HTTPException(404, "Cabo nao encontrado.")
+        if not kid and len(cabos) >= _MAX_CABOS:
+            raise HTTPException(400, "Limite de cabos na camada.")
         tipo = _texto_curto(dados.get("tipo") or "utp5e", 10)
         if tipo not in _TIPOS_CABO:
             raise HTTPException(400, "Tipo de cabo invalido.")
@@ -1854,6 +1875,12 @@ def _cabo_da_camada(layer_id: str, dados: Dict[str, Any], por: str = "") -> dict
                 return outra.get("ip") == destino["ip"]
             return bool(destino["ponto"]) and str(outra.get("ponto") or "").lower() == destino["ponto"].lower()
 
+        if kid:
+            antigo = cabos[kid]
+            if antigo.get("caixa") != caixa["id"] or not _mesma_camera(antigo):
+                # trocar a caixa ou a camera de um cabo e excluir um e criar
+                # outro: so com a regra de exclusao (admin ou a senha dele)
+                _exige_admin_para_excluir()
         repetido = next((c for k, c in cabos.items() if k != kid and _mesma_camera(c)), None)
         if repetido:
             cx_nome = (caixas.get(repetido.get("caixa")) or {}).get("nome") or "outra caixa"
@@ -1901,7 +1928,7 @@ def _modo_da_camada(layer_id: str, modo: Any) -> dict[str, Any]:
     if not kmz_path.exists() or not geojson_path.exists():
         raise HTTPException(404, "Camada KMZ nao encontrada.")
     meta = _read_kmz_layer_meta(meta_path)
-    meta["id"] = layer_id
+    meta["id"] = _safe_name(layer_id, "layer")
     meta["modo"] = valor
     meta["updated_at"] = datetime.now().isoformat(timespec="seconds")
     _write_kmz_layer_meta(meta_path, meta)

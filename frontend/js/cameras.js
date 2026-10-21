@@ -255,16 +255,20 @@ function mapFeatureLocal(feature, cam) {
   return m ? m[1].trim() : '';
 }
 
-// Numero da camera no comeco do titulo: "14 - R. SAO VICENTE 2" -> 14.
+// Numero da camera no comeco do titulo: "14 - R. SAO VICENTE 2" -> 14. So com
+// traco ou dois-pontos depois: IP ("10.45.0.246") e "3 MP BULLET" nao viram numero.
 function mapNumeroDoTitulo(titulo) {
-  const m = String(titulo || '').match(/^\s*(\d{1,4})\s*(?:[-–.:]|\s|$)/);
+  const m = String(titulo || '').match(/^\s*(\d{1,3})\s*[-–:]\s*\S/);
   return m ? Number(m[1]) : null;
 }
 
 // Numeros do nome do ponto: "14" -> [14]; "15 e 16" -> [15, 16]; "26 Speed dome" -> [26].
+// Nao: IP ("10.45.0.246"), medida ("100m"), data ("12/2025").
 function mapNumerosDoPonto(nome) {
-  const m = String(nome || '').match(/^\s*\d{1,4}(?:\s*(?:e|,|\/|&|-)\s*\d{1,4})*(?=\s|$|[^\d])/i);
-  return m ? (m[0].match(/\d{1,4}/g) || []).map(Number) : [];
+  const n = String(nome || '');
+  if (/\d+\.\d+\.\d+/.test(n)) return [];
+  const m = n.match(/^\s*\d{1,3}(?:\s*(?:\se\s|,|&)\s*\d{1,3})*(?=\s*$|\s*-\s|\s+[a-z])/i);
+  return m ? (m[0].match(/\d{1,3}/g) || []).map(Number) : [];
 }
 
 function mapSiteChave(site) {
@@ -299,13 +303,17 @@ function mapLayerSite(def, index = _mapCameraIndex) {
     const name = mapFeatureName(f);
     const ip = mapExtractIp(String(f?.properties?.description || '')) || mapExtractIp(name);
     const cam = index?.byName?.[name.toLowerCase()] || index?.byIp?.[ip];
-    const s = mapSiteChave(cam?.local || cam?.site || cam?.site_name);
+    const s = mapSiteChave(cam?.site || cam?.site_name || cam?.local);
     if (s) conta[s] = (conta[s] || 0) + 1;
   });
   const porCamera = Object.keys(conta).sort((a, b) => conta[b] - conta[a])[0];
   if (porCamera) return porCamera;
-  const rotulo = mapSiteChave(def.label);
-  return Object.keys(index?.byNumero || {}).filter(s => s && rotulo.includes(s)).sort((a, b) => b.length - a.length)[0] || '';
+  // pelo nome da camada: so site de 4+ letras e como palavra inteira ("AL"
+  // nao casa com "PORTO REAL")
+  const rotulo = ` ${mapSiteChave(def.label).replace(/[^A-Z0-9]+/g, ' ')} `;
+  return Object.keys(index?.byNumero || {})
+    .filter(s => s.length >= 4 && rotulo.includes(` ${s.replace(/[^A-Z0-9]+/g, ' ').trim()} `))
+    .sort((a, b) => b.length - a.length)[0] || '';
 }
 
 function mapFeatureType(feature, cam) {
@@ -464,10 +472,13 @@ async function mapLoadCameraIndex() {
       if (c.titulo) idx.names.add(String(c.titulo).toLowerCase());
       if (c.ip) idx.ips.add(String(c.ip));
       const num = mapNumeroDoTitulo(c.titulo);
-      const site = mapSiteChave(c.local || c.site || c.site_name);
+      const site = mapSiteChave(c.site || c.site_name || c.local);
       if (num !== null && site) {
         const doSite = byNumero[site] = byNumero[site] || {};
-        if (!doSite[num]) doSite[num] = c;   // primeiro modo ganha, como byName
+        // Dois "1 - ENTRADA" no mesmo site (cameras diferentes): o numero nao
+        // decide -- nenhuma casa (null). Mesmo IP em outro modo e a mesma.
+        if (doSite[num] === undefined) doSite[num] = c;
+        else if (doSite[num] && String(doSite[num].ip || '') !== String(c.ip || '')) doSite[num] = null;
       }
       // O editor do mapa salva no inventario DESTE modo (/api/cameras/save?mode=).
       if (!c._mode) c._mode = m;

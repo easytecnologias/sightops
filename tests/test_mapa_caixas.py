@@ -98,3 +98,23 @@ def test_excluir_so_admin_e_caixa_leva_os_cabos(camada):
     finally:
         T.reset_current_user(tok)
     assert r["caixas"] == {} and r["cabos"] == {}
+
+
+def test_trocar_camera_do_cabo_e_excluir(camada):
+    cx = _caixa()
+    r = tools._cabo_da_camada("c1", {"caixa": cx["id"], "camera": {"ponto": "14", "ip": "10.45.0.14"}, "porta": 1, "caminho": _CAMINHO})
+    kid = next(iter(r["cabos"]))
+    # mudar so o tracado/porta do mesmo cabo: edicao normal
+    tools._cabo_da_camada("c1", {"id": kid, "caixa": cx["id"], "camera": {"ponto": "14", "ip": "10.45.0.14"}, "porta": 2, "caminho": _CAMINHO})
+    tok = _como("operator")
+    try:
+        with pytest.raises(HTTPException) as e:  # trocar a camera = excluir + criar
+            tools._cabo_da_camada("c1", {"id": kid, "caixa": cx["id"], "camera": {"ponto": "17", "ip": "10.45.0.17"}, "caminho": _CAMINHO})
+        assert e.value.status_code == 403
+    finally:
+        T.reset_current_user(tok)
+
+
+def test_id_da_camada_saneado_no_meta(camada):
+    tools._caixa_da_camada('c1.<img src=x onerror=alert(1)>', {"ponto": "CAI"})
+    assert json.loads((camada / "c1.meta.json").read_text(encoding="utf-8"))["id"] == "c1"
