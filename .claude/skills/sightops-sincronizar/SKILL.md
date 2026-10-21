@@ -59,13 +59,17 @@ Com a imagem que esta no ar, sem tocar no container de producao:
 ```bash
 ssh sightops 'cd /home/central/sightops-v3; IMG=$(docker inspect sightops-v3-api --format "{{.Config.Image}}"); \
   docker run --rm -e PYTHONPYCACHEPREFIX=/tmp/pyc -v $PWD/app:/src/app:ro -v $PWD/tests:/src/tests:ro \
-  -v $PWD/deploy:/src/deploy:ro -v $PWD/scripts:/src/scripts:ro \
+  -v $PWD/deploy:/src/deploy:ro -v $PWD/scripts:/src/scripts:ro -v $PWD/migrations:/src/migrations:ro \
   -w /src --entrypoint sh $IMG -c "pip install -q pytest >/dev/null 2>&1; python -c \"import app.main\" && python -m pytest tests -q -p no:cacheprovider | tail -3"'
 ```
 
 `-v $PWD:/src` inteiro nao serve: o app cria `data/` no import e o mount e
 somente leitura. Monte `app/` e `tests/`, mais `deploy/` e `scripts/` (o teste
-de isolamento do Ruijie carrega o iso-provisioner e o sync do tunel de la).
+de isolamento do Ruijie carrega o iso-provisioner e o sync do tunel de la) e
+`migrations/` (sem ela ~37 testes de usuarios/licencas/notificacoes dao
+`MigrationError`). Resultado esperado: tudo passa menos
+`test_painel_inicial_usa_o_filtro`, que tenta resolver `sightops-v3-postgres`
+(o container de teste nao esta na rede do banco); na maquina local ele passa.
 
 Depois de `/sightops-publicar`, a imagem que vale e a do `.env.v3` (o container
 pode ainda estar na anterior ate ser recriado): use
