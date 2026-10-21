@@ -145,7 +145,11 @@ function cxCliqueNoPonto(def, f, cam, latlng, marker) {
   if (!d) return false;
   setTimeout(() => marker?.closePopup?.(), 0);
   const alvo = d.alvo === 'cto' ? 'CTO' : 'câmera';
-  if (d.def !== def) { showToast(`A ${alvo} precisa estar na mesma camada da caixa.`, true); return true; }
+  // a mesma camera pode estar desenhada em outra camada (a gerada do
+  // inventario, por exemplo) por cima da desta: com IP ela e identificada
+  // igual, entao vale; sem IP so a da mesma camada
+  const outraCamada = d.def?.id !== def?.id;
+  if (outraCamada && (d.alvo === 'cto' || !cam?.ip)) { showToast(`A ${alvo} precisa estar na mesma camada da caixa.`, true); return true; }
   const tipo = mapFeatureType(f, cam);
   if (d.alvo === 'cto') {
     if (tipo !== 'cto') { showToast('Clique numa CTO para terminar o cabo (ou no mapa para fazer uma curva).', true); return true; }
