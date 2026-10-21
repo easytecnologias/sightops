@@ -25,6 +25,10 @@ const LIVE_STREAM_CODECS = [
   'avc1.640029', // H.264 high 4.1
   'avc1.64002A', // H.264 high 4.2
   'avc1.640033', // H.264 high 5.1
+  // H.265: so entra se o navegador aceitar (filtro abaixo). Com ele o go2rtc
+  // repassa o video da camera sem recodificar -- a maioria das cameras manda
+  // H.265, e recodificar 1080p no servidor congelava o HD.
+  'hvc1.1.6.L153.B0',
 ];
 
 function _liveStreamName(ip, subtype) {

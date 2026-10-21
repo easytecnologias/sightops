@@ -48,10 +48,18 @@ def main() -> None:
         # go2rtc real ignora ?name= no GET -- sempre devolve tudo.
         return FakeResponse(200, dict(estado_streams))
 
+    def _put_params(kwargs: dict) -> tuple[str, list[str]]:
+        """PUT do go2rtc: name + uma ou mais fontes (src repetido)."""
+        params = kwargs.get("params") or {}
+        if isinstance(params, dict):
+            return params["name"], [params["src"]]
+        nome = next(v for k, v in params if k == "name")
+        return nome, [v for k, v in params if k == "src"]
+
     def fake_put(url: str, **kwargs: Any) -> FakeResponse:
         chamadas.append({"metodo": "PUT", "url": url, **kwargs})
-        params = kwargs.get("params") or {}
-        estado_streams[params["name"]] = {"producers": [{"url": params["src"]}], "consumers": None}
+        nome, fontes = _put_params(kwargs)
+        estado_streams[nome] = {"producers": [{"url": f} for f in fontes], "consumers": None}
         return FakeResponse(200, {})
 
     def fake_delete(url: str, **kwargs: Any) -> FakeResponse:
@@ -76,7 +84,10 @@ def main() -> None:
         )
         assert name == "cam_10_10_9_85_1", name
         assert [c["metodo"] for c in chamadas] == ["GET", "PUT"], chamadas
-        assert "10.10.9.85:554/cam/realmonitor?channel=1&subtype=1" in estado_streams[name]["producers"][0]["url"]
+        fontes = [p["url"] for p in estado_streams[name]["producers"]]
+        # 1a fonte: a camera direto (sem recodificar); 2a: recodifica so para quem nao aceita H.265
+        assert fontes[0].startswith("rtsp://") and "10.10.9.85:554/cam/realmonitor?channel=1&subtype=1" in fontes[0], fontes
+        assert fontes[1] == f"ffmpeg:{name}#video=h264", fontes
 
         # --- registrar de novo, MESMA camera/qualidade/credencial: idempotente, SEM PUT ---
         chamadas.clear()
@@ -94,9 +105,10 @@ def main() -> None:
             ip="10.10.9.85", user="admin", password="outra-senha",
             subtype=1, vendor="Intelbras", model="VIP-1230",
         )
-        assert [c["metodo"] for c in chamadas] == ["GET", "PUT"], (
-            f"credencial mudou, deveria ter re-registrado: {chamadas}"
+        assert [c["metodo"] for c in chamadas] == ["GET", "DELETE", "PUT"], (
+            f"credencial mudou, deveria ter recriado (PUT do go2rtc acrescenta fontes): {chamadas}"
         )
+        assert len(estado_streams[name]["producers"]) == 2, estado_streams[name]
 
         # --- go2rtc 1.9.14 as vezes cria o stream mas devolve HTTP 400
         # (bug real confirmado em producao: erro de YAML interno num
@@ -107,9 +119,9 @@ def main() -> None:
 
         def fake_put_go2rtc_bug(url: str, **kwargs: Any) -> FakeResponse:
             chamadas.append({"metodo": "PUT", "url": url, **kwargs})
-            params = kwargs.get("params") or {}
+            nome, fontes = _put_params(kwargs)
             # cria o stream de verdade (como o go2rtc realmente faz)...
-            estado_streams[params["name"]] = {"producers": [{"url": params["src"]}], "consumers": None}
+            estado_streams[nome] = {"producers": [{"url": f} for f in fontes], "consumers": None}
             # ...mas devolve erro, como o bug real observado
             return FakeResponse(400, "")
 

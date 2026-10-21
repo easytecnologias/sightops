@@ -100,17 +100,29 @@ def _stream_rtsp_path_for_camera(*, vendor: str = "", model: str = "", subtype: 
     return f"/cam/realmonitor?channel=1&subtype={st}"
 
 
-def _source_url(*, ip: str, user: str, password: str, vendor: str, model: str, subtype: int) -> str:
+def _source_urls(*, name: str, ip: str, user: str, password: str, vendor: str, model: str, subtype: int) -> List[str]:
+    """Duas fontes, na ordem em que o go2rtc tenta:
+
+    1. a camera DIRETO (rtsp): o go2rtc repassa o video sem recodificar
+       quando o navegador aceita o codec -- o player anuncia H.265 quando o
+       navegador suporta;
+    2. `ffmpeg:<este stream>#video=h264`: recodifica so para quem nao aceita
+       o codec da camera (navegador sem H.265).
+
+    Antes era so a 2 (sempre recodificava). Medido em Porto Real, 21/10/2026,
+    Intelbras VIP-1230 (manda H.265 nos dois fluxos): SD levava 9,9 s ate a
+    1a imagem e o HD entregava 0,9 s de video em 11,8 s (o ffmpeg nao
+    acompanha 1080p). Direto: SD em 1,7 s, sem atraso."""
     user_q = quote(str(user or "admin"), safe="")
     pass_q = quote(str(password or ""), safe="")
     rtsp_path = _stream_rtsp_path_for_camera(vendor=vendor, model=model, subtype=subtype)
     rtsp_url = f"rtsp://{user_q}:{pass_q}@{ip}:554{rtsp_path}"
-    # ffmpeg: transcodifica H.265 -> H.264 (navegador nao decodifica H.265 nativamente em MSE)
-    return f"ffmpeg:{rtsp_url}#video=h264"
+    return [rtsp_url, f"ffmpeg:{name}#video=h264"]
 
 
-def _stream_registered_with_source(name: str, source: str) -> bool:
-    """True se o go2rtc ja tem esse stream registrado com essa fonte exata."""
+def _stream_registered_with_source(name: str, source: Any) -> bool:
+    """True se o go2rtc ja tem esse stream registrado com essa(s) fonte(s)
+    exata(s), na mesma ordem. `source` e uma URL ou a lista delas."""
     resp = requests.get(f"{GO2RTC_BASE_URL}/api/streams", timeout=5)
     if resp.status_code != 200:
         return False
@@ -119,6 +131,8 @@ def _stream_registered_with_source(name: str, source: str) -> bool:
     except ValueError:
         return False
     producers = (streams.get(name) or {}).get("producers") or []
+    if isinstance(source, (list, tuple)):
+        return [p.get("url") for p in producers] == list(source)
     current_source = producers[0].get("url") if producers else None
     return current_source == source
 
@@ -134,12 +148,17 @@ def register_stream(*, ip: str, user: str, password: str, subtype: int = 1, vend
     st = 0 if int(subtype or 0) == 0 else 1
     name = _stream_name(ip, st)
     _registered_at[name] = time.time()  # marca p/ a carencia da varredura
-    source = _source_url(ip=ip, user=user, password=password, vendor=vendor, model=model, subtype=st)
+    sources = _source_urls(name=name, ip=ip, user=user, password=password, vendor=vendor, model=model, subtype=st)
 
-    if _stream_registered_with_source(name, source):
+    atuais = _fontes_registradas(name)
+    if atuais == sources:
         return name
-
-    put = requests.put(f"{GO2RTC_BASE_URL}/api/streams", params={"name": name, "src": source}, timeout=5)
+    if atuais is not None:
+        # fonte mudou (senha, ou registro antigo de fonte unica): o PUT do go2rtc
+        # ACRESCENTA fontes a um stream existente -- recria do zero
+        requests.delete(f"{GO2RTC_BASE_URL}/api/streams", params={"src": name}, timeout=5)
+    put = requests.put(f"{GO2RTC_BASE_URL}/api/streams",
+                       params=[("name", name)] + [("src", s) for s in sources], timeout=5)
     if put.status_code not in (200, 201, 204):
         # go2rtc 1.9.14 tem um bug conhecido: em parte dos registros de
         # stream genuinamente novo, ele CRIA o stream (confirmado testando
@@ -149,10 +168,24 @@ def register_stream(*, ip: str, user: str, password: str, subtype: int = 1, vend
         # camera nova falhava e so funcionava ~4s depois, no reconnect
         # automatico do frontend -- confirmar pelo estado real antes de
         # desistir.
-        if _stream_registered_with_source(name, source):
+        if _stream_registered_with_source(name, sources):
             return name
         raise RuntimeError(f"go2rtc recusou registrar {name}: HTTP {put.status_code} {put.text[:200]}")
     return name
+
+
+def _fontes_registradas(name: str):
+    """URLs das fontes do stream no go2rtc, na ordem; None se nao existe."""
+    resp = requests.get(f"{GO2RTC_BASE_URL}/api/streams", timeout=5)
+    if resp.status_code != 200:
+        return None
+    try:
+        streams: Dict[str, Any] = resp.json() or {}
+    except ValueError:
+        return None
+    if name not in streams:
+        return None
+    return [p.get("url") for p in ((streams.get(name) or {}).get("producers") or [])]
 
 
 def _recorder_rtsp_path(canal: int, marca: str = "", alta: bool = True) -> str:
