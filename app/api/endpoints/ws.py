@@ -724,7 +724,15 @@ async def ws_web_tunnel(ws: WebSocket, ip: str) -> None:
             finally:
                 cancel.set()
 
-        await asyncio.gather(_ws_to_tcp(), _tcp_to_ws())
+        # Quando um lado acaba, o outro tambem: o equipamento que responde
+        # HTTP/1.0 sem Content-Length (Ruijie, ONTs, UNV) marca o fim da resposta
+        # FECHANDO a conexao. Com gather a ponte ficava presa no receive do WS,
+        # o navegador nunca via o fim e a pagina ficava branca.
+        tarefas = [asyncio.create_task(_ws_to_tcp()), asyncio.create_task(_tcp_to_ws())]
+        _feitas, pendentes = await asyncio.wait(tarefas, return_when=asyncio.FIRST_COMPLETED)
+        for t in pendentes:
+            t.cancel()
+        await asyncio.gather(*pendentes, return_exceptions=True)
     finally:
         try:
             if writer is not None:
