@@ -912,7 +912,7 @@ async def api_inventory_import(file: UploadFile = File(...), mode: str = "olt") 
         sumiriam = [str(r.get("ip") or "") for r in _load_inventory_rows(mode=mode)
                     if str(r.get("ip") or "").strip() not in novos]
         if sumiriam:
-            raise permissions.erro_exige_admin(f"{permissions.MSG_EXCLUIR} O arquivo deixaria de fora {len(sumiriam)} câmera(s) que já estão no inventário.")
+            raise HTTPException(403, f"{permissions.MSG_EXCLUIR} O arquivo deixaria de fora {len(sumiriam)} câmera(s) que já estão no inventário: peça a um administrador para importar.")
     _save_inventory_rows(rows, mode=mode)
     saved = _load_inventory_rows(mode=mode)
     return {"ok": True, "count": len(saved), "inventory": saved}

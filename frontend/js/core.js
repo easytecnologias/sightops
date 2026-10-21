@@ -171,11 +171,12 @@ async function api(path, opts = {}) {
   // X-SightOps-Exige-Admin. Um administrador digita usuario e senha aqui
   // mesmo e a MESMA acao e repetida com a autorizacao (uso unico, 2 min).
   // Vale para toda tela que usa api(), sem mexer em cada uma.
-  if (res.status === 403 && !_autorizado && res.headers.get('X-SightOps-Exige-Admin') === '1') {
+  const corpoTexto = typeof fetchOpts.body === 'string' ? fetchOpts.body : (fetchOpts.body == null ? '' : null);
+  if (res.status === 403 && !_autorizado && corpoTexto !== null && res.headers.get('X-SightOps-Exige-Admin') === '1') {
     const detalhe = (await res.clone().json().catch(() => ({})))?.detail || '';
     let caminho = path;
-    try { caminho = new URL(`${API_BASE}${path}`, window.location.origin).pathname; } catch {}
-    const codigo = await pedirAutorizacaoAdmin({ metodo: method, caminho, detalhe });
+    try { caminho = decodeURIComponent(new URL(`${API_BASE}${path}`, window.location.origin).pathname); } catch {}
+    const codigo = await pedirAutorizacaoAdmin({ metodo: method, caminho, detalhe, corpo: corpoTexto });
     if (!codigo) return res;
     return api(path, {
       ...opts,
@@ -188,7 +189,19 @@ async function api(path, opts = {}) {
 
 // Modal "autorizacao do administrador". Fecha so por Cancelar/Esc (clicar
 // fora nao fecha: perdia a senha digitada). Devolve o codigo ou null.
-function pedirAutorizacaoAdmin({ metodo, caminho, detalhe }) {
+// sha256 do corpo que sera reenviado: o codigo so vale para este conteudo.
+async function _hashCorpo(texto) {
+  const dados = new TextEncoder().encode(texto || '');
+  const h = await crypto.subtle.digest('SHA-256', dados);
+  return Array.from(new Uint8Array(h)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+function _descreverAcao(metodo, caminho) {
+  const verbo = { DELETE: 'Excluir', POST: 'Enviar', PUT: 'Alterar', PATCH: 'Alterar' }[metodo] || metodo;
+  return `${verbo} — ${caminho}`;
+}
+
+function pedirAutorizacaoAdmin({ metodo, caminho, detalhe, corpo = '' }) {
   return new Promise(resolve => {
     document.getElementById('modalAutorizacaoAdmin')?.remove();
     const wrap = document.createElement('div');
@@ -200,19 +213,21 @@ function pedirAutorizacaoAdmin({ metodo, caminho, detalhe }) {
         <div class="modal-header">
           <div>
             <p class="eyebrow">Somente administrador</p>
-            <h2 id="autAdmTitulo">Autorização para excluir</h2>
+            <h2 id="autAdmTitulo">Autorização do administrador</h2>
           </div>
         </div>
         <form class="modal-body" id="autAdmForm" autocomplete="off">
           <p style="margin:0 0 12px;font-size:14px;color:var(--text)">${esc(detalhe || 'Excluir é só para administrador ou dono da conta.')}</p>
-          <p style="margin:0 0 14px;font-size:13px;color:var(--muted)">Um administrador pode liberar esta ação agora, digitando o usuário e a senha dele. Fica registrado no histórico com o nome dos dois.</p>
+          <p style="margin:0 0 6px;font-size:13px;color:var(--muted)">Ação pedida:</p>
+          <p style="margin:0 0 14px;font-size:13px;color:var(--text);font-family:ui-monospace,Consolas,monospace;word-break:break-all;background:var(--danger-soft);padding:8px 10px;border-radius:8px">${esc(_descreverAcao(metodo, caminho))}</p>
+          <p style="margin:0 0 14px;font-size:13px;color:var(--muted)">Um administrador pode liberar só esta ação, agora, digitando o usuário e a senha dele. Fica registrado no histórico com o nome dos dois.</p>
           <div class="form-group"><label for="autAdmUser">Usuário do administrador</label><input id="autAdmUser" autocomplete="off" autocapitalize="none" spellcheck="false" required></div>
           <div class="form-group"><label for="autAdmPass">Senha</label><input id="autAdmPass" type="password" autocomplete="new-password" required></div>
           <p id="autAdmErro" style="display:none;margin:6px 0 0;font-size:13px;color:var(--danger)"></p>
         </form>
         <div class="modal-actions">
           <button type="button" class="secondary-action" id="autAdmCancel">Cancelar</button>
-          <button type="submit" form="autAdmForm" class="primary-action" id="autAdmOk" style="background:var(--danger)"><i data-lucide="shield-check"></i> Autorizar e excluir</button>
+          <button type="submit" form="autAdmForm" class="primary-action" id="autAdmOk" style="background:var(--danger)"><i data-lucide="shield-check"></i> Autorizar</button>
         </div>
       </div>`;
     document.body.appendChild(wrap);
@@ -236,7 +251,7 @@ function pedirAutorizacaoAdmin({ metodo, caminho, detalhe }) {
       try {
         const r = await api('/api/auth/autorizar-exclusao', {
           method: 'POST',
-          body: JSON.stringify({ username: user.value.trim(), password: pass.value, metodo, caminho }),
+          body: JSON.stringify({ username: user.value.trim(), password: pass.value, metodo, caminho, corpo_hash: await _hashCorpo(corpo) }),
         });
         const data = await r?.json().catch(() => ({}));
         if (!r?.ok || !data?.autorizacao) throw new Error(data?.detail || 'Não foi possível autorizar.');

@@ -159,7 +159,19 @@ def _tenant_de(user: Dict[str, Any]) -> str:
     return str(user.get("effective_tenant_slug") or user.get("tenant_slug") or "").strip().lower()
 
 
-def emitir_autorizacao(admin: Dict[str, Any], operador: Dict[str, Any], metodo: str, caminho: str) -> str:
+def hash_corpo(corpo: Any) -> str:
+    import hashlib
+
+    if isinstance(corpo, str):
+        corpo = corpo.encode("utf-8")
+    return hashlib.sha256(bytes(corpo or b"")).hexdigest()
+
+
+def emitir_autorizacao(admin: Dict[str, Any], operador: Dict[str, Any], metodo: str, caminho: str,
+                       corpo_hash: str = "") -> str:
+    """corpo_hash: sha256 do corpo que a tela vai reenviar. O codigo so vale
+    para ESSE conteudo -- sem isso o operador trocava o canal, o gravador ou o
+    conector ao repetir o pedido."""
     import secrets
 
     agora = time.monotonic()
@@ -172,13 +184,15 @@ def emitir_autorizacao(admin: Dict[str, Any], operador: Dict[str, Any], metodo: 
         _autorizacoes[codigo] = {
             "expira": agora + _AUTORIZACAO_TTL, "tenant": _tenant_de(operador),
             "operador_id": int(operador.get("id") or 0), "metodo": str(metodo or "").upper(),
-            "caminho": str(caminho or ""), "admin_id": int(admin.get("id") or 0),
+            "caminho": str(caminho or ""), "corpo": str(corpo_hash or hash_corpo(b"")),
+            "admin_id": int(admin.get("id") or 0),
             "admin": str(admin.get("username") or ""),
         }
     return codigo
 
 
-def consumir_autorizacao(codigo: str, operador: Dict[str, Any], metodo: str, caminho: str) -> Optional[Dict[str, Any]]:
+def consumir_autorizacao(codigo: str, operador: Dict[str, Any], metodo: str, caminho: str,
+                         corpo: bytes = b"") -> Optional[Dict[str, Any]]:
     """Valida e gasta o codigo (uso unico). None se nao serve para isto."""
     codigo = str(codigo or "").strip()
     if not codigo or not operador:
@@ -189,6 +203,8 @@ def consumir_autorizacao(codigo: str, operador: Dict[str, Any], metodo: str, cam
         return None
     if (item["tenant"], item["operador_id"], item["metodo"], item["caminho"]) != (
             _tenant_de(operador), int(operador.get("id") or 0), str(metodo or "").upper(), str(caminho or "")):
+        return None
+    if item["corpo"] != hash_corpo(corpo):
         return None
     return item
 

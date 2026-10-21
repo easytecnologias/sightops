@@ -199,6 +199,19 @@ class ApiAuthMiddleware(BaseHTTPMiddleware):
             return True
         return False
 
+    def _regra_declarada(self, path: str, method: str) -> str:
+        """A regra da lista, sem a trava de exclusao por cima."""
+        for methods, prefix, min_role in self._role_rules:
+            if method in methods and (path == prefix or path.startswith(prefix)):
+                return min_role
+        return ""
+
+    def autorizavel(self, path: str, method: str) -> bool:
+        """A senha do administrador so tira a trava de EXCLUSAO de rota que o
+        operador ja usa: rota que ja era de administrador (excluir
+        controladora, WhatsApp, usuarios...) continua so de administrador."""
+        return ROLE_RANK.get(self._regra_declarada(path, method), 0) < ROLE_RANK["admin"] and not path.startswith("/api/auth/")
+
     def _match_role_rule(self, path: str, method: str) -> str:
         for methods, prefix, min_role in self._role_rules:
             if method not in methods:
@@ -347,8 +360,9 @@ class ApiAuthMiddleware(BaseHTTPMiddleware):
         # o codigo vale uma vez, para este operador e esta acao exata.
         autorizacao = None
         codigo = str(request.headers.get(permissions.CABECALHO_AUTORIZACAO) or "").strip()
-        if codigo and method in self._WRITE_METHODS:
-            autorizacao = permissions.consumir_autorizacao(codigo, user, method, path)
+        if codigo and method in self._WRITE_METHODS and self.autorizavel(path, method):
+            corpo = await request.body()
+            autorizacao = permissions.consumir_autorizacao(codigo, user, method, path, corpo)
             if autorizacao:
                 logger.warning("exclusao autorizada: %s %s por %s (operador %s), autorizada por %s",
                                method, path, user.get("username"), user.get("id"), autorizacao.get("admin"))
@@ -361,7 +375,9 @@ class ApiAuthMiddleware(BaseHTTPMiddleware):
             headers = {}
             if exclusao_barrada:
                 motivo = permissions.MSG_EXCLUIR
-                headers[permissions.CABECALHO_EXIGE_ADMIN] = "1"
+                # So oferece a senha do administrador a quem ela adiantaria.
+                if self.autorizavel(path, method) and self._operaria(user, path, method):
+                    headers[permissions.CABECALHO_EXIGE_ADMIN] = "1"
             try:
                 return JSONResponse(status_code=403, content={"detail": motivo}, headers=headers)
             finally:

@@ -319,6 +319,11 @@ class AutorizarExclusaoRequest(BaseModel):
     password: str
     metodo: str
     caminho: str
+    corpo_hash: str = ""
+
+
+def _autorizar_bloqueado(chaves: list) -> int:
+    return max([_login_blocked(k) for k in chaves] or [0])
 
 
 @router.post("/autorizar-exclusao")
@@ -331,10 +336,17 @@ def api_auth_autorizar_exclusao(req: AutorizarExclusaoRequest, request: Request)
         raise HTTPException(status_code=401, detail="autenticacao obrigatoria")
     metodo = str(req.metodo or "").strip().upper()
     caminho = str(req.caminho or "").strip().split("?", 1)[0]
-    if metodo not in ("POST", "PUT", "PATCH", "DELETE") or not caminho.startswith("/api/") or caminho.startswith("/api/auth/"):
-        raise HTTPException(status_code=400, detail="acao invalida para autorizar")
-    chave = _login_key(request, "autorizar|" + str(req.username or ""))
-    espera = _login_blocked(chave)
+    from app.core.security import ApiAuthMiddleware
+    from app.core.settings import get_settings
+
+    if metodo not in ("POST", "PUT", "PATCH", "DELETE") or not caminho.startswith("/api/") \
+            or not ApiAuthMiddleware(None, get_settings()).autorizavel(caminho, metodo):
+        raise HTTPException(status_code=400, detail="Esta ação não pode ser autorizada por senha: só o administrador, na conta dele.")
+    # Limite por ADMINISTRADOR e por OPERADOR, sem IP: o IP vem de cabecalho
+    # que o navegador forja (X-Forwarded-For), e quem pede aqui ja esta logado.
+    chaves = ["autorizar-admin|" + str(req.username or "").strip().lower()[:80],
+              "autorizar-operador|" + str(operador.get("id") or "")]
+    espera = _autorizar_bloqueado(chaves)
     if espera > 0:
         raise HTTPException(status_code=429, detail=f"muitas tentativas; tente novamente em {espera}s")
     admin = authenticate_user(req.username, req.password)
@@ -342,13 +354,15 @@ def api_auth_autorizar_exclusao(req: AutorizarExclusaoRequest, request: Request)
     mesmo_cliente = bool(admin) and (
         str(admin.get("tenant_slug") or "").lower() == str(operador.get("effective_tenant_slug") or operador.get("tenant_slug") or "").lower()
         or bool(admin.get("is_platform_admin")))
-    if not admin or papel not in ("admin", "owner") or not mesmo_cliente:
-        _login_record_failure(chave)
+    if not admin or papel not in ("admin", "owner") or not mesmo_cliente or user_requires_initial_setup(admin):
+        for k in chaves:
+            _login_record_failure(k)
         raise HTTPException(status_code=403, detail="Usuário ou senha inválidos, ou o usuário não é administrador deste cliente.")
-    _login_record_success(chave)
+    for k in chaves:
+        _login_record_success(k)
     if int(admin.get("id") or 0) == int(operador.get("id") or -1):
         raise HTTPException(status_code=400, detail="Use a sua própria conta de administrador para excluir direto.")
-    codigo = permissions.emitir_autorizacao(admin, operador, metodo, caminho)
+    codigo = permissions.emitir_autorizacao(admin, operador, metodo, caminho, str(req.corpo_hash or "").strip().lower())
     _auditar_acesso(operador, "exclusao_autorizada", caminho,
                     {"metodo": metodo, "caminho": caminho, "operador": operador.get("username"),
                      "autorizado_por": admin.get("username"), "autorizado_por_id": admin.get("id")})

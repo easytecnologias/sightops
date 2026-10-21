@@ -204,3 +204,24 @@ def test_rota_de_autorizar_confere_senha_papel_e_cliente(monkeypatch):
         with pytest.raises(HTTPException) as e:
             pedir(u, p)
         assert e.value.status_code == 403
+
+
+def test_codigo_preso_ao_conteudo(monkeypatch):
+    c = _app_exclusao(monkeypatch, dict(OPERADOR))
+    certo = '{"acao":"excluir","canal":3}'
+    cod = P.emitir_autorizacao(ADMIN, OPERADOR, "POST", "/api/deployments/recorder-edit", P.hash_corpo(certo))
+    r = c.post("/api/deployments/recorder-edit", content='{"acao":"excluir","canal":9}',
+               headers={**H, P.CABECALHO_AUTORIZACAO: cod, "Content-Type": "application/json"})
+    assert r.status_code == 403  # trocou o canal
+    cod = P.emitir_autorizacao(ADMIN, OPERADOR, "POST", "/api/deployments/recorder-edit", P.hash_corpo(certo))
+    r = c.post("/api/deployments/recorder-edit", content=certo,
+               headers={**H, P.CABECALHO_AUTORIZACAO: cod, "Content-Type": "application/json"})
+    assert r.status_code == 200
+
+
+def test_rota_que_ja_era_de_admin_nao_e_autorizavel():
+    mw = _mw()
+    assert not mw.autorizavel("/api/access-control/devices/d1", "DELETE")
+    assert not mw.autorizavel("/api/auth/users/3", "DELETE")
+    assert mw.autorizavel("/api/access-control/people/9", "DELETE")
+    assert mw.autorizavel("/api/deployments/recorder-edit", "POST")
