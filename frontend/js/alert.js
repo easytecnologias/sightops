@@ -600,6 +600,13 @@ function alertBind() {
     if (card) alertSelect(card.dataset.alertId, true);
   });
   document.getElementById('alertLiveDetail')?.addEventListener('click', alertDetailClick);
+  document.getElementById('alertLiveCams')?.addEventListener('click', (ev) => {
+    const cam = ev.target.closest('[data-alert-cam]');
+    if (cam) alertOpenCamera(cam.dataset);
+  });
+  document.getElementById('alertLiveDetail')?.addEventListener('keydown', (ev) => {
+    if (ev.key === 'Enter' && ev.target.id === 'alertNoteInput') { ev.preventDefault(); alertEnviarNota(); }
+  });
   document.getElementById('alertBanner')?.addEventListener('click', async (ev) => {
     const ack = ev.target.closest('[data-banner-ack]');
     if (ack) {
@@ -842,13 +849,18 @@ function alertQuickNotesHtml() {
 function alertRenderList() {
   const box = document.getElementById('alertLiveList');
   if (!box) return;
+  const sub = _alertScope === 'live'
+    ? (_alertMeusSites ? `So ${_alertMeusSites.length === 1 ? 'do seu site' : `dos seus ${_alertMeusSites.length} sites`}` : 'Todos os sites do cliente')
+    : 'Todos os alertas, mais recentes primeiro.';
+  setText('alertListSub', sub);
   if (!_alertIncidents.length) {
-    box.innerHTML = `<div class="alert-live-empty">${_alertScope === 'live'
-      ? 'Nenhum alerta aberto. Quando alguem apertar o botao de panico, aparece aqui com som.'
-      : 'Nenhum alerta registrado ainda.'}</div>`;
+    box.innerHTML = `<div class="alert-live-empty alert-fila-vazia"><i data-lucide="shield-check"></i><span>${_alertScope === 'live'
+      ? 'Nenhum pedido de ajuda aberto.'
+      : 'Nenhum alerta registrado ainda.'}</span></div>`;
+    if (window.lucide) lucide.createIcons();
     return;
   }
-  box.innerHTML = _alertIncidents.map((inc) => {
+  const card = (inc) => {
     const m = inc.member || {};
     const cls = [
       'alert-card',
@@ -857,18 +869,28 @@ function alertRenderList() {
       inc.kind === 'duress' && alertOpen(inc) ? 'is-duress' : '',
       alertOpen(inc) ? '' : 'is-final',
     ].filter(Boolean).join(' ');
+    const dono = inc.acknowledged_by && alertOpen(inc)
+      ? `<div class="alert-card-owner"><span>${esc(alertIniciais(inc.acknowledged_by))}</span>com ${esc(inc.acknowledged_by)}</div>` : '';
     return `
       <button type="button" class="${cls}" data-alert-id="${esc(inc.id)}">
         <div class="alert-card-top">
           <strong>${esc(m.full_name)}</strong>
           ${alertOpen(inc)
             ? `<span class="alert-card-age is-live${inc.status === 'new' ? ' is-new' : ''}" data-alert-tick="${esc(inc.opened_at)}">${esc(alertTimer(inc.opened_at))}</span>`
-            : `<span class="alert-card-age">${esc(alertAgo(inc.opened_at))}</span>`}
+            : `<span class="alert-card-age">${esc(alertClock(inc.opened_at).slice(0, 5))}</span>`}
         </div>
         <div class="alert-card-meta">${alertSiteTag(inc.site)}${esc([m.role_title, m.unit_name].filter(Boolean).join(' · ') || (inc.site ? '' : 'sem lotacao'))}</div>
         <div class="alert-card-pills">${alertKindPill(inc)} ${alertStatusPill(inc)}${alertPoint(inc)?.gps === false ? ' <span class="pill neutral">sem GPS</span>' : ''}</div>
+        ${dono}
       </button>`;
-  }).join('');
+  };
+  if (_alertScope !== 'live') { box.innerHTML = _alertIncidents.map(card).join(''); return; }
+  // Abertos em cima (sem atendimento primeiro); encerrados recentes embaixo, discretos.
+  const abertos = _alertIncidents.filter(alertOpen)
+    .sort((a, b) => Number(b.status === 'new') - Number(a.status === 'new') || String(a.opened_at).localeCompare(String(b.opened_at)));
+  const fechados = _alertIncidents.filter((i) => !alertOpen(i));
+  box.innerHTML = (abertos.length ? abertos.map(card).join('') : '<div class="alert-live-empty alert-fila-vazia is-mini">Nenhum aberto agora.</div>')
+    + (fechados.length ? `<div class="alert-fila-sep">Encerrados nos ultimos 30 min</div>${fechados.map(card).join('')}` : '');
 }
 
 function alertMarkerIcon(inc, selected) {
@@ -915,9 +937,10 @@ async function alertLoadDetail() {
   const panel = document.getElementById('alertLiveDetail');
   if (!panel) return;
   if (!_alertSelectedId) {
-    panel.hidden = true;
     _alertTrail?.clearLayers();
     _alertDetail = null;
+    alertMostrarCameras(false);
+    alertRenderCalm();
     return;
   }
   try {
@@ -928,6 +951,7 @@ async function alertLoadDetail() {
   }
   alertRenderTrail();
   alertRenderDetail();
+  alertMostrarCameras(true);
   alertLoadNearby();
 }
 
@@ -962,53 +986,146 @@ function alertRenderDetail() {
   const m = inc.member || {};
   const p = alertPoint(inc);
   const open = alertOpen(inc);
+  // O painel se redesenha a cada 3 s: guarda o que a pessoa esta digitando.
+  const notaAntes = document.getElementById('alertNoteInput');
+  const nota = notaAntes && notaAntes.dataset.inc === inc.id ? notaAntes.value : '';
+  const notaFoco = notaAntes && document.activeElement === notaAntes;
   const posAge = inc.last_position_at ? `${alertClock(inc.last_position_at)} (ha ${alertAgo(inc.last_position_at)})` : 'nenhuma';
   const mapsUrl = p ? `https://www.google.com/maps?q=${p.lat},${p.lon}` : '';
-  const actions = open ? `
-      ${inc.status === 'new' ? '<button class="primary-action alert-btn-big" data-alert-act="acknowledge" type="button"><i data-lucide="hand"></i> Assumir alerta</button>' : ''}
-      ${inc.status !== 'dispatched' ? '<button class="secondary-action" data-alert-act="dispatch" type="button"><i data-lucide="car"></i> Equipe enviada</button>' : ''}
-      ${inc.status !== 'new' && !inc.arrived_at ? '<button class="secondary-action" data-alert-act="arrive" type="button"><i data-lucide="map-pin-check"></i> Equipe chegou</button>' : ''}
-      <button class="secondary-action" data-alert-act="note" type="button"><i data-lucide="message-square-plus"></i> Observacao</button>
-      <button class="secondary-action" data-alert-act="close" type="button"><i data-lucide="check-circle-2"></i> Encerrar</button>` : '';
-  const duressBanner = inc.kind === 'duress'
-    ? `<div class="alert-duress-banner"><i data-lucide="user-x"></i><div><b>COACAO</b> — a pessoa digitou a senha de coacao as ${esc(alertClock(inc.duress_at))}.
-       No celular dela aparece "cancelado", mas o rastreamento continua. <b>Nao ligue para ela:</b> alguem pode estar junto.</div></div>` : '';
+  const principal = !open ? ''
+    : inc.status === 'new'
+      ? '<button class="alert-case-main is-ack" data-alert-act="acknowledge" type="button"><i data-lucide="hand"></i> Assumir alerta</button>'
+      : !inc.dispatched_at
+        ? '<button class="alert-case-main" data-alert-act="dispatch" type="button"><i data-lucide="car"></i> Equipe enviada</button>'
+        : !inc.arrived_at
+          ? '<button class="alert-case-main" data-alert-act="arrive" type="button"><i data-lucide="map-pin-check"></i> Equipe chegou ao local</button>'
+          : '<button class="alert-case-main is-close" data-alert-act="close" type="button"><i data-lucide="check-circle-2"></i> Encerrar com relato</button>';
+  const duress = inc.kind === 'duress'
+    ? `<div class="alert-case-duress"><i data-lucide="user-x"></i><div><b>Nao ligue para ela.</b> Digitou a senha de coacao as ${esc(alertClock(inc.duress_at))} —
+       no celular aparece "cancelado", mas o GPS continua. Alguem pode estar junto.</div></div>` : '';
   const log = (inc.log || []).slice().reverse().map((l) => `
       <li><span>${esc(alertClock(l.created_at))}</span><div><b>${esc(ALERT_LOG_LABEL[l.action] || l.action)}</b>
       ${l.actor ? `<small>${esc(l.actor)}</small>` : ''}${l.note && l.action !== 'opened' ? `<p>${esc(l.note)}</p>` : ''}</div></li>`).join('');
+  const fone = m.phone
+    ? (inc.kind === 'duress' ? `<b class="is-riscado" title="Coacao: nao ligue">${esc(alertPhone(m.phone))}</b>` : `<b><a href="tel:${esc(m.phone)}">${esc(alertPhone(m.phone))}</a></b>`)
+    : '<b>-</b>';
 
   panel.hidden = false;
+  panel.classList.remove('is-calm');
   panel.innerHTML = `
-    <div class="alert-detail-head">
-      <div>
-        <div class="alert-detail-pills">${alertKindPill(inc)} ${alertStatusPill(inc)}</div>
-        <h2>${esc(m.full_name)}</h2>
-        <p>${alertSiteTag(inc.site)}${esc([m.role_title, m.unit_name].filter(Boolean).join(' · ') || (inc.site ? '' : 'sem lotacao cadastrada'))}</p>
+    <div class="alert-case-head${inc.kind === 'duress' ? ' is-duress' : ''}${inc.status === 'new' ? ' is-new' : ''}">
+      <div class="alert-case-pills">${alertKindPill(inc)} ${alertStatusPill(inc)}</div>
+      <div class="alert-case-who">
+        <span class="alert-case-avatar">${esc(alertIniciais(m.full_name))}</span>
+        <div class="alert-case-name">
+          <strong>${esc(m.full_name)}</strong>
+          <small>${esc([m.role_title, inc.site, m.unit_name].filter(Boolean).join(' · ') || 'sem lotacao cadastrada')}</small>
+        </div>
+        <div class="alert-case-timer">
+          <b ${open ? `data-alert-tick="${esc(inc.opened_at)}"` : ''}>${esc(open ? alertTimer(inc.opened_at) : alertTimer(inc.opened_at, inc.closed_at))}</b>
+          <small>${open ? 'desde o disparo' : 'duracao total'}</small>
+        </div>
       </div>
-      <div class="alert-detail-side">
-        ${open ? `<div class="alert-detail-timer"><b data-alert-tick="${esc(inc.opened_at)}">${esc(alertTimer(inc.opened_at))}</b><small>desde o disparo</small></div>` : ''}
-        <div class="alert-detail-actions">${actions}</div>
-      </div>
+      ${duress}
     </div>
-    ${duressBanner}
-    ${alertStepsHtml(inc)}
-    ${alertProtocoloHtml(inc, open)}
-    ${open ? alertQuickNotesHtml() : ''}
-    <div class="alert-detail-grid">
-      <div class="alert-facts">
-        <span><small>Disparo</small><b>${esc(alertClock(inc.opened_at))} (ha ${esc(alertAgo(inc.opened_at))})</b></span>
-        <span><small>Telefone</small><b>${m.phone ? `<a href="tel:${esc(m.phone)}">${esc(alertPhone(m.phone))}</a>` : '-'}</b></span>
+    <div class="alert-case-body">
+      ${principal ? `<div class="alert-case-actions">${principal}</div>` : ''}
+      <div class="alert-case-section"><div class="alert-case-label">Etapas</div>${alertStepsHtml(inc)}</div>
+      ${alertProtocoloHtml(inc, open)}
+      ${open ? `<div class="alert-case-section">
+        <div class="alert-case-label">Observacao</div>
+        ${alertQuickNotesHtml()}
+        <div class="alert-case-note">
+          <input id="alertNoteInput" data-inc="${esc(inc.id)}" maxlength="2000" placeholder="Escreva e tecle Enter — entra na linha do tempo" value="${esc(nota)}">
+          <button class="secondary-action" data-alert-act="note-send" type="button" aria-label="Registrar observacao"><i data-lucide="send"></i></button>
+        </div>
+      </div>` : ''}
+      <div class="alert-case-section alert-case-facts">
+        <span><small>Telefone</small>${fone}</span>
         <span><small>CPF</small><b>${esc(alertCpf(m.document_id)) || '-'}</b></span>
         <span><small>Ultima posicao</small><b>${esc(posAge)}</b></span>
         <span><small>Precisao GPS</small><b>${inc.last_accuracy != null ? `~${Math.round(inc.last_accuracy)} m` : (p && !p.gps ? 'sem GPS (lotacao)' : '-')}</b></span>
         <span><small>Bateria</small><b>${inc.last_battery != null ? `${inc.last_battery}%` : '-'}</b></span>
-        ${inc.acknowledged_by ? `<span><small>Assumido por</small><b>${esc(inc.acknowledged_by)} as ${esc(alertClock(inc.acknowledged_at))}</b></span>` : ''}
+        <span><small>Disparo</small><b>${esc(alertClock(inc.opened_at))}</b></span>
         ${inc.close_note ? `<span class="wide"><small>Encerramento</small><b>${esc(inc.close_note)}</b></span>` : ''}
         ${mapsUrl ? `<span class="wide"><a class="link-action" href="${esc(mapsUrl)}" target="_blank" rel="noopener"><i data-lucide="map-pin"></i> Abrir no Google Maps</a></span>` : ''}
       </div>
-      <div class="alert-timeline"><h3>Linha do tempo</h3><ul>${log || '<li><div>Sem registros.</div></li>'}</ul></div>
+      <details class="alert-case-section alert-timeline"${open ? ' open' : ''}><summary class="alert-case-label">Linha do tempo <span>${(inc.log || []).length}</span></summary><ul>${log || '<li><div>Sem registros.</div></li>'}</ul></details>
+      ${open ? `<div class="alert-case-foot">
+        ${inc.status !== 'new' && !inc.dispatched_at ? '<button class="secondary-action" data-alert-act="arrive" type="button"><i data-lucide="map-pin-check"></i> Equipe chegou</button>' : ''}
+        ${inc.arrived_at ? '' : '<button class="secondary-action" data-alert-act="close" type="button"><i data-lucide="check-circle-2"></i> Encerrar</button>'}
+      </div>` : ''}
+    </div>`;
+  const notaDepois = document.getElementById('alertNoteInput');
+  if (notaDepois && notaFoco) { notaDepois.focus(); notaDepois.setSelectionRange(nota.length, nota.length); }
+  if (window.lucide) lucide.createIcons();
+}
+
+function alertIniciais(nome) {
+  const partes = String(nome || '').trim().split(/\s+/).filter(Boolean);
+  if (!partes.length) return '?';
+  return (partes[0][0] + (partes.length > 1 ? partes[partes.length - 1][0] : '')).toUpperCase();
+}
+
+function alertMostrarCameras(on) {
+  const box = document.getElementById('alertLiveCams');
+  if (box) box.hidden = !on;
+  if (!on) { const g = document.getElementById('alertNearbyGrid'); if (g) g.innerHTML = ''; _alertNearbyKey = ''; _alertNearbyHtml = ''; }
+}
+
+// Tela calma: o que a central quer saber quando nao ha alerta -- se o posto
+// vai tocar, se as pessoas conseguem pedir ajuda, como foi o dia.
+let _alertCalm = { at: 0, membros: null, hoje: null };
+
+async function alertRenderCalm() {
+  const panel = document.getElementById('alertLiveDetail');
+  if (!panel) return;
+  panel.hidden = false;
+  panel.classList.add('is-calm');
+  const agora = Date.now();
+  if (agora - _alertCalm.at > 60000) {
+    _alertCalm.at = agora;
+    try {
+      const [mem, hist] = await Promise.all([
+        alertApiJson('/api/alert/members').catch(() => null),
+        alertApiJson('/api/alert/incidents?scope=history&limit=50').catch(() => null),
+      ]);
+      _alertCalm.membros = mem;
+      const inicioDia = new Date(); inicioDia.setHours(0, 0, 0, 0);
+      _alertCalm.hoje = (hist?.incidents || []).filter((i) => (alertDate(i.opened_at)?.getTime() || 0) >= inicioDia.getTime());
+    } catch {}
+  }
+  if (_alertSelectedId) return; // um alerta chegou enquanto buscava
+  const somOn = alertSoundOn();
+  const aviso = !('Notification' in window) ? 'nao suportado' : (Notification.permission === 'granted' ? 'ativo' : (Notification.permission === 'denied' ? 'bloqueado' : 'desligado'));
+  const pr = _alertCalm.membros?.prontidao;
+  const pend = (_alertCalm.membros?.members || []).filter((x) => x.active && x.prontidao && !x.prontidao.pronta).length;
+  const hoje = _alertCalm.hoje || [];
+  const ult = hoje[0];
+  const linha = (ok, icone, titulo, texto, acao = '') => `
+    <div class="alert-calm-row ${ok ? 'ok' : 'warn'}">
+      <span class="alert-calm-ico"><i data-lucide="${icone}"></i></span>
+      <div><b>${titulo}</b><small>${texto}</small></div>${acao}
+    </div>`;
+  panel.innerHTML = `
+    <div class="alert-calm-head">
+      <span class="alert-calm-badge"><i data-lucide="shield-check"></i></span>
+      <div><strong>Tudo calmo</strong><small>Nenhum pedido de ajuda aberto ${_alertMeusSites ? `nos seus ${_alertMeusSites.length === 1 ? 'site' : `${_alertMeusSites.length} sites`}` : ''}. Quando alguem apertar o botao, este painel vira o atendimento.</small></div>
     </div>
-    <div class="alert-nearby" id="alertNearbyGrid"><div class="alert-live-empty">Buscando cameras...</div></div>`;
+    <div class="alert-calm-list">
+      ${linha(somOn, somOn ? 'volume-2' : 'volume-x', somOn ? 'Este posto vai tocar' : 'Som desligado neste posto',
+        somOn ? 'Sirene e voz ligadas.' : 'Ligue o som para nao perder alerta.',
+        '<button type="button" class="link-action" data-calm="som">Testar</button>')}
+      ${linha(aviso === 'ativo', 'bell-ring', `Aviso do Windows ${aviso}`,
+        aviso === 'ativo' ? 'Balao aparece mesmo com o SightOps minimizado.' : 'Ative para ser avisado com o navegador em outra aba.',
+        aviso === 'ativo' ? '' : '<button type="button" class="link-action" data-calm="aviso">Ativar</button>')}
+      ${pr ? linha(pend === 0, 'smartphone', `${pr.prontas} de ${pr.total} pessoas prontas`,
+        pend ? `${pend} com pendencia (app, senha, GPS ou sem sinal).` : 'Todos os celulares conseguem pedir ajuda.',
+        '<button type="button" class="link-action" data-calm="pessoas">Ver</button>') : ''}
+      ${linha(true, 'history', hoje.length ? `${hoje.length} alerta${hoje.length > 1 ? 's' : ''} hoje` : 'Nenhum alerta hoje',
+        ult ? `Ultimo: ${esc(alertClock(ult.opened_at).slice(0, 5))} · ${esc(ult.member?.full_name || '')} · ${esc((ALERT_STATUS[ult.status] || {}).label || ult.status)}` : 'O historico completo fica em Historico.',
+        hoje.length ? '<button type="button" class="link-action" data-calm="historico">Historico</button>' : '')}
+    </div>`;
   if (window.lucide) lucide.createIcons();
 }
 
@@ -1122,6 +1239,14 @@ async function alertLoadNearby() {
 async function alertDetailClick(ev) {
   const cam = ev.target.closest('[data-alert-cam]');
   if (cam) { alertOpenCamera(cam.dataset); return; }
+  const calm = ev.target.closest('[data-calm]')?.dataset.calm;
+  if (calm) {
+    if (calm === 'som') alertTestSound('panic');
+    else if (calm === 'aviso') { await alertAskNotifyPermission(); _alertCalm.at = 0; alertRenderCalm(); }
+    else if (calm === 'pessoas') document.querySelector('.nav-item[data-view="alert-members"]')?.click();
+    else if (calm === 'historico') document.getElementById('btnAlertHistory')?.click();
+    return;
+  }
   const passo = ev.target.closest('[data-alert-passo]');
   if (passo && _alertDetail) {
     passo.disabled = true;
@@ -1152,12 +1277,27 @@ async function alertDetailClick(ev) {
     setTimeout(() => document.getElementById('alertCloseNote')?.focus(), 50);
     return;
   }
+  if (act === 'note-send') { await alertEnviarNota(); return; }
   let note = '';
   if (act === 'note') {
     note = prompt('Observacao para o historico deste alerta:') || '';
     if (!note.trim()) return;
   }
   await alertAction(act, note);
+}
+
+async function alertEnviarNota() {
+  const inp = document.getElementById('alertNoteInput');
+  const txt = (inp?.value || '').trim();
+  if (!txt || !_alertDetail) return;
+  inp.disabled = true;
+  inp.value = '';  // limpa antes: o redesenho do painel nao devolve o texto
+  if (!(await alertAction('note', txt))) {
+    const de = document.getElementById('alertNoteInput');
+    if (de) de.value = txt;
+  }
+  const depois = document.getElementById('alertNoteInput');
+  if (depois) { depois.disabled = false; depois.focus(); }
 }
 
 async function alertAction(action, note, id = _alertDetail?.id) {

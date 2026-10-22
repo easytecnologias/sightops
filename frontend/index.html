@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=1792600235">
+  <link rel="stylesheet" href="styles.css?v=1792600237">
   <link rel="stylesheet" href="acesso/acesso.css?v=1792600213">
 </head>
 <body>
@@ -1636,11 +1636,16 @@
             </div>
           </section>
 
-          <section class="panel alert-live-map-panel">
-            <div id="alertLiveMap" class="alert-live-map"></div>
-          </section>
+          <div class="alert-live-center">
+            <section class="panel alert-live-map-panel">
+              <div id="alertLiveMap" class="alert-live-map"></div>
+            </section>
+            <section class="panel alert-live-cams" id="alertLiveCams" aria-label="Cameras do local" hidden>
+              <div class="alert-nearby" id="alertNearbyGrid"></div>
+            </section>
+          </div>
 
-          <section class="panel alert-live-detail-panel" id="alertLiveDetail" hidden></section>
+          <aside class="panel alert-live-detail-panel alert-case" id="alertLiveDetail" aria-label="Atendimento"></aside>
         </div>
       </section>
 
@@ -7680,7 +7685,7 @@
   <script src="acesso/dados.js?v=1792600205"></script>
   <script src="acesso/acesso.js?v=1792600205"></script>
   <script src="js/messenger.js?v=1791000212"></script>
-  <script src="js/alert.js?v=1792600236"></script>
+  <script src="js/alert.js?v=1792600238"></script>
   <script src="js/tr069.js?v=1791000212"></script>
   <script src="js/bootstrap.js?v=1792600207"></script>
 </body>
