@@ -35,10 +35,29 @@ def _conector(host: str) -> str:
         return ""
 
 
+def _host_liberado(host: str) -> bool:
+    """Usuario restrito a sites so abre gravador de site dele (o IP vem do navegador)."""
+    from app.core import permissions
+    from app.services.nvr_ai_service import _read_nvr_inventory
+
+    sites = permissions.sites_da_sessao()
+    if sites is None:
+        return True
+    liberados = {s.strip().upper() for s in sites}
+    for row in _read_nvr_inventory():
+        if str(row.get("host") or row.get("ip") or "").strip() != host:
+            continue
+        if permissions.site_da_linha(row).upper() in liberados:
+            return True
+    return False
+
+
 def _abrir(host: str, http_port: int, connector_id: str = "") -> Gravador:
     host = str(host or "").strip()
     if not host:
         raise HTTPException(status_code=400, detail="informe o gravador")
+    if not _host_liberado(host):
+        raise HTTPException(status_code=403, detail="gravador fora dos sites liberados para voce")
     cred = resolve_recorder_credential(host, http_port) or {}
     if not cred.get("password"):
         raise HTTPException(status_code=428, detail="SEM_CREDENCIAL")

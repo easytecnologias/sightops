@@ -9,6 +9,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from app.api.endpoints.cameras import resolve_camera_password
+from app.core import permissions
 from app.services.gemini_video_search import GeminiNotConfiguredError, GeminiRateLimitedError
 from app.services.nvr_ai_service import list_nvr_targets, query_recording_segments
 from app.services.nvr_search_service import ChainedSearchResult, search_recordings
@@ -71,7 +72,19 @@ def _result_to_dict(result: ChainedSearchResult) -> Dict[str, Any]:
 
 @router.get("/nvr/targets")
 def api_ia_nvr_targets() -> Dict[str, Any]:
-    return list_nvr_targets()
+    # Lista da Investigacao: usuario restrito a sites so ve os gravadores deles.
+    data = list_nvr_targets()
+    if permissions.sites_da_sessao() is not None:
+        alvos = permissions.filtrar_por_site(data.get("targets") or [], ("site",))
+        data = {**data, "targets": alvos, "count": len(alvos)}
+    return data
+
+
+def _exigir_host_liberado(host: str) -> None:
+    from app.api.endpoints.recorder_driver import _host_liberado
+
+    if not _host_liberado(str(host or "").strip()):
+        raise HTTPException(status_code=403, detail="gravador fora dos sites liberados para voce")
 
 
 def _resolve_ia_password(host: str, user: str, password: str) -> tuple[str, str]:
@@ -83,6 +96,7 @@ def _resolve_ia_password(host: str, user: str, password: str) -> tuple[str, str]
 
 @router.post("/nvr/recordings")
 def api_ia_nvr_recordings(req: NvrRecordingsRequest) -> Dict[str, Any]:
+    _exigir_host_liberado(req.host)
     user, password = _resolve_ia_password(req.host, req.user, req.password)
     if not password:
         raise HTTPException(status_code=400, detail="Sem senha salva para este gravador -- informe a senha.")
@@ -143,6 +157,7 @@ def _run_search_job(job_id: str, req: NvrSearchRequest) -> None:
 
 @router.post("/nvr/search/jobs")
 def api_ia_nvr_search_job(req: NvrSearchRequest) -> Dict[str, Any]:
+    _exigir_host_liberado(req.host)
     job_id = uuid.uuid4().hex
     _SEARCH_JOBS[job_id] = {
         "ok": True,
