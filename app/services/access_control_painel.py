@@ -226,6 +226,8 @@ def _avisos(agora: datetime, pessoas: List[Dict[str, Any]], escolas: Optional[se
         if _classe(m.get("status")) != "falha":
             continue
         p = resp.get(numero) or {}
+        if not p:   # numero que saiu do cadastro (trocado/pessoa excluida): nao ha quem corrigir
+            continue
         falhando.append({"numero": numero, "erro": _t(m.get("error")), "quando": _t(m.get("updated_at") or m.get("created_at")),
                          "responsavel": _t(p.get("guardian_name")), "pessoa": _t(p.get("full_name")),
                          "turma": _t(p.get("class_name")), "pessoa_id": _t(p.get("id"))})
@@ -245,6 +247,20 @@ def _avisos(agora: datetime, pessoas: List[Dict[str, Any]], escolas: Optional[se
         "sem_numero_total": len(sem_numero),
         "agora": saude_avisos(agora=agora),
     }
+
+
+def motivo_falha_leitor(erro: Any) -> str:
+    """Por que a pessoa nao foi para o leitor. Antes tudo virava "foto
+    recusada"; na Escola P. Dutra (22/10/2026) nenhuma das 9 era foto: 6 eram
+    alunos sem ID no leitor e 3 eram de pessoas ja excluidas."""
+    e = _t(erro).lower()
+    if "id na controladora" in e or "sem id" in e:
+        return "sem_id"
+    if any(x in e for x in ("face", "foto", "photo", "batch process")):
+        return "foto"
+    if any(x in e for x in ("tempo esgotado", "conectar", "conector", "timeout", "nao respondeu")):
+        return "leitor"
+    return "outro"
 
 
 # ---------------------------------------------------------------- tipo de local
@@ -431,9 +447,10 @@ def visao_geral(site: str = "", agora: Optional[datetime] = None) -> Dict[str, A
     sem_ev = sum(1 for e in eventos if not _t(e.get("person_id")))
 
     # Fotos nos leitores (provisionamento).
-    prov = _rows("SELECT person_id, device_id, status, last_error, updated_at FROM access_provision_status WHERE tenant_slug=?",
-                 (tenant,))
     nomes_p = {_t(p.get("id")): p for p in _pessoas()}
+    # Linha de pessoa ja excluida ficava contando como "foto recusada" para sempre.
+    prov = [r for r in _rows("SELECT person_id, device_id, status, last_error, updated_at FROM access_provision_status "
+                             "WHERE tenant_slug=?", (tenant,)) if _t(r.get("person_id")) in nomes_p]
     leitores = _leitores(site)
     nomes_d = {_t(d.get("id")): _t(d.get("name")) for d in _leitores()}
     if site:
@@ -443,7 +460,8 @@ def visao_geral(site: str = "", agora: Optional[datetime] = None) -> Dict[str, A
     recusadas = [{"pessoa": _t((nomes_p.get(_t(r.get("person_id"))) or {}).get("full_name")) or "pessoa removida",
                   "turma": _t((nomes_p.get(_t(r.get("person_id"))) or {}).get("class_name")),
                   "pessoa_id": _t(r.get("person_id")), "leitor": nomes_d.get(_t(r.get("device_id")), ""),
-                  "erro": _t(r.get("last_error")), "quando": _t(r.get("updated_at"))}
+                  "erro": _t(r.get("last_error")), "motivo": motivo_falha_leitor(r.get("last_error")),
+                  "quando": _t(r.get("updated_at"))}
                  for r in prov if _t(r.get("status")).lower() == "failed"]
 
     online = sum(1 for d in leitores if _t(d.get("status")).lower() == "online")
@@ -794,7 +812,8 @@ def dispositivos(agora: Optional[datetime] = None) -> Dict[str, Any]:
         if quando:
             horas[_t(r.get("device_id"))][quando.hour] += 1
     fotos: Dict[str, Counter] = defaultdict(Counter)
-    for r in _rows("SELECT device_id, status FROM access_provision_status WHERE tenant_slug=?", (tenant,)):
+    for r in _rows("SELECT s.device_id, s.status FROM access_provision_status s JOIN access_people p "
+                   "ON p.id=s.person_id AND p.tenant_slug=s.tenant_slug WHERE s.tenant_slug=?", (tenant,)):
         fotos[_t(r.get("device_id"))][_t(r.get("status")).lower() or "pendente"] += 1
     relogio = _relogio_errado()
 

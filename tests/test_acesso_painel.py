@@ -246,3 +246,22 @@ def test_relogio_errado_ignora_historico_antigo_baixado_ao_recadastrar(monkeypat
     monkeypatch.setattr(P, "_tenant", lambda: "t")
     r = P._relogio_errado(agora=AGORA)
     assert list(r) == ["agora"]
+
+
+def test_numero_que_falhou_sem_cadastro_nao_vira_alerta(monkeypatch):
+    """Escola P. Dutra, 22/10/2026: 5511951071186 falhou e nao era de ninguem."""
+    msgs = [_msg(5, "failed", "Message undeliverable", "5582999990000"),
+            _msg(6, "failed", "Message undeliverable", "5511951071186")]
+    monkeypatch.setattr(P, "_mensagens", lambda desde: msgs)
+    av = P._avisos(AGORA, [_p(1, "ESCOLA", fone="82999990000")], {"ESCOLA"})
+    assert [f["pessoa"] for f in av["falhando"]] == ["P1"]
+
+
+@pytest.mark.parametrize("erro,motivo", [
+    ("Informe o ID na controladora para provisionar na Intelbras.", "sem_id"),
+    ("Dispositivo recusou a face: Batch Process Error", "foto"),
+    ("Tempo esgotado ao conectar no IP do dispositivo.", "leitor"),
+    ("Pessoa nao encontrada.", "outro"),
+])
+def test_motivo_da_falha_no_leitor_nao_e_sempre_foto(erro, motivo):
+    assert P.motivo_falha_leitor(erro) == motivo

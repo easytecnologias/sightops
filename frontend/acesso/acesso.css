@@ -88,7 +88,18 @@
 #viewAccessPainel .ap-curva-eixo{margin-bottom:12px}
 /* alertas */
 #viewAccessPainel .ap-alertas{display:flex;flex-direction:column;gap:10px;max-width:980px}
-#viewAccessPainel .ap-al{display:flex;align-items:center;gap:14px;background:var(--surface);border:1px solid var(--border);border-left:4px solid var(--border);border-radius:10px;padding:12px 16px}
+#viewAccessPainel .ap-al{display:flex;flex-direction:column;background:var(--surface);border:1px solid var(--border);border-left:4px solid var(--border);border-radius:10px;padding:12px 16px}
+#viewAccessPainel .ap-al-cab{display:flex;align-items:center;gap:14px}
+#viewAccessPainel .ap-al-cab .secondary-action{flex:none;display:inline-flex;align-items:center;gap:6px}
+#viewAccessPainel .ap-al-cab .secondary-action svg{width:15px;height:15px}
+#viewAccessPainel .ap-al-lista{list-style:none;margin:12px 0 0 52px;padding:0;border-top:1px solid var(--border)}
+#viewAccessPainel .ap-al-l{display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)}
+#viewAccessPainel .ap-al-l:last-child{border-bottom:0}
+#viewAccessPainel .ap-al-l b{font-size:13px}
+#viewAccessPainel .ap-al-l small{margin-left:8px;font-size:12px;color:var(--muted)}
+#viewAccessPainel .ap-al-l p{margin:2px 0 0;font-size:12.5px;color:var(--muted)}
+#viewAccessPainel .ap-al-l .secondary-action{flex:none}
+@media (max-width:640px){#viewAccessPainel .ap-al-lista{margin-left:0}#viewAccessPainel .ap-al-cab,#viewAccessPainel .ap-al-l{flex-wrap:wrap}}
 #viewAccessPainel .ap-al.grave{border-left-color:var(--danger)}
 #viewAccessPainel .ap-al.medio{border-left-color:var(--amber)}
 #viewAccessPainel .ap-al.info{border-left-color:var(--blue)}

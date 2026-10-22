@@ -462,42 +462,96 @@ function apLigarAcoes(el) {
 // ---------------------------------------------------------------- alertas
 // O que precisa de alguem, com gravidade. Separado da lista de passagens
 // (como no C•CURE / Verkada): a passagem comum nao disputa espaco com o alarme.
+// Cada alerta abre a lista de QUEM e afetado, com o motivo e o botao que leva
+// ao cadastro da pessoa. Antes era so a contagem e um "Ver" que pulava para
+// Relatorios sem dizer nada (22/10/2026).
+let _apAlAbertos = new Set();
+
+const AP_MOTIVO_LEITOR = {
+  sem_id: 'sem ID no leitor. Abra o cadastro e salve: o SightOps usa a matrícula como ID e envia ao leitor.',
+  foto: 'o leitor recusou a foto. Troque por uma foto de frente, rosto inteiro e bem iluminado.',
+  leitor: 'o leitor não respondeu no envio. Confira o leitor em Dispositivos; o SightOps tenta de novo sozinho.',
+};
+
+// "Message undeliverable" da Meta e numero errado ou sem WhatsApp, quase sempre.
+function apMotivoZap(erro) {
+  const e = String(erro || '').toLowerCase();
+  if (e.includes('undeliverable')) return 'o WhatsApp não entrega: número errado ou sem WhatsApp';
+  if (e.includes('not a valid') || e.includes('invalid')) return 'número inválido';
+  if (e.includes('re-engagement') || e.includes('24 hour')) return 'a pessoa não fala com o robô há mais de 24 h';
+  return erro ? `a Meta respondeu: ${erro}` : 'falhou sem motivo informado';
+}
+
 function apListaAlertas() {
   const v = _apDados.vivo || {}, g = _apDados.geral || {};
   const itens = [];
   const ag = v.avisos_agora || {};
-  if (ag.alerta) itens.push({ nivel: 'grave', icone: 'message-circle-warning', titulo: 'Avisos de WhatsApp falhando agora',
-    texto: `${ag.falhas} de ${ag.enviados} avisos não chegaram nos últimos ${ag.janela_min} min. Motivo da Meta: ${ag.erro_principal || 'não informado'}.`, ir: '' });
-  (v.portas || []).filter(p => !apPortaViva(p)).forEach(p => itens.push({ nivel: 'grave', icone: 'door-closed', titulo: `Leitor sem sinal: ${apPorta(p.nome)}`,
-    texto: `${p.ultima ? 'Última passagem ' + apHa(apLocal(p.ultima)) : 'Nenhuma passagem hoje'} e o leitor informa "${p.status || 'sem status'}".`, ir: 'dispositivos' }));
-  (v.portas || []).filter(p => p.relogio_errado).forEach(p => itens.push({ nivel: 'medio', icone: 'clock-alert', titulo: `Relógio errado: ${apPorta(p.nome)}`,
-    texto: `${p.relogio_errado} passagens chegaram com data antes de 2020 e ficam fora dos relatórios. Acertar a hora do leitor.`, ir: 'dispositivos' }));
+  const hm = x => { const t = apLocal(x); return t ? apHm(t) : ''; };
+  if (ag.alerta) itens.push({ id: 'zap', nivel: 'grave', icone: 'message-circle-warning', titulo: 'Avisos de WhatsApp falhando agora',
+    texto: `${ag.falhas} de ${ag.enviados} avisos não chegaram nos últimos ${ag.janela_min} min. Motivo da Meta: ${ag.erro_principal || 'não informado'}.` });
+  (v.portas || []).filter(p => !apPortaViva(p)).forEach(p => itens.push({ id: 'sinal-' + p.id, nivel: 'grave', icone: 'door-closed', titulo: `Leitor sem sinal: ${apPorta(p.nome)}`,
+    texto: `${p.ultima ? 'Última passagem ' + apHa(apLocal(p.ultima)) : 'Nenhuma passagem hoje'} e o leitor informa "${p.status || 'sem status'}".`,
+    ir: 'dispositivos', irRot: 'Abrir Dispositivos' }));
+  (v.portas || []).filter(p => p.relogio_errado).forEach(p => itens.push({ id: 'relogio-' + p.id, nivel: 'medio', icone: 'clock-alert', titulo: `Relógio errado: ${apPorta(p.nome)}`,
+    texto: `${p.relogio_errado} passagens chegaram com data antes de 2020 e ficam fora dos relatórios. Acerte a hora em Dispositivos › Controladora.`,
+    ir: 'dispositivos', irRot: 'Abrir Dispositivos' }));
+
+  // Quem nao foi para o leitor, uma linha por pessoa (antes: uma por pessoa x leitor, tudo como "foto").
+  const porPessoa = new Map();
+  ((g.fotos || {}).recusadas || []).forEach(r => {
+    const k = r.pessoa_id || r.pessoa;
+    if (!porPessoa.has(k)) porPessoa.set(k, { ...r, leitores: [] });
+    porPessoa.get(k).leitores.push(apPorta(r.leitor));
+  });
+  const fora = [...porPessoa.values()];
+  const semLeitor = fora.filter(r => r.motivo !== 'foto');
+  const fotoRuim = fora.filter(r => r.motivo === 'foto');
+  const linhaLeitor = r => ({ nome: r.pessoa, sub: r.turma, pessoa_id: r.pessoa_id,
+    detalhe: `${r.leitores.join(' e ')}: ${AP_MOTIVO_LEITOR[r.motivo] || r.erro || 'recusado'}`, acao: 'Abrir cadastro' });
+  if (semLeitor.length) itens.push({ id: 'semleitor', nivel: 'medio', icone: 'user-x',
+    titulo: `${semLeitor.length} pessoa${semLeitor.length === 1 ? ' não está' : 's não estão'} nos leitores`,
+    texto: 'Estão no SightOps mas não abrem a porta: não foram cadastradas no leitor.', linhas: semLeitor.map(linhaLeitor) });
+  if (fotoRuim.length) itens.push({ id: 'foto', nivel: 'medio', icone: 'scan-face',
+    titulo: `${fotoRuim.length} foto${fotoRuim.length === 1 ? '' : 's'} recusada${fotoRuim.length === 1 ? '' : 's'} pelos leitores`,
+    texto: 'Essas pessoas não abrem a porta pelo rosto até a foto ser trocada.', linhas: fotoRuim.map(linhaLeitor) });
+
   const av = g.avisos || {};
-  if ((av.falhando || []).length) itens.push({ nivel: 'medio', icone: 'phone-off', titulo: `${av.falhando.length} responsáve${av.falhando.length === 1 ? 'l não está' : 'is não estão'} recebendo aviso`,
-    texto: av.falhando.slice(0, 4).map(f => `${f.responsavel || f.numero}${f.pessoa ? ' (' + f.pessoa + ')' : ''}`).join(', ') + (av.falhando.length > 4 ? '…' : '') + '. O último aviso para esses números falhou.', ir: 'relatorios' });
-  const fotos = g.fotos || {};
-  if (fotos.falhou) itens.push({ nivel: 'medio', icone: 'scan-face', titulo: `${fotos.falhou} foto${fotos.falhou === 1 ? '' : 's'} recusada${fotos.falhou === 1 ? '' : 's'} pelos leitores`,
-    texto: 'Essas pessoas não abrem a porta pelo rosto até a foto ser trocada.', ir: 'relatorios' });
+  const falhando = (av.falhando || []).filter(f => f.pessoa_id);
+  if (falhando.length) itens.push({ id: 'avisos', nivel: 'medio', icone: 'phone-off',
+    titulo: `${falhando.length} responsáve${falhando.length === 1 ? 'l não está' : 'is não estão'} recebendo aviso`,
+    texto: 'O último aviso para esses números não chegou. Confira o número no cadastro.',
+    linhas: falhando.map(f => ({ nome: f.responsavel || f.pessoa, pessoa_id: f.pessoa_id,
+      sub: f.responsavel && f.responsavel !== f.pessoa ? `responsável por ${f.pessoa}${f.turma ? ' · ' + f.turma : ''}` : f.turma,
+      detalhe: `${typeof psFoneFmt === 'function' ? psFoneFmt(f.numero) : f.numero}: ${apMotivoZap(f.erro)}${f.quando ? ' · ' + apHa(apLocal(f.quando)) : ''}`,
+      acao: 'Corrigir número' })) });
+
+  // Presenca vale 8 h: quem entrou e nao passou na saida vira aviso e o dia
+  // comeca zerado. Duas entradas seguidas e o motivo mais comum: saiu pelo
+  // leitor de entrada. Um alerta so por pessoa (antes eram dois cartoes).
+  const semSaida = v.sem_saida || [];
+  if (semSaida.length) itens.push({ id: 'saida', nivel: 'medio', icone: 'log-out',
+    titulo: `${semSaida.length} saída${semSaida.length === 1 ? '' : 's'} não registrada${semSaida.length === 1 ? '' : 's'}`,
+    texto: 'Entraram e não passaram no leitor de saída em 8 horas; não contam mais como presentes.',
+    linhas: semSaida.map(x => ({ nome: x.nome, pessoa_id: x.pessoa_id, sub: x.desde ? `entrou ${hm(x.desde)}` : '',
+      detalhe: x.dupla_entrada ? 'Passou duas vezes na entrada: provavelmente saiu pelo leitor de entrada.' : 'Nenhuma passagem de saída depois da entrada.' })) });
+  const duplas = (v.dentro || []).filter(x => x.dupla_entrada);
+  if (duplas.length) itens.push({ id: 'duplas', nivel: 'info', icone: 'repeat', titulo: `${duplas.length} com duas entradas seguidas`,
+    texto: 'Estão contando como presentes, mas passaram duas vezes na entrada: talvez tenham saído pelo leitor de entrada.',
+    linhas: duplas.map(x => ({ nome: x.nome, pessoa_id: x.pessoa_id, sub: x.desde ? `entrou ${hm(x.desde)}` : '' })) });
+
+  const semNum = av.sem_numero || [];
+  if (av.sem_numero_total) itens.push({ id: 'semnum', nivel: 'info', icone: 'contact',
+    titulo: `${av.sem_numero_total} aluno${av.sem_numero_total === 1 ? '' : 's'} sem número de responsável`,
+    texto: 'Não recebem aviso nenhum de entrada e saída.',
+    linhas: semNum.map(x => ({ nome: x.pessoa, sub: x.turma, pessoa_id: x.pessoa_id, acao: 'Adicionar número' })) });
   const r = v.resumo || {};
   const semCad = r.without_person || 0, total = r.total || 0;
-  if (semCad) itens.push({ nivel: total >= 20 && semCad / total >= 0.2 ? 'info' : 'medio', icone: 'user-x', titulo: `${semCad} passage${semCad === 1 ? 'm' : 'ns'} hoje de quem só está no leitor`,
+  if (semCad) itens.push({ id: 'semcad', nivel: total >= 20 && semCad / total >= 0.2 ? 'info' : 'medio', icone: 'user-search',
+    titulo: `${semCad} passage${semCad === 1 ? 'm' : 'ns'} hoje de quem só está no leitor`,
     texto: apEhCondominio()
-      ? 'Moradores que estão no leitor mas não no cadastro do SightOps ficam fora de "dentro agora" e dos relatórios. Para trazer: Controle de Acesso › Dispositivos › importar pessoas do leitor.'
-      : 'Ficam fora da presença, dos relatórios e dos avisos.', ir: 'relatorios' });
-  // Presenca vale 8 h: quem entrou e nao passou na saida vira aviso e o dia
-  // comeca zerado. Duas entradas seguidas: quase sempre saiu pelo leitor de entrada.
-  const semSaida = v.sem_saida || [];
-  const hm = s => { const t = apLocal(s); return t ? apHm(t) : ''; };
-  const nomes = l => l.slice(0, 6).map(x => `${x.nome}${x.desde ? ' (entrou ' + hm(x.desde) + ')' : ''}`).join(', ') + (l.length > 6 ? '…' : '');
-  if (semSaida.length) itens.push({ nivel: 'medio', icone: 'log-out', titulo: `${semSaida.length} saída${semSaida.length === 1 ? '' : 's'} não registrada${semSaida.length === 1 ? '' : 's'}`,
-    texto: `${nomes(semSaida)}. Entraram e não passaram no leitor de saída em 8 horas; não contam mais como presentes.`, ir: '' });
-  const duplas = [...(v.dentro || []), ...semSaida].filter(x => x.dupla_entrada);
-  if (duplas.length) itens.push({ nivel: 'info', icone: 'repeat', titulo: `${duplas.length} com duas entradas seguidas`,
-    texto: `${nomes(duplas)}. Provavelmente saíram passando pelo leitor de entrada.`, ir: '' });
-  if (av.sem_numero_total) itens.push({ nivel: 'info', icone: 'contact', titulo: `${av.sem_numero_total} aluno${av.sem_numero_total === 1 ? '' : 's'} sem número de responsável`,
-    texto: 'Não recebem aviso nenhum.', ir: 'relatorios' });
-  itens.push({ nivel: 'cinza', icone: 'shield-x', titulo: 'Acessos negados ainda não são coletados',
-    texto: 'Hoje o SightOps só guarda as passagens liberadas. Quando a coleta guardar as negadas, elas aparecem aqui primeiro.', ir: '' });
+      ? 'Moradores que estão no leitor mas não no cadastro do SightOps ficam fora de "dentro agora" e dos relatórios. Para trazer: Pessoas › Trazer do leitor.'
+      : 'Ficam fora da presença, dos relatórios e dos avisos. Para trazer: Pessoas › Trazer do leitor.',
+    ir: 'relatorios', irRot: 'Ver por porta' });
   return itens;
 }
 
@@ -516,17 +570,50 @@ function apMarcarAba() {
 function apDesenharAlertas() {
   const el = document.getElementById('apAlertas');
   if (!el) return;
-  const ordem = { grave: 0, medio: 1, info: 2, cinza: 3 };
+  const ordem = { grave: 0, medio: 1, info: 2 };
   const itens = apListaAlertas().sort((a, b) => ordem[a.nivel] - ordem[b.nivel]);
-  const rot = { grave: 'agir agora', medio: 'resolver hoje', info: 'para saber', cinza: 'ainda não existe' };
-  el.innerHTML = `<div class="ap-alertas">${itens.map(i => `
-    <article class="ap-al ${i.nivel}">
-      <span class="ap-al-ic"><i data-lucide="${i.icone}"></i></span>
-      <div class="ap-cresce"><div class="ap-al-tit"><b>${esc(i.titulo)}</b><span class="ap-al-niv">${rot[i.nivel]}</span></div><p>${esc(i.texto)}</p></div>
-      ${i.ir ? `<button type="button" class="secondary-action" data-ap-ir="${i.ir}">Ver</button>` : ''}
-    </article>`).join('')}</div>`;
+  const rot = { grave: 'agir agora', medio: 'resolver hoje', info: 'para saber' };
+  if (!itens.length) {
+    el.innerHTML = '<div class="dv-vazio"><i data-lucide="shield-check"></i><b>Nada precisando de alguém</b><p>Leitores no ar, avisos chegando e todo mundo cadastrado nos leitores.</p></div>';
+    lucide.createIcons();
+    return;
+  }
+  const linha = l => `<li class="ap-al-l">
+      <div class="ap-cresce"><b>${esc(l.nome || 'sem nome')}</b>${l.sub ? `<small>${esc(l.sub)}</small>` : ''}${l.detalhe ? `<p>${esc(l.detalhe)}</p>` : ''}</div>
+      ${l.pessoa_id && !String(l.pessoa_id).startsWith('ctl-') ? `<button type="button" class="secondary-action" data-ap-abre-pessoa="${esc(l.pessoa_id)}">${esc(l.acao || 'Abrir cadastro')}</button>` : ''}</li>`;
+  el.innerHTML = `<div class="ap-alertas">${itens.map(i => {
+    const n = (i.linhas || []).length;
+    const aberto = _apAlAbertos.has(i.id);
+    return `<article class="ap-al ${i.nivel} ${aberto ? 'aberto' : ''}">
+      <div class="ap-al-cab">
+        <span class="ap-al-ic"><i data-lucide="${i.icone}"></i></span>
+        <div class="ap-cresce"><div class="ap-al-tit"><b>${esc(i.titulo)}</b><span class="ap-al-niv">${rot[i.nivel]}</span></div><p>${esc(i.texto)}</p></div>
+        ${n ? `<button type="button" class="secondary-action" data-ap-al-abre="${esc(i.id)}" aria-expanded="${aberto}"><i data-lucide="${aberto ? 'chevron-up' : 'chevron-down'}"></i> ${aberto ? 'Fechar' : n === 1 ? 'Ver quem' : `Ver os ${n}`}</button>`
+          : i.ir ? `<button type="button" class="secondary-action" data-ap-ir="${i.ir}">${esc(i.irRot || 'Ver')}</button>` : ''}
+      </div>
+      ${n && aberto ? `<ul class="ap-al-lista">${i.linhas.map(linha).join('')}</ul>` : ''}
+    </article>`;
+  }).join('')}</div>`;
   apLigarAcoes(el);
+  el.querySelectorAll('[data-ap-al-abre]').forEach(b => b.addEventListener('click', () => {
+    const id = b.dataset.apAlAbre;
+    if (_apAlAbertos.has(id)) _apAlAbertos.delete(id); else _apAlAbertos.add(id);
+    apDesenharAlertas();
+  }));
+  el.querySelectorAll('[data-ap-abre-pessoa]').forEach(b => b.addEventListener('click', () => apAbrirPessoa(b.dataset.apAbrePessoa)));
   lucide.createIcons();
+}
+
+// Leva ao cadastro da pessoa (aba Pessoas, gaveta aberta).
+async function apAbrirPessoa(id) {
+  apTrocarTela('pessoas');
+  const acha = () => ((typeof _psDados !== 'undefined' && _psDados && _psDados.pessoas) || []).find(p => p.id === id);
+  try {
+    if (!acha()) await psCarregar();
+  } catch (_) {}
+  const p = acha();
+  if (p) psAbrir(p);
+  else acToast('Não achei essa pessoa no local escolhido. Troque o local no topo para "Todos".', true);
 }
 
 // ---------------------------------------------------------------- relatorios
