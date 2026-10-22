@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=1792600237">
+  <link rel="stylesheet" href="styles.css?v=1792600253">
   <link rel="stylesheet" href="acesso/acesso.css?v=1792600213">
 </head>
 <body>
@@ -141,8 +141,8 @@
 
         <!-- Alerta (botao de panico) -->
         <div class="nav-section-label">Alerta</div>
-        <button class="nav-item" data-view="alert-live"><i data-lucide="siren"></i><span>Alerta ao Vivo</span><span class="alert-nav-badge" id="alertNavBadge" hidden>0</span></button>
-        <button class="nav-item" data-view="alert-members"><i data-lucide="contact"></i><span>Pessoas do Alerta</span></button>
+        <button class="nav-item" data-view="alert-live"><i data-lucide="siren"></i><span>Central ao vivo</span><span class="alert-nav-badge" id="alertNavBadge" hidden>0</span></button>
+        <button class="nav-item" data-view="alert-members"><i data-lucide="contact"></i><span>Pessoas e aparelhos</span></button>
 
         </div>
 
@@ -1590,55 +1590,42 @@
       <section class="workspace hidden alert-live-view" id="viewAlertLive">
         <div class="page-heading">
           <div>
-            <p class="eyebrow">Alerta</p>
-            <h1>Alerta ao Vivo</h1>
-            <p>Pedidos de ajuda enviados pelo botao de panico, com localizacao e cameras proximas.</p>
-            <div class="alert-scope" id="alertScopeLive" hidden></div>
+            <p class="eyebrow alert-eyebrow">Alerta</p>
+            <h1>Central ao vivo</h1>
+            <div class="alert-chips" id="alertChips">
+              <div class="alert-scope" id="alertScopeLive" hidden></div>
+              <span class="alert-chips-mais" id="alertChipsMais"></span>
+            </div>
           </div>
           <div class="page-heading-actions">
-            <button class="secondary-action" id="btnAlertSoundTest" type="button"><i data-lucide="megaphone"></i> Testar som</button>
-            <button class="secondary-action" id="btnAlertSound" type="button"><i data-lucide="sliders-horizontal"></i> <span>Som do alerta</span></button>
-            <button class="secondary-action" id="btnAlertProtocolos" type="button" hidden><i data-lucide="list-checks"></i> <span>Passos por site</span></button>
             <button class="secondary-action" id="btnAlertHistory" type="button"><i data-lucide="history"></i> <span>Historico</span></button>
-            <button class="secondary-action" id="btnAlertRefresh" type="button"><i data-lucide="refresh-cw"></i> Atualizar</button>
+            <button class="secondary-action" id="btnAlertSound" type="button"><i data-lucide="volume-2"></i> <span>Som do alerta</span></button>
+            <button class="secondary-action" id="btnAlertProtocolos" type="button" hidden><i data-lucide="list-checks"></i> <span>Passos por site</span></button>
+            <button class="secondary-action" id="btnAlertFull" type="button"><i data-lucide="maximize"></i> <span>Tela cheia</span></button>
           </div>
         </div>
 
         <section class="alert-banner" id="alertBanner" aria-live="assertive" hidden></section>
 
-        <div class="metrics alert-live-kpis">
-          <article>
-            <div class="metric-icon red"><i data-lucide="siren"></i></div>
-            <div><span>Sem atendimento</span><strong id="alertKpiNew">0</strong><small>ninguem assumiu ainda</small></div>
-          </article>
-          <article>
-            <div class="metric-icon amber"><i data-lucide="shield-alert"></i></div>
-            <div><span>Em atendimento</span><strong id="alertKpiOpen">0</strong><small>assumidos ou a caminho</small></div>
-          </article>
-          <article>
-            <div class="metric-icon red"><i data-lucide="user-x"></i></div>
-            <div><span>Coacao</span><strong id="alertKpiDuress">0</strong><small>senha de coacao usada</small></div>
-          </article>
-          <article>
-            <div class="metric-icon green"><i data-lucide="check-circle-2"></i></div>
-            <div><span>Encerrados</span><strong id="alertKpiClosed">0</strong><small id="alertKpiClosedSub">ultimos 30 minutos</small></div>
-          </article>
-        </div>
-
         <div class="alert-live-grid">
           <section class="panel alert-live-list-panel">
-            <div class="panel-header">
-              <div><h2 id="alertListTitle">Alertas</h2><p id="alertListSub">Abertos e encerrados recentes.</p></div>
-              <span class="pill neutral" id="alertLiveState">aguardando</span>
+            <div class="panel-header alert-fila-head">
+              <div><h2 id="alertListTitle">Fila</h2><p id="alertListSub">Abertos e encerrados recentes.</p></div>
+              <div class="alert-fila-cnt"><span class="pill" id="alertCntOpen">Abertos 0</span><span class="pill neutral" id="alertCntHoje">Hoje 0</span></div>
             </div>
             <div class="alert-live-list" id="alertLiveList">
               <div class="alert-live-empty">Carregando alertas.</div>
             </div>
+            <div class="alert-fila-foot" id="alertFilaFoot" hidden></div>
+            <div class="alert-fila-state"><span id="alertLiveState">aguardando</span></div>
           </section>
 
           <div class="alert-live-center">
             <section class="panel alert-live-map-panel">
               <div id="alertLiveMap" class="alert-live-map"></div>
+              <div class="alert-map-chips" id="alertMapChips"></div>
+              <div class="alert-map-tools" id="alertMapTools"></div>
+              <div class="alert-map-legend" id="alertMapLegend"></div>
             </section>
             <section class="panel alert-live-cams" id="alertLiveCams" aria-label="Cameras do local" hidden>
               <div class="alert-nearby" id="alertNearbyGrid"></div>
@@ -1654,7 +1641,7 @@
         <div class="page-heading">
           <div>
             <p class="eyebrow">Alerta</p>
-            <h1>Pessoas do Alerta</h1>
+            <h1>Pessoas e aparelhos</h1>
             <p>Quem pode usar o botao de panico no celular. Gere o codigo de ativacao e entregue para a pessoa.</p>
             <div class="alert-scope" id="alertScopeMembers" hidden></div>
           </div>
@@ -7643,7 +7630,7 @@
        trechos do app.js original na sequencia em que estavam, entao carregar
        fora de ordem muda o comportamento. Ao adicionar um arquivo novo, entre
        antes de bootstrap.js, que e quem liga os botoes no DOMContentLoaded. -->
-  <script src="js/core.js?v=1792600206"></script>
+  <script src="js/core.js?v=1792600255"></script>
   <script src="js/licencas.js?v=1792600103"></script>
   <script src="js/configuracoes.js?v=1792600138"></script>
   <script src="js/notificacoes.js?v=1792600139"></script>
@@ -7685,7 +7672,7 @@
   <script src="acesso/dados.js?v=1792600205"></script>
   <script src="acesso/acesso.js?v=1792600205"></script>
   <script src="js/messenger.js?v=1791000212"></script>
-  <script src="js/alert.js?v=1792600238"></script>
+  <script src="js/alert.js?v=1792600254"></script>
   <script src="js/tr069.js?v=1791000212"></script>
   <script src="js/bootstrap.js?v=1792600207"></script>
 </body>

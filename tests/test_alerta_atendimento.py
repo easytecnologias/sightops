@@ -100,3 +100,25 @@ def test_salvar_passos_exige_admin():
     assert regras._match_role_rule("/api/alert/protocols", "PUT") == "admin"
     assert regras._match_role_rule("/api/alert/incidents/x/arrive", "POST") == "operator"
     assert regras._match_role_rule("/api/alert/incidents/x/step", "POST") == "operator"
+
+
+def test_postos_online_por_cliente(monkeypatch):
+    """Contagem de postos de plantao: so do proprio cliente, so quem consultou ha pouco."""
+    from types import SimpleNamespace
+    from app.api.endpoints import alert as E
+
+    E._POSTOS.clear()
+    req = lambda u: SimpleNamespace(state=SimpleNamespace(user={"username": u}))
+    for t, u in (("cli-a", "ana"), ("cli-a", "bia"), ("cli-b", "caio")):
+        tok = tenant_context.set_current_tenant_slug(t)
+        try:
+            E._registrar_posto(req(u))
+        finally:
+            tenant_context.reset_current_tenant_slug(tok)
+    tok = tenant_context.set_current_tenant_slug("cli-a")
+    try:
+        assert E._registrar_posto(req("ana"))["postos_online"] == 2
+        E._POSTOS[("cli-a", "bia")] -= E._POSTO_JANELA_S + 1   # bia fechou a tela
+        assert E._registrar_posto(req("ana"))["postos_online"] == 1
+    finally:
+        tenant_context.reset_current_tenant_slug(tok)

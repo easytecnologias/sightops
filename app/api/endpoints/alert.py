@@ -193,9 +193,28 @@ def api_alert_save_protocol(req: AlertProtocolRequest) -> Dict[str, Any]:
         raise HTTPException(status_code=400, detail=str(exc))
 
 
+# Postos online: quem esta com o SightOps aberto vendo alertas. Cada tela
+# consulta o resumo a cada ~10 s; quem consultou nos ultimos 45 s esta de
+# plantao. Memoria do processo, com o tenant na chave (nunca mistura cliente).
+_POSTOS: Dict[tuple, float] = {}
+_POSTO_JANELA_S = 45.0
+
+
+def _registrar_posto(request: Request) -> Dict[str, Any]:
+    from app.core.tenant_context import get_current_tenant_slug
+
+    tenant = str(get_current_tenant_slug() or "")
+    agora = time.time()
+    _POSTOS[(tenant, _operator(request))] = agora
+    for k in [k for k, t in _POSTOS.items() if agora - t > _POSTO_JANELA_S * 4]:
+        _POSTOS.pop(k, None)
+    online = sorted(u for (t, u), ts in _POSTOS.items() if t == tenant and agora - ts <= _POSTO_JANELA_S)
+    return {"postos_online": len(online)}
+
+
 @router.get("/summary")
-def api_alert_summary() -> Dict[str, Any]:
-    return {"ok": True, **live_summary()}
+def api_alert_summary(request: Request) -> Dict[str, Any]:
+    return {"ok": True, **live_summary(), **_registrar_posto(request)}
 
 
 def _camera_liberada(card: Dict[str, Any]) -> bool:

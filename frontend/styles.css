@@ -10146,6 +10146,65 @@ body.shell-owner .nav-item.active { box-shadow: inset 3px 0 #c9962c; }
 .alert-calm-ico { width: 32px; height: 32px; border-radius: 8px; display: grid; place-items: center; flex: 0 0 auto; background: var(--primary-soft); color: var(--primary); }
 .alert-calm-row.warn .alert-calm-ico { background: var(--amber-soft); color: var(--amber); }
 .alert-calm-ico svg { width: 16px; height: 16px; }
+
+/* Cabecalho: chips no lugar dos 4 cartoes */
+#viewAlertLive .alert-eyebrow { color: var(--danger); }
+#viewAlertLive .page-heading h1 { margin-bottom: 8px; }
+.alert-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.alert-chips .alert-scope { margin-top: 0; }
+.alert-chips-mais { display: contents; }
+.alert-chip { display: inline-flex; align-items: center; gap: 7px; height: 30px; padding: 0 12px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface-soft); color: var(--muted); font-size: 12px; font-weight: 600; white-space: nowrap; }
+button.alert-chip { cursor: pointer; }
+.alert-chip svg { width: 14px; height: 14px; }
+.alert-chip.is-ok { border-color: transparent; background: var(--primary-soft); color: var(--primary); }
+.alert-chip.is-warn { border-color: var(--amber); background: var(--amber-soft); color: var(--amber); }
+.alert-chip-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--primary); flex: 0 0 auto; }
+
+/* Fila: contadores, rodape */
+.alert-fila-head { align-items: center; }
+.alert-fila-cnt { display: flex; gap: 4px; flex-wrap: wrap; justify-content: flex-end; }
+.alert-fila-cnt .pill { background: var(--surface-soft); color: var(--muted); }
+.alert-fila-cnt .pill:first-child { background: var(--text); color: #fff; }
+.alert-fila-cnt .pill.is-hot { background: var(--danger); color: #fff; }
+.alert-fila-foot { padding: 12px 16px; border-top: 1px solid var(--border); font-size: 12px; color: var(--muted); line-height: 1.5; }
+.alert-fila-state { padding: 6px 16px 10px; font-size: 11px; color: var(--muted); }
+
+/* Mapa com informacao por cima */
+#viewAlertLive .alert-live-map-panel { position: relative; }
+.alert-map-chips { position: absolute; left: 56px; top: 12px; right: 190px; z-index: 500; display: flex; flex-wrap: wrap; gap: 6px; pointer-events: none; }
+.alert-map-chip { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px; border-radius: 999px; background: var(--surface); color: var(--text); font-size: 12px; font-weight: 600; box-shadow: 0 2px 8px rgba(23,32,38,.18); }
+.alert-map-chip.is-warn { background: var(--amber-soft); color: var(--amber); }
+.alert-map-tools { position: absolute; right: 12px; top: 12px; z-index: 500; display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+.alert-map-btn { display: inline-flex; align-items: center; gap: 6px; height: 34px; padding: 0 12px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); color: var(--text); font-size: 12px; font-weight: 600; box-shadow: 0 2px 8px rgba(23,32,38,.15); text-decoration: none; }
+.alert-map-btn svg { width: 14px; height: 14px; }
+.alert-map-btn.is-on { border-color: var(--primary); color: var(--primary); }
+.alert-map-legend { position: absolute; left: 12px; bottom: 12px; z-index: 500; display: flex; flex-wrap: wrap; gap: 14px; padding: 8px 12px; border-radius: 8px; background: rgba(19,37,45,.88); color: #fff; font-size: 12px; pointer-events: none; }
+.alert-map-legend:empty { display: none; }
+.alert-map-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.alert-map-legend i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; }
+.alert-map-legend .lg-pessoa { background: var(--danger); box-shadow: 0 0 0 2px #fff; }
+.alert-map-legend .lg-disparo { background: #fff; box-shadow: inset 0 0 0 2px var(--text); }
+.alert-map-legend .lg-rastro { width: 16px; height: 0; border-radius: 0; border-top: 2px dashed #ff8787; }
+.alert-map-legend .lg-local { background: var(--primary); }
+.alert-map-legend .lg-local-warn { background: var(--amber); }
+.alert-lot { display: grid; place-items: center; width: 26px; height: 26px; border-radius: 50%; background: var(--primary); color: #fff; font: 700 11px Inter, Arial, sans-serif; border: 3px solid #fff; box-shadow: 0 2px 8px rgba(23,32,38,.3); }
+.alert-lot.warn { background: var(--amber); }
+
+/* Cameras do local em quadros 16:9 */
+#viewAlertLive .alert-nearby-grid { grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); }
+.alert-cam-tile { position: relative; display: grid; place-items: center; aspect-ratio: 16 / 9; padding: 0; border: 0; border-radius: 8px; overflow: hidden; background: linear-gradient(135deg, var(--sidebar-soft), var(--sidebar)); color: #8fa3ab; cursor: pointer; }
+.alert-cam-tile img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.alert-cam-tile > svg { width: 28px; height: 28px; }
+.alert-cam-tile:hover { outline: 3px solid var(--primary); outline-offset: -3px; }
+.alert-cam-live { position: absolute; left: 6px; top: 6px; display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 7px; border-radius: 999px; background: rgba(0,0,0,.5); color: #fff; font-size: 10px; font-weight: 700; letter-spacing: .04em; }
+.alert-cam-live svg { width: 10px; height: 10px; }
+.alert-cam-cap { position: absolute; left: 0; right: 0; bottom: 0; display: flex; justify-content: space-between; gap: 8px; padding: 14px 8px 6px; background: linear-gradient(transparent, rgba(0,0,0,.7)); color: #fff; font-size: 11px; text-align: left; }
+.alert-cam-cap b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.alert-cam-cap em { font-style: normal; font-weight: 700; color: #63e6be; flex: 0 0 auto; }
+
+/* Tela cheia (videowall) */
+#viewAlertLive:fullscreen { background: var(--bg); padding: 18px 22px; overflow-y: auto; }
+#viewAlertLive:fullscreen .alert-live-map { height: calc(100vh - 380px); min-height: 360px; }
 .alert-row-actions { display: flex; gap: 6px; justify-content: flex-end; white-space: nowrap; }
 .alert-inline-icon { width: 13px; height: 13px; vertical-align: -2px; color: var(--muted); }
 .alert-member-modal { width: min(620px, 100%); }

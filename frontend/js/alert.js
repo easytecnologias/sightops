@@ -30,6 +30,10 @@ let _alertConnectors = null;
 let _alertMeusSites = null;
 let _alertMemberSite = '';
 let _alertSoPendencia = false;
+let _alertPostos = null;      // postos online (vem do /summary)
+let _alertSeguir = true;       // mapa acompanha a pessoa
+let _alertUnits = null;        // camada com as lotacoes (tela calma)
+let _alertHoje = { at: 0, lista: [] };
 
 const ALERT_REFRESH_MS = 3000;
 const ALERT_SUMMARY_MS = 10000;
@@ -513,6 +517,7 @@ async function alertPollSummary() {
     const res = await api('/api/alert/summary', { skipLogout: true });
     if (!res || !res.ok) return;
     const s = await res.json();
+    if (typeof s.postos_online === 'number') { _alertPostos = s.postos_online; if (alertLiveVisible()) alertRenderChips(); }
     const badge = document.getElementById('alertNavBadge');
     if (badge) {
       badge.hidden = !s.open;
@@ -531,7 +536,7 @@ async function alertPollSummary() {
     }
     if (s.latest_new_id && !_alertKnownIds.has(s.latest_new_id) && _currentView !== 'alert-live') {
       _alertKnownIds.add(s.latest_new_id);
-      showToast('ALERTA DE PANICO recebido. Abra Alerta ao Vivo.', true);
+      showToast('ALERTA DE PANICO recebido. Abra a Central ao vivo.', true);
     }
   } catch { /* silencioso: e so o badge */ }
 }
@@ -577,6 +582,7 @@ function alertInitMap() {
   }).addTo(_alertMap);
   _alertMarkers = L.layerGroup().addTo(_alertMap);
   _alertTrail = L.layerGroup().addTo(_alertMap);
+  _alertUnits = L.layerGroup().addTo(_alertMap);
 }
 
 function alertBind() {
@@ -619,6 +625,13 @@ function alertBind() {
     if (ver) alertSelect(ver.dataset.bannerVer, true);
   });
   document.getElementById('btnAlertProtocolos')?.addEventListener('click', () => alertOpenProtocolos(''));
+  document.getElementById('btnAlertFull')?.addEventListener('click', alertTelaCheia);
+  document.getElementById('alertChips')?.addEventListener('click', (ev) => {
+    if (ev.target.closest('[data-chip="som"]')) alertOpenSoundModal();
+  });
+  document.getElementById('alertMapTools')?.addEventListener('click', (ev) => {
+    if (ev.target.closest('[data-map="seguir"]')) { _alertSeguir = !_alertSeguir; alertRenderMapaInfo(); if (_alertSeguir) alertCentralizar(); }
+  });
   document.getElementById('alertProtSite')?.addEventListener('change', alertProtocoloMostrarSite);
   document.getElementById('btnAlertProtSave')?.addEventListener('click', alertSalvarProtocolo);
   document.getElementById('alertCloseQuick')?.addEventListener('click', (ev) => {
@@ -655,6 +668,7 @@ async function loadAlertLive() {
   alertRenderSoundButton();
   setTimeout(alertRenderSoundUnlock, 300);
   setTimeout(() => _alertMap?.invalidateSize(), 150);
+  alertPollSummary();
   await alertRefresh(true);
   alertTickStart();
   if (!_alertTimer) {
@@ -685,6 +699,8 @@ async function alertRefresh(force) {
       _alertSelectedId = (incidents.find(alertOpen) || {}).id || '';
     }
     alertRenderKpis();
+    alertRenderChips();
+    alertCarregarHoje();
     alertRenderBanner();
     alertRenderList();
     alertRenderMarkers();
@@ -705,6 +721,138 @@ function alertRenderKpis() {
   setText('alertKpiDuress', open.filter((i) => i.kind === 'duress').length);
   setText('alertKpiClosed', _alertIncidents.filter((i) => !alertOpen(i)).length);
   setText('alertKpiClosedSub', _alertScope === 'live' ? 'ultimos 30 minutos' : 'no historico carregado');
+}
+
+// ---------------------------------------------------------------- cabecalho
+function alertRenderChips() {
+  const box = document.getElementById('alertChipsMais');
+  if (!box) return;
+  const somOn = alertSoundOn();
+  const aviso = !('Notification' in window) ? '' : (Notification.permission === 'granted' ? 'Windows: ativo' : 'Windows: desligado');
+  const cfg = alertSoundCfg();
+  const somTxt = somOn ? `Som: ${cfg.siren === 'none' ? 'so voz' : (cfg.voice === 'off' ? 'so sirene' : 'sirene + voz')}` : 'Som desligado';
+  const postos = typeof _alertPostos === 'number'
+    ? `<span class="alert-chip is-ok"><span class="alert-chip-dot"></span>Voce esta de plantao · ${_alertPostos} posto${_alertPostos === 1 ? '' : 's'} online</span>` : '';
+  box.innerHTML = `${postos}<button type="button" class="alert-chip${somOn ? '' : ' is-warn'}" data-chip="som"><i data-lucide="${somOn ? 'volume-2' : 'volume-x'}"></i>${esc(somTxt)}${aviso ? ` · ${esc(aviso)}` : ''}</button>`;
+  if (window.lucide) lucide.createIcons();
+}
+
+// Alertas de hoje (contador da fila e tela calma). No maximo 1 busca por minuto.
+async function alertCarregarHoje() {
+  if (Date.now() - _alertHoje.at < 60000) { alertRenderContadores(); return; }
+  _alertHoje.at = Date.now();
+  try {
+    const hist = await alertApiJson('/api/alert/incidents?scope=history&limit=100');
+    const ini = new Date(); ini.setHours(0, 0, 0, 0);
+    _alertHoje.lista = (hist.incidents || []).filter((i) => (alertDate(i.opened_at)?.getTime() || 0) >= ini.getTime());
+  } catch { /* contador fica como estava */ }
+  alertRenderContadores();
+}
+
+function alertRenderContadores() {
+  const abertos = _alertIncidents.filter(alertOpen).length;
+  const a = document.getElementById('alertCntOpen');
+  const h = document.getElementById('alertCntHoje');
+  if (a) { a.textContent = `Abertos ${abertos}`; a.classList.toggle('is-hot', abertos > 0); }
+  if (h) h.textContent = `Hoje ${Math.max(_alertHoje.lista.length, 0)}`;
+  const foot = document.getElementById('alertFilaFoot');
+  if (foot) {
+    foot.hidden = !_alertMeusSites;
+    foot.textContent = 'Alertas dos outros sites nao aparecem para voce — nem som, nem contador.';
+  }
+}
+
+function alertTelaCheia() {
+  const el = document.getElementById('viewAlertLive');
+  if (!el) return;
+  if (document.fullscreenElement) { document.exitFullscreen?.(); return; }
+  el.requestFullscreen?.().then(() => setTimeout(() => _alertMap?.invalidateSize(), 300)).catch(() => showToast('O navegador nao liberou a tela cheia.', true));
+}
+document.addEventListener('fullscreenchange', () => setTimeout(() => _alertMap?.invalidateSize(), 300));
+
+// ---------------------------------------------------------------- mapa
+function alertCentralizar() {
+  const p = alertPoint(_alertDetail);
+  if (p && _alertMap) _alertMap.setView([p.lat, p.lon], Math.max(_alertMap.getZoom(), 17), { animate: true });
+}
+
+function alertDistM(a, b) {
+  const R = 6371000, r = (x) => (x * Math.PI) / 180;
+  const dLat = r(b[0] - a[0]), dLon = r(b[1] - a[1]);
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(r(a[0])) * Math.cos(r(b[0])) * Math.sin(dLon / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(h));
+}
+
+// Chips e ferramentas sobre o mapa. Com alerta: GPS, bateria, quanto andou.
+// Sem alerta: as lotacoes das pessoas (onde um pedido pode nascer).
+function alertRenderMapaInfo() {
+  const chips = document.getElementById('alertMapChips');
+  const tools = document.getElementById('alertMapTools');
+  const legenda = document.getElementById('alertMapLegend');
+  if (!chips || !tools) return;
+  const inc = _alertDetail;
+  if (inc) {
+    _alertUnits?.clearLayers();
+    _alertLotKey = '';
+    const p = alertPoint(inc);
+    const pos = inc.positions || [];
+    let andou = 0;
+    if (pos.length > 1) andou = alertDistM([pos[0].lat, pos[0].lon], [pos[pos.length - 1].lat, pos[pos.length - 1].lon]);
+    const itens = [];
+    if (p && p.gps) {
+      const prec = inc.last_accuracy != null ? ` ~${Math.round(inc.last_accuracy)} m` : '';
+      const quando = inc.last_position_at ? ` · atualizado ha ${esc(alertAgo(inc.last_position_at))}` : '';
+      itens.push(`<span class="alert-map-chip"><span class="alert-chip-dot"></span>GPS${prec}${quando}</span>`);
+    }
+    else if (p) itens.push('<span class="alert-map-chip is-warn">Sem GPS: mostrando a lotacao</span>');
+    else itens.push('<span class="alert-map-chip is-warn">Sem localizacao ainda</span>');
+    if (inc.last_battery != null) itens.push(`<span class="alert-map-chip${inc.last_battery < 15 ? ' is-warn' : ''}">Bateria ${inc.last_battery}%</span>`);
+    if (andou >= 15) itens.push(`<span class="alert-map-chip">Andou ${esc(alertDistLabel(andou))} desde o disparo</span>`);
+    chips.innerHTML = itens.join('');
+    const maps = p ? `<a class="alert-map-btn" href="https://www.google.com/maps?q=${p.lat},${p.lon}" target="_blank" rel="noopener"><i data-lucide="external-link"></i> Google Maps</a>` : '';
+    tools.innerHTML = `${p ? `<button type="button" class="alert-map-btn${_alertSeguir ? ' is-on' : ''}" data-map="seguir"><i data-lucide="locate-fixed"></i> ${_alertSeguir ? 'Seguindo a pessoa' : 'Seguir a pessoa'}</button>` : ''}${maps}`;
+    if (legenda) legenda.innerHTML = '<span><i class="lg-pessoa"></i> pessoa</span><span><i class="lg-disparo"></i> ponto do disparo</span><span><i class="lg-rastro"></i> trajeto</span>';
+  } else {
+    tools.innerHTML = '';
+    alertDesenharLotacoes();
+  }
+  if (window.lucide) lucide.createIcons();
+}
+
+let _alertLotKey = '';
+async function alertDesenharLotacoes() {
+  const chips = document.getElementById('alertMapChips');
+  const legenda = document.getElementById('alertMapLegend');
+  let membros = _alertCalm?.membros?.members;
+  if (!membros) {
+    try { membros = (await alertApiJson('/api/alert/members')).members || []; } catch { membros = []; }
+  }
+  if (_alertDetail) return; // chegou alerta enquanto buscava
+  const locais = new Map();
+  membros.filter((m) => m.active && m.unit_lat != null && m.unit_lon != null).forEach((m) => {
+    const k = `${Number(m.unit_lat).toFixed(4)},${Number(m.unit_lon).toFixed(4)}`;
+    const it = locais.get(k) || { lat: Number(m.unit_lat), lon: Number(m.unit_lon), nomes: [], site: m.site || m.unit_name || '' , pend: 0 };
+    it.nomes.push(m.full_name);
+    if (m.prontidao && !m.prontidao.pronta) it.pend += 1;
+    locais.set(k, it);
+  });
+  const key = [...locais.keys()].sort().join('|');
+  if (chips) {
+    chips.innerHTML = locais.size
+      ? `<span class="alert-map-chip"><span class="alert-chip-dot"></span>${locais.size} ${locais.size === 1 ? 'local monitorado' : 'locais monitorados'} · ${membros.filter((m) => m.active).length} pessoas</span>`
+      : '<span class="alert-map-chip is-warn">Nenhuma lotacao com coordenada: cadastre em Pessoas</span>';
+  }
+  if (legenda) legenda.innerHTML = '<span><i class="lg-local"></i> lotacao (todos prontos)</span><span><i class="lg-local-warn"></i> lotacao com pendencia</span>';
+  if (!_alertUnits || key === _alertLotKey) return;
+  _alertLotKey = key;
+  _alertUnits.clearLayers();
+  const pts = [];
+  locais.forEach((it) => {
+    const icon = L.divIcon({ className: '', html: `<span class="alert-lot${it.pend ? ' warn' : ''}">${it.nomes.length}</span>`, iconSize: [26, 26], iconAnchor: [13, 13] });
+    L.marker([it.lat, it.lon], { icon }).bindTooltip(`${esc(it.site)}<br>${it.nomes.map(esc).slice(0, 6).join('<br>')}${it.nomes.length > 6 ? '<br>...' : ''}`).addTo(_alertUnits);
+    pts.push([it.lat, it.lon]);
+  });
+  if (pts.length && _alertMap) _alertMap.fitBounds(pts, { padding: [60, 60], maxZoom: 16 });
 }
 
 // Faixa no topo: o alerta sem atendimento mais antigo, com cronometro e Assumir.
@@ -941,6 +1089,7 @@ async function alertLoadDetail() {
     _alertDetail = null;
     alertMostrarCameras(false);
     alertRenderCalm();
+    alertRenderMapaInfo();
     return;
   }
   try {
@@ -951,6 +1100,8 @@ async function alertLoadDetail() {
   }
   alertRenderTrail();
   alertRenderDetail();
+  alertRenderMapaInfo();
+  if (_alertSeguir) alertCentralizar();
   alertMostrarCameras(true);
   alertLoadNearby();
 }
@@ -1110,7 +1261,7 @@ async function alertRenderCalm() {
   panel.innerHTML = `
     <div class="alert-calm-head">
       <span class="alert-calm-badge"><i data-lucide="shield-check"></i></span>
-      <div><strong>Tudo calmo</strong><small>Nenhum pedido de ajuda aberto ${_alertMeusSites ? `nos seus ${_alertMeusSites.length === 1 ? 'site' : `${_alertMeusSites.length} sites`}` : ''}. Quando alguem apertar o botao, este painel vira o atendimento.</small></div>
+      <div><strong>Tudo calmo</strong><small>Nenhum pedido de ajuda aberto${_alertMeusSites ? ` nos seus ${_alertMeusSites.length === 1 ? 'site' : `${_alertMeusSites.length} sites`}` : ''}. Quando alguem apertar o botao, este painel vira o atendimento.</small></div>
     </div>
     <div class="alert-calm-list">
       ${linha(somOn, somOn ? 'volume-2' : 'volume-x', somOn ? 'Este posto vai tocar' : 'Som desligado neste posto',
@@ -1138,23 +1289,16 @@ function alertDistLabel(m) {
 }
 
 function alertCameraCard(c) {
-  // A distancia e o que decide qual camera abrir primeiro numa ocorrencia --
-  // entao sai do meio do texto miudo e ganha destaque proprio.
+  // Quadro 16:9 como no videowall: a imagem e o que importa; um clique abre ao vivo.
   const d = alertDistLabel(c.distance_m);
-  const dist = d
-    ? `<b style="color:var(--primary);font-weight:600">${esc(d)}</b> · `
-    : '';
   return `
-      <div class="alert-cam">
-        <div class="alert-cam-thumb">${c.snapshot_url ? `<img src="${esc(c.snapshot_url)}" alt="" loading="lazy">` : '<i data-lucide="cctv"></i>'}</div>
-        <div class="alert-cam-copy">
-          <strong title="${esc(c.titulo || c.ip)}">${esc(c.titulo || c.ip)}</strong>
-          <small>${dist}${esc(c.local || c.ip)}</small>
-        </div>
-        <button class="secondary-action" type="button" data-alert-cam="${esc(c.ip)}" data-alert-cam-title="${esc(c.titulo || c.ip)}"
-          data-alert-cam-vendor="${esc(c.fabricante)}" data-alert-cam-model="${esc(c.modelo)}"
-          data-alert-cam-connector="${esc(c.remote_connector_id || '')}"><i data-lucide="play"></i> Ao vivo</button>
-      </div>`;
+      <button type="button" class="alert-cam-tile" data-alert-cam="${esc(c.ip)}" data-alert-cam-title="${esc(c.titulo || c.ip)}"
+        data-alert-cam-vendor="${esc(c.fabricante)}" data-alert-cam-model="${esc(c.modelo)}"
+        data-alert-cam-connector="${esc(c.remote_connector_id || '')}" title="Abrir ao vivo">
+        ${c.snapshot_url ? `<img src="${esc(c.snapshot_url)}" alt="" loading="lazy">` : '<i data-lucide="cctv"></i>'}
+        <span class="alert-cam-live"><i data-lucide="play"></i> AO VIVO</span>
+        <span class="alert-cam-cap"><b>${esc(c.titulo || c.ip)}</b>${d ? `<em>${esc(d)}</em>` : ''}</span>
+      </button>`;
 }
 
 // Agrupa por site. Numa ocorrencia a central precisa saber de ONDE e cada
