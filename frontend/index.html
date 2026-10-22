@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="styles.css?v=1792600185">
-  <link rel="stylesheet" href="acesso/acesso.css?v=1792600204">
+  <link rel="stylesheet" href="acesso/acesso.css?v=1792600213">
 </head>
 <body>
 
@@ -2024,6 +2024,11 @@
                 <p class="dvc-res" id="dvcResPorta" hidden></p>
               </section>
               <section class="dv-passo">
+                <h3 class="dv-passo-tit"><i data-lucide="cctv"></i>Câmera desta porta</h3>
+                <p class="dv-ajuda">A foto do aviso por e-mail sai desta câmera, da gravação, no segundo da passagem.</p>
+                <div id="dvcCam"><p class="dv-ajuda">Carregando…</p></div>
+              </section>
+              <section class="dv-passo">
                 <h3 class="dv-passo-tit"><i data-lucide="globe"></i>Acesso ao leitor</h3>
                 <div class="dvc-linha"><button type="button" class="secondary-action" id="dvcWeb"><i data-lucide="external-link"></i> Abrir a página do leitor</button>
                   <button type="button" class="secondary-action" id="dvcTestar"><i data-lucide="activity"></i> Testar conexão</button></div>
@@ -2245,12 +2250,14 @@
                   <label class="dv-chave"><input type="checkbox" id="psAtivo" checked><span></span>Pessoa ativa<small>Inativa fica bloqueada nos leitores e some do Painel.</small></label>
                 </fieldset>
                 <fieldset class="dv-passo" id="psPassoAviso">
-                  <h3 class="dv-passo-tit"><span>4</span>Aviso ao responsável</h3>
+                  <h3 class="dv-passo-tit"><span>4</span>Avisos de entrada e saída</h3>
                   <div class="dv-duas">
-                    <div><label class="dv-rot" for="psResp">Responsável</label><input id="psResp" autocomplete="off"></div>
-                    <div><label class="dv-rot" for="psFone">WhatsApp do responsável</label><input id="psFone" inputmode="tel" autocomplete="off" placeholder="(82) 99999-0000" class="monospace"></div>
+                    <div><label class="dv-rot" for="psResp" id="psRotResp">Responsável</label><input id="psResp" autocomplete="off"></div>
+                    <div><label class="dv-rot" for="psFone">WhatsApp</label><input id="psFone" inputmode="tel" autocomplete="off" placeholder="(82) 99999-0000" class="monospace"></div>
                   </div>
-                  <label class="dv-chave"><input type="checkbox" id="psZap" checked><span></span>Avisar entrada e saída pelo WhatsApp</label>
+                  <div><label class="dv-rot" for="psEmail">E-mail</label><input id="psEmail" type="email" inputmode="email" autocomplete="off" maxlength="160" placeholder="nome@exemplo.com.br"></div>
+                  <label class="dv-chave"><input type="checkbox" id="psZap" checked><span></span>Avisar pelo WhatsApp</label>
+                  <label class="dv-chave"><input type="checkbox" id="psAvisaEmail" checked><span></span>Avisar por e-mail com a foto da passagem<small>Sai 3 minutos depois da passagem, com a foto da câmera da porta. O e-mail precisa estar ligado em Conexões.</small></label>
                 </fieldset>
                 <fieldset class="dv-passo">
                   <label class="dv-rot" for="psNotas">Observações</label>
@@ -7638,11 +7645,11 @@
   <script src="js/accessLive.js?v=1791000212"></script>
   <script src="js/accessWhatsappTriage.js?v=1791000212"></script>
   <script src="acesso/ponte.js?v=1792600205"></script>
-  <script src="acesso/dispositivos/dispositivos.js?v=1792600205"></script>
-  <script src="acesso/pessoas.js?v=1792600205"></script>
+  <script src="acesso/dispositivos/dispositivos.js?v=1792600212"></script>
+  <script src="acesso/pessoas.js?v=1792600208"></script>
   <script src="acesso/acesso-grupos.js?v=1792600205"></script>
   <script src="acesso/mensagens.js?v=1792600205"></script>
-  <script src="acesso/conexoes.js?v=1792600205"></script>
+  <script src="acesso/conexoes.js?v=1792600210"></script>
   <script src="acesso/dados.js?v=1792600205"></script>
   <script src="acesso/acesso.js?v=1792600205"></script>
   <script src="js/messenger.js?v=1791000212"></script>

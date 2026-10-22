@@ -103,6 +103,7 @@ def pessoas(site: str = "") -> Dict[str, Any]:
             "id_controladora": _t(p.get("controller_user_id")),
             "responsavel": _t(p.get("guardian_name")), "telefone": _t(p.get("guardian_phone")),
             "whatsapp": bool(p.get("whatsapp_enabled", True)), "ativo": bool(p.get("active")),
+            "email": _t(p.get("guardian_email")), "avisa_email": bool(p.get("email_enabled", True)),
             "notas": _t(p.get("notes")),
             "tem_foto": bool(_t(p.get("face_photo_path"))), "foto_em": _t(p.get("face_photo_updated_at"))[:19],
             "grupos": sorted(grupos_da.get(pid, [])),

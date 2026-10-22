@@ -38,6 +38,7 @@ COLUNAS: Dict[str, Tuple[str, ...]] = {
     "guardian_phone": ("telefone", "celular", "whatsapp", "contato", "fone",
                        "telefone do responsavel", "celular do responsavel"),
     "guardian_name": ("responsavel", "nome do responsavel", "mae", "pai", "filiacao"),
+    "guardian_email": ("email", "e-mail", "e mail", "email do responsavel", "e-mail do responsavel"),
     "class_name": ("turma", "classe", "serie", "ano", "sala", "unidade", "apartamento", "apto",
                    "bloco", "casa", "lote", "setor", "departamento", "credencial", "categoria do ingresso"),
     "document_id": ("cpf", "documento", "doc"),
@@ -48,7 +49,7 @@ COLUNAS: Dict[str, Tuple[str, ...]] = {
     "notes": ("observacao", "observacoes", "obs", "notas"),
 }
 # Ordem de checagem: "nome do responsavel" nao pode cair em "nome".
-_ORDEM = ("guardian_name", "guardian_phone", "controller_user_id", "enrollment_code", "document_id",
+_ORDEM = ("guardian_email", "guardian_name", "guardian_phone", "controller_user_id", "enrollment_code", "document_id",
           "person_type", "groups", "notes", "class_name", "full_name")
 
 TIPOS: Dict[str, str] = {
@@ -292,6 +293,14 @@ def analisar_planilha(conteudo: bytes, *, site: str = "", nome_arquivo: str = ""
             recusa("telefone invalido: %s" % telefone_bruto)
             continue
 
+        email_bruto = campo("guardian_email")
+        try:
+            from app.services.access_control_store import clean_email
+            email = clean_email(email_bruto)
+        except ValueError:
+            recusa("e-mail invalido: %s" % email_bruto)
+            continue
+
         nomes_grupo = [g.strip() for g in re.split(r"[;,|]", campo("groups")) if g.strip()]
         ids_grupo: List[str] = []
         for g in nomes_grupo:
@@ -317,6 +326,7 @@ def analisar_planilha(conteudo: bytes, *, site: str = "", nome_arquivo: str = ""
             "person_type": tipo,
             "guardian_phone": telefone,
             "guardian_name": campo("guardian_name"),
+            "guardian_email": email,
             "class_name": campo("class_name"),
             "document_id": cpf,
             "controller_user_id": re.sub(r"\D", "", campo("controller_user_id")),
@@ -349,7 +359,7 @@ def analisar_planilha(conteudo: bytes, *, site: str = "", nome_arquivo: str = ""
 
 # Campos que a planilha pode trazer; vazio na planilha = mantem o atual.
 _CAMPOS_PLANILHA = ("full_name", "person_type", "enrollment_code", "guardian_phone", "guardian_name",
-                    "class_name", "document_id", "controller_user_id", "notes", "site")
+                    "class_name", "document_id", "controller_user_id", "notes", "site", "guardian_email")
 _CAMPOS_CADASTRO = ("full_name", "person_type", "document_id", "enrollment_code", "class_name", "site",
                     "controller_user_id", "guardian_name", "guardian_phone", "whatsapp_enabled", "active", "notes")
 
@@ -373,7 +383,7 @@ def _payload(registro: Dict[str, Any], atual: Optional[Dict[str, Any]], colunas:
 
 _COLUNA_DE = {"full_name": "full_name", "enrollment_code": "enrollment_code", "guardian_phone": "guardian_phone",
               "guardian_name": "guardian_name", "class_name": "class_name", "document_id": "document_id",
-              "controller_user_id": "controller_user_id", "notes": "notes"}
+              "controller_user_id": "controller_user_id", "notes": "notes", "guardian_email": "guardian_email"}
 
 
 def aplicar_planilha(conteudo: bytes, *, site: str = "", nome_arquivo: str = "",

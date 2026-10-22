@@ -971,4 +971,12 @@ def notify_access_event(event: Dict[str, Any]) -> Dict[str, Any]:
     except Exception as exc:
         logger.warning("Falha ao enviar WhatsApp de acesso: %s", exc)
         statuses.append("whatsapp_failed")
+    # E-mail com a foto da passagem: so entra na fila aqui; a foto da gravacao
+    # e o envio saem 3 min depois, no laco (access_control_email).
+    try:
+        from app.services.access_control_email import enfileirar
+        statuses.append(enfileirar(context))
+    except Exception as exc:
+        logger.warning("Falha ao enfileirar e-mail de acesso: %s", exc)
+        statuses.append("email_failed")
     return {"ok": all(not status.endswith("_failed") for status in statuses), "statuses": statuses}

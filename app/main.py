@@ -593,6 +593,33 @@ async def _telegram_bot_loop() -> None:
             await asyncio.sleep(15)
 
 
+async def _access_email_loop() -> None:
+    """Aviso por e-mail com a foto da passagem: tira o quadro da gravacao e
+    envia o que venceu os 3 min de espera. A cada 30 s, cliente por cliente."""
+    from app.services.access_control_email import processar_fila
+
+    await asyncio.sleep(20)
+    while True:
+        resultados: dict[str, object] = {}
+        try:
+            for tenant_slug in await asyncio.to_thread(list_monitoring_tenants):
+                token = set_current_tenant_slug(tenant_slug)
+                try:
+                    resultados[tenant_slug] = await asyncio.to_thread(processar_fila)
+                except Exception as exc:
+                    resultados[tenant_slug] = {"erro": str(exc)}
+                    logger.exception("fila de e-mail do controle de acesso falhou (%s)", tenant_slug)
+                finally:
+                    reset_current_tenant_slug(token)
+            app.state.access_email_last = {"ok": True, "clientes": resultados}
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            app.state.access_email_last = {"ok": False, "error": str(exc)}
+            logger.exception("access email loop failed")
+        await asyncio.sleep(30)
+
+
 async def _alert_escalation_loop() -> None:
     """Modulo Alerta: alerta de panico que ninguem assumiu em 60s vai pro
     Telegram do cliente. Barato (1 SELECT indexado) -- roda a cada 15s."""
@@ -691,6 +718,7 @@ async def startup_events() -> None:
     app.state.alert_escalation_task = asyncio.create_task(
         _alert_escalation_loop(), name="alert-escalation-loop"
     )
+    app.state.access_email_task = asyncio.create_task(_access_email_loop(), name="access-email-loop")
     app.state.nvr_status_task = asyncio.create_task(_nvr_status_loop(), name="nvr-status-loop")
     app.state.ruijie_poll_task = asyncio.create_task(_ruijie_poll_loop(), name="ruijie-poll-loop")
     app.state.telegram_bot_task = asyncio.create_task(_telegram_bot_loop(), name="telegram-bot-loop")
@@ -706,6 +734,7 @@ async def shutdown_events() -> None:
         "access_control_sync_task",
         "live_stream_cleanup_task",
         "alert_escalation_task",
+        "access_email_task",
         "nvr_status_task",
         "ruijie_poll_task",
         "telegram_bot_task",

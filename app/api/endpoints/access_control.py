@@ -163,6 +163,9 @@ class AccessPersonRequest(BaseModel):
     controller_user_id: str = ""
     guardian_name: str = ""
     guardian_phone: str = ""
+    # None = nao veio no pedido: o cadastro mantem o e-mail atual (save_person).
+    guardian_email: Optional[str] = None
+    email_enabled: Optional[bool] = None
     whatsapp_enabled: bool = True
     active: bool = True
     notes: str = ""
@@ -1104,6 +1107,124 @@ def api_access_control_painel_ao_vivo(site: str = Query(""), limit: int = Query(
 def api_access_control_painel_relatorios(site: str = Query(""), dias: int = Query(28), portas: str = Query("")) -> Dict[str, Any]:
     from app.services.access_control_painel import relatorios
     return relatorios(site=_site_do_painel(site), dias=dias, portas=[p.strip() for p in portas.split(",") if p.strip()])
+
+
+# ---- Aviso por e-mail com a foto da passagem
+@router.get("/email")
+def api_access_control_email_get(site: str = Query("")) -> Dict[str, Any]:
+    from app.services.access_control_email import get_config
+    return {"ok": True, **get_config(_site_do_painel(site) if site else "")}
+
+
+@router.put("/email")
+def api_access_control_email_put(payload: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
+    """So administrador (security.py). O frontend manda o api_base: e de la que
+    o responsavel abre o link da foto."""
+    from app.services.access_control_email import save_config
+    p = dict(payload or {})
+    if p.get("site"):
+        p["site"] = _site_do_painel(str(p["site"]))
+    try:
+        return {"ok": True, **save_config(p)}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.post("/email/test")
+def api_access_control_email_test(payload: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
+    from app.services.access_control_email import enviar_teste
+    site = _site_do_painel(str((payload or {}).get("site") or "")) if (payload or {}).get("site") else ""
+    try:
+        r = enviar_teste(site, str((payload or {}).get("to") or ""))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    if not r.get("ok"):
+        raise HTTPException(status_code=400, detail=r.get("error") or "Nao foi possivel enviar o teste.")
+    return r
+
+
+@router.get("/painel/emails")
+def api_access_control_painel_emails(site: str = Query(""), limit: int = Query(80)) -> Dict[str, Any]:
+    from app.services.access_control_email import historico
+    site = _site_do_painel(site)
+    return {"ok": True, "emails": historico(site, max(1, min(int(limit or 80), 300)), locais=permissions.sites_da_sessao())}
+
+
+def _leitor_do_cliente(device_id: str) -> Dict[str, Any]:
+    _exigir_controladora(device_id)
+    d = next((x for x in list_devices() if str(x.get("id") or "") == str(device_id or "")), None)
+    if not d:
+        raise HTTPException(status_code=404, detail="Leitor nao encontrado neste cliente.")
+    return d
+
+
+@router.get("/painel/cameras/{device_id}")
+def api_access_control_painel_cameras(device_id: str) -> Dict[str, Any]:
+    """Camera desta porta: as vinculadas, as do mesmo local e a sugestao."""
+    from app.services.access_control_email import cameras_do_leitor, candidatas, sugestao, _chave_cam
+    d = _leitor_do_cliente(device_id)
+    lista = candidatas(str(d.get("site") or ""))
+    sug = sugestao(d, lista)
+    return {"ok": True, "leitor": {"id": d.get("id"), "nome": d.get("name"), "site": d.get("site")},
+            "vinculadas": [{**c, "chave": _chave_cam(c)} for c in cameras_do_leitor(device_id)],
+            "candidatas": [{**c, "chave": _chave_cam(c)} for c in lista],
+            "sugestao": _chave_cam(sug) if sug else ""}
+
+
+@router.put("/painel/cameras/{device_id}")
+def api_access_control_painel_cameras_salvar(device_id: str, payload: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
+    from app.services.access_control_email import salvar_cameras, _chave_cam
+    d = _leitor_do_cliente(device_id)
+    try:
+        cams = salvar_cameras(d, [str(x) for x in (payload or {}).get("cameras") or []])
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {"ok": True, "vinculadas": [{**c, "chave": _chave_cam(c)} for c in cams]}
+
+
+@router.get("/painel/cameras/{device_id}/foto")
+def api_access_control_painel_cameras_foto(device_id: str, chave: str = Query(...), quando: str = Query("agora")):
+    """Foto de teste da gravacao: 'agora' (1 min atras) ou 'ultima' (ultima
+    passagem neste leitor). Devolve a imagem; diferenca do relogio no cabecalho."""
+    import tempfile
+    from datetime import datetime as _dt, timedelta as _td
+    from pathlib import Path
+    from fastapi.responses import Response as _Resp
+    from app.services import access_control_email as AE
+    d = _leitor_do_cliente(device_id)
+    cam = next((c for c in AE.candidatas(str(d.get("site") or "")) if AE._chave_cam(c) == chave), None)
+    if not cam:
+        raise HTTPException(status_code=404, detail="Camera nao encontrada nos gravadores deste local.")
+    momento = _dt.now() - _td(minutes=1)
+    if quando == "ultima":
+        ultimo = AE._rows("SELECT max(occurred_at) AS q FROM access_events WHERE tenant_slug=? AND device_id=? AND occurred_at >= '2020-01-01'",
+                          (AE._tenant(), str(device_id)))
+        q = AE._ler_local((ultimo or [{}])[0].get("q"))
+        if not q:
+            raise HTTPException(status_code=404, detail="Este leitor ainda nao tem passagem.")
+        momento = q
+    with tempfile.TemporaryDirectory() as tmp:
+        arq = Path(tmp) / "foto.jpg"
+        try:
+            dif = AE.diferenca_relogio(cam)
+            AE.capturar(cam, momento, arq, largura=960, escolher=(quando == "ultima"))
+        except Exception as exc:
+            raise HTTPException(status_code=502, detail=f"O gravador nao entregou a foto: {exc}")
+        dados = arq.read_bytes()
+    return _Resp(content=dados, media_type="image/jpeg",
+                 headers={"Cache-Control": "no-store", "X-Relogio-Diferenca": str(dif), "X-Momento": momento.strftime("%Y-%m-%d %H:%M:%S"),
+                          "Access-Control-Expose-Headers": "X-Relogio-Diferenca, X-Momento"})
+
+
+@router.get("/foto/{token}")
+def api_access_control_foto_publica(token: str):
+    """Link do e-mail (rota publica em security.py): so com o token, ate vencer."""
+    from fastapi.responses import FileResponse
+    from app.services.access_control_email import foto_publica
+    arq = foto_publica(token)
+    if not arq:
+        raise HTTPException(status_code=404, detail="Foto nao encontrada ou o link venceu.")
+    return FileResponse(arq, media_type="image/jpeg", headers={"Cache-Control": "private, max-age=3600"})
 
 
 # ---- Relatorios por modo do local (catalogo, dados na tela e PDF)

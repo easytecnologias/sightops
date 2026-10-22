@@ -158,6 +158,10 @@ class ApiAuthMiddleware(BaseHTTPMiddleware):
             # Backup leva CPF e foto de todo mundo; excluir local apaga o local inteiro.
             (("GET", "POST"), "/api/access-control/painel/dados", "admin"),
             (("POST", "PUT", "DELETE"), "/api/access-control/whatsapp", "admin"),
+            # Canal de e-mail (senha do SMTP) e teste de envio: so administrador.
+            (("POST", "PUT", "DELETE"), "/api/access-control/email", "admin"),
+            # Foto da gravacao (camera da porta): imagem e privacidade, como /api/playback/.
+            (("GET",), "/api/access-control/painel/cameras/", "operator"),
             (("POST",), "/api/system/bootstrap", "admin"),
             (("DELETE", "PATCH"), "/api/auth/tenants/", "admin"),
             (("POST",), "/api/auth/storage/migrate", "admin"),
@@ -202,6 +206,10 @@ class ApiAuthMiddleware(BaseHTTPMiddleware):
         # Webhook da Cloud API: a Meta chama sem credencial nossa. A protecao e o
         # token de verificacao conferido dentro do proprio endpoint.
         if path.startswith("/api/access-control/whatsapp/meta/"):
+            return True
+        # Foto do aviso por e-mail: o responsavel abre do e-mail, sem login. A
+        # protecao e o token aleatorio que vence em 7 dias (access_control_email).
+        if path.startswith("/api/access-control/foto/"):
             return True
         return False
 

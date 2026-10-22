@@ -206,7 +206,9 @@ function psAjustarPorLocal() {
   psCampo('psTurma').placeholder = { escola: 'Ex.: 4º Ano', condominio: 'Ex.: A01, Bloco C 06', empresa: 'Ex.: Financeiro', evento: 'Ex.: VIP, Imprensa' }[tipoLocal] || '';
   const turmas = [...new Set((_psDados.pessoas || []).filter(p => p.site === site && p.turma).map(p => p.turma))].sort((a, b) => a.localeCompare(b, 'pt-BR', { numeric: true }));
   psCampo('psTurmas').innerHTML = turmas.map(t => `<option value="${esc(t)}">`).join('');
-  psCampo('psPassoAviso').hidden = tipoLocal !== 'escola' && !_apUsaAvisos;
+  // Avisos valem para todo tipo de local (o e-mail tambem serve a empresa e
+  // condominio); fora da escola o contato e a propria pessoa.
+  psCampo('psRotResp').textContent = tipoLocal === 'escola' ? 'Responsável' : 'Contato';
   psGrupos();
   psAjustarPorTipo();
   if (window.lucide) lucide.createIcons();
@@ -268,6 +270,8 @@ function psAbrir(p) {
   psCampo('psResp').value = novo ? '' : p.responsavel;
   psCampo('psFone').value = novo ? '' : psFoneFmt(p.telefone);
   psCampo('psZap').checked = novo ? true : p.whatsapp;
+  psCampo('psEmail').value = novo ? '' : (p.email || '');
+  psCampo('psAvisaEmail').checked = novo ? true : p.avisa_email !== false;
   psCampo('psAtivo').checked = novo ? true : p.ativo;
   psCampo('psNotas').value = novo ? '' : p.notas;
   psCampo('psIdLeitor').textContent = novo ? 'gerado ao salvar' : (p.id_controladora || 'sem ID: não vai para leitor Intelbras');
@@ -345,6 +349,8 @@ function psPayload() {
     guardian_name: psCampo('psResp').value.trim(),
     guardian_phone: psDigitos(psCampo('psFone').value),
     whatsapp_enabled: psCampo('psZap').checked,
+    guardian_email: psCampo('psEmail').value.trim(),
+    email_enabled: psCampo('psAvisaEmail').checked,
     active: psCampo('psAtivo').checked,
     notes: psCampo('psNotas').value.trim(),
   };

@@ -56,6 +56,9 @@ _ADDITIVE_COLUMNS: tuple[tuple[str, str, str], ...] = (
     ("access_people", "controller_user_id", "TEXT NOT NULL DEFAULT ''"),
     ("access_people", "face_photo_path", "TEXT NOT NULL DEFAULT ''"),
     ("access_people", "face_photo_updated_at", "TEXT NOT NULL DEFAULT ''"),
+    # Aviso por e-mail com a foto da passagem (22/10/2026).
+    ("access_people", "guardian_email", "TEXT NOT NULL DEFAULT ''"),
+    ("access_people", "email_enabled", "INTEGER NOT NULL DEFAULT 1"),
     ("access_devices", "password_enc", "TEXT NOT NULL DEFAULT ''"),
     ("access_devices", "status", "TEXT NOT NULL DEFAULT 'unknown'"),
     ("access_devices", "last_seen_at", "TEXT NOT NULL DEFAULT ''"),
@@ -293,9 +296,25 @@ def ensure_access_control_schema() -> None:
         )
 
 
+_EMAIL = re.compile(r"^[^@\s;,]+@[^@\s;,]+\.[^@\s;,]+$")
+
+
+def clean_email(value: Any) -> str:
+    """E-mail do responsavel: minusculo, sem espaco. Invalido levanta erro
+    (melhor recusar no cadastro do que o aviso falhar calado depois)."""
+    texto = str(value or "").strip().lower()
+    if not texto:
+        return ""
+    if len(texto) > 160 or not _EMAIL.match(texto):
+        raise ValueError(f"E-mail invalido: {texto[:60]}")
+    return texto
+
+
 def _row_dict(row: Any) -> Dict[str, Any]:
     data = dict(row)
     data["whatsapp_enabled"] = bool(int(data.get("whatsapp_enabled") or 0))
+    if "email_enabled" in data:
+        data["email_enabled"] = bool(int(data.get("email_enabled") or 0))
     data["active"] = bool(int(data.get("active") or 0))
     return data
 
@@ -331,7 +350,7 @@ def list_people(search: str = "", active: str = "", person_type: str = "", site:
             f"""
             SELECT id, tenant_slug, full_name, person_type, document_id, enrollment_code,
                    class_name, site, controller_user_id, face_photo_path, face_photo_updated_at,
-                   guardian_name, guardian_phone, whatsapp_enabled, active, notes, created_at, updated_at
+                   guardian_name, guardian_phone, guardian_email, email_enabled, whatsapp_enabled, active, notes, created_at, updated_at
             FROM access_people
             WHERE {' AND '.join(where)}
             ORDER BY active DESC, full_name COLLATE NOCASE
@@ -499,6 +518,13 @@ def save_person(payload: Dict[str, Any]) -> Dict[str, Any]:
     whatsapp_enabled = _bool_int(payload.get("whatsapp_enabled"), True)
     active = _bool_int(payload.get("active"), True)
     notes = _clean_text(payload.get("notes"), 500)
+    # E-mail: so muda quando vem no pedido. save_person faz UPDATE de tudo, e
+    # planilha, "trazer do leitor" e importacao da controladora nao mandam
+    # e-mail -- sem esta regra, cada um deles apagaria o que foi cadastrado.
+    veio_email = payload.get("guardian_email") is not None
+    guardian_email = clean_email(payload.get("guardian_email")) if veio_email else ""
+    veio_email_on = payload.get("email_enabled") is not None
+    email_enabled = _bool_int(payload.get("email_enabled"), True)
 
     with db_store._conn() as c:
         c.execute(
@@ -506,9 +532,10 @@ def save_person(payload: Dict[str, Any]) -> Dict[str, Any]:
             INSERT INTO access_people(
               id, tenant_slug, full_name, person_type, document_id, enrollment_code,
               class_name, site, controller_user_id, guardian_name, guardian_phone,
+              guardian_email, email_enabled,
               whatsapp_enabled, active, notes, created_at, updated_at
             )
-            VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+            VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
             ON CONFLICT(id) DO UPDATE SET
               full_name=excluded.full_name,
               person_type=excluded.person_type,
@@ -519,6 +546,8 @@ def save_person(payload: Dict[str, Any]) -> Dict[str, Any]:
               controller_user_id=excluded.controller_user_id,
               guardian_name=excluded.guardian_name,
               guardian_phone=excluded.guardian_phone,
+              guardian_email=CASE WHEN ? = 1 THEN excluded.guardian_email ELSE access_people.guardian_email END,
+              email_enabled=CASE WHEN ? = 1 THEN excluded.email_enabled ELSE access_people.email_enabled END,
               whatsapp_enabled=excluded.whatsapp_enabled,
               active=excluded.active,
               notes=excluded.notes,
@@ -537,16 +566,20 @@ def save_person(payload: Dict[str, Any]) -> Dict[str, Any]:
                 controller_user_id,
                 guardian_name,
                 guardian_phone,
+                guardian_email,
+                email_enabled,
                 whatsapp_enabled,
                 active,
                 notes,
+                1 if veio_email else 0,
+                1 if veio_email_on else 0,
             ),
         )
         row = c.execute(
             """
             SELECT id, tenant_slug, full_name, person_type, document_id, enrollment_code,
                    class_name, site, controller_user_id, face_photo_path, face_photo_updated_at,
-                   guardian_name, guardian_phone, whatsapp_enabled, active, notes, created_at, updated_at
+                   guardian_name, guardian_phone, guardian_email, email_enabled, whatsapp_enabled, active, notes, created_at, updated_at
             FROM access_people
             WHERE tenant_slug=? AND id=?
             """,
@@ -577,7 +610,7 @@ def update_person_face_photo(person_id: str, face_photo_path: str) -> Dict[str, 
             """
             SELECT id, tenant_slug, full_name, person_type, document_id, enrollment_code,
                    class_name, site, controller_user_id, face_photo_path, face_photo_updated_at,
-                   guardian_name, guardian_phone, whatsapp_enabled, active, notes, created_at, updated_at
+                   guardian_name, guardian_phone, guardian_email, email_enabled, whatsapp_enabled, active, notes, created_at, updated_at
             FROM access_people
             WHERE tenant_slug=? AND id=?
             """,

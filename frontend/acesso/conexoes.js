@@ -35,6 +35,7 @@ function cnSituacao() {
 }
 
 function cnDesenhar() {
+  if (_cnCanal === 'email') { emDesenhar(); return; }
   const el = cnCampo('cnConteudo');
   if (!el) return;
   if (!_cnCfg) { el.innerHTML = '<p class="ap-vazio">Carregando…</p>'; return; }
@@ -50,7 +51,7 @@ function cnDesenhar() {
   const bot = (id, icone, rot, cls = 'secondary-action', extra = '') => `<button type="button" class="${cls}" id="${id}" ${extra} ${_cnOcupado ? 'disabled' : ''}>
       <i data-lucide="${_cnOcupado === id ? 'loader-circle' : icone}" class="${_cnOcupado === id ? 'dv-gira' : ''}"></i> ${rot}</button>`;
   const fato = (rot, val) => `<div><dt>${rot}</dt><dd>${esc(val || '—')}</dd></div>`;
-  el.innerHTML = `
+  el.innerHTML = cnAbas() + `
     <div class="cn-topo">
       <label class="rl-campo">Canal usado por<select id="cnSite">
         <option value="">Todos os locais (padrão do cliente)</option>
@@ -103,6 +104,7 @@ function cnDesenhar() {
       <li><b>Canal</b><span>${cloud ? 'API oficial da Meta' : 'Evolution'}${_cnSite ? ' · ' + esc(_cnSite) : ''}</span></li>
       <li><b>Entrega</b><span>conferida no Messenger</span></li>
     </ol>`;
+  cnLigarAbas(el);
   cnCampo('cnSite')?.addEventListener('change', ev => { _cnSite = ev.target.value; _cnTeste = null; cnCarregar(); });
   cnCampo('cnProvider')?.addEventListener('change', ev => { _cnCfg = { ..._cnCfg, provider: ev.target.value }; cnDesenhar(); });
   cnCampo('cnSalvar')?.addEventListener('click', () => cnSalvar());
@@ -132,6 +134,13 @@ async function cnCarregar() {
   try {
     const s = await acJson('/api/access-control/people/sites');
     _cnSites = (s && s.sites) || [];
+    if (_cnCanal === 'email') {
+      _emCfg = null;
+      emDesenhar();
+      await emCarregar();
+      emDesenhar();
+      return;
+    }
     _cnCfg = await acJson(`/api/access-control/whatsapp${cnQ()}`) || {};
     _cnCon = null;
     cnDesenhar();
@@ -226,4 +235,163 @@ async function cnAbrirAba() {
   else if (typeof _apSite === 'string' && _apSite && _apSite !== _cnSite) { _cnSite = _apSite; _cnCfg = null; }
   cnDesenhar();
   await cnCarregar();
+}
+
+// ---------------------------------------------------------------- E-mail
+// Aviso por e-mail com a foto da passagem (22/10/2026). Mesmo "canal por
+// local" do WhatsApp; a foto sai da gravacao 3 min depois da passagem
+// (access_control_email). Gravar e testar: so administrador.
+let _cnCanal = 'whatsapp';
+let _emCfg = null;
+let _emHist = [];
+let _emTeste = null;
+let _emOcupado = '';
+
+const EM_STATUS = {
+  enviado: ['ok', 'enviado'], pendente: ['espera', 'na fila'], aguardando_resumo: ['espera', 'vai no resumo'],
+  falhou: ['ruim', 'falhou'], sem_foto: ['atencao', 'sem foto, não enviado'], cancelado: ['cinza', 'cancelado'],
+};
+
+function cnAbas() {
+  return `<div class="cn-abas" role="tablist" aria-label="Canal">${[['whatsapp', 'message-circle', 'WhatsApp'], ['email', 'mail', 'E-mail']].map(([k, ic, rot]) =>
+    `<button type="button" role="tab" aria-selected="${_cnCanal === k}" class="${_cnCanal === k ? 'on' : ''}" data-cn-canal="${k}"><i data-lucide="${ic}"></i>${rot}</button>`).join('')}</div>`;
+}
+
+function cnLigarAbas(el) {
+  el.querySelectorAll('[data-cn-canal]').forEach(b => b.addEventListener('click', () => {
+    if (_cnCanal === b.dataset.cnCanal) return;
+    _cnCanal = b.dataset.cnCanal;
+    cnCarregar();
+  }));
+}
+
+function emQ() { return _cnSite ? `?site=${encodeURIComponent(_cnSite)}` : ''; }
+
+async function emCarregar() {
+  const [cfg, hist] = await Promise.all([acJson(`/api/access-control/email${emQ()}`), acJson(`/api/access-control/painel/emails${emQ()}`)]);
+  _emCfg = cfg || {};
+  _emHist = (hist && hist.emails) || [];
+}
+
+function emDesenhar() {
+  const el = cnCampo('cnConteudo');
+  if (!el) return;
+  if (!_emCfg) { el.innerHTML = cnAbas() + '<p class="ap-vazio">Carregando…</p>'; cnLigarAbas(el); return; }
+  const c = _emCfg, admin = cnAdmin(), dis = admin ? '' : 'disabled';
+  const s = !c.configured ? { cls: 'cinza', txt: 'Não configurado' } : !c.enabled ? { cls: 'cinza', txt: 'Configurado, envio desligado' } : { cls: 'ok', txt: 'Enviando e-mails' };
+  const campo = (id, rot, val, extra = '') => `<label class="rl-campo">${rot}<input id="${id}" value="${esc(val ?? '')}" ${extra}></label>`;
+  const radio = (nome, v, atual, tit, sub) => `<label class="ag-op"><input type="radio" name="${nome}" value="${v}" ${atual === v ? 'checked' : ''}><span><b>${tit}</b><small>${sub}</small></span></label>`;
+  const bot = (id, icone, rot, cls = 'secondary-action') => `<button type="button" class="${cls}" id="${id}" ${_emOcupado ? 'disabled' : ''}>
+      <i data-lucide="${_emOcupado === id ? 'loader-circle' : icone}" class="${_emOcupado === id ? 'dv-gira' : ''}"></i> ${rot}</button>`;
+  const hm = q => q ? `${q.slice(8, 10)}/${q.slice(5, 7)} ${q.slice(11, 16)}` : '';
+  el.innerHTML = cnAbas() + `
+    <div class="cn-topo">
+      <label class="rl-campo">E-mail usado por<select id="cnSite">
+        <option value="">Todos os locais (padrão do cliente)</option>
+        ${_cnSites.map(x => `<option value="${esc(x)}" ${x === _cnSite ? 'selected' : ''}>${esc(x)}</option>`).join('')}</select></label>
+      <span class="cn-selo ${s.cls}"><i></i>${esc(s.txt)}</span>
+      <p class="cn-ajuda">${_cnSite ? (c.site_configured ? `${esc(_cnSite)} tem servidor próprio.` : `${esc(_cnSite)} usa o padrão do cliente. Salvar aqui cria um só para este local.`) : 'O padrão vale para todo local sem servidor próprio.'}</p>
+    </div>
+    ${admin ? '' : '<div class="ap-nota cn-leitura"><i data-lucide="lock"></i><div>Só administrador altera o e-mail ou envia teste. Aqui você vê como está.</div></div>'}
+    <div class="cn-grade">
+      <section class="panel rl-bloco">
+        <div class="rl-bloco-cab"><h3>Servidor de envio (SMTP)</h3><p>O e-mail sai do domínio do local. Para não cair no spam, o domínio precisa de SPF e DKIM.</p></div>
+        <fieldset class="cn-form" ${dis}>
+          <label class="dv-chave"><input type="checkbox" id="emEnabled" ${c.enabled ? 'checked' : ''}><span></span>Enviar avisos por e-mail</label>
+          <div class="cn-tec-grade cn-3-1">${campo('emHost', 'Servidor', c.host, 'placeholder="smtp.dominio.com.br"')}${campo('emPort', 'Porta', c.port || 587, 'inputmode="numeric"')}</div>
+          <div class="cn-tec-grade">${campo('emUser', 'Usuário', c.user, 'autocomplete="off"')}
+            <label class="rl-campo">Senha<input id="emPass" type="password" autocomplete="new-password" placeholder="${c.password_saved ? 'Deixe vazio para manter a atual' : 'Senha do e-mail'}"></label></div>
+          <div class="cn-tec-grade">${campo('emFromName', 'Remetente (nome)', c.from_name, 'placeholder="Ex.: Escola Presidente Dutra"')}${campo('emFrom', 'E-mail do remetente', c.from_email, 'type="email"')}</div>
+          <label class="rl-campo">Segurança<select id="emSec">${[['starttls', 'STARTTLS (porta 587)'], ['ssl', 'SSL (porta 465)'], ['nenhuma', 'Nenhuma (não recomendado)']].map(([v, r]) => `<option value="${v}" ${c.security === v ? 'selected' : ''}>${r}</option>`).join('')}</select></label>
+        </fieldset>
+        ${admin ? `<div class="cn-acoes">${bot('emSalvar', 'save', 'Salvar', 'primary-action')}</div>` : ''}
+      </section>
+      <div class="cn-col">
+        <section class="panel rl-bloco">
+          <div class="rl-bloco-cab"><h3>O que enviar</h3><p>Para quem tem e-mail no cadastro (Pessoas) e está com o aviso por e-mail ligado.</p></div>
+          <fieldset class="cn-form" ${dis}>
+            <span class="dv-rot">Quando</span>
+            <div class="ag-ops">${radio('emQuando', 'passagem', c.quando, 'A cada passagem', 'Um e-mail na entrada e outro na saída, 3 min depois de cada uma.')}
+              ${radio('emQuando', 'resumo', c.quando, 'Resumo do dia', 'Um e-mail só por pessoa, no horário abaixo, com entrada e saída.')}</div>
+            ${c.quando === 'resumo' ? `<label class="rl-campo">Horário do resumo<input id="emHora" type="time" value="${esc(c.resumo_hora || '18:30')}"></label>` : ''}
+            <span class="dv-rot">Foto</span>
+            <div class="ag-ops">${radio('emFoto', 'link', c.foto, 'Link que expira em 7 dias (recomendado)', 'A foto fica no SightOps; o e-mail leva o link. Mais seguro para foto de criança (LGPD).')}
+              ${radio('emFoto', 'anexo', c.foto, 'Foto dentro do e-mail', 'A imagem vai no e-mail e fica com quem recebeu.')}</div>
+            <label class="dv-chave"><input type="checkbox" id="emSemFoto" ${c.sem_foto_envia !== false ? 'checked' : ''}><span></span>Sem foto da câmera, mandar mesmo assim (só o texto)</label>
+          </fieldset>
+        </section>
+        <section class="panel rl-bloco">
+          <div class="rl-bloco-cab"><h3>Teste de envio</h3><p>Salva o que está na tela e manda um e-mail de teste.</p></div>
+          <div class="cn-teste"><label class="rl-campo">E-mail<input id="emTo" type="email" placeholder="voce@exemplo.com.br" ${dis}></label>${admin ? bot('emTestar', 'send', 'Enviar teste') : ''}</div>
+          ${_emTeste ? `<p class="dvc-res ${_emTeste.estado}">${esc(_emTeste.texto)}</p>` : ''}
+        </section>
+      </div>
+    </div>
+    <section class="panel rl-bloco cn-hist">
+      <div class="rl-bloco-cab"><h3>Últimos e-mails</h3><p>Cada passagem com e-mail cadastrado, o que aconteceu e a foto.</p></div>
+      ${_emHist.length ? `<div class="ap-tabela"><table><thead><tr><th>Passagem</th><th>Pessoa</th><th>Para</th><th>Situação</th><th>Foto / motivo</th></tr></thead><tbody>
+        ${_emHist.map(h => { const [cls, rot] = EM_STATUS[h.status] || ['cinza', h.status];
+          return `<tr><td class="monospace">${hm(h.occurred_at)} <span class="ap-chip ${h.event_type === 'entrada' ? 'entrada' : 'saida'}">${h.event_type === 'entrada' ? 'entrada' : 'saída'}</span></td>
+            <td>${esc(h.full_name || '—')}</td><td>${esc(h.email)}</td><td><span class="em-st ${cls}">${esc(rot)}</span>${h.attempts ? ` <small class="dv-ajuda">${h.attempts} tentativa${h.attempts === 1 ? '' : 's'}</small>` : ''}</td>
+            <td class="em-det">${esc(h.photo_source || h.error || '—')}</td></tr>`; }).join('')}</tbody></table></div>`
+        : '<p class="ap-vazio ap-pad">Nenhum e-mail ainda. Eles aparecem aqui a cada passagem de quem tem e-mail no cadastro.</p>'}
+    </section>
+    <ol class="cn-fluxo cn-fluxo-5" aria-label="Como o e-mail sai">
+      <li><b>Passagem</b><span>no leitor da porta</span></li>
+      <li><b>Espera 3 min</b><span>o gravador grava o trecho</span></li>
+      <li><b>Foto</b><span>da gravação, em volta do segundo da passagem</span></li>
+      <li><b>E-mail</b><span>para o cadastro da pessoa</span></li>
+      <li><b>Registro</b><span>na lista acima</span></li>
+    </ol>`;
+  cnLigarAbas(el);
+  el.querySelector('#cnSite')?.addEventListener('change', ev => { _cnSite = ev.target.value; _emTeste = null; cnCarregar(); });
+  el.querySelectorAll('input[name="emQuando"]').forEach(x => x.addEventListener('change', () => { _emCfg = { ...emColetar(), password_saved: _emCfg.password_saved, configured: _emCfg.configured, site_configured: _emCfg.site_configured }; emDesenhar(); }));
+  el.querySelector('#emSalvar')?.addEventListener('click', () => emSalvar());
+  el.querySelector('#emTestar')?.addEventListener('click', emTestar);
+  if (window.lucide) lucide.createIcons();
+}
+
+function emColetar() {
+  const v = id => (cnCampo(id)?.value || '').trim();
+  const r = n => (document.querySelector(`input[name="${n}"]:checked`) || {}).value;
+  return {
+    site: _cnSite, enabled: !!cnCampo('emEnabled')?.checked, host: v('emHost'), port: Number(v('emPort') || 587), user: v('emUser'),
+    password: cnCampo('emPass')?.value || '', from_name: v('emFromName'), from_email: v('emFrom'), security: v('emSec') || 'starttls',
+    quando: r('emQuando') || 'passagem', resumo_hora: v('emHora') || (_emCfg && _emCfg.resumo_hora) || '18:30',
+    foto: r('emFoto') || 'link', sem_foto_envia: !!cnCampo('emSemFoto')?.checked,
+    api_base: typeof API_BASE === 'string' ? API_BASE : '',
+  };
+}
+
+async function emSalvar(silencioso) {
+  const p = emColetar();
+  if (p.enabled && (!p.host || !p.from_email)) { acToast('Informe o servidor e o e-mail do remetente.', true); return null; }
+  _emOcupado = 'emSalvar'; emDesenhar();
+  try {
+    const d = await acEnviar('PUT', '/api/access-control/email', p);
+    _emCfg = d;
+    if (!silencioso) acToast('E-mail salvo.');
+    return d;
+  } catch (err) {
+    acToast(err.message || 'Não consegui salvar.', true);
+    return null;
+  } finally {
+    _emOcupado = ''; emDesenhar();
+  }
+}
+
+async function emTestar() {
+  const para = (cnCampo('emTo')?.value || '').trim();
+  if (!para) { acToast('Informe o e-mail de teste.', true); return; }
+  if (!await emSalvar(true)) return;
+  _emOcupado = 'emTestar'; emDesenhar();
+  try {
+    await acEnviar('POST', '/api/access-control/email/test', { site: _cnSite, to: para });
+    _emTeste = { estado: 'ok', texto: `Teste enviado para ${para}. Confira a caixa de entrada (e o spam).` };
+  } catch (err) {
+    _emTeste = { estado: 'ruim', texto: err.message || 'Não consegui enviar.' };
+  } finally {
+    _emOcupado = ''; emDesenhar();
+    if (cnCampo('emTo')) cnCampo('emTo').value = para;
+  }
 }

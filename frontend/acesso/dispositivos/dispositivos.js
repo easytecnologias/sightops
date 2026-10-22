@@ -597,7 +597,107 @@ function dvcAbrir(id) {
   dvCampo('dvcGaveta').hidden = false;
   requestAnimationFrame(() => dvCampo('dvcGaveta').classList.add('aberta'));
   dvcLer();
+  dvcCamCarregar(id);
   if (window.lucide) lucide.createIcons();
+}
+
+// ---------------------------------------------------------------- camera desta porta
+// Canais de gravador do mesmo local (inventario de gravadores). A foto do
+// aviso por e-mail sai da GRAVACAO, no segundo da passagem; a previa daqui
+// mostra 1 min atras e a "ultima passagem" usa o mesmo caminho do e-mail.
+let _dvcCam = null;          // { leitor, vinculadas, candidatas, sugestao }
+let _dvcCamSel = ['', ''];
+let _dvcCamFoto = null;      // { url, texto, ruim }
+
+async function dvcCamCarregar(id) {
+  _dvcCam = null; _dvcCamFoto = null;
+  dvcCamDesenhar();
+  try {
+    _dvcCam = await acJson(`/api/access-control/painel/cameras/${encodeURIComponent(id)}`);
+    _dvcCamSel = [(_dvcCam.vinculadas[0] || {}).chave || '', (_dvcCam.vinculadas[1] || {}).chave || ''];
+  } catch (err) {
+    _dvcCam = { erro: err.message };
+  }
+  if (_dvcId === id) dvcCamDesenhar();
+}
+
+function dvcCamDesenhar() {
+  const el = dvCampo('dvcCam');
+  if (!el) return;
+  const c = _dvcCam;
+  if (!c) { el.innerHTML = '<p class="dv-ajuda">Carregando…</p>'; return; }
+  if (c.erro) { el.innerHTML = `<p class="dv-erro">Não consegui ler as câmeras: ${esc(c.erro)}</p>`; return; }
+  if (!c.candidatas.length) {
+    el.innerHTML = '<p class="dv-ajuda">Nenhum gravador cadastrado neste local. A câmera precisa estar num gravador (Gravadores) para a foto sair da gravação.</p>';
+    return;
+  }
+  // Lista agrupada: o gravador e o cabecalho e, embaixo, as cameras em ordem de canal.
+  const rot = x => `Canal ${x.canal} · ${x.titulo || 'sem nome'}`;
+  const porGravador = new Map();
+  c.candidatas.forEach(x => { const g = x.gravador || x.host; if (!porGravador.has(g)) porGravador.set(g, []); porGravador.get(g).push(x); });
+  const opcoes = sel => '<option value="">— nenhuma —</option>' + [...porGravador.entries()]
+    .sort((a, b) => a[0].localeCompare(b[0], 'pt-BR', { numeric: true }))
+    .map(([g, lista]) => `<optgroup label="${esc(g)}">${lista.slice().sort((a, b) => a.canal - b.canal)
+      .map(x => `<option value="${esc(x.chave)}" ${x.chave === sel ? 'selected' : ''}>${esc(rot(x))}</option>`).join('')}</optgroup>`).join('');
+  const sug = !_dvcCamSel[0] && c.sugestao ? c.candidatas.find(x => x.chave === c.sugestao) : null;
+  const f = _dvcCamFoto;
+  el.innerHTML = `
+    ${sug ? `<div class="dvc-sug"><i data-lucide="sparkles"></i><span><b>Sugestão:</b> ${esc(sug.titulo)} tem nome parecido com o do leitor. Confira na foto antes de salvar.</span>
+      <button type="button" class="secondary-action" data-dvc-sug>Usar esta</button></div>` : ''}
+    <label class="dv-rot" for="dvcCamSel">Câmera</label>
+    <select id="dvcCamSel" class="dvc-cam-sel">${opcoes(_dvcCamSel[0])}</select>
+    ${_dvcCamSel[0] ? `<details class="dvc-cam-2" ${_dvcCamSel[1] ? 'open' : ''}><summary>Outra câmera (usada se a primeira não tiver imagem)</summary>
+      <select id="dvcCamSel2" class="dvc-cam-sel" aria-label="Segunda câmera">${opcoes(_dvcCamSel[1])}</select></details>` : ''}
+    ${_dvcCamSel[0] ? `<div class="dvc-cam-foto">${f && f.url ? `<img src="${f.url}" alt="Foto da gravação">` : `<span>${f && f.carregando ? 'Buscando na gravação…' : 'Clique em Ver agora para conferir o enquadramento.'}</span>`}</div>
+      ${f && f.texto ? `<p class="dvc-res ${f.ruim ? 'ruim' : 'ok'}">${esc(f.texto)}</p>` : ''}
+      <div class="dvc-linha">
+        <button type="button" class="secondary-action" data-dvc-foto="agora"><i data-lucide="eye"></i> Ver agora</button>
+        <button type="button" class="secondary-action" data-dvc-foto="ultima"><i data-lucide="camera"></i> Testar foto da última passagem</button>
+      </div>` : ''}
+    <div class="dvc-linha"><button type="button" class="primary-action" id="dvcCamSalvar"><i data-lucide="save"></i> Salvar câmera</button>
+      <small class="dv-ajuda">Só câmeras de gravadores deste local.</small></div>`;
+  el.querySelector('[data-dvc-sug]')?.addEventListener('click', () => { _dvcCamSel[0] = c.sugestao; _dvcCamFoto = null; dvcCamDesenhar(); });
+  el.querySelector('#dvcCamSel')?.addEventListener('change', ev => { _dvcCamSel[0] = ev.target.value; _dvcCamFoto = null; dvcCamDesenhar(); });
+  el.querySelector('#dvcCamSel2')?.addEventListener('change', ev => { _dvcCamSel[1] = ev.target.value; });
+  el.querySelectorAll('[data-dvc-foto]').forEach(b => b.addEventListener('click', () => dvcCamFoto(b.dataset.dvcFoto)));
+  el.querySelector('#dvcCamSalvar')?.addEventListener('click', dvcCamSalvar);
+  if (window.lucide) lucide.createIcons();
+}
+
+async function dvcCamFoto(quando) {
+  const id = _dvcId, chave = _dvcCamSel[0];
+  if (!chave) return;
+  if (_dvcCamFoto && _dvcCamFoto.url) URL.revokeObjectURL(_dvcCamFoto.url);
+  _dvcCamFoto = { carregando: true };
+  dvcCamDesenhar();
+  try {
+    const res = await api(`/api/access-control/painel/cameras/${encodeURIComponent(id)}/foto?chave=${encodeURIComponent(chave)}&quando=${quando}`);
+    if (!res) throw new Error('sessão expirada');
+    if (!res.ok) {
+      let msg = 'HTTP ' + res.status;
+      try { msg = (await res.json()).detail || msg; } catch (_) {}
+      throw new Error(msg);
+    }
+    const dif = Number(res.headers.get('X-Relogio-Diferenca') || 0);
+    const momento = res.headers.get('X-Momento') || '';
+    const url = URL.createObjectURL(await res.blob());
+    const relogio = Math.abs(dif) <= 10 ? 'relógio do gravador certo' : `relógio do gravador ${Math.abs(dif)} s ${dif > 0 ? 'adiantado' : 'atrasado'} (o SightOps compensa)`;
+    _dvcCamFoto = { url, texto: `${quando === 'ultima' ? 'Última passagem' : 'Gravação'} de ${momento.slice(8, 10)}/${momento.slice(5, 7)} ${momento.slice(11, 19)} · ${relogio}.`, ruim: false };
+  } catch (err) {
+    _dvcCamFoto = { texto: err.message, ruim: true };
+  }
+  if (_dvcId === id) dvcCamDesenhar();
+}
+
+async function dvcCamSalvar() {
+  const lista = [...new Set(_dvcCamSel.filter(Boolean))];
+  try {
+    await acEnviar('PUT', `/api/access-control/painel/cameras/${encodeURIComponent(_dvcId)}`, { cameras: lista });
+    acToast(lista.length ? 'Câmera desta porta salva.' : 'Porta sem câmera: o e-mail sai sem foto.');
+    await dvcCamCarregar(_dvcId);
+  } catch (err) {
+    acToast(err.message, true);
+  }
 }
 
 function dvcFechar() {

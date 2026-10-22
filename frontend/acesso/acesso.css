@@ -869,3 +869,35 @@
 #viewAccessPainel .ap-dlg-corpo footer{display:flex;justify-content:flex-end;gap:8px}
 #viewAccessPainel .ap-dlg-corpo footer button{display:inline-flex;align-items:center;gap:8px}
 #viewAccessPainel .rl-baixar{display:flex;gap:8px;flex-wrap:wrap}
+/* Camera desta porta (gaveta da controladora) */
+#viewAccessPainel .dvc-sug{display:flex;gap:10px;align-items:center;padding:10px 12px;border-radius:10px;background:var(--blue-soft);color:#124a7c;font-size:12.5px}
+#viewAccessPainel .dvc-sug svg{width:16px;height:16px;flex:none;color:var(--blue)}
+#viewAccessPainel .dvc-sug .secondary-action{margin-left:auto;flex:none}
+#viewAccessPainel .dvc-cam-sel{width:100%;height:38px;box-sizing:border-box;font:inherit;font-size:13px;border:1px solid var(--border);border-radius:8px;padding:0 10px;background:var(--surface);color:var(--text)}
+#viewAccessPainel .dvc-cam-2{font-size:12.5px}
+#viewAccessPainel .dvc-cam-2 summary{cursor:pointer;color:var(--primary);font-weight:600;margin-bottom:6px}
+#viewAccessPainel .dvc-cam-foto{border-radius:10px;overflow:hidden;background:var(--sidebar);min-height:180px;display:grid;place-items:center;color:#9fb3bd;font-size:12.5px;text-align:center;padding:0}
+#viewAccessPainel .dvc-cam-foto img{width:100%;display:block}
+#viewAccessPainel .dvc-cam-foto span{padding:16px}
+/* Conexoes: abas WhatsApp | E-mail e historico de e-mails */
+#viewAccessPainel .cn-abas{display:flex;gap:4px;border-bottom:1px solid var(--border);margin-bottom:14px}
+#viewAccessPainel .cn-abas button{display:inline-flex;align-items:center;gap:7px;font:inherit;font-size:13.5px;font-weight:500;color:var(--muted);background:none;border:0;border-bottom:2px solid transparent;padding:9px 14px;cursor:pointer}
+#viewAccessPainel .cn-abas button svg{width:15px;height:15px}
+#viewAccessPainel .cn-abas button.on{color:var(--primary);border-bottom-color:var(--primary);font-weight:600}
+#viewAccessPainel .cn-3-1{grid-template-columns:3fr 1fr}
+#viewAccessPainel .cn-hist{margin-top:12px}
+#viewAccessPainel .em-st{display:inline-block;font-size:12px;font-weight:600;padding:2px 8px;border-radius:10px;background:var(--surface-soft);color:var(--muted)}
+#viewAccessPainel .em-st.ok{background:var(--primary-soft);color:var(--primary)}
+#viewAccessPainel .em-st.espera{background:var(--blue-soft);color:var(--blue)}
+#viewAccessPainel .em-st.ruim{background:var(--danger-soft);color:var(--danger)}
+#viewAccessPainel .em-st.atencao{background:var(--amber-soft);color:var(--amber)}
+#viewAccessPainel .em-det{font-size:12.5px;color:var(--muted);max-width:320px}
+#viewAccessPainel .cn-fluxo-5{grid-template-columns:repeat(5,minmax(0,1fr))}
+@media (max-width:900px){#viewAccessPainel .cn-3-1{grid-template-columns:1fr}#viewAccessPainel .cn-fluxo-5{grid-template-columns:repeat(2,minmax(0,1fr))}}
+/* Camera desta porta: mesmo respiro das outras secoes da gaveta */
+#viewAccessPainel #dvcCam{display:flex;flex-direction:column;gap:12px;margin-top:4px}
+#viewAccessPainel #dvcCam .dv-rot{margin:0 0 -6px}
+#viewAccessPainel #dvcCam .dvc-res{margin:0}
+#viewAccessPainel #dvcCam .dvc-linha .primary-action,#viewAccessPainel #dvcCam .dvc-linha .secondary-action{display:inline-flex;align-items:center;gap:8px;height:38px;box-sizing:border-box}
+#viewAccessPainel #dvcCam .dvc-linha .dv-ajuda{margin:0}
+#viewAccessPainel .dvc-cam-2 summary{margin-bottom:8px}
