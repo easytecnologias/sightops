@@ -724,13 +724,24 @@ function alertRenderKpis() {
 }
 
 // ---------------------------------------------------------------- cabecalho
+// Uma descricao so do som deste posto (chip e tela calma falam igual).
+function alertSomDescricao() {
+  const cfg = alertSoundCfg();
+  const sirene = cfg.siren && cfg.siren !== 'none';
+  const voz = cfg.voice !== 'off';
+  if (sirene && voz) return 'Sirene e voz';
+  if (sirene) return 'So sirene';
+  if (voz) return 'So voz';
+  return 'Sem sirene nem voz';
+}
+
 function alertRenderChips() {
   const box = document.getElementById('alertChipsMais');
   if (!box) return;
   const somOn = alertSoundOn();
   const aviso = !('Notification' in window) ? '' : (Notification.permission === 'granted' ? 'Windows: ativo' : 'Windows: desligado');
   const cfg = alertSoundCfg();
-  const somTxt = somOn ? `Som: ${cfg.siren === 'none' ? 'so voz' : (cfg.voice === 'off' ? 'so sirene' : 'sirene + voz')}` : 'Som desligado';
+  const somTxt = somOn ? `Som: ${alertSomDescricao().toLowerCase()}` : 'Som desligado';
   const postos = typeof _alertPostos === 'number'
     ? `<span class="alert-chip is-ok"><span class="alert-chip-dot"></span>Voce esta de plantao · ${_alertPostos} posto${_alertPostos === 1 ? '' : 's'} online</span>` : '';
   box.innerHTML = `${postos}<button type="button" class="alert-chip${somOn ? '' : ' is-warn'}" data-chip="som"><i data-lucide="${somOn ? 'volume-2' : 'volume-x'}"></i>${esc(somTxt)}${aviso ? ` · ${esc(aviso)}` : ''}</button>`;
@@ -820,6 +831,7 @@ function alertRenderMapaInfo() {
 }
 
 let _alertLotKey = '';
+let _alertMapCams = { at: 0, lista: null };
 async function alertDesenharLotacoes() {
   const chips = document.getElementById('alertMapChips');
   const legenda = document.getElementById('alertMapLegend');
@@ -827,32 +839,58 @@ async function alertDesenharLotacoes() {
   if (!membros) {
     try { membros = (await alertApiJson('/api/alert/members')).members || []; } catch { membros = []; }
   }
+  // Cameras dos locais monitorados: 1 busca por minuto (o backend tambem guarda 60 s).
+  if (!_alertMapCams.lista || Date.now() - _alertMapCams.at > 60000) {
+    _alertMapCams.at = Date.now();
+    try { _alertMapCams.lista = (await alertApiJson('/api/alert/map-cameras')).cameras || []; } catch { _alertMapCams.lista = _alertMapCams.lista || []; }
+  }
   if (_alertDetail) return; // chegou alerta enquanto buscava
+  const cams = _alertMapCams.lista || [];
   const locais = new Map();
-  membros.filter((m) => m.active && m.unit_lat != null && m.unit_lon != null).forEach((m) => {
-    const k = `${Number(m.unit_lat).toFixed(4)},${Number(m.unit_lon).toFixed(4)}`;
-    const it = locais.get(k) || { lat: Number(m.unit_lat), lon: Number(m.unit_lon), nomes: [], site: m.site || m.unit_name || '' , pend: 0 };
+  membros.filter((m) => m.active && m.ponto).forEach((m) => {
+    const k = `${Number(m.ponto.lat).toFixed(4)},${Number(m.ponto.lon).toFixed(4)}`;
+    const it = locais.get(k) || { lat: Number(m.ponto.lat), lon: Number(m.ponto.lon), nomes: [], site: m.site || m.unit_name || '', pend: 0, origem: m.ponto.origem };
     it.nomes.push(m.full_name);
     if (m.prontidao && !m.prontidao.pronta) it.pend += 1;
     locais.set(k, it);
   });
-  const key = [...locais.keys()].sort().join('|');
+  const ativos = membros.filter((m) => m.active).length;
   if (chips) {
-    chips.innerHTML = locais.size
-      ? `<span class="alert-map-chip"><span class="alert-chip-dot"></span>${locais.size} ${locais.size === 1 ? 'local monitorado' : 'locais monitorados'} · ${membros.filter((m) => m.active).length} pessoas</span>`
-      : '<span class="alert-map-chip is-warn">Nenhuma lotacao com coordenada: cadastre em Pessoas</span>';
+    const partes = [];
+    if (locais.size) partes.push(`<span class="alert-map-chip"><span class="alert-chip-dot"></span>${locais.size} ${locais.size === 1 ? 'local monitorado' : 'locais monitorados'} · ${ativos} ${ativos === 1 ? 'pessoa' : 'pessoas'}</span>`);
+    if (cams.length) partes.push(`<span class="alert-map-chip">${cams.length} cameras no mapa</span>`);
+    if (!locais.size) partes.push(ativos ? '<span class="alert-map-chip is-warn">Sem coordenada da lotacao nem cameras com coordenada no local</span>' : '<span class="alert-map-chip is-warn">Nenhuma pessoa cadastrada no Alerta</span>');
+    chips.innerHTML = partes.join('');
   }
-  if (legenda) legenda.innerHTML = '<span><i class="lg-local"></i> lotacao (todos prontos)</span><span><i class="lg-local-warn"></i> lotacao com pendencia</span>';
+  if (legenda) {
+    const lg = [];
+    if (locais.size) {
+      lg.push('<span><i class="lg-local"></i> lotacao (todos prontos)</span>');
+      if ([...locais.values()].some((x) => x.pend)) lg.push('<span><i class="lg-local-warn"></i> lotacao com pendencia</span>');
+    }
+    if (cams.length) lg.push('<span><i class="lg-camera"></i> camera do local</span>');
+    legenda.innerHTML = lg.join('');
+  }
+  const key = `${[...locais.keys()].sort().join('|')}#${cams.length}`;
   if (!_alertUnits || key === _alertLotKey) return;
   _alertLotKey = key;
   _alertUnits.clearLayers();
   const pts = [];
+  // Cameras primeiro (embaixo), em canvas: centenas de pontos sem travar o mapa.
+  const render = L.canvas ? L.canvas({ padding: 0.3 }) : undefined;
+  cams.forEach((c) => {
+    L.circleMarker([c.lat, c.lon], { renderer: render, radius: 3.5, weight: 1, color: '#ffffff', fillColor: '#1971c2', fillOpacity: 0.9 })
+      .bindTooltip(`${esc(c.titulo || '')}${c.site ? `<br><small>${esc(c.site)}</small>` : ''}`).addTo(_alertUnits);
+    pts.push([c.lat, c.lon]);
+  });
   locais.forEach((it) => {
     const icon = L.divIcon({ className: '', html: `<span class="alert-lot${it.pend ? ' warn' : ''}">${it.nomes.length}</span>`, iconSize: [26, 26], iconAnchor: [13, 13] });
-    L.marker([it.lat, it.lon], { icon }).bindTooltip(`${esc(it.site)}<br>${it.nomes.map(esc).slice(0, 6).join('<br>')}${it.nomes.length > 6 ? '<br>...' : ''}`).addTo(_alertUnits);
+    const onde = it.origem === 'cameras' ? '<br><small>posicao pelas cameras do local</small>' : '';
+    L.marker([it.lat, it.lon], { icon, zIndexOffset: 500 })
+      .bindTooltip(`${esc(it.site)}${onde}<br>${it.nomes.map(esc).slice(0, 6).join('<br>')}${it.nomes.length > 6 ? '<br>...' : ''}`).addTo(_alertUnits);
     pts.push([it.lat, it.lon]);
   });
-  if (pts.length && _alertMap) _alertMap.fitBounds(pts, { padding: [60, 60], maxZoom: 16 });
+  if (pts.length && _alertMap) _alertMap.fitBounds(pts, { padding: [50, 50], maxZoom: 16 });
 }
 
 // Faixa no topo: o alerta sem atendimento mais antigo, com cronometro e Assumir.
@@ -1237,13 +1275,7 @@ async function alertRenderCalm() {
   if (agora - _alertCalm.at > 60000) {
     _alertCalm.at = agora;
     try {
-      const [mem, hist] = await Promise.all([
-        alertApiJson('/api/alert/members').catch(() => null),
-        alertApiJson('/api/alert/incidents?scope=history&limit=50').catch(() => null),
-      ]);
-      _alertCalm.membros = mem;
-      const inicioDia = new Date(); inicioDia.setHours(0, 0, 0, 0);
-      _alertCalm.hoje = (hist?.incidents || []).filter((i) => (alertDate(i.opened_at)?.getTime() || 0) >= inicioDia.getTime());
+      _alertCalm.membros = await alertApiJson('/api/alert/members').catch(() => null);
     } catch {}
   }
   if (_alertSelectedId) return; // um alerta chegou enquanto buscava
@@ -1251,7 +1283,7 @@ async function alertRenderCalm() {
   const aviso = !('Notification' in window) ? 'nao suportado' : (Notification.permission === 'granted' ? 'ativo' : (Notification.permission === 'denied' ? 'bloqueado' : 'desligado'));
   const pr = _alertCalm.membros?.prontidao;
   const pend = (_alertCalm.membros?.members || []).filter((x) => x.active && x.prontidao && !x.prontidao.pronta).length;
-  const hoje = _alertCalm.hoje || [];
+  const hoje = _alertHoje.lista || [];  // mesma contagem do "Hoje N" da fila
   const ult = hoje[0];
   const linha = (ok, icone, titulo, texto, acao = '') => `
     <div class="alert-calm-row ${ok ? 'ok' : 'warn'}">
@@ -1265,7 +1297,7 @@ async function alertRenderCalm() {
     </div>
     <div class="alert-calm-list">
       ${linha(somOn, somOn ? 'volume-2' : 'volume-x', somOn ? 'Este posto vai tocar' : 'Som desligado neste posto',
-        somOn ? 'Sirene e voz ligadas.' : 'Ligue o som para nao perder alerta.',
+        somOn ? `${alertSomDescricao()}.` : 'Ligue o som para nao perder alerta.',
         '<button type="button" class="link-action" data-calm="som">Testar</button>')}
       ${linha(aviso === 'ativo', 'bell-ring', `Aviso do Windows ${aviso}`,
         aviso === 'ativo' ? 'Balao aparece mesmo com o SightOps minimizado.' : 'Ative para ser avisado com o navegador em outra aba.',

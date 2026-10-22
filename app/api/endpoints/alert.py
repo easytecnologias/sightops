@@ -25,6 +25,7 @@ from app.services.alert_store import (
     marcar_passo,
     salvar_protocolo,
     live_summary,
+    cameras_do_mapa,
     connector_cameras,
     nearby_cameras,
     nearest_camera,
@@ -258,6 +259,13 @@ def api_alert_nearby_cameras(
                 "distance_m": perto.get("distance_m"),
             }
     return out
+
+
+@router.get("/map-cameras")
+def api_alert_map_cameras() -> Dict[str, Any]:
+    """Pontos das cameras dos locais monitorados (mapa da central, sem alerta)."""
+    cams = cameras_do_mapa()
+    return {"ok": True, "count": len(cams), "cameras": cams}
 
 
 @router.get("/unit-cameras")

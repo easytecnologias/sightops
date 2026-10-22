@@ -122,3 +122,28 @@ def test_postos_online_por_cliente(monkeypatch):
         assert E._registrar_posto(req("ana"))["postos_online"] == 1
     finally:
         tenant_context.reset_current_tenant_slug(tok)
+
+
+def test_lotacao_sem_coordenada_usa_as_cameras_do_local(banco):
+    """Sem lat/lon da lotacao, o ponto vem da mediana das cameras do conector;
+    o mapa so recebe cameras dos locais das pessoas e dos sites do usuario."""
+    cams = [
+        ("basic", {"ip": "10.0.0.1", "lat": -10.10, "lon": -36.10, "remote_connector_id": "c-medea", "site": "ESCOLA MEDEA"}),
+        ("basic", {"ip": "10.0.0.2", "lat": -10.11, "lon": -36.11, "remote_connector_id": "c-medea", "site": "ESCOLA MEDEA"}),
+        ("basic", {"ip": "10.0.0.3", "lat": 50.0, "lon": 50.0, "remote_connector_id": "c-medea", "site": "ESCOLA MEDEA"}),
+        ("basic", {"ip": "10.0.0.4", "lat": -9.0, "lon": -35.0, "remote_connector_id": "c-porto", "site": "PORTO REAL"}),
+        ("basic", {"ip": "10.0.0.5", "remote_connector_id": "c-medea", "site": "ESCOLA MEDEA"}),   # sem coordenada
+    ]
+    banco.setattr(A, "_inventory_cameras", lambda: iter(cams))
+    A._CAMS_MAPA_CACHE.clear()
+    A.save_member({"full_name": "SEM COORD", "document_id": "52998224725", "unit_connector_id": "c-medea"})
+    A.save_member({"full_name": "COM COORD", "document_id": "11144477735", "unit_connector_id": "c-porto",
+                   "unit_lat": -9.5, "unit_lon": -35.5})
+    pessoas = {m["full_name"]: m for m in A.list_members()}
+    p = pessoas["SEM COORD"]["ponto"]
+    assert p["origem"] == "cameras" and p["cameras"] == 3 and (p["lat"], p["lon"]) == (-10.10, -36.10)   # mediana ignora a errada
+    assert pessoas["COM COORD"]["ponto"]["origem"] == "lotacao"
+    assert len(A.cameras_do_mapa()) == 4
+    assert all("ip" not in c for c in A.cameras_do_mapa())
+    banco.setattr(permissions, "sites_da_sessao", lambda: ["ESCOLA MEDEA"])
+    assert {c["site"] for c in A.cameras_do_mapa()} == {"ESCOLA MEDEA"}

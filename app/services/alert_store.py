@@ -284,8 +284,82 @@ def list_members(search: str = "") -> List[Dict[str, Any]]:
         m = _member_public(r, info["n"])
         m["device"] = _device_public(info["ultimo"])
         m["prontidao"] = prontidao_do_membro(m)
+        m["ponto"] = _ponto_do_membro(m)
         out.append(m)
     return out
+
+
+# --------------------------------------------------------------------------
+# mapa da central: onde fica cada lotacao e as cameras dos locais
+# --------------------------------------------------------------------------
+# Quase ninguem cadastra latitude/longitude da lotacao, mas as cameras do
+# local monitorado quase sempre tem. Sem coordenada propria, a lotacao vai
+# para o centro das cameras do conector. Ler os tres inventarios a cada
+# consulta pesa: cache curto por tenant.
+
+_CAMS_MAPA_CACHE: Dict[str, Tuple[float, List[Dict[str, Any]]]] = {}
+_CAMS_MAPA_TTL_S = 60.0
+
+
+def _cameras_com_coordenada() -> List[Dict[str, Any]]:
+    tenant = _tenant()
+    agora = time.monotonic()
+    hit = _CAMS_MAPA_CACHE.get(tenant)
+    if hit and agora - hit[0] < _CAMS_MAPA_TTL_S:
+        return hit[1]
+    lista: List[Dict[str, Any]] = []
+    for _mode, r in _inventory_cameras():
+        lat = _coord(r.get("lat") or r.get("latitude"), 90)
+        lon = _coord(r.get("lon") or r.get("lng") or r.get("longitude"), 180)
+        if lat is None or lon is None:
+            continue
+        lista.append({
+            "lat": lat, "lon": lon,
+            "titulo": _text(r.get("titulo") or r.get("nome"), 120) or "Camera",  # nunca o IP
+            "connector": _text(r.get("remote_connector_id") or r.get("connector_id"), 80),
+            "site": _text(r.get("site") or r.get("site_name") or r.get("local") or r.get("LOCAL"), 160),
+            "status": _text(r.get("status"), 20),
+        })
+    _CAMS_MAPA_CACHE[tenant] = (agora, lista)
+    return lista
+
+
+def _centro_do_conector(cid: str) -> Optional[Tuple[float, float, int]]:
+    pts = [(c["lat"], c["lon"]) for c in _cameras_com_coordenada() if c["connector"] == cid]
+    if not pts:
+        return None
+    # Mediana, nao media: uma camera com coordenada errada (outra cidade) nao
+    # arrasta o ponto para o meio do nada.
+    lats = sorted(p[0] for p in pts)
+    lons = sorted(p[1] for p in pts)
+    meio = len(pts) // 2
+    return lats[meio], lons[meio], len(pts)
+
+
+def _ponto_do_membro(m: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    if m.get("unit_lat") is not None and m.get("unit_lon") is not None:
+        return {"lat": m["unit_lat"], "lon": m["unit_lon"], "origem": "lotacao"}
+    cid = str(m.get("unit_connector_id") or "").strip()
+    if not cid:
+        return None
+    c = _centro_do_conector(cid)
+    if not c:
+        return None
+    return {"lat": c[0], "lon": c[1], "origem": "cameras", "cameras": c[2]}
+
+
+def cameras_do_mapa(limite: int = 1500) -> List[Dict[str, Any]]:
+    """Cameras com coordenada dos locais monitorados das pessoas que o usuario
+    ve. So o necessario para desenhar um ponto (sem IP, sem credencial)."""
+    from app.core import permissions
+
+    cids = {str(m.get("unit_connector_id") or "") for m in list_members() if m.get("active")}
+    cids.discard("")
+    if not cids:
+        return []
+    cams = [c for c in _cameras_com_coordenada() if c["connector"] in cids]
+    cams = permissions.filtrar_por_site(cams, ("site",))
+    return [{k: c[k] for k in ("lat", "lon", "titulo", "site", "status")} for c in cams[: max(1, int(limite))]]
 
 
 # Abaixo disso de dias sem abrir o app, a central desconfia do celular: app
