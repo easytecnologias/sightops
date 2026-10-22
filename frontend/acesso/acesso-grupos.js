@@ -1,6 +1,6 @@
-// Aba Acesso do Painel (/v3/acesso/#acesso): grupos, horarios, feriados e a
-// simulacao contra as passagens reais. Nesta etapa nada vai para os leitores:
-// monta, simula, confere e so depois envia.
+// Aba Acesso do Painel (/v3/acesso/#acesso): grupos, horarios, feriados, a
+// simulacao contra as passagens reais e o envio ao leitor. Salvar nao fala com
+// leitor: monta, simula, confere em "No leitor" e envia um leitor por vez.
 // Rotas: GET/PUT/DELETE /api/access-control/painel/acesso/*.
 
 let _agDados = null;
@@ -14,9 +14,15 @@ let _agSimMostrar = 100;
 let _agFeriadoSite = '';
 let _agFeriados = [];
 let _agVoltarGrupo = null;    // horario criado de dentro da gaveta do grupo
+let _agFerRegra = { modo: 'fechado', faixas: [] };
+let _agLeitores = null;       // comparacao com os leitores (so leitura)
+let _agEnvio = {};            // device_id -> tarefa enquanto envia
+let _agArmado = '';           // leitor com "Confirmar envio" armado
 
-const AG_LINHAS = [['1', 'Seg'], ['2', 'Ter'], ['3', 'Qua'], ['4', 'Qui'], ['5', 'Sex'], ['6', 'Sáb'], ['0', 'Dom'], ['feriado', 'Feriado']];
-const AG_SEMANA = { '0': 'domingo', '1': 'segunda', '2': 'terça', '3': 'quarta', '4': 'quinta', '5': 'sexta', '6': 'sábado', feriado: 'feriado' };
+// O leitor Intelbras guarda 7 dias x 4 faixas (lido nos leitores em 22/10/2026).
+// Feriado nao e linha do horario: no leitor vale para a porta, e regra do local.
+const AG_LINHAS = [['1', 'Seg'], ['2', 'Ter'], ['3', 'Qua'], ['4', 'Qui'], ['5', 'Sex'], ['6', 'Sáb'], ['0', 'Dom']];
+const AG_MAX_FAIXAS = 4;
 const AG_DIA_UTIL = d => Object.fromEntries(['1', '2', '3', '4', '5'].map(k => [k, d]));
 const AG_MODELOS = {
   escola: [
@@ -26,9 +32,9 @@ const AG_MODELOS = {
     ['Administrativo', AG_DIA_UTIL([['07:00', '18:00']])],
   ],
   condominio: [
-    ['24 horas', Object.fromEntries(['0', '1', '2', '3', '4', '5', '6', 'feriado'].map(k => [k, [['00:00', '24:00']]]))],
+    ['24 horas', Object.fromEntries(['0', '1', '2', '3', '4', '5', '6'].map(k => [k, [['00:00', '24:00']]]))],
     ['Prestadores', { ...AG_DIA_UTIL([['08:00', '18:00']]), '6': [['08:00', '12:00']] }],
-    ['Áreas comuns', Object.fromEntries(['0', '1', '2', '3', '4', '5', '6', 'feriado'].map(k => [k, [['06:00', '22:00']]]))],
+    ['Áreas comuns', Object.fromEntries(['0', '1', '2', '3', '4', '5', '6'].map(k => [k, [['06:00', '22:00']]]))],
   ],
   empresa: [
     ['Horário comercial', { ...AG_DIA_UTIL([['07:30', '18:30']]), '6': [['08:00', '12:00']] }],
@@ -52,7 +58,7 @@ function agFaixasTxt(f) { return (f || []).map(([a, b]) => `${a}–${b === '24:0
 function agResumo(h) {
   if (!h) return '24 horas, todos os dias';
   const grupos = [];
-  AG_LINHAS.slice(0, 7).forEach(([k, rot]) => {
+  AG_LINHAS.forEach(([k, rot]) => {
     const txt = agFaixasTxt(h.dias[k]);
     if (!txt) return;
     const ult = grupos[grupos.length - 1];
@@ -60,11 +66,10 @@ function agResumo(h) {
     else grupos.push({ ini: rot, fim: rot, txt, fimIdx: AG_LINHAS.findIndex(x => x[0] === k) });
   });
   const partes = grupos.map(g => `${g.ini === g.fim ? g.ini : g.ini + ' a ' + g.fim.toLowerCase()} ${g.txt}`);
-  if ((h.dias.feriado || []).length) partes.push(`Feriado ${agFaixasTxt(h.dias.feriado)}`);
   return partes.join(' · ') || 'Fechado o tempo todo';
 }
 
-// Semana em miniatura: 8 linhas x 48 meias-horas
+// Semana em miniatura: 7 linhas x 48 meias-horas
 function agMini(h, grande) {
   const linhas = AG_LINHAS.map(([k, rot]) => {
     const cel = agCelulas(h ? h.dias[k] : [['00:00', '24:00']]);
@@ -137,9 +142,9 @@ function agVistaHorarios() {
   const sites = [...new Set((_agDados.leitores || []).map(l => l.site).concat((_agDados.grupos || []).map(g => g.site)).filter(Boolean))].sort();
   if (!_agFeriadoSite || !sites.includes(_agFeriadoSite)) {
     _agFeriadoSite = agSite() && sites.includes(agSite()) ? agSite() : (sites[0] || '');
-    _agFeriados = ((_agDados.feriados[_agFeriadoSite.toUpperCase()] || {}).datas || []).slice();
+    agCarregarFeriados();
   }
-  return `<div class="ag-barra"><p>Horários são quadros da semana com nome. Um horário serve para vários grupos. No leitor, cabem até 6 faixas por dia.</p>
+  return `<div class="ag-barra"><p>Horários são quadros da semana com nome. Um horário serve para vários grupos. No leitor, cabem até ${AG_MAX_FAIXAS} faixas por dia.</p>
       <div class="ag-novo-h"><button class="primary-action" type="button" data-ag-novo-horario=""><i data-lucide="plus"></i> Novo horário</button>
         <div class="ag-modelos"><span>ou comece de um modelo:</span>${modelos.map(([n], i) => `<button type="button" class="ap-fl" data-ag-modelo="${i}">${esc(n)}</button>`).join('')}</div></div></div>
     ${horarios.length ? `<div class="ag-horarios">${horarios.map(h => `<article class="ag-h">
@@ -148,9 +153,9 @@ function agVistaHorarios() {
         ${agMini(h, true)}<small class="ag-h-resumo">${esc(agResumo(h))}</small></article>`).join('')}</div>`
       : '<div class="dv-vazio"><i data-lucide="calendar-clock"></i><b>Nenhum horário ainda</b><p>Sem horário, o grupo abre 24 horas, todos os dias, como é hoje.</p></div>'}
     <section class="ag-feriados">
-      <header><div><b>Feriados</b><small>Nos feriados vale a linha "Feriado" de cada horário. Cada local tem a sua lista.</small></div>
+      <header><div><b>Feriados</b><small>Cada local tem a sua lista e a sua regra. Grupos de 24 horas não mudam no feriado.</small></div>
         ${sites.length ? `<select id="agFeriadoSite" aria-label="Local dos feriados">${sites.map(s => `<option ${s === _agFeriadoSite ? 'selected' : ''}>${esc(s)}</option>`).join('')}</select>` : ''}</header>
-      ${_agFeriadoSite ? `<div class="ag-fer-lista">${_agFeriados.length ? _agFeriados.map((f, i) => `<span class="ag-fer"><b class="monospace">${f.data.split('-').reverse().join('/')}</b>${esc(f.nome || '')}<button type="button" aria-label="Tirar ${esc(f.nome || f.data)}" data-ag-fer-tira="${i}">×</button></span>`).join('') : '<span class="dv-ajuda">Nenhum feriado neste local.</span>'}</div>
+      ${_agFeriadoSite ? `${agRegraFeriadoHtml()}<div class="ag-fer-lista">${_agFeriados.length ? _agFeriados.map((f, i) => `<span class="ag-fer"><b class="monospace">${f.data.split('-').reverse().join('/')}</b>${esc(f.nome || '')}<button type="button" aria-label="Tirar ${esc(f.nome || f.data)}" data-ag-fer-tira="${i}">×</button></span>`).join('') : '<span class="dv-ajuda">Nenhum feriado neste local.</span>'}</div>
       <div class="ag-fer-add"><input type="date" id="agFerData" aria-label="Data do feriado"><input id="agFerNome" placeholder="Nome (ex.: Padroeira)" maxlength="60" aria-label="Nome do feriado">
         <button type="button" class="secondary-action" id="agFerAdd"><i data-lucide="plus"></i> Adicionar</button>
         <button type="button" class="secondary-action" id="agFerNac"><i data-lucide="flag"></i> Nacionais de ${new Date().getFullYear()}</button>
@@ -227,7 +232,8 @@ function agDesenhar() {
     b.classList.toggle('on', on);
     b.setAttribute('aria-pressed', String(on));
   });
-  el.innerHTML = _agVista === 'horarios' ? agVistaHorarios() : _agVista === 'simulacao' ? agVistaSimulacao() : agVistaGrupos();
+  el.innerHTML = _agVista === 'horarios' ? agVistaHorarios() : _agVista === 'simulacao' ? agVistaSimulacao()
+    : _agVista === 'leitores' ? agVistaLeitores() : agVistaGrupos();
   el.querySelectorAll('[data-ag-grupo]').forEach(b => b.addEventListener('click', () => agAbrirGrupo((_agDados.grupos || []).find(g => g.id === b.dataset.agGrupo))));
   el.querySelector('[data-ag-novo-grupo]')?.addEventListener('click', () => agAbrirGrupo(null));
   el.querySelectorAll('[data-ag-horario]').forEach(b => b.addEventListener('click', () => agAbrirHorario(agHorario(b.dataset.agHorario))));
@@ -238,9 +244,20 @@ function agDesenhar() {
   }));
   agCampo('agFeriadoSite')?.addEventListener('change', ev => {
     _agFeriadoSite = ev.target.value;
-    _agFeriados = ((_agDados.feriados[_agFeriadoSite.toUpperCase()] || {}).datas || []).slice();
+    agCarregarFeriados();
     agDesenhar();
   });
+  el.querySelectorAll('input[name="agFerModo"]').forEach(x => x.addEventListener('change', () => {
+    _agFerRegra.modo = x.value;
+    if (x.value === 'faixas' && !_agFerRegra.faixas.length) _agFerRegra.faixas = [['08:00', '12:00']];
+    agDesenhar();
+  }));
+  el.querySelectorAll('[data-ag-ferf]').forEach(x => x.addEventListener('change', () => {
+    const [i, j] = x.dataset.agFerf.split('-').map(Number);
+    _agFerRegra.faixas[i][j] = x.value;
+  }));
+  el.querySelectorAll('[data-ag-ferf-tira]').forEach(b => b.addEventListener('click', () => { _agFerRegra.faixas.splice(+b.dataset.agFerfTira, 1); agDesenhar(); }));
+  el.querySelector('[data-ag-ferf-mais]')?.addEventListener('click', () => { _agFerRegra.faixas.push(['13:00', '17:00']); agDesenhar(); });
   el.querySelectorAll('[data-ag-fer-tira]').forEach(b => b.addEventListener('click', () => { _agFeriados.splice(+b.dataset.agFerTira, 1); agDesenhar(); }));
   agCampo('agFerAdd')?.addEventListener('click', () => {
     const data = agCampo('agFerData').value;
@@ -257,12 +274,15 @@ function agDesenhar() {
   });
   agCampo('agFerSalvar')?.addEventListener('click', async () => {
     try {
-      await acEnviar('PUT', '/api/access-control/painel/acesso/feriados', { site: _agFeriadoSite, feriados: _agFeriados });
+      await acEnviar('PUT', '/api/access-control/painel/acesso/feriados', { site: _agFeriadoSite, feriados: _agFeriados, regra: _agFerRegra });
       acToast(`Feriados de ${_agFeriadoSite} salvos.`);
       await agCarregar();
     } catch (err) { acToast(err.message, true); }
   });
   agCampo('agSimRodar')?.addEventListener('click', agSimular);
+  agCampo('agLeitoresLer')?.addEventListener('click', agCompararLeitores);
+  el.querySelectorAll('[data-ag-enviar]').forEach(b => b.addEventListener('click', () => agEnviarLeitor(b.dataset.agEnviar)));
+  el.querySelectorAll('[data-ag-enviar-nao]').forEach(b => b.addEventListener('click', () => { _agArmado = ''; agDesenhar(); }));
   el.querySelector('[data-ag-sim-mais]')?.addEventListener('click', () => { _agSimMostrar += 100; agDesenhar(); });
   if (_agSim && _agSim.dias && agCampo('agSimDias')) agCampo('agSimDias').value = String(_agSim.dias);
   if (window.lucide) lucide.createIcons();
@@ -290,6 +310,118 @@ async function agSimular() {
     _agSim = null;
     acToast('Não consegui simular: ' + err.message, true);
   }
+  agDesenhar();
+}
+
+// ---------------------------------------------------------------- feriado: regra do local
+function agCarregarFeriados() {
+  const f = _agDados.feriados[_agFeriadoSite.toUpperCase()] || {};
+  _agFeriados = (f.datas || []).slice();
+  const r = f.regra || { modo: 'fechado', faixas: [] };
+  _agFerRegra = { modo: r.modo || 'fechado', faixas: (r.faixas || []).map(x => x.slice()) };
+}
+
+function agRegraFeriadoHtml() {
+  const op = (v, rot, sub) => `<label class="ag-op"><input type="radio" name="agFerModo" value="${v}" ${_agFerRegra.modo === v ? 'checked' : ''}><span><b>${rot}</b><small>${sub}</small></span></label>`;
+  const faixas = _agFerRegra.modo !== 'faixas' ? '' : `<div class="ag-ferf">${_agFerRegra.faixas.map(([a, b], i) => `<span class="ag-ferf-f">
+      <input type="time" step="1800" value="${esc(a)}" data-ag-ferf="${i}-0" aria-label="Início da faixa ${i + 1}">–<input type="time" step="1800" value="${esc(b === '24:00' ? '23:59' : b)}" data-ag-ferf="${i}-1" aria-label="Fim da faixa ${i + 1}">
+      <button type="button" aria-label="Tirar faixa ${i + 1}" data-ag-ferf-tira="${i}">×</button></span>`).join('')}
+      ${_agFerRegra.faixas.length < AG_MAX_FAIXAS ? '<button type="button" class="ag-link" data-ag-ferf-mais><i data-lucide="plus"></i> Faixa</button>' : ''}</div>`;
+  return `<div class="ag-fer-regra"><span class="dv-rot">No feriado, quem tem horário:</span>
+    <div class="ag-ops ag-ops-lin">${op('fechado', 'Não entra', 'Local fechado no feriado.')}${op('normal', 'Segue o dia da semana', 'Feriado na segunda vale como segunda.')}${op('faixas', 'Entra só em algumas horas', 'Escolha as faixas abaixo.')}</div>
+    ${faixas}</div>`;
+}
+
+// ---------------------------------------------------------------- no leitor: comparar e enviar
+function agVistaLeitores() {
+  const local = agSite() || 'todos os locais';
+  const l = _agLeitores && (_agLeitores.rodando || (_agLeitores.site || '') === agSite()) ? _agLeitores : null;
+  const topo = `<div class="ag-sim-barra">
+      <div><b>O que está em cada leitor</b><p>Lê os leitores de ${esc(local)} e compara com Grupos e Horários. Ler não muda nada. <b>Só o botão Enviar grava</b>, um leitor por vez.</p></div>
+      <div class="ag-sim-ctl"><button type="button" class="primary-action" id="agLeitoresLer"><i data-lucide="refresh-cw"></i> ${l ? 'Ler de novo' : 'Ler os leitores'}</button></div></div>`;
+  if (!l) return topo + '<div class="dv-vazio"><i data-lucide="scan-search"></i><b>Clique em Ler os leitores</b><p>Mostra, por leitor, quais horários faltam gravar e quem muda de horário.</p></div>';
+  if (l.rodando) return topo + '<div class="dv-vazio"><i data-lucide="loader-circle" class="dv-gira"></i><b>Lendo os leitores…</b></div>';
+  if (!l.leitores.length) return topo + '<div class="dv-vazio"><i data-lucide="door-closed"></i><b>Nenhum leitor Intelbras ativo neste local</b></div>';
+  return topo + `<div class="ag-leitores">${l.leitores.map(agCardLeitor).join('')}</div>`;
+}
+
+function agCardLeitor(p) {
+  const t = _agEnvio[p.id];
+  const nomes = (lista, max = 8) => lista.slice(0, max).map(esc).join(', ') + (lista.length > max ? ` e mais ${apNum(lista.length - max)}` : '');
+  let corpo = '';
+  if (p.erro) corpo = `<p class="dv-erro">Não consegui ler: ${esc(p.erro)}</p>`;
+  else {
+    const hs = (p.horarios || []);
+    corpo = `<ul class="ag-lt-lista">
+      ${hs.length ? hs.map(h => `<li><i data-lucide="${h.estado === 'igual' ? 'check' : 'upload'}"></i>Horário <b>${esc(h.nome)}</b> ${h.estado === 'igual' ? 'já está no leitor' : h.estado === 'novo' ? 'vai ser gravado' : 'mudou: vai ser regravado'} <span class="monospace">#${h.indice}</span></li>`).join('')
+        : '<li><i data-lucide="check"></i>Todos os grupos desta porta são 24 horas</li>'}
+      <li><i data-lucide="${p.pessoas_mudam.length ? 'user-cog' : 'check'}"></i>${p.pessoas_mudam.length ? `<b>${apNum(p.pessoas_mudam.length)}</b> pessoa${p.pessoas_mudam.length === 1 ? '' : 's'} muda${p.pessoas_mudam.length === 1 ? '' : 'm'} de horário` : 'Ninguém muda de horário'}${p.pessoas_iguais ? ` · ${apNum(p.pessoas_iguais)} já certa${p.pessoas_iguais === 1 ? '' : 's'}` : ''}</li>
+      ${p.liberar.length ? `<li><i data-lucide="eraser"></i>${p.liberar.length} horário${p.liberar.length === 1 ? '' : 's'} sem uso volta${p.liberar.length === 1 ? '' : 'm'} ao padrão</li>` : ''}
+    </ul>
+    ${p.pessoas_mudam.length ? `<details class="ag-fora"><summary>Quem muda</summary><div class="ap-tabela"><table><thead><tr><th>Pessoa</th><th>ID</th><th>Passa a ter</th></tr></thead><tbody>
+      ${p.pessoas_mudam.slice(0, 300).map(m => `<tr><td>${esc(m.nome)}</td><td class="monospace">${esc(m.uid)}</td><td>${esc(m.para_nome)}</td></tr>`).join('')}</tbody></table></div></details>` : ''}
+    ${p.fora_do_leitor.length ? `<span class="ag-aviso"><i data-lucide="user-x"></i>${apNum(p.fora_do_leitor.length)} do grupo não estão neste leitor (${nomes(p.fora_do_leitor)}). Cadastre pela aba Pessoas.</span>` : ''}
+    ${p.sem_id.length ? `<span class="ag-aviso neutro"><i data-lucide="hash"></i>${apNum(p.sem_id.length)} sem ID no leitor: ${nomes(p.sem_id)}</span>` : ''}
+    ${(p.avisos || []).map(a => `<span class="ag-aviso"><i data-lucide="triangle-alert"></i>${esc(a)}</span>`).join('')}
+    ${(p.erros || []).map(a => `<p class="dv-erro">${esc(a)}</p>`).join('')}`;
+  }
+  let acao = '';
+  if (t && t.estado === 'rodando') acao = `<span class="ag-lt-and"><i data-lucide="loader-circle" class="dv-gira"></i>${esc(t.etapa || 'enviando')}${t.total ? ` · ${apNum(t.feitas)} de ${apNum(t.total)}` : ''}</span>`;
+  else if (!p.erro && !(p.erros || []).length && p.mudancas) {
+    acao = _agArmado === p.id
+      ? `<div class="dv-confirma">Gravar em ${esc(apPorta(p.nome))}?<button type="button" class="secondary-action" data-ag-enviar-nao>Não</button><button type="button" class="primary-action" data-ag-enviar="${esc(p.id)}"><i data-lucide="upload"></i> Confirmar envio</button></div>`
+      : `<button type="button" class="primary-action" data-ag-enviar="${esc(p.id)}"><i data-lucide="upload"></i> Enviar a este leitor</button>`;
+  } else if (!p.erro && !(p.erros || []).length) acao = '<span class="ag-lt-ok"><i data-lucide="check-circle-2"></i>Igual ao SightOps</span>';
+  const res = t && t.estado !== 'rodando' ? (t.estado === 'erro'
+    ? `<p class="dv-erro">O envio parou: ${esc(t.erro)}</p>`
+    : `<div class="dvc-res ${t.resultado.ok ? 'ok' : 'ruim'}">${t.resultado.horarios_gravados.length} horário${t.resultado.horarios_gravados.length === 1 ? '' : 's'} gravado${t.resultado.horarios_gravados.length === 1 ? '' : 's'}, ${apNum(t.resultado.pessoas_trocadas)} pessoa${t.resultado.pessoas_trocadas === 1 ? '' : 's'} com horário novo${t.resultado.falhas.length ? `, ${apNum(t.resultado.falhas.length)} falha${t.resultado.falhas.length === 1 ? '' : 's'}: ${esc(t.resultado.falhas.slice(0, 5).map(f => f.nome + ' (' + f.erro + ')').join('; '))}` : ''}. Conferido lendo o leitor de volta.</div>`) : '';
+  return `<article class="ag-card ag-lt">
+    <header class="ag-card-cab"><div><b>${esc(apPorta(p.nome))}</b><small>${esc(p.site || '')}${p.mudancas ? ` · ${apNum(p.mudancas)} mudança${p.mudancas === 1 ? '' : 's'}` : ''}</small></div></header>
+    ${corpo}${res}<div class="ag-lt-acao">${acao}</div></article>`;
+}
+
+async function agCompararLeitores() {
+  _agLeitores = { rodando: true };
+  _agArmado = '';
+  agDesenhar();
+  try {
+    const q = agSite() ? `?site=${encodeURIComponent(agSite())}` : '';
+    _agLeitores = await apiJson(`/api/access-control/painel/acesso/leitores${q}`);
+  } catch (err) {
+    _agLeitores = null;
+    acToast('Não consegui ler os leitores: ' + err.message, true);
+  }
+  agDesenhar();
+}
+
+async function agEnviarLeitor(id) {
+  if (_agArmado !== id) { _agArmado = id; agDesenhar(); return; }   // primeiro clique so arma
+  _agArmado = '';
+  try {
+    // Roda em segundo plano no servidor (Cloudflare corta em 100 s): aqui so acompanha.
+    let t = await acEnviar('POST', `/api/access-control/painel/acesso/leitores/${encodeURIComponent(id)}/enviar`);
+    _agEnvio[id] = t;
+    agDesenhar();
+    let falhasSeguidas = 0;
+    while (t.estado === 'rodando') {
+      await new Promise(ok => setTimeout(ok, 1500));
+      try { t = await apiJson(`/api/access-control/painel/acesso/envios/${encodeURIComponent(t.id)}`); falhasSeguidas = 0; }
+      catch (err) { if (++falhasSeguidas >= 5) throw err; }
+      _agEnvio[id] = t;
+      if (_agVista === 'leitores') agDesenhar();
+    }
+  } catch (err) {
+    _agEnvio[id] = { estado: 'erro', erro: (err && err.message) || 'falhou' };
+  }
+  // le de novo so este leitor para o cartao mostrar o estado real
+  try {
+    const q = agSite() ? `?site=${encodeURIComponent(agSite())}` : '';
+    const novo = await apiJson(`/api/access-control/painel/acesso/leitores${q}`);
+    if (novo && _agLeitores && _agLeitores.leitores) {
+      const p = novo.leitores.find(x => x.id === id);
+      if (p) _agLeitores.leitores = _agLeitores.leitores.map(x => (x.id === id ? p : x));
+    }
+  } catch (_) {}
   agDesenhar();
 }
 
@@ -453,8 +585,9 @@ async function agSalvarGrupo() {
   try {
     await acEnviar('PUT', '/api/access-control/painel/acesso/grupos', p);
     agFechar('agGGaveta');
-    acToast('Grupo salvo. Nada foi enviado aos leitores.');
+    acToast('Grupo salvo. Para valer na porta, envie em "No leitor".');
     _agSim = null;
+    _agLeitores = null;
     await agCarregar();
   } catch (err) { erro(err.message); }
 }
@@ -479,10 +612,10 @@ function agDesenharGrade() {
   const g = agCampo('agHGrade');
   g.innerHTML = AG_LINHAS.map(([k, rot]) => {
     const f = agFaixas(_agGrade[k]);
-    const demais = f.length > 6;
-    return `<div class="ag-gl ${k === 'feriado' ? 'fer' : ''}"><span class="ag-gl-rot">${rot}</span>
+    const demais = f.length > AG_MAX_FAIXAS;
+    return `<div class="ag-gl"><span class="ag-gl-rot">${rot}</span>
       <div class="ag-gl-cel" data-linha="${k}">${_agGrade[k].map((v, i) => `<i data-i="${i}" class="${v ? 'on' : ''} ${i % 2 ? '' : 'hora'}"></i>`).join('')}</div>
-      <span class="ag-gl-txt ${demais ? 'ruim' : ''}">${f.length ? esc(agFaixasTxt(f)) : 'fechado'}${demais ? ' · mais de 6 faixas' : ''}</span></div>`;
+      <span class="ag-gl-txt ${demais ? 'ruim' : ''}">${f.length ? esc(agFaixasTxt(f)) : 'fechado'}${demais ? ` · mais de ${AG_MAX_FAIXAS} faixas` : ''}</span></div>`;
   }).join('') + `<div class="ag-gl"><span class="ag-gl-rot"></span><div class="ag-gl-escala"><b>0h</b><b>3h</b><b>6h</b><b>9h</b><b>12h</b><b>15h</b><b>18h</b><b>21h</b><b>24h</b></div><span></span></div>`;
 }
 
@@ -514,14 +647,15 @@ async function agSalvarHorario() {
   const nome = agCampo('agHNome').value.trim();
   if (!nome) return erro('Dê um nome ao horário.');
   const dias = Object.fromEntries(AG_LINHAS.map(([k]) => [k, agFaixas(_agGrade[k])]));
-  const cheio = AG_LINHAS.find(([k]) => dias[k].length > 6);
-  if (cheio) return erro(`${cheio[1]} tem mais de 6 faixas. O leitor guarda até 6 por dia.`);
+  const cheio = AG_LINHAS.find(([k]) => dias[k].length > AG_MAX_FAIXAS);
+  if (cheio) return erro(`${cheio[1]} tem mais de ${AG_MAX_FAIXAS} faixas. O leitor guarda até ${AG_MAX_FAIXAS} por dia.`);
   e.hidden = true;
   try {
     const r = await acEnviar('PUT', '/api/access-control/painel/acesso/horarios', { id: (_agEditHorario && _agEditHorario.id) || '', nome, site: agCampo('agHSite').value.trim(), dias });
     agFechar('agHGaveta');
-    acToast('Horário salvo. Nada foi enviado aos leitores.');
+    acToast('Horário salvo. Para valer na porta, envie em "No leitor".');
     _agSim = null;
+    _agLeitores = null;
     await agCarregar();
     if (_agVoltarGrupo) {   // criado de dentro do grupo: volta para ele com o horario novo marcado
       const v = _agVoltarGrupo;

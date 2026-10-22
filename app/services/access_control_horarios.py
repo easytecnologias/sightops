@@ -1,13 +1,14 @@
 """Aba Acesso do Painel (/v3/acesso/#acesso): grupos, horarios, feriados e a
 SIMULACAO do horario contra as passagens reais.
 
-Modelo (o mesmo dos sistemas de mercado e o que o leitor Intelbras guarda,
-HTTP API V3.59 12.1.15 AccessTimeSchedule: 7 dias + feriado, ate 6 faixas por
-dia): o GRUPO de pessoas abre estas PORTAS neste HORARIO.
+Modelo (o mesmo dos sistemas de mercado): o GRUPO de pessoas abre estas
+PORTAS neste HORARIO. O horario tem o formato do leitor Intelbras como ele e
+de verdade (lido em 22/10/2026 nos 6 leitores): 7 dias, ate 4 faixas por dia.
+Feriado nao e linha do horario: no leitor ele vale para a porta, entao e uma
+regra do local (normal, fechado ou faixas), que vale para os grupos com horario.
 
-Nesta etapa NADA vai para os leitores: o usuario monta grupos e horarios,
-simula com as passagens que aconteceram e so depois decide enviar. Por isso
-salvar um grupo aqui nao enfileira provisionamento (a tela antiga enfileirava).
+Salvar aqui nao fala com leitor nem enfileira provisionamento. O envio e um
+passo separado, leitor por leitor (access_control_horarios_envio).
 
 Onde fica:
 - grupo de pessoas, grupo de portas e regra: tabelas que ja existiam
@@ -33,8 +34,10 @@ from app.services import db_store
 
 ARQUIVO = "acesso-horarios.json"
 DIAS = ("dom", "seg", "ter", "qua", "qui", "sex", "sab")   # ordem do leitor: domingo primeiro
-LINHAS = [str(i) for i in range(7)] + ["feriado"]
-MAX_FAIXAS = 6
+LINHAS = [str(i) for i in range(7)]
+NOMES_DIAS = {str(i): DIAS[i] for i in range(7)}
+MAX_FAIXAS = 4                                             # AccessTimeSchedule: 4 faixas por dia
+MODOS_FERIADO = ("fechado", "normal", "faixas")
 FUSO_LOCAL = timezone(timedelta(hours=-3))
 HORA = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$|^24:00$")
 
@@ -66,7 +69,7 @@ def _ler() -> Dict[str, Any]:
         d = {}
     if not isinstance(d, dict):
         d = {}
-    for k in ("horarios", "grupo_horario", "feriados", "saida_livre"):
+    for k in ("horarios", "grupo_horario", "feriados", "saida_livre", "leitor_indices"):
         if not isinstance(d.get(k), dict):
             d[k] = {}
     return d
@@ -116,8 +119,7 @@ def salvar_horario(payload: Dict[str, Any]) -> Dict[str, Any]:
     if not nome:
         raise ValueError("De um nome ao horario.")
     dias_in = payload.get("dias") or {}
-    rotulos = {**{str(i): DIAS[i] for i in range(7)}, "feriado": "feriado"}
-    dias = {k: _limpar_faixas(dias_in.get(k), rotulos[k]) for k in LINHAS}
+    dias = {k: _limpar_faixas(dias_in.get(k), NOMES_DIAS[k]) for k in LINHAS}
     d = _ler()
     hid = _t(payload.get("id")) or uuid.uuid4().hex[:12]
     if _t(payload.get("id")) and hid not in d["horarios"]:
@@ -139,7 +141,20 @@ def excluir_horario(hid: str) -> Dict[str, Any]:
     return {"ok": True}
 
 
-def salvar_feriados(site: str, feriados: List[Dict[str, Any]]) -> Dict[str, Any]:
+def _regra_feriado(regra: Any) -> Dict[str, Any]:
+    """No feriado, para os grupos com horario: 'fechado' (padrao), 'normal'
+    (vale o dia da semana) ou 'faixas' (so nestas faixas)."""
+    regra = regra if isinstance(regra, dict) else {}
+    modo = _t(regra.get("modo")) or "fechado"
+    if modo not in MODOS_FERIADO:
+        raise ValueError("Regra de feriado invalida.")
+    faixas = _limpar_faixas(regra.get("faixas"), "feriado") if modo == "faixas" else []
+    if modo == "faixas" and not faixas:
+        raise ValueError("Marque as faixas do feriado ou escolha fechado.")
+    return {"modo": modo, "faixas": faixas}
+
+
+def salvar_feriados(site: str, feriados: List[Dict[str, Any]], regra: Any = None) -> Dict[str, Any]:
     nome_site = _t(site)
     if not nome_site:
         raise ValueError("Informe o local dos feriados.")
@@ -152,7 +167,10 @@ def salvar_feriados(site: str, feriados: List[Dict[str, Any]]) -> Dict[str, Any]
             raise ValueError(f"Data invalida: {data!r} (use AAAA-MM-DD).")
         limpos[data] = {"data": data, "nome": _t(f.get("nome"))[:60]}
     d = _ler()
-    d["feriados"][nome_site.upper()] = {"site": nome_site, "datas": [limpos[k] for k in sorted(limpos)]}
+    if regra is None:   # so a lista mudou: a regra fica como estava
+        regra = (d["feriados"].get(nome_site.upper()) or {}).get("regra")
+    d["feriados"][nome_site.upper()] = {"site": nome_site, "datas": [limpos[k] for k in sorted(limpos)],
+                                        "regra": _regra_feriado(regra)}
     _gravar(d)
     return d["feriados"][nome_site.upper()]
 
@@ -291,6 +309,7 @@ def simular(site: str = "", dias: int = 14, agora: Optional[datetime] = None) ->
         if _t(r.get("group_id")) in grupos:
             grupos_da[_t(r.get("person_id"))].append(_t(r.get("group_id")))
     feriados = {k: {x["data"] for x in (v or {}).get("datas", [])} for k, v in d["feriados"].items()}
+    regra_feriado = {k: (v or {}).get("regra") or {"modo": "fechado", "faixas": []} for k, v in d["feriados"].items()}
 
     inicio = (agora.astimezone(FUSO_LOCAL) - timedelta(days=dias)).strftime("%Y-%m-%d %H:%M:%S")
     sql = ("SELECT id, person_id, device_id, event_type, occurred_at, site FROM access_events "
@@ -324,8 +343,10 @@ def simular(site: str = "", dias: int = 14, agora: Optional[datetime] = None) ->
             if len(fora) < 300:
                 fora.append({**item, "grupos": [_t(grupos[g].get("name")) for g in grupos_da.get(pid, [])]})
             continue
-        feriado = dt.strftime("%Y-%m-%d") in feriados.get((_t(leitor.get("site")) or _t(e.get("site"))).upper(), set())
-        linha = "feriado" if feriado else str((dt.weekday() + 1) % 7)   # python: seg=0; leitor: dom=0
+        local = (_t(leitor.get("site")) or _t(e.get("site"))).upper()
+        feriado = dt.strftime("%Y-%m-%d") in feriados.get(local, set())
+        regra = regra_feriado.get(local, {}) if feriado else {}
+        linha = str((dt.weekday() + 1) % 7)   # python: seg=0; leitor: dom=0
         hm = dt.hour * 60 + dt.minute
         ok_por = None
         for g in meus:
@@ -334,7 +355,10 @@ def simular(site: str = "", dias: int = 14, agora: Optional[datetime] = None) ->
                 ok_por = g; break                                  # sem horario = 24 horas
             if saida and d["saida_livre"].get(g, True):
                 ok_por = g; break
-            if _dentro(d["horarios"][hid]["dias"].get(linha, []), hm):
+            if regra.get("modo") == "fechado":
+                continue
+            faixas = regra["faixas"] if regra.get("modo") == "faixas" else d["horarios"][hid]["dias"].get(linha, [])
+            if _dentro(faixas, hm):
                 ok_por = g; break
         if ok_por:
             c["liberadas"] += 1

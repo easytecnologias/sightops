@@ -629,6 +629,23 @@
 #viewAccessPainel .dvc-linha{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
 #viewAccessPainel .dvc-linha input{flex:1 1 180px;min-width:0}
 #viewAccessPainel .dvc-linha a.secondary-action{text-decoration:none;display:inline-flex;align-items:center;gap:6px}
+#viewAccessPainel .ag-fer-regra{display:flex;flex-direction:column;gap:8px;margin-bottom:12px}
+#viewAccessPainel .ag-ops-lin{flex-direction:row;flex-wrap:wrap}
+#viewAccessPainel .ag-ops-lin .ag-op{flex:1 1 200px}
+#viewAccessPainel .ag-ferf{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+#viewAccessPainel .ag-ferf-f{display:inline-flex;align-items:center;gap:6px;font-size:13px;padding:4px 4px 4px 8px;border:1px solid var(--border);border-radius:8px;background:var(--surface-soft)}
+#viewAccessPainel .ag-ferf-f input{font:inherit;font-size:13px;padding:4px 6px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text)}
+#viewAccessPainel .ag-ferf-f button{border:0;background:none;color:var(--muted);font-size:16px;line-height:1;cursor:pointer;padding:0 6px}
+#viewAccessPainel .ag-ferf-f button:hover{color:var(--danger)}
+#viewAccessPainel .ag-leitores{display:grid;grid-template-columns:repeat(auto-fill,minmax(420px,1fr));gap:14px}
+#viewAccessPainel .ag-lt-lista{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px;font-size:13px}
+#viewAccessPainel .ag-lt-lista li{display:flex;align-items:center;gap:8px}
+#viewAccessPainel .ag-lt-lista svg{width:15px;height:15px;color:var(--muted);flex:none}
+#viewAccessPainel .ag-lt-acao{display:flex;justify-content:flex-end;align-items:center;gap:8px;margin-top:auto}
+#viewAccessPainel .ag-lt-and,#viewAccessPainel .ag-lt-ok{display:inline-flex;align-items:center;gap:7px;font-size:12.5px;font-weight:600;color:var(--muted)}
+#viewAccessPainel .ag-lt-ok{color:var(--primary)}
+#viewAccessPainel .ag-lt-and svg,#viewAccessPainel .ag-lt-ok svg{width:15px;height:15px}
+@media (max-width:520px){#viewAccessPainel .ag-leitores{grid-template-columns:1fr}}
 #viewAccessPainel .dvc-res{margin:6px 0 0;font-size:12.5px;padding:7px 10px;border-radius:8px}
 #viewAccessPainel .dvc-res.ok{background:var(--primary-soft);color:var(--primary)}
 #viewAccessPainel .dvc-res.ruim{background:var(--danger-soft);color:var(--danger)}

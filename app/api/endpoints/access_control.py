@@ -1197,13 +1197,40 @@ def api_access_control_painel_acesso_horario_excluir(horario_id: str) -> Dict[st
 @router.put("/painel/acesso/feriados")
 def api_access_control_painel_acesso_feriados(payload: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
     from app.services.access_control_horarios import salvar_feriados
-    return {"ok": True, **_acesso_erro(salvar_feriados, payload.get("site"), payload.get("feriados") or [])}
+    return {"ok": True, **_acesso_erro(salvar_feriados, payload.get("site"), payload.get("feriados") or [], payload.get("regra"))}
 
 
 @router.get("/painel/acesso/simulacao")
 def api_access_control_painel_acesso_simulacao(site: str = Query(""), dias: int = Query(14)) -> Dict[str, Any]:
     from app.services.access_control_horarios import simular
     return simular(site=site, dias=dias)
+
+
+# ---- Horarios no leitor: comparar (so le) e enviar (um leitor, no clique)
+@router.get("/painel/acesso/leitores")
+def api_access_control_painel_acesso_leitores(site: str = Query("")) -> Dict[str, Any]:
+    from app.services.access_control_horarios_envio import comparar
+    user = _usuario_restrito()
+    ids = None
+    if user:
+        ids = [str(d.get("id")) for d in list_devices() if _controladora_liberada(user, d)]
+    return comparar(site=site, device_ids=ids)
+
+
+@router.post("/painel/acesso/leitores/{device_id}/enviar")
+def api_access_control_painel_acesso_enviar(device_id: str, user: Dict[str, Any] = Depends(current_user)) -> Dict[str, Any]:
+    """Roda em segundo plano: devolve a tarefa e a tela pergunta o andamento."""
+    from app.services.access_control_horarios_envio import iniciar_envio
+    _exigir_controladora(device_id)
+    return iniciar_envio(device_id, user.get("username") or "")
+
+
+@router.get("/painel/acesso/envios/{tarefa}")
+def api_access_control_painel_acesso_envio(tarefa: str) -> Dict[str, Any]:
+    from app.services.access_control_horarios_envio import ver_envio
+    t = ver_envio(tarefa)
+    _exigir_controladora(t.get("leitor_id") or "")   # restrito so ve envio de leitor do site dele
+    return t
 
 
 # ---- Controladora: estado lido do leitor e ajustes (escrita so no clique)
