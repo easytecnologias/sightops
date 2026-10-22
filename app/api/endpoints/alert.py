@@ -128,7 +128,10 @@ def api_alert_activation_code(member_id: str) -> Dict[str, Any]:
 
 @router.post("/members/{member_id}/revoke-devices")
 def api_alert_revoke_devices(member_id: str) -> Dict[str, Any]:
-    return {"ok": True, "revoked": revoke_member_devices(member_id)}
+    try:
+        return {"ok": True, "revoked": revoke_member_devices(member_id)}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
 
 @router.get("/incidents")

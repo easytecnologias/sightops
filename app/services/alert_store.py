@@ -29,9 +29,10 @@ import math
 import re
 import secrets
 import threading
+import time
 import uuid
 from datetime import datetime, timedelta, timezone
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from app.core.tenant_context import reset_current_tenant_slug, set_current_tenant_slug
 from app.services import db_store
@@ -171,9 +172,83 @@ def _member_public(row: Dict[str, Any], active_sessions: int = 0) -> Dict[str, A
         "activation_pending": pending_code,
         "activation_expires_at": row.get("activation_expires_at") if pending_code else "",
         "app_devices": int(active_sessions or 0),
+        "site": site_do_membro(row),
         "created_at": row.get("created_at") or "",
         "updated_at": row.get("updated_at") or "",
     }
+
+
+# --------------------------------------------------------------------------
+# site da pessoa (restricao por site do usuario da central)
+# --------------------------------------------------------------------------
+# O site de uma pessoa e o do conector da lotacao dela (o "local monitorado");
+# sem conector, o nome da lotacao -- mesma regra do Telegram (_site_do_alerta).
+# O resumo roda a cada 1,5 s em todas as telas: o site do conector fica em
+# cache curto, com o tenant na chave.
+
+_SITE_CONECTOR_CACHE: Dict[Tuple[str, str], Tuple[float, str]] = {}
+_SITE_CONECTOR_TTL_S = 30.0
+
+
+def _site_do_conector(cid: str) -> str:
+    cid = str(cid or "").strip()
+    if not cid:
+        return ""
+    chave = (_tenant(), cid)
+    agora = time.monotonic()
+    hit = _SITE_CONECTOR_CACHE.get(chave)
+    if hit and agora - hit[0] < _SITE_CONECTOR_TTL_S:
+        return hit[1]
+    try:
+        from app.services.connector_service import get_connector
+
+        site = str((get_connector(cid, include_token=False, enforce_tenant=True) or {}).get("site") or "").strip()
+    except Exception:
+        logger.warning("alerta: nao deu para ler o site do conector %s", cid, exc_info=True)
+        return ""  # sem guardar: tenta de novo na proxima
+    _SITE_CONECTOR_CACHE[chave] = (agora, site)
+    return site
+
+
+def site_do_membro(m: Optional[Dict[str, Any]]) -> str:
+    """Com conector, vale SO o site do conector: cair no nome da lotacao (texto
+    livre) quando a leitura falha poderia mostrar a pessoa ao site errado."""
+    m = m or {}
+    cid = str(m.get("unit_connector_id") or "").strip()
+    if cid:
+        return _site_do_conector(cid)
+    return str(m.get("unit_name") or "").strip()
+
+
+def _sites_liberados() -> Optional[set]:
+    """None = ve todos (sem restricao, dono, app do celular, laco de fundo)."""
+    from app.core import permissions
+
+    sites = permissions.sites_da_sessao()
+    if sites is None:
+        return None
+    return {str(s).strip().upper() for s in sites if str(s).strip()}
+
+
+def _membro_liberado(m: Optional[Dict[str, Any]], liberados: Optional[set]) -> bool:
+    """Com restricao, pessoa sem site definido fica de fora (na duvida, nao mostra)."""
+    if liberados is None:
+        return True
+    site = site_do_membro(m).upper()
+    return bool(site) and site in liberados
+
+
+def _exigir_membro_liberado(c: Any, tenant: str, member_id: str) -> Dict[str, Any]:
+    """Pessoa do cliente E de um site do usuario; senao 'nao encontrada' (nao
+    conta que existe em outro site)."""
+    row = _row(
+        c,
+        "SELECT id, active, unit_name, unit_connector_id FROM alert_members WHERE tenant_slug=? AND id=?",
+        (tenant, member_id),
+    )
+    if not row or not _membro_liberado(row, _sites_liberados()):
+        raise ValueError("Pessoa nao encontrada.")
+    return row
 
 
 def list_members(search: str = "") -> List[Dict[str, Any]]:
@@ -192,7 +267,8 @@ def list_members(search: str = "") -> List[Dict[str, Any]]:
             (tenant,),
         )
     by_member = {s["member_id"]: s["n"] for s in sessions}
-    return [_member_public(r, by_member.get(r["id"], 0)) for r in rows]
+    liberados = _sites_liberados()
+    return [_member_public(r, by_member.get(r["id"], 0)) for r in rows if _membro_liberado(r, liberados)]
 
 
 def save_member(payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -220,6 +296,11 @@ def save_member(payload: Dict[str, Any]) -> Dict[str, Any]:
         "notes": _text(payload.get("notes"), 1000),
         "active": 0 if payload.get("active") is False else 1,
     }
+    liberados = _sites_liberados()
+    if liberados is not None and not _membro_liberado(values, liberados):
+        # Quem so ve alguns sites so cadastra gente nesses sites -- senao a
+        # pessoa some da lista dele na hora de salvar e ninguem entende.
+        raise ValueError("Escolha o local monitorado: voce so cadastra pessoas dos seus sites.")
     now = _now()
     with db_store._conn() as c:
         dup = _row(
@@ -228,11 +309,15 @@ def save_member(payload: Dict[str, Any]) -> Dict[str, Any]:
             (tenant, document_id, member_id),
         )
         if dup:
+            if liberados is not None:
+                dono = _row(c, "SELECT unit_name, unit_connector_id FROM alert_members WHERE tenant_slug=? AND id=?",
+                            (tenant, dup["id"]))
+                if not _membro_liberado(dono, liberados):
+                    # Nao revela quem esta cadastrado em site que ele nao ve.
+                    raise ValueError("CPF ja cadastrado em outro local. Fale com o administrador.")
             raise ValueError(f"CPF ja cadastrado para {dup['full_name']}.")
         if member_id:
-            exists = _row(c, "SELECT id FROM alert_members WHERE tenant_slug = ? AND id = ?", (tenant, member_id))
-            if not exists:
-                raise ValueError("Pessoa nao encontrada.")
+            _exigir_membro_liberado(c, tenant, member_id)
             c.execute(
                 "UPDATE alert_members SET full_name=?, document_id=?, role_title=?, unit_name=?, unit_lat=?, unit_lon=?, unit_connector_id=?, "
                 "phone=?, notes=?, active=?, updated_at=? WHERE tenant_slug=? AND id=?",
@@ -258,6 +343,7 @@ def save_member(payload: Dict[str, Any]) -> Dict[str, Any]:
 def delete_member(member_id: str) -> None:
     tenant = _tenant()
     with db_store._conn() as c:
+        _exigir_membro_liberado(c, tenant, member_id)
         open_inc = _row(
             c,
             f"SELECT id FROM alert_incidents WHERE tenant_slug=? AND member_id=? AND status IN ({','.join('?' * len(OPEN_STATUSES))})",
@@ -279,9 +365,7 @@ def create_activation_code(member_id: str) -> Dict[str, Any]:
     code = "".join(secrets.choice(_CODE_ALPHABET) for _ in range(_CODE_LEN))
     expires = _iso(_now_dt() + timedelta(days=ACTIVATION_TTL_DAYS))
     with db_store._conn() as c:
-        row = _row(c, "SELECT id, active FROM alert_members WHERE tenant_slug=? AND id=?", (tenant, member_id))
-        if not row:
-            raise ValueError("Pessoa nao encontrada.")
+        row = _exigir_membro_liberado(c, tenant, member_id)
         if not int(row.get("active") or 0):
             raise ValueError("Pessoa inativa. Ative o cadastro antes de gerar o codigo.")
         c.execute(
@@ -294,6 +378,7 @@ def create_activation_code(member_id: str) -> Dict[str, Any]:
 def revoke_member_devices(member_id: str) -> int:
     tenant = _tenant()
     with db_store._conn() as c:
+        _exigir_membro_liberado(c, tenant, member_id)
         n = _row(
             c,
             "SELECT COUNT(1) AS n FROM alert_app_sessions WHERE tenant_slug=? AND member_id=? AND revoked_at=''",
@@ -522,6 +607,7 @@ def _incident_view(inc: Dict[str, Any], member: Optional[Dict[str, Any]]) -> Dic
         "last_accuracy": inc.get("last_accuracy"),
         "last_battery": inc.get("last_battery"),
         "last_position_at": inc.get("last_position_at") or "",
+        "site": site_do_membro(m),
         "member": {
             "id": m.get("id") or inc.get("member_id") or "",
             "full_name": m.get("full_name") or "(pessoa removida)",
@@ -553,9 +639,13 @@ def list_incidents(scope: str = "live", limit: int = 200) -> List[Dict[str, Any]
     """scope=live: abertos + encerrados nos ultimos 30 min. scope=history: tudo."""
     tenant = _tenant()
     limit = max(1, min(int(limit or 200), 1000))
+    liberados = _sites_liberados()
     with db_store._conn() as c:
         if scope == "history":
-            rows = _rows(c, "SELECT * FROM alert_incidents WHERE tenant_slug=? ORDER BY opened_at DESC LIMIT ?", (tenant, limit))
+            # Restrito: filtra por site primeiro e corta depois, senao o limite
+            # gasta linhas de outros sites e o historico dele fica curto.
+            lim_sql = limit if liberados is None else 20000
+            rows = _rows(c, "SELECT * FROM alert_incidents WHERE tenant_slug=? ORDER BY opened_at DESC LIMIT ?", (tenant, lim_sql))
         else:
             since = _iso(_now_dt() - timedelta(minutes=RECENT_FINAL_WINDOW_MIN))
             rows = _rows(
@@ -565,15 +655,32 @@ def list_incidents(scope: str = "live", limit: int = 200) -> List[Dict[str, Any]
                 (tenant, *OPEN_STATUSES, since, limit),
             )
         members = _members_by_id(c, tenant, [r["member_id"] for r in rows])
-    return [_incident_view(r, members.get(r["member_id"])) for r in rows]
+    return [
+        _incident_view(r, members.get(r["member_id"]))
+        for r in rows
+        if _membro_liberado(members.get(r["member_id"]), liberados)
+    ][:limit]
+
+
+def _exigir_incidente_liberado(c: Any, tenant: str, incident_id: str) -> Dict[str, Any]:
+    """Alerta do cliente E de um site do usuario; senao 'nao encontrado'.
+
+    Alerta de pessoa ja excluida nao tem site: so quem ve todos os sites abre."""
+    inc = _row(c, "SELECT * FROM alert_incidents WHERE tenant_slug=? AND id=?", (tenant, incident_id))
+    if not inc:
+        raise LookupError("Alerta nao encontrado.")
+    liberados = _sites_liberados()
+    if liberados is not None:
+        member = _members_by_id(c, tenant, [inc["member_id"]]).get(inc["member_id"])
+        if not _membro_liberado(member, liberados):
+            raise LookupError("Alerta nao encontrado.")
+    return inc
 
 
 def get_incident(incident_id: str) -> Dict[str, Any]:
     tenant = _tenant()
     with db_store._conn() as c:
-        inc = _row(c, "SELECT * FROM alert_incidents WHERE tenant_slug=? AND id=?", (tenant, incident_id))
-        if not inc:
-            raise LookupError("Alerta nao encontrado.")
+        inc = _exigir_incidente_liberado(c, tenant, incident_id)
         members = _members_by_id(c, tenant, [inc["member_id"]])
         positions = _rows(
             c,
@@ -609,9 +716,7 @@ def transition_incident(incident_id: str, action: str, operator: str, note: str 
     tenant = _tenant()
     now = _now()
     with db_store._conn() as c:
-        inc = _row(c, "SELECT * FROM alert_incidents WHERE tenant_slug=? AND id=?", (tenant, incident_id))
-        if not inc:
-            raise LookupError("Alerta nao encontrado.")
+        inc = _exigir_incidente_liberado(c, tenant, incident_id)
         if inc["status"] not in allowed_from:
             raise ValueError(f"Alerta ja esta como '{inc['status']}'.")
         extra = ", close_note=?" if action == "close" else ""
@@ -638,31 +743,34 @@ def add_incident_note(incident_id: str, operator: str, note: str) -> Dict[str, A
         raise ValueError("Escreva a observacao.")
     tenant = _tenant()
     with db_store._conn() as c:
-        if not _row(c, "SELECT id FROM alert_incidents WHERE tenant_slug=? AND id=?", (tenant, incident_id)):
-            raise LookupError("Alerta nao encontrado.")
+        _exigir_incidente_liberado(c, tenant, incident_id)
         _log(c, tenant, incident_id, "note", operator, note)
     return get_incident(incident_id)
 
 
 def live_summary() -> Dict[str, Any]:
     """Contagem leve pro badge do menu (poll de qualquer tela)."""
+    # Sirene, voz e numero do menu saem daqui: quem so ve alguns sites nao
+    # pode ouvir alerta de site alheio. Abertos sao poucos; filtra linha a linha.
     tenant = _tenant()
     with db_store._conn() as c:
         rows = _rows(
             c,
-            f"SELECT status, kind, COUNT(1) AS n FROM alert_incidents WHERE tenant_slug=? AND status IN ({','.join('?' * len(OPEN_STATUSES))}) "
-            "GROUP BY status, kind",
+            f"SELECT id, member_id, status, kind, opened_at FROM alert_incidents WHERE tenant_slug=? "
+            f"AND status IN ({','.join('?' * len(OPEN_STATUSES))}) ORDER BY opened_at DESC",
             (tenant, *OPEN_STATUSES),
         )
-        latest = _row(
-            c,
-            "SELECT id, opened_at FROM alert_incidents WHERE tenant_slug=? AND status='new' ORDER BY opened_at DESC LIMIT 1",
-            (tenant,),
-        )
-    open_total = sum(int(r["n"]) for r in rows)
-    new_total = sum(int(r["n"]) for r in rows if r["status"] == "new")
-    duress_total = sum(int(r["n"]) for r in rows if r["kind"] == "duress")
-    return {"open": open_total, "new": new_total, "duress": duress_total, "latest_new_id": (latest or {}).get("id") or ""}
+        liberados = _sites_liberados()
+        if liberados is not None and rows:
+            members = _members_by_id(c, tenant, [r["member_id"] for r in rows])
+            rows = [r for r in rows if _membro_liberado(members.get(r["member_id"]), liberados)]
+    novos = [r for r in rows if r["status"] == "new"]
+    return {
+        "open": len(rows),
+        "new": len(novos),
+        "duress": sum(1 for r in rows if r["kind"] == "duress"),
+        "latest_new_id": novos[0]["id"] if novos else "",
+    }
 
 
 def _inventory_cameras():
