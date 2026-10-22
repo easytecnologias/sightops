@@ -20,12 +20,15 @@ let _apPessoa = '';          // "ver so esta pessoa"
 let _apSel = '';             // passagem escolhida ('' = segue a mais recente)
 let _apPausado = false;
 let _apTopoVisto = '';       // id da passagem mais recente desenhada (para contar novas na pausa)
-const AP_TELAS = ['vivo', 'dispositivos', 'pessoas', 'acesso', 'alertas', 'relatorios'];
+const AP_TELAS = ['vivo', 'dispositivos', 'pessoas', 'acesso', 'alertas', 'relatorios', 'messenger', 'conexoes'];
 // Abas com arquivo proprio: o Painel so mostra/esconde e pede para carregar.
 const AP_ABAS_PROPRIAS = {
   dispositivos: { el: 'apDisp', abrir: () => dvAbrirAba(), carregar: () => dvCarregar() },
   pessoas: { el: 'apPess', abrir: () => psAbrirAba(), carregar: () => psCarregar() },
   acesso: { el: 'apAcesso', abrir: () => agAbrirAba(), carregar: () => agCarregar() },
+  // Messenger e Conexoes vieram da tela antiga (Controle de Acesso) em 22/10/2026.
+  messenger: { el: 'apMsg', abrir: () => msAbrirAba(), carregar: () => msCarregar() },
+  conexoes: { el: 'apConex', abrir: () => cnAbrirAba(), carregar: () => cnAbrirAba() },
 };
 
 // ---- datas: o leitor grava hora local sem fuso; o WhatsApp grava UTC ----
@@ -167,7 +170,7 @@ function apMenuTipo(ancora, site) {
 
 // Depois de mudar o tipo de um local: tudo que depende do vocabulario recarrega.
 function apRecarregarTudo() {
-  _apDados.vivo = _apDados.rel = _apDados.geral = null;
+  _apDados.vivo = _apDados.rel = _apDados.relCat = _apDados.geral = null;
   if (typeof _dvDados !== 'undefined') _dvDados = null;
   if (typeof _psDados !== 'undefined') _psDados = null;
   if (typeof _agDados !== 'undefined') { _agDados = null; _agSim = null; }
@@ -340,8 +343,53 @@ function apDetalhe(p, todas) {
     <div class="ap-det-acoes">
       <button type="button" class="secondary-action" data-ap-pessoa="${esc(chave)}"><i data-lucide="user-search"></i> ${_apPessoa ? 'Ver todas as passagens' : 'Só esta pessoa'}</button>
       <button type="button" class="secondary-action" data-ap-ir="dispositivos"><i data-lucide="door-open"></i> Ver o leitor</button>
+      ${p.pessoa_id && dele.length && !apSaida(dele[dele.length - 1].tipo) ? `<button type="button" class="secondary-action" data-ap-saida="${esc(p.pessoa_id)}" data-ap-saida-nome="${esc(p.nome)}" data-ap-saida-site="${esc(p.site || '')}"><i data-lucide="log-out"></i> Registrar saída</button>` : ''}
     </div>
   </section>`;
+}
+
+// Saida manual (veio da tela antiga): a pessoa saiu sem passar no leitor --
+// buscada pelo responsavel, leitor fora, saiu pela entrada. Grava um evento
+// "saida_manual" com o motivo e quem registrou. Janela so fecha por X,
+// Cancelar ou Esc (clique fora perdia o que foi digitado).
+function apRegistrarSaida(pid, nome, site) {
+  let dlg = document.getElementById('apSaidaDlg');
+  if (!dlg) {
+    dlg = document.createElement('dialog');
+    dlg.id = 'apSaidaDlg';
+    dlg.className = 'ap-dlg';
+    document.getElementById('viewAccessPainel').appendChild(dlg);
+  }
+  dlg.innerHTML = `<form method="dialog" class="ap-dlg-corpo">
+      <header><div><b>Registrar saída</b><small>${esc(nome || 'pessoa')}${site ? ' · ' + esc(site) : ''}</small></div>
+        <button type="button" class="icon-button" data-dlg-fechar aria-label="Fechar"><i data-lucide="x"></i></button></header>
+      <p>Use quando a pessoa saiu sem passar no leitor. Fica no histórico como <b>saída manual</b>, com o motivo e o seu usuário.</p>
+      <label class="rl-campo">Motivo<input id="apSaidaMotivo" maxlength="200" placeholder="Ex.: buscado pela mãe na secretaria"></label>
+      <p class="dv-erro" id="apSaidaErro" hidden></p>
+      <footer><button type="button" class="secondary-action" data-dlg-fechar>Cancelar</button>
+        <button type="submit" class="primary-action" id="apSaidaOk"><i data-lucide="log-out"></i> Registrar saída</button></footer>
+    </form>`;
+  dlg.querySelectorAll('[data-dlg-fechar]').forEach(b => b.addEventListener('click', () => dlg.close()));
+  dlg.querySelector('form').addEventListener('submit', async ev => {
+    ev.preventDefault();
+    const ok = document.getElementById('apSaidaOk');
+    ok.disabled = true;
+    try {
+      await acEnviar('POST', '/api/access-control/reports/manual-exit', { person_id: pid, site, reason: document.getElementById('apSaidaMotivo').value.trim() });
+      dlg.close();
+      acToast(`Saída de ${nome || 'pessoa'} registrada.`);
+      _apDados.vivo = null;
+      apAtualizar(true);
+    } catch (err) {
+      const e = document.getElementById('apSaidaErro');
+      e.textContent = err.message || 'Não consegui registrar.';
+      e.hidden = false;
+      ok.disabled = false;
+    }
+  });
+  dlg.showModal();
+  if (window.lucide) lucide.createIcons();
+  setTimeout(() => document.getElementById('apSaidaMotivo')?.focus(), 50);
 }
 
 // Rodape da lista: o dia em quatro numeros. Tudo sai do que o ao vivo ja traz.
@@ -383,7 +431,7 @@ function apComAviso(p) { return _apUsaAvisos || apTipoLocal(p.site) === 'escola'
 function apPercurso(dele, sel) {
   const lista = dele.length ? dele : [sel];
   return `<div class="ap-trilha">${lista.map(x => `<div class="ap-tr feito ${x.id === sel.id ? 'atual' : ''}"><i></i>
-    <div><b>${apSaida(x.tipo) ? 'Saiu' : 'Entrou'} · ${esc(apPorta(x.porta))}</b></div><span class="monospace">${apHm(apLocal(x.hora))}</span></div>`).join('')}</div>`;
+    <div><b>${apSaida(x.tipo) ? 'Saiu' : 'Entrou'} · ${esc(apPorta(x.porta) || (x.tipo === 'saida_manual' ? 'saída manual' : '—'))}</b></div><span class="monospace">${apHm(apLocal(x.hora))}</span></div>`).join('')}</div>`;
 }
 
 function apDesenharVivo(d) {
@@ -447,6 +495,7 @@ function apDesenharVivo(d) {
 // Botoes comuns das abas: filtro, selecao, pausa, ir para outra aba.
 function apLigarAcoes(el) {
   el.querySelectorAll('[data-ap-ir]').forEach(a => a.addEventListener('click', ev => { ev.preventDefault(); apTrocarTela(a.dataset.apIr); }));
+  el.querySelectorAll('[data-ap-saida]').forEach(b => b.addEventListener('click', () => apRegistrarSaida(b.dataset.apSaida, b.dataset.apSaidaNome, b.dataset.apSaidaSite)));
   el.querySelectorAll('[data-ap-filtro]').forEach(b => b.addEventListener('click', () => { _apFiltro = b.dataset.apFiltro; apDesenharVivo(_apDados.vivo || {}); }));
   el.querySelectorAll('[data-ap-sel]').forEach(b => b.addEventListener('click', () => { _apSel = b.dataset.apSel; apDesenharVivo(_apDados.vivo || {}); }));
   el.querySelectorAll('[data-ap-seguir]').forEach(b => b.addEventListener('click', () => { _apSel = ''; apDesenharVivo(_apDados.vivo || {}); }));
@@ -532,7 +581,7 @@ function apListaAlertas() {
   if (semSaida.length) itens.push({ id: 'saida', nivel: 'medio', icone: 'log-out',
     titulo: `${semSaida.length} saída${semSaida.length === 1 ? '' : 's'} não registrada${semSaida.length === 1 ? '' : 's'}`,
     texto: 'Entraram e não passaram no leitor de saída em 8 horas; não contam mais como presentes.',
-    linhas: semSaida.map(x => ({ nome: x.nome, pessoa_id: x.pessoa_id, sub: x.desde ? `entrou ${hm(x.desde)}` : '',
+    linhas: semSaida.map(x => ({ nome: x.nome, pessoa_id: x.pessoa_id, saida: true, site: x.site || '', sub: x.desde ? `entrou ${hm(x.desde)}` : '',
       detalhe: x.dupla_entrada ? 'Passou duas vezes na entrada: provavelmente saiu pelo leitor de entrada.' : 'Nenhuma passagem de saída depois da entrada.' })) });
   const duplas = (v.dentro || []).filter(x => x.dupla_entrada);
   if (duplas.length) itens.push({ id: 'duplas', nivel: 'info', icone: 'repeat', titulo: `${duplas.length} com duas entradas seguidas`,
@@ -560,11 +609,15 @@ function apContaAlertas() {
   return apListaAlertas().filter(i => i.nivel === 'grave' || i.nivel === 'medio').length;
 }
 
+// Numero de alertas no submenu "Alertas" do menu lateral.
 function apMarcarAba() {
-  const b = document.querySelector('[data-ap-tela="alertas"]');
+  const b = document.querySelector('.nav-item[data-ap-tela="alertas"]');
   if (!b) return;
   const n = apContaAlertas();
-  b.innerHTML = `Alertas${n ? ` <span class="ap-aba-n">${n}</span>` : ''}`;
+  let s = b.querySelector('.ap-nav-n');
+  if (!s) { s = document.createElement('span'); s.className = 'alert-nav-badge ap-nav-n'; b.appendChild(s); }
+  s.textContent = n;
+  s.hidden = !n;
 }
 
 function apDesenharAlertas() {
@@ -580,7 +633,8 @@ function apDesenharAlertas() {
   }
   const linha = l => `<li class="ap-al-l">
       <div class="ap-cresce"><b>${esc(l.nome || 'sem nome')}</b>${l.sub ? `<small>${esc(l.sub)}</small>` : ''}${l.detalhe ? `<p>${esc(l.detalhe)}</p>` : ''}</div>
-      ${l.pessoa_id && !String(l.pessoa_id).startsWith('ctl-') ? `<button type="button" class="secondary-action" data-ap-abre-pessoa="${esc(l.pessoa_id)}">${esc(l.acao || 'Abrir cadastro')}</button>` : ''}</li>`;
+      ${l.saida && l.pessoa_id ? `<button type="button" class="secondary-action" data-ap-saida="${esc(l.pessoa_id)}" data-ap-saida-nome="${esc(l.nome)}" data-ap-saida-site="${esc(l.site || '')}">Registrar saída</button>`
+        : l.pessoa_id && !String(l.pessoa_id).startsWith('ctl-') ? `<button type="button" class="secondary-action" data-ap-abre-pessoa="${esc(l.pessoa_id)}">${esc(l.acao || 'Abrir cadastro')}</button>` : ''}</li>`;
   el.innerHTML = `<div class="ap-alertas">${itens.map(i => {
     const n = (i.linhas || []).length;
     const aberto = _apAlAbertos.has(i.id);
@@ -617,7 +671,15 @@ async function apAbrirPessoa(id) {
 }
 
 // ---------------------------------------------------------------- relatorios
+// Catalogo por modo do local (escola, condominio, empresa, evento): cada
+// relatorio responde uma pergunta, tem periodo/filtros e sai em PDF. Desenho
+// aprovado em 22/10/2026. Diagnostico do sistema (leitores, fotos, marcacoes
+// sem pessoa) nao fica aqui: esta em Alertas e Dispositivos.
 const AP_DIAS = ['seg', 'ter', 'qua', 'qui', 'sex', 'sáb', 'dom'];
+let _apRelSel = '';
+let _apRelF = { periodo: 'mes', de: '', ate: '', dia: '', grupo: '', quem: '' };
+let _apRelMostrar = 150;
+let _apRelPedido = 0;          // so a resposta do ultimo pedido vale (troca rapida de relatorio)
 
 function apMapaCalor(mapa) {
   mapa = mapa || [];
@@ -639,121 +701,265 @@ function apMapaCalor(mapa) {
   <div class="ap-calor-esc"><span>menos</span>${[0, 1, 2, 3, 4].map(n => `<i class="ap-calor-c n${n}"></i>`).join('')}<span>mais</span></div>`;
 }
 
-function apSerieDias(serie) {
+function apSerieDias(serie, campo = 'passagens', rot = 'passagens') {
   serie = serie || [];
-  const max = Math.max(1, ...serie.map(s => s.passagens));
+  const max = Math.max(1, ...serie.map(s => s[campo] || 0));
   const dia = s => `${s.slice(8, 10)}/${s.slice(5, 7)}`;
-  return `<div class="ap-dias">${serie.map(s => `<div title="${dia(s.dia)}: ${s.passagens} passagens, ${s.pessoas} pessoas">
-      <i style="height:${Math.round(s.passagens * 100 / max)}%"></i></div>`).join('')}</div>
+  return `<div class="ap-dias">${serie.map(s => `<div title="${dia(s.dia)}: ${apNum(s[campo])} ${rot}${s.pessoas !== undefined ? `, ${apNum(s.pessoas)} pessoas` : ''}">
+      <i style="height:${Math.round((s[campo] || 0) * 100 / max)}%"></i></div>`).join('')}</div>
     <div class="ap-eixo monospace"><span>${serie[0] ? dia(serie[0].dia) : ''}</span><span>${serie.length ? dia(serie[serie.length - 1].dia) : ''}</span></div>`;
 }
 
-function apDesenharRel(r) {
-  const el = document.getElementById('apRelTopo');
-  if (!el) return;
-  const hoje = r.hoje || [];
-  const portas = r.portas || [];
-  const maxP = Math.max(1, ...portas.map(p => p.passagens));
-  const agora = new Date();
-  el.innerHTML = `
-    <div class="ap-rel">
-      <section class="panel ap-bloco"><div class="ap-bloco-cab"><div><h3>${{ escola: 'Quando a escola é usada', condominio: 'Quando o condomínio é usado' }[_apPerfil.tipo] || 'Quando os locais são usados'}</h3><p>Passagens por dia da semana e hora · últimos ${r.dias || 28} dias</p></div></div>
-        ${apMapaCalor(r.mapa)}</section>
-      <section class="panel ap-bloco"><div class="ap-bloco-cab"><div><h3>Dia a dia</h3><p>Passagens por dia · passe o mouse para ver pessoas únicas</p></div></div>
-        ${apSerieDias(r.serie)}
-        <h3 class="ap-h3b">Portas mais usadas</h3>
-        ${portas.map(p => `<div class="ap-top"><span title="${esc(p.porta)}">${esc(apPorta(p.porta))}</span><span class="ap-trilho"><i style="width:${apPct(p.passagens, maxP)}%"></i></span><span class="monospace">${apNum(p.passagens)}</span></div>`).join('') || '<p class="ap-vazio">Sem passagens no período.</p>'}
-      </section>
-    </div>
-    <section class="panel ap-tab-hoje">
-      <div class="panel-header ap-cab"><div><h3>${apVocab().hoje}</h3><p>${apNum(r.hoje_total || 0)} pessoas do cadastro passaram hoje${r.nao_vieram_total ? ` · ${apNum(r.nao_vieram_total)} alunos ativos ainda sem passagem` : ''}${r.so_leitor_total ? ` · ${apNum(r.so_leitor_total)} só no leitor` : ''}</p></div></div>
-      ${hoje.length ? `<div class="ap-tabela"><table><thead><tr><th>Pessoa</th><th>${apVocab().grupo}</th><th>${apEhCondominio() ? 'Primeira entrada' : 'Chegou'}</th><th>${apEhCondominio() ? 'Última saída' : 'Saiu'}</th><th>Tempo</th><th>Agora</th></tr></thead><tbody>
-        ${hoje.map(x => {
-          const ch = apLocal(x.chegou), sa = apLocal(x.saiu);
-          const dentro = x.ultimo_tipo === 'entrada';
-          return `<tr><td>${esc(x.nome)}</td><td>${esc(x.turma || apUnidade(x.nome, x.site) || '—')}</td><td class="monospace">${ch ? apHm(ch) : '—'}</td>
-            <td class="monospace">${sa ? apHm(sa) : '—'}</td><td class="monospace">${ch ? apDur(ch, dentro ? agora : (sa || agora)) : '—'}</td>
-            <td>${dentro ? '<span class="ap-chip entrada">dentro</span>' : '<span class="ap-chip saida">saiu</span>'}</td></tr>`;
-        }).join('')}</tbody></table></div>` : '<p class="ap-vazio ap-pad">Ninguém do cadastro passou hoje.</p>'}
-      ${(r.nao_vieram || []).length ? `<details class="ap-naovieram"><summary>${apNum(r.nao_vieram_total)} alunos ativos sem passagem hoje</summary>
-        <div class="ap-naovieram-lista">${r.nao_vieram.map(x => `<span>${esc(x.nome)}${x.turma ? ` <small>${esc(x.turma)}</small>` : ''}</span>`).join('')}</div></details>` : ''}
-    </section>
-    ${(r.so_leitor_hoje || []).length ? `<section class="panel ap-tab-hoje">
-      <div class="panel-header ap-cab"><div><h3>Só no leitor hoje</h3><p>${apNum(r.so_leitor_total)} nome${r.so_leitor_total === 1 ? '' : 's'} que o leitor reconhece e o SightOps não tem no cadastro${apEhCondominio() ? ': em condomínio, quase sempre moradores' : ''}</p></div></div>
-      <div class="ap-tabela"><table><thead><tr><th>Nome no leitor</th><th>Passagens</th><th>Última porta</th><th>Última</th></tr></thead><tbody>
-        ${r.so_leitor_hoje.map(x => `<tr><td>${esc(x.nome)}</td><td class="monospace">${apNum(x.passagens)}</td><td>${esc(apPorta(x.porta))}</td><td class="monospace">${apHm(apLocal(x.ultima))}</td></tr>`).join('')}
-      </tbody></table></div>
-      <p class="ap-dica ap-dica-pe">Para trazer essas pessoas ao SightOps: Controle de Acesso › Dispositivos › importar pessoas do leitor.</p>
-    </section>` : ''}`;
+const apMaiuscula = t => String(t || '').charAt(0).toUpperCase() + String(t || '').slice(1);
+const apBr = iso => iso ? `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}` : '';
+const apDiaMes = iso => iso ? `${iso.slice(8, 10)}/${iso.slice(5, 7)}` : '';
+const apHoraTxt = t => (t || '').slice(11, 16) || '—';
+const apMin = m => (m === null || m === undefined) ? '—' : m < 60 ? `${m} min` : `${Math.floor(m / 60)}h${String(m % 60).padStart(2, '0')}`;
+function apIsoHoje(off = 0) { const d = new Date(Date.now() + off * 86400000); return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10); }
+
+// Periodo escolhido -> de/ate (data local)
+function apRelPeriodo() {
+  const f = _apRelF, hoje = apIsoHoje();
+  if (f.periodo === 'escolher') return { de: f.de || apIsoHoje(-29), ate: f.ate || hoje };
+  if (f.periodo === 'hoje') return { de: hoje, ate: hoje };
+  if (f.periodo === 'semana') { const dow = (new Date().getDay() + 6) % 7; return { de: apIsoHoje(-dow), ate: hoje }; }
+  if (f.periodo === 'mes') return { de: hoje.slice(0, 8) + '01', ate: hoje };
+  if (f.periodo === 'bimestre') return { de: apIsoHoje(-59), ate: hoje };
+  return { de: apIsoHoje(-29), ate: hoje };
 }
 
-// ---------------------------------------------------------------- visao geral
-function apDesenharGeral(d) {
-  const el = document.getElementById('apGeral');
-  if (!el) return;
-  const av = d.avisos || {}, s7 = av.sete_dias || {};
-  const env = s7.enviados || 0, entregue = (s7.lidos || 0) + (s7.entregues || 0);
-  const m7 = d.marcacoes_7d || {}, fotos = d.fotos || {}, leit = d.leitores || {};
-  const semP = apPct(m7.sem_pessoa || 0, m7.total || 0);
-  const serie = av.serie_30d || [];
-  const usaAvisos = serie.some(x => x.lido + x.entregue + x.enviado + x.falha) || (av.incidentes || []).length > 0;
-  const maxDia = Math.max(1, ...serie.map(x => x.lido + x.entregue + x.enviado + x.falha));
+function apRelQuery(rel) {
+  const q = new URLSearchParams();
+  if (_apSite) q.set('site', _apSite);
+  const m = (rel || {}).motor;
+  if (m === 'diario') q.set('dia', _apRelF.dia || apIsoHoje());
+  else if (m !== 'cadastro') { const p = apRelPeriodo(); q.set('de', p.de); q.set('ate', p.ate); }
+  if (m === 'presenca') { if (_apRelF.grupo) q.set('grupo', _apRelF.grupo); if (_apRelF.quem) q.set('quem', _apRelF.quem); }
+  if ((m === 'diario' || m === 'uso') && _apPortas.length) q.set('portas', _apPortas.join(','));
+  return q.toString();
+}
+
+function apRelAtual() {
+  const c = _apDados.relCat || {};
+  return (c.relatorios || []).find(r => r.id === _apRelSel) || (c.relatorios || [])[0] || null;
+}
+
+async function apRelCarregar() {
+  const pedido = ++_apRelPedido;
+  const cat = await acJson(`/api/access-control/painel/relatorios/catalogo${_apSite ? `?site=${encodeURIComponent(_apSite)}` : ''}`) || {};
+  if (pedido !== _apRelPedido) return;
+  _apDados.relCat = cat;
+  apMostrarPerfil(cat.perfil);
+  if (cat.precisa_local) { _apDados.rel = null; return; }
+  const rel = apRelAtual();
+  if (!rel) return;
+  _apRelSel = rel.id;
+  if (!(cat.quem || []).some(q => q.id === _apRelF.quem)) _apRelF.quem = (cat.quem || [])[0] ? cat.quem[0].id : '';
+  const grupos = ((cat.quem || []).find(q => q.id === _apRelF.quem) || {}).grupos || [];
+  if (_apRelF.grupo && !grupos.includes(_apRelF.grupo)) _apRelF.grupo = '';   // trocou de local ou de "quem"
+  _apDados.rel = { carregando: true, id: rel.id };
+  apDesenharRel();
+  let r;
+  try {
+    r = await acJson(`/api/access-control/painel/relatorios/r/${encodeURIComponent(rel.id)}?${apRelQuery(rel)}`) || {};
+  } catch (err) {
+    r = { erro: (err && err.message) || 'falhou' };
+  }
+  if (pedido === _apRelPedido) _apDados.rel = r;
+}
+
+function apRelFiltros(rel) {
+  const c = _apDados.relCat || {}, v = c.vocab || {};
+  const m = rel.motor;
+  const chip = (id, rot) => `<button type="button" class="${_apRelF.periodo === id ? 'on' : ''}" data-rl-periodo="${id}">${rot}</button>`;
+  let h = '';
+  if (m === 'diario') {
+    h += `<label class="rl-campo">Dia<input type="date" id="rlDia" value="${esc(_apRelF.dia || apIsoHoje())}" max="${apIsoHoje()}"></label>`;
+  } else if (m !== 'cadastro') {
+    const p = apRelPeriodo();
+    h += `<div class="rl-campo"><span>Período</span><div class="rl-seg" role="group" aria-label="Período">
+      ${chip('hoje', 'Hoje')}${chip('semana', 'Semana')}${chip('mes', 'Mês')}${chip('30', '30 dias')}${c.modo === 'escola' ? chip('bimestre', 'Bimestre') : ''}${chip('escolher', 'Escolher datas')}</div></div>`;
+    if (_apRelF.periodo === 'escolher') h += `<label class="rl-campo">De<input type="date" id="rlDe" value="${esc(p.de)}" max="${apIsoHoje()}"></label>
+      <label class="rl-campo">Até<input type="date" id="rlAte" value="${esc(p.ate)}" max="${apIsoHoje()}"></label>`;
+  }
+  if (m === 'presenca') {
+    const quem = (c.quem || []).find(q => q.id === _apRelF.quem) || (c.quem || [])[0] || { grupos: [] };
+    if ((c.quem || []).length > 1) h += `<label class="rl-campo">Quem<select id="rlQuem">${c.quem.map(q => `<option value="${esc(q.id)}" ${q.id === _apRelF.quem ? 'selected' : ''}>${esc(q.nome)}</option>`).join('')}</select></label>`;
+    h += `<label class="rl-campo">${esc(v.grupo || 'Grupo')}<select id="rlGrupo"><option value="">Todas as ${esc(v.grupos || 'opções')}</option>
+      ${(quem.grupos || []).map(g => `<option ${g === _apRelF.grupo ? 'selected' : ''}>${esc(g)}</option>`).join('')}</select></label>`;
+  }
+  return h;
+}
+
+function apRelCorpo(r, rel) {
+  if (!r || r.carregando) return '<div class="dv-vazio"><i data-lucide="loader-circle" class="dv-gira"></i><b>Montando o relatório…</b></div>';
+  if (r.erro) return `<p class="ap-vazio">Não consegui montar: ${esc(r.erro)}</p>`;
+  if (r.id !== rel.id) return '';
+  const v = r.vocab || {}, res = r.resumo || {};
+  const kpis = l => `<div class="metrics rl-kpis">${l.map(([ic, cor, rot, val, sub]) => apKpi(ic, cor, rot, val, sub)).join('')}</div>`;
+  const tabela = (cab, linhas, vazio) => linhas.length ? `<div class="ap-tabela"><table><thead><tr>${cab.map(c => `<th>${c}</th>`).join('')}</tr></thead><tbody>${linhas.join('')}</tbody></table></div>` : `<p class="ap-vazio ap-pad">${vazio}</p>`;
+  const bloco = (titulo, sub, corpo) => `<section class="panel rl-bloco"><div class="rl-bloco-cab"><h3>${titulo}</h3>${sub ? `<p>${sub}</p>` : ''}</div>${corpo}</section>`;
+  const barra = pct => `<span class="rl-barra"><i style="width:${pct || 0}%" class="${pct !== null && pct < 80 ? 'baixa' : ''}"></i></span><span class="monospace rl-pct">${pct === null || pct === undefined ? '—' : pct + '%'}</span>`;
+
+  if (r.motor === 'presenca') {
+    const evento = r.modo === 'evento';
+    const k = evento
+      ? [['users', 'blue', `${v.pessoas} credenciados`, apNum(res.pessoas), r.quem], ['check-circle-2', 'green', 'Vieram', apNum(res.vieram), `${apPct(res.vieram, res.pessoas)}%`],
+         ['user-x', res.nao_vieram ? 'amber' : 'green', 'Não vieram', apNum(res.nao_vieram), 'lista abaixo'], ['calendar', 'blue', 'Dias do evento', apNum(res.dias), '']]
+      : [['check-circle-2', 'green', 'Presença média', res.pct === null ? '—' : res.pct + '%', `${r.quem} · por dia contado`], ['calendar-x', 'blue', 'Faltas no período', apNum(res.faltas), 'pessoa-dia sem passagem'],
+         ['alert-triangle', res.criticos ? 'amber' : 'green', `Com ${r.faltas_alerta}+ faltas`, apNum(res.criticos), 'lista abaixo'], ['calendar', 'blue', 'Dias contados', apNum(res.dias), r.de === r.ate && r.ate === apIsoHoje() ? 'hoje, até agora: quem chega mais tarde ainda conta como falta' : `${apBr(r.de)} a ${apBr(r.ate)}`]];
+    const grupos = tabela([v.grupo, v.pessoas, 'Presença', evento ? 'Vieram' : 'Faltas', evento ? 'Não vieram' : `${r.faltas_alerta}+ faltas`],
+      r.grupos.map(g => `<tr><td><button type="button" class="rl-link" data-rl-grupo="${esc(g.grupo)}">${esc(g.grupo)}</button></td><td class="monospace">${apNum(g.pessoas)}</td><td class="rl-pres">${barra(g.pct)}</td>
+        <td class="monospace">${apNum(evento ? g.vieram : g.faltas)}</td><td class="monospace ${(evento ? g.pessoas - g.vieram : g.criticos) ? 'ap-ruim' : ''}">${apNum(evento ? g.pessoas - g.vieram : g.criticos)}</td></tr>`), 'Ninguém neste filtro.');
+    const lista = evento ? r.pessoas.filter(x => !x.presencas) : r.pessoas;
+    const pessoas = tabela(evento ? ['Nome', v.grupo] : ['Nome', v.grupo, 'Presenças', 'Faltas', 'Dias de falta'],
+      lista.slice(0, _apRelMostrar).map(x => evento ? `<tr><td>${esc(x.nome)}</td><td>${esc(x.grupo)}</td></tr>`
+        : `<tr class="${x.faltas >= r.faltas_alerta ? 'rl-alerta' : ''}"><td>${esc(x.nome)}</td><td>${esc(x.grupo)}</td><td class="monospace">${apNum(x.presencas)}</td><td class="monospace">${apNum(x.faltas)}</td>
+          <td class="monospace rl-dias">${x.dias_falta.map(apDiaMes).join(', ') || '—'}</td></tr>`), evento ? 'Todos vieram.' : 'Ninguém neste filtro.');
+    return kpis(k)
+      + (r.fora_leitor.length ? `<div class="ap-alerta"><i data-lucide="user-x"></i><div><b>${apNum(r.fora_leitor.length)} fora da conta: não estão em nenhum leitor.</b> ${esc(r.fora_leitor.slice(0, 6).map(x => x.nome).join(', '))}${r.fora_leitor.length > 6 ? '…' : ''}. Sem cadastro aceito pelo leitor não dá para passar; falta seria injusta. Corrija em Alertas.</div></div>` : '')
+      + bloco(`Por ${esc((v.grupo || '').toLowerCase())}`, 'Clique para ver só esse grupo.', grupos)
+      + (r.serie.length ? bloco('Presença dia a dia', 'Só os dias contados.', apSerieDias(r.serie, 'pct', '% presentes')) : '')
+      + bloco(evento ? `${esc(apMaiuscula(v.pessoas))} que não vieram` : `${esc(apMaiuscula(v.pessoas))}, mais faltas primeiro`, evento ? '' : `Em destaque quem tem ${r.faltas_alerta} ou mais.`, pessoas
+        + (lista.length > _apRelMostrar ? '<button type="button" class="ps-mais" data-rl-mais>Mostrar mais</button>' : ''))
+      + (r.dias_fora.length ? `<details class="ag-fora rl-fora"><summary>${r.dias_fora.length} dia${r.dias_fora.length === 1 ? '' : 's'} fora da conta</summary>
+          ${tabela(['Dia', 'Motivo'], r.dias_fora.map(d => `<tr><td class="monospace">${apBr(d.dia)}</td><td>${esc(d.motivo)}</td></tr>`), '')}</details>` : '')
+      + `<p class="ap-dica">Presença: passou em qualquer leitor do local no dia. ${evento ? '' : 'Contam segunda a sexta, menos feriados do local. '}Dia com menos de 1/4 das pessoas não conta (leitor fora do ar). Hoje só entra quando o período é só hoje.</p>`;
+  }
+  if (r.motor === 'cadastro') {
+    return kpis([['users', 'blue', v.pessoas, apNum(res.pessoas), `${apNum(res.grupos)} ${v.grupos}`], ['image-off', res.sem_foto ? 'amber' : 'green', 'Sem foto', apNum(res.sem_foto), 'não abrem pelo rosto'],
+        ['scan-line', res.fora_leitor ? 'amber' : 'green', 'Fora do leitor', apNum(res.fora_leitor), 'nenhum leitor aceitou'], ['moon', 'blue', 'Sem passar há 30 dias', apNum(res.parados), 'mudou ou viajou?']])
+      + bloco(`Por ${esc((v.grupo || '').toLowerCase())}`, '', tabela([v.grupo, v.pessoas, 'Sem foto', 'Fora do leitor', 'Sem passar há 30 dias'],
+        r.grupos.map(g => `<tr><td>${esc(g.grupo)}</td><td class="monospace">${apNum(g.pessoas)}</td><td class="monospace ${g.sem_foto ? 'ap-ruim' : ''}">${apNum(g.sem_foto)}</td><td class="monospace ${g.fora_leitor ? 'ap-ruim' : ''}">${apNum(g.fora_leitor)}</td><td class="monospace">${apNum(g.parados)}</td></tr>`), ''))
+      + bloco(esc(apMaiuscula(v.pessoas)), '', tabela(['Nome', v.grupo, 'Foto', 'No leitor', 'Última passagem'],
+        r.pessoas.slice(0, _apRelMostrar).map(x => `<tr><td>${esc(x.nome)}</td><td>${esc(x.grupo)}</td><td>${x.foto ? 'sim' : '<span class="ap-ruim">não</span>'}</td><td>${x.leitor ? 'sim' : '<span class="ap-ruim">não</span>'}</td>
+          <td class="monospace">${x.ultima ? apBr(x.ultima) + ' ' + apHoraTxt(x.ultima) : 'nunca'}</td></tr>`), '')
+        + (r.pessoas.length > _apRelMostrar ? '<button type="button" class="ps-mais" data-rl-mais>Mostrar mais</button>' : ''));
+  }
+  if (r.motor === 'diario') {
+    const saidas = r.saidas_confiaveis;
+    const linhas = r.pessoas.slice(0, _apRelMostrar).map(x => saidas
+      ? `<tr><td>${esc(x.nome)}</td><td>${esc(x.grupo || '—')}</td><td class="monospace">${apHoraTxt(x.chegou)}</td><td class="monospace">${x.saiu ? apHoraTxt(x.saiu) : (x.dentro ? '<span class="ap-chip entrada">dentro</span>' : '—')}</td><td class="monospace">${apMin(x.minutos)}</td><td>${esc(x.portas.map(apPorta).join(', '))}</td></tr>`
+      : `<tr><td>${esc(x.nome)}</td><td>${esc(x.grupo || '—')}</td><td class="monospace">${apHoraTxt(x.primeira)}</td><td class="monospace">${apHoraTxt(x.ultima)}</td><td class="monospace">${apNum(x.passagens)}</td><td>${esc(x.portas.map(apPorta).join(', '))}</td></tr>`);
+    return kpis([['users', 'blue', 'Pessoas do cadastro', apNum(res.pessoas), apBr(r.dia)], ['footprints', 'blue', 'Passagens', apNum(res.passagens), 'todas as marcações'],
+        saidas ? ['log-in', 'green', 'Ainda dentro', apNum(res.dentro), 'última passagem foi entrada'] : ['log-out', 'blue', 'Saídas', '—', 'local quase sem leitor de saída'],
+        res.nao_vieram ? ['user-x', 'amber', `${v.pessoas} sem passagem`, apNum(res.nao_vieram), 'lista abaixo'] : ['user-search', res.so_leitor ? 'amber' : 'green', 'Só no leitor', apNum(res.so_leitor), 'sem cadastro no SightOps']])
+      + bloco('Quem passou', saidas ? 'Chegou: primeira entrada. Saiu: última saída.' : 'Este local quase não registra saída: primeira e última passagem do dia.',
+        tabela(saidas ? ['Nome', v.grupo, 'Chegou', 'Saiu', 'Tempo', 'Portas'] : ['Nome', v.grupo, 'Primeira', 'Última', 'Passagens', 'Portas'], linhas, 'Ninguém do cadastro passou neste dia.')
+        + (r.pessoas.length > _apRelMostrar ? '<button type="button" class="ps-mais" data-rl-mais>Mostrar mais</button>' : ''))
+      + (r.nao_vieram.length ? `<details class="ag-fora rl-fora"><summary>${apNum(r.nao_vieram.length)} ${esc(v.pessoas)} sem passagem no dia</summary>
+          ${tabela(['Nome', v.grupo], r.nao_vieram.map(x => `<tr><td>${esc(x.nome)}</td><td>${esc(x.grupo)}</td></tr>`), '')}</details>` : '')
+      + (r.so_leitor.length ? `<details class="ag-fora rl-fora"><summary>${apNum(r.so_leitor.length)} só no leitor (sem cadastro no SightOps)</summary>
+          ${tabela(['Nome no leitor', 'Passagens', 'Primeira', 'Última'], r.so_leitor.map(x => `<tr><td>${esc(x.nome)}</td><td class="monospace">${apNum(x.passagens)}</td><td class="monospace">${apHoraTxt(x.primeira)}</td><td class="monospace">${apHoraTxt(x.ultima)}</td></tr>`), '')}</details>` : '');
+  }
+  if (r.motor === 'uso') {
+    const hm = res.hora_mais;
+    const maxP = Math.max(1, ...r.portas.map(p => p.passagens));
+    return kpis([['footprints', 'blue', 'Passagens', apNum(res.passagens), `${apBr(r.de)} a ${apBr(r.ate)}`], ['bar-chart-3', 'blue', 'Média por dia', apNum(res.media_dia), `${apNum(res.dias_com_movimento)} dias com movimento`],
+        ['users', 'green', 'Pico de gente dentro', res.pico === null ? '—' : apNum(res.pico), res.pico === null ? 'local quase sem leitor de saída' : `${apBr(res.pico_dia)} às ${res.pico_hora}`],
+        ['clock', 'blue', 'Horário mais cheio', hm ? `${AP_DIAS[hm.dia_semana]} ${String(hm.hora).padStart(2, '0')}h` : '—', 'no período']])
+      + `<div class="ap-rel">${bloco('Por dia da semana e hora', 'Passagens somadas no período', apMapaCalor(r.mapa))}
+        ${bloco('Dia a dia', 'Passe o mouse para ver pessoas', apSerieDias(r.serie) + '<h3 class="ap-h3b">Portas</h3>'
+          + (r.portas.map(p => `<div class="ap-top"><span title="${esc(p.porta)}">${esc(apPorta(p.porta))}</span><span class="ap-trilho"><i style="width:${apPct(p.passagens, maxP)}%"></i></span><span class="monospace">${apNum(p.passagens)}</span></div>`).join('') || '<p class="ap-vazio">Sem passagens no período.</p>'))}</div>`;
+  }
+  // avisos
+  const ok = res.lidos + res.entregues;
+  const maxDia = Math.max(1, ...r.serie.map(x => x.lido + x.entregue + x.enviado + x.falha));
   const h = n => Math.round(n * 100 / maxDia) + '%';
-  const dia = s => s ? `${s.slice(8, 10)}/${s.slice(5, 7)}` : '';
-  // So portas com volume que importa: 1 marcacao sem pessoa em 370 nao e problema.
-  const portasSem = (m7.por_porta || []).filter(p => p.sem_pessoa >= 20 || apPct(p.sem_pessoa, p.total) >= 5);
+  return kpis([['message-circle', 'blue', 'Avisos enviados', apNum(res.enviados), `${apNum(res.pessoas_avisadas)} ${v.pessoas}`], ['check-check', apPct(ok, res.enviados) >= 95 ? 'green' : 'amber', 'Entregues ou lidos', res.enviados ? apPct(ok, res.enviados) + '%' : '—', `${apPct(res.lidos, res.enviados)}% lidos`],
+      ['phone-off', res.falhas ? 'red' : 'green', 'Não entregues', apNum(res.falhas), `${apNum(res.falhando)} números falhando agora`], ['contact', res.sem_numero ? 'amber' : 'green', 'Sem número', apNum(res.sem_numero), 'não recebem aviso']])
+    + bloco('Dia a dia', '<span class="ap-legenda"><span><i class="lido"></i>lido</span><span><i class="entregue"></i>entregue</span><span><i class="enviado"></i>sem confirmação</span><span><i class="falha"></i>não entregue</span></span>',
+      `<div class="ap-grafico">${r.serie.map(x => `<div title="${apDiaMes(x.dia)}: ${x.lido} lidos, ${x.entregue} entregues, ${x.falha} não entregues">
+        <i class="falha" style="height:${h(x.falha)}"></i><i class="enviado" style="height:${h(x.enviado)}"></i><i class="entregue" style="height:${h(x.entregue)}"></i><i class="lido" style="height:${h(x.lido)}"></i></div>`).join('')}</div>
+       <div class="ap-eixo monospace"><span>${apDiaMes(r.de)}</span><span>${apDiaMes(r.ate)}</span></div>`)
+    + bloco(`Por ${esc(v.pessoa || 'pessoa')}`, 'Quem está com o último aviso falhando vem primeiro.', tabela(['Nome', v.grupo, 'Responsável', 'Enviados', 'Lidos', 'Falhas', 'Último'],
+      r.pessoas.slice(0, _apRelMostrar).map(x => `<tr><td>${esc(x.nome)}</td><td>${esc(x.grupo)}</td><td>${esc(x.responsavel || '—')}</td><td class="monospace">${apNum(x.enviados)}</td><td class="monospace">${apNum(x.lidos)}</td><td class="monospace">${apNum(x.falhas)}</td>
+        <td>${x.ultimo_ok === false ? `<span class="ap-ruim" title="${esc(x.erro)}">falhou</span>` : 'ok'}</td></tr>`), 'Ninguém recebeu aviso no período.')
+      + (r.pessoas.length > _apRelMostrar ? '<button type="button" class="ps-mais" data-rl-mais>Mostrar mais</button>' : ''))
+    + (r.sem_numero.length ? `<details class="ag-fora rl-fora"><summary>${apNum(r.sem_numero.length)} sem número de responsável</summary>
+        ${tabela(['Nome', v.grupo], r.sem_numero.map(x => `<tr><td>${esc(x.nome)}</td><td>${esc(x.grupo)}</td></tr>`), '')}</details>` : '');
+}
 
-  el.innerHTML = `
-    <div class="metrics">
-      ${usaAvisos ? apKpi('message-circle', apPct(entregue, env) >= 95 ? 'green' : 'red', 'Avisos entregues · 7 dias', env ? apPct(entregue, env) + '%' : '—', `${apPct(s7.lidos || 0, env)}% lidos pelos responsáveis`)
-                  : apKpi('message-circle', 'blue', 'Avisos de WhatsApp', '—', 'não usado neste cliente')}
-      ${apKpi('user-x', semP > 10 ? 'red' : 'green', 'Marcações sem pessoa · 7 dias', semP + '%', `${m7.sem_pessoa || 0} de ${m7.total || 0}`)}
-      ${apKpi('scan-face', fotos.falhou ? 'amber' : 'green', 'Fotos recusadas pelo leitor', fotos.falhou || 0, 'pessoas que não abrem a porta')}
-      ${apKpi('door-open', leit.online === leit.total ? 'green' : 'amber', 'Leitores com status online', `${leit.online || 0} / ${leit.total || 0}`, 'status informado pelo leitor')}
-    </div>
-
-    ${usaAvisos ? `<section class="panel ap-bloco">
-      <div class="ap-bloco-cab"><div><h3>Avisos aos responsáveis · 30 dias</h3><p>O WhatsApp informa entrega e leitura de cada aviso.</p></div>
-        <div class="ap-legenda"><span><i class="lido"></i>lido</span><span><i class="entregue"></i>entregue</span><span><i class="enviado"></i>sem confirmação</span><span><i class="falha"></i>não entregue</span></div></div>
-      <div class="ap-grafico">${serie.map(x => `<div title="${dia(x.dia)}: ${x.lido} lidos, ${x.entregue} entregues, ${x.falha} não entregues">
-        <i class="falha" style="height:${h(x.falha)}"></i><i class="enviado" style="height:${h(x.enviado)}"></i>
-        <i class="entregue" style="height:${h(x.entregue)}"></i><i class="lido" style="height:${h(x.lido)}"></i></div>`).join('')}</div>
-      <div class="ap-eixo monospace"><span>${dia(serie[0]?.dia)}</span><span>${dia(serie[15]?.dia)}</span><span>${dia(serie[29]?.dia)}</span></div>
-      ${(av.incidentes || []).slice().reverse().slice(0, 3).map(i => `<div class="ap-alerta"><i data-lucide="alert-triangle"></i><div>
-        <b>${dia(i.inicio)}${i.fim !== i.inicio ? ' a ' + dia(i.fim) : ''}: ${i.falhas.toLocaleString('pt-BR')} avisos não chegaram aos responsáveis.</b>
-        ${i.erro ? ` Motivo informado pela Meta: "${esc(i.erro)}"${/payment/i.test(i.erro) ? ' (pendência de pagamento da conta do WhatsApp Business)' : ''}.` : ''}</div></div>`).join('')}
-      <p class="ap-dica">Se mais de 10% dos avisos falharem em 30 minutos, o canal de WhatsApp fica fora no Monitoramento, com o motivo.</p>
-    </section>` : ''}
-
-    <div class="ap-duas">
-      ${usaAvisos ? `<section class="panel ap-bloco"><h3>Responsáveis que não estão recebendo</h3><p>O último aviso para estes números falhou. Motivo dado pela Meta.</p>
-        ${(av.falhando || []).map(f => `<div class="ap-linha"><div class="ap-cresce"><b>${esc(f.responsavel || 'número sem cadastro')}</b>
-            <small>${esc([f.pessoa, f.turma].filter(Boolean).join(' · '))}</small></div>
-          <span class="monospace">${esc(f.numero)}</span><span class="ap-ruim">${esc(f.erro || 'falhou')}</span></div>`).join('') || '<p class="ap-vazio">Nenhum responsável com aviso falhando.</p>'}
-        ${av.sem_numero_total ? `<p class="ap-dica">${av.sem_numero_total} aluno${av.sem_numero_total === 1 ? '' : 's'} sem número de responsável: não recebe${av.sem_numero_total === 1 ? '' : 'm'} aviso nenhum.</p>` : ''}
-      </section>` : `<section class="panel ap-bloco"><h3>Avisos por WhatsApp</h3><p class="ap-vazio">Nenhum aviso enviado nos últimos 60 dias: este cliente não usa os avisos aos responsáveis.</p></section>`}
-      <section class="panel ap-bloco"><h3>Marcações sem pessoa no SightOps</h3><p>A pessoa está no leitor, mas não no cadastro: fica fora de relatório, presença e aviso.</p>
-        ${portasSem.map(p => `<div class="ap-linha"><div class="ap-cresce"><b>${esc(p.porta)}</b>
-            <small>${p.sem_pessoa} de ${p.total} marcações · ${p.nomes_distintos} nome${p.nomes_distintos === 1 ? '' : 's'} diferentes${p.exemplos.length ? ' · ex.: ' + p.exemplos.map(esc).join(', ') : ''}</small>
-            <div class="ap-barra"><i style="width:${apPct(p.sem_pessoa, p.total)}%"></i></div></div>
-          <b class="ap-ruim">${apPct(p.sem_pessoa, p.total)}%</b></div>`).join('') || '<p class="ap-vazio">Todas as marcações estão ligadas a uma pessoa.</p>'}
-        ${portasSem.length ? '<p class="ap-dica">Para corrigir hoje: Controle de Acesso › Dispositivos › importar pessoas do leitor.</p>' : ''}
+function apDesenharRel() {
+  const el = document.getElementById('apRelTopo');
+  if (!el) return;
+  const geral = document.getElementById('apGeral');
+  if (geral) geral.innerHTML = '';
+  const c = _apDados.relCat;
+  if (!c) { el.innerHTML = '<p class="ap-vazio">Carregando…</p>'; return; }
+  if (c.precisa_local) {
+    el.innerHTML = `<div class="dv-vazio"><i data-lucide="map-pin"></i><b>Escolha um local no topo</b><p>Cada relatório é de um local: o tipo dele (escola, condomínio, empresa ou evento) decide quais relatórios existem.</p></div>`;
+    lucide.createIcons();
+    return;
+  }
+  const rel = apRelAtual();
+  const r = _apDados.rel;
+  const pronto = r && !r.carregando && !r.erro && r.id === (rel || {}).id;
+  el.innerHTML = `<div class="rl">
+    <aside class="rl-cat" aria-label="Escolher relatório">
+      <div class="rl-cat-cab"><b>Qual relatório você precisa?</b><small>${esc((c.vocab || {}).local || '')} · cada um sai em PDF</small></div>
+      ${(c.relatorios || []).map(x => `<button type="button" class="rl-item ${x.id === _apRelSel ? 'on' : ''}" data-rl-sel="${esc(x.id)}" aria-pressed="${x.id === _apRelSel}">
+        <b>${esc(x.nome)}</b><span>${esc(x.pergunta)}</span></button>`).join('')}
+      <p class="rl-nota"><i data-lucide="info"></i><span>Leitores, fotos e cadastros com problema ficam em <a href="#" data-ap-ir="alertas">Alertas</a>.</span></p>
+    </aside>
+    <div class="rl-main">
+      ${rel ? `<section class="panel rl-topo">
+        <div class="rl-topo-cab"><div><h2>${esc(rel.nome)}</h2><p>${esc(rel.pergunta)}</p></div>
+          <div class="rl-baixar">${pronto ? `<button type="button" class="secondary-action rl-pdf" data-rl-csv><i data-lucide="sheet"></i> Planilha</button>
+            <a class="primary-action rl-pdf" href="${API_BASE}/api/access-control/painel/relatorios/r/${encodeURIComponent(rel.id)}/pdf?${apRelQuery(rel)}" download><i data-lucide="download"></i> Baixar PDF</a>`
+            : '<span class="secondary-action rl-pdf" aria-disabled="true"><i data-lucide="sheet"></i> Planilha</span><span class="primary-action rl-pdf" aria-disabled="true"><i data-lucide="download"></i> Baixar PDF</span>'}</div></div>
+        <div class="rl-filtros">${apRelFiltros(rel)}</div>
       </section>
-    </div>
-    <div class="ap-duas">
-      <section class="panel ap-bloco"><h3>Fotos recusadas pelos leitores</h3><p>${fotos.ok || 0} fotos aceitas · ${fotos.falhou || 0} recusadas${fotos.pendente ? ' · ' + fotos.pendente + ' aguardando' : ''}</p>
-        ${(fotos.recusadas || []).map(f => `<div class="ap-linha"><div class="ap-cresce"><b>${esc(f.pessoa)}</b>
-            <small>${esc([f.turma, f.leitor].filter(Boolean).join(' · '))}</small></div><span class="ap-ruim">${esc(f.erro || 'recusada')}</span></div>`).join('') || '<p class="ap-vazio">Nenhuma foto recusada.</p>'}
-      </section>
-      <section class="panel ap-bloco"><h3>Leitores</h3><p>Status informado pelo leitor e última vez que o SightOps falou com ele.</p>
-        ${(leit.lista || []).map(l => {
-          const on = String(l.status).toLowerCase() === 'online';
-          return `<div class="ap-linha"><span class="ap-pt ${on ? 'ok' : 'ruim'}"></span><div class="ap-cresce"><b>${esc(l.nome)}</b>
-            <small>${esc(l.site)} · visto ${apHa(apUtc(l.visto) || apLocal(l.visto))}</small></div><span class="${on ? 'ap-ok' : 'ap-ruim'}">${esc(l.status || 'sem status')}</span></div>`;
-        }).join('') || '<p class="ap-vazio">Nenhum leitor cadastrado.</p>'}
-      </section>
-    </div>`;
+      ${apRelCorpo(r, rel)}` : ''}
+    </div></div>`;
+  apLigarAcoes(el);
+  el.querySelectorAll('[data-rl-sel]').forEach(b => b.addEventListener('click', () => { _apRelSel = b.dataset.rlSel; _apRelMostrar = 150; apRelRecarregar(); }));
+  el.querySelectorAll('[data-rl-periodo]').forEach(b => b.addEventListener('click', () => { _apRelF.periodo = b.dataset.rlPeriodo; if (b.dataset.rlPeriodo === 'escolher') { const p = apRelPeriodo(); _apRelF.de = p.de; _apRelF.ate = p.ate; } apRelRecarregar(); }));
+  el.querySelector('#rlDia')?.addEventListener('change', ev => { _apRelF.dia = ev.target.value; apRelRecarregar(); });
+  el.querySelector('#rlDe')?.addEventListener('change', ev => { _apRelF.de = ev.target.value; apRelRecarregar(); });
+  el.querySelector('#rlAte')?.addEventListener('change', ev => { _apRelF.ate = ev.target.value; apRelRecarregar(); });
+  el.querySelector('#rlGrupo')?.addEventListener('change', ev => { _apRelF.grupo = ev.target.value; apRelRecarregar(); });
+  el.querySelector('#rlQuem')?.addEventListener('change', ev => { _apRelF.quem = ev.target.value; _apRelF.grupo = ''; apRelRecarregar(); });
+  el.querySelectorAll('[data-rl-grupo]').forEach(b => b.addEventListener('click', () => { _apRelF.grupo = b.dataset.rlGrupo; apRelRecarregar(); }));
+  el.querySelector('[data-rl-mais]')?.addEventListener('click', () => { _apRelMostrar += 150; apDesenharRel(); });
+  el.querySelector('[data-rl-csv]')?.addEventListener('click', () => apRelCsv(_apDados.rel));
   lucide.createIcons();
+}
+
+// Planilha (CSV com ";" e BOM: abre certo no Excel em portugues). A tela antiga
+// exportava a movimentacao; aqui sai a tabela principal de cada relatorio.
+function apRelCsv(r) {
+  if (!r || !r.motor) return;
+  const v = r.vocab || {};
+  const hm = t => (t || '').slice(11, 16);
+  const tabelas = {
+    presenca: () => [['Nome', v.grupo, 'Presenças', 'Faltas', 'Presença %', 'Dias de falta'],
+      (r.pessoas || []).map(x => [x.nome, x.grupo, x.presencas, x.faltas, x.pct ?? '', x.dias_falta.map(apBr).join(', ')])],
+    cadastro: () => [['Nome', v.grupo, 'Foto', 'No leitor', 'Última passagem'],
+      (r.pessoas || []).map(x => [x.nome, x.grupo, x.foto ? 'sim' : 'não', x.leitor ? 'sim' : 'não', x.ultima ? `${apBr(x.ultima)} ${hm(x.ultima)}` : 'nunca'])],
+    diario: () => [['Nome', v.grupo, 'Chegou', 'Saiu', 'Minutos', 'Primeira', 'Última', 'Passagens', 'Portas'],
+      (r.pessoas || []).map(x => [x.nome, x.grupo, hm(x.chegou), hm(x.saiu), x.minutos ?? '', hm(x.primeira), hm(x.ultima), x.passagens, x.portas.join(', ')])],
+    uso: () => [['Dia', 'Passagens', 'Pessoas', 'Pico dentro', 'Hora do pico'],
+      (r.serie || []).map(x => [apBr(x.dia), x.passagens, x.pessoas, x.pico ?? '', x.pico_hora || ''])],
+    avisos: () => [['Nome', v.grupo, 'Responsável', 'Número', 'Enviados', 'Lidos', 'Entregues', 'Falhas', 'Último'],
+      (r.pessoas || []).map(x => [x.nome, x.grupo, x.responsavel, x.numero, x.enviados, x.lidos, x.entregues, x.falhas, x.ultimo_ok === false ? 'falhou' : 'ok'])],
+  };
+  // So a tabela do relatorio aberto: montar todas lia campo que nao existe ("portas" na Frequencia).
+  const [cab, linhas] = tabelas[r.motor] ? tabelas[r.motor]() : [[], []];
+  if (!linhas.length) { acToast('Nada para exportar neste filtro.', true); return; }
+  const cel = val => { const t = String(val ?? ''); return /[;"\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t; };
+  const csv = [cab, ...linhas].map(l => l.map(cel).join(';')).join('\r\n');
+  const url = URL.createObjectURL(new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8' }));
+  const a = document.createElement('a');
+  const nome = `${r.nome} ${r.site} ${r.dia || r.ate || ''}`.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^A-Za-z0-9]+/g, '-').replace(/^-|-$/g, '').toLowerCase();
+  a.href = url; a.download = `${nome || 'relatorio'}.csv`;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+async function apRelRecarregar() {
+  try { await apRelCarregar(); } catch (err) { _apDados.rel = { erro: (err && err.message) || 'falhou' }; }
+  apDesenharRel();
 }
 
 // ---------------------------------------------------------------- ciclo
@@ -768,7 +974,7 @@ function apQ(extra) {
 // A visao geral (avisos 30 dias, fotos, leitores) muda devagar: no maximo a cada 2 min.
 async function apGeral(forcar) {
   if (forcar || !_apDados.geral || Date.now() - _apDados.geralEm > 120000) {
-    _apDados.geral = await apiJson(`/api/access-control/painel/visao-geral${apQ()}`) || {};
+    _apDados.geral = await acJson(`/api/access-control/painel/visao-geral${apQ()}`) || {};
     _apDados.geralEm = Date.now();
   }
   return _apDados.geral;
@@ -776,13 +982,10 @@ async function apGeral(forcar) {
 
 function apDesenharAtual() {
   if (AP_ABAS_PROPRIAS[_apTela]) { apMarcarAba(); return; }   // Dispositivos/Pessoas se desenham sozinhas
-  apMostrarPerfil((_apTela === 'relatorios' ? (_apDados.rel || {}).perfil : (_apDados.vivo || {}).perfil) || (_apDados.geral || {}).perfil);
+  apMostrarPerfil(_apTela === 'relatorios' ? (_apDados.relCat || {}).perfil : ((_apDados.vivo || {}).perfil || (_apDados.geral || {}).perfil));
   if (_apTela === 'vivo') apDesenharVivo(_apDados.vivo || {});
   else if (_apTela === 'alertas') apDesenharAlertas();
-  else {
-    apDesenharRel(_apDados.rel || {});
-    apDesenharGeral(_apDados.geral || {});
-  }
+  else apDesenharRel();
   apMarcarAba();
 }
 
@@ -790,7 +993,8 @@ async function apAtualizar(manual) {
   if (AP_ABAS_PROPRIAS[_apTela]) {
     // Gaveta aberta: nao redesenha por baixo de quem esta editando.
     if (document.querySelector('.dv-gaveta:not([hidden])')) return;
-    if (!manual) { AP_ABAS_PROPRIAS[_apTela].carregar().catch(() => {}); return; }
+    // Messenger tem relogio proprio (6 s); Conexoes consulta a Meta: so no clique ou troca de local.
+    if (!manual) { if (!['messenger', 'conexoes'].includes(_apTela)) AP_ABAS_PROPRIAS[_apTela].carregar().catch(() => {}); return; }
     // Clique: o botao gira ate terminar. Antes recarregava calado e parecia
     // que nao fazia nada (o resultado de um teste antigo continuava na linha).
     if (_apTela === 'dispositivos' && typeof _dvTestes !== 'undefined') {
@@ -812,10 +1016,13 @@ async function apAtualizar(manual) {
   _apCarregando = true;
   try {
     if (_apTela === 'relatorios') {
-      const [rel] = await Promise.all([apiJson(`/api/access-control/painel/relatorios${apQ()}`), apGeral(manual)]);
-      _apDados.rel = rel || {};
+      // Relatorio nao se refaz sozinho a cada passagem: so ao abrir, no
+      // Atualizar e ao trocar filtro (e analise, nao operacao).
+      if (!manual && _apDados.relCat && _apDados.rel && !_apDados.rel.erro) { apDesenharAtual(); return; }
+      await apRelCarregar();
+      apGeral().then(apMarcarAba).catch(() => {});
     } else {
-      const vivo = await apiJson(`/api/access-control/painel/ao-vivo${apQ({ limit: 400 })}`) || {};
+      const vivo = await acJson(`/api/access-control/painel/ao-vivo${apQ({ limit: 400 })}`) || {};
       if (_apTela === 'alertas') await apGeral(manual);
       else apGeral().then(apMarcarAba).catch(() => {});
       // Pausado: guarda o dado novo, mas nao mexe na lista que o operador esta lendo.
@@ -859,15 +1066,13 @@ function apTrocarTela(tela) {
   document.getElementById('apAlertas').hidden = _apTela !== 'alertas';
   document.getElementById('apRel').hidden = _apTela !== 'relatorios';
   Object.entries(AP_ABAS_PROPRIAS).forEach(([k, a]) => { document.getElementById(a.el).hidden = _apTela !== k; });
-  // Menu lateral: "Dispositivos" acende na aba dele; nas outras, "Painel de Acesso".
-  document.querySelectorAll('#sidebar .nav-item[data-pagina]').forEach(b =>
-    b.classList.toggle('active', b.dataset.pagina === (_apTela === 'dispositivos' ? 'dispositivos' : 'painel')));
+  // Menu lateral: o grupo Controle de Acesso fica aberto e o submenu da aba aceso.
+  document.getElementById('ngAcesso')?.classList.add('open');
   try { sessionStorage.setItem('sightops.acesso.painel.tela', _apTela); } catch (_) {}
-  try { history.replaceState(null, '', '#' + _apTela); } catch (_) {}
   apLigarStream();
   if (AP_ABAS_PROPRIAS[_apTela]) { AP_ABAS_PROPRIAS[_apTela].abrir(); return; }
   // Troca de aba desenha na hora com o que ja tem; o fetch atualiza depois.
-  if ((_apTela === 'relatorios' && _apDados.rel) || (_apTela !== 'relatorios' && _apDados.vivo)) apDesenharAtual();
+  if ((_apTela === 'relatorios' && _apDados.relCat) || (_apTela !== 'relatorios' && _apDados.vivo)) apDesenharAtual();
   apAtualizar();
 }
 
@@ -886,17 +1091,16 @@ async function loadAccessPainel() {
       _apSite = sel.value;
       _apPortas = [];
       apPortasRotulo();
-      _apDados.vivo = _apDados.rel = _apDados.geral = null;
+      _apDados.vivo = _apDados.rel = _apDados.relCat = _apDados.geral = null;
       _apSel = ''; _apPessoa = '';
       apLigarStream(); apAtualizar(true);
     });
-    document.querySelectorAll('[data-ap-tela]').forEach(b => b.addEventListener('click', () => apTrocarTela(b.dataset.apTela)));
     document.getElementById('btnApAtualizar')?.addEventListener('click', () => apAtualizar(true));
     document.getElementById('apPortas')?.addEventListener('click', ev => apMenuPortas(ev.currentTarget));
     document.getElementById('apPerfil')?.addEventListener('click', ev => apMenuTipo(ev.currentTarget, ev.currentTarget.dataset.site));
   }
   try {
-    const g = await apiJson('/api/access-control/painel/visao-geral');
+    const g = await acJson('/api/access-control/painel/visao-geral');
     const sites = [...new Set(((g?.leitores || {}).lista || []).map(l => l.site).filter(Boolean))].sort();
     if (sel) {
       sel.innerHTML = '<option value="">Todos os sites</option>' + sites.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join('');
@@ -909,16 +1113,8 @@ async function loadAccessPainel() {
   } catch (_) { /* a propria tela mostra o erro ao carregar */ }
   let salva = 'vivo';
   try { salva = sessionStorage.getItem('sightops.acesso.painel.tela') || 'vivo'; } catch (_) {}
-  // A aba do endereco manda (/v3/acesso/#dispositivos, link do menu, recarregar).
-  const pedida = window.location.hash.slice(1);
-  if (AP_TELAS.includes(pedida) || pedida === 'portas') salva = pedida;
-  if (!window._apHashLigado) {
-    window._apHashLigado = true;
-    window.addEventListener('hashchange', () => {
-      const h = window.location.hash.slice(1);
-      if ((AP_TELAS.includes(h) || h === 'portas') && h !== _apTela) apTrocarTela(h);
-    });
-  }
+  // Dentro do /v3 a aba vem do submenu clicado (sessionStorage); o "#" do
+  // endereco era da pagina propria e aqui deixava a aba velha vencer o clique.
   stopAccessPainel();
   apTrocarTela(salva);
   _apTimer = setInterval(() => { if (!document.hidden) apAtualizar(); }, 20000);
@@ -976,7 +1172,7 @@ function apMenuPortas(ancora) {
     _apPortas = marcadas.length === portas.length ? [] : marcadas;
     menu.remove();
     apPortasRotulo();
-    _apDados.vivo = _apDados.rel = null;
+    _apDados.vivo = _apDados.rel = _apDados.relCat = null;
     _apSel = '';
     apAtualizar(true);
   });

@@ -30,7 +30,7 @@ async function daAbrir() {
   daCampo('daConteudo').innerHTML = '<p class="dv-ajuda"><i data-lucide="loader-circle" class="dv-gira"></i> Lendo…</p>';
   if (window.lucide) lucide.createIcons();
   try {
-    _daDados = await apiJson('/api/access-control/painel/dados');
+    _daDados = await acJson('/api/access-control/painel/dados');
     daDesenhar();
   } catch (err) {
     daCampo('daConteudo').innerHTML = `<p class="dv-erro">${/403/.test(err.message) ? 'Só administrador pode fazer backup ou excluir local.' : esc(err.message || 'Não consegui ler.')}</p>`;
@@ -102,7 +102,7 @@ async function daBackup() {
     const r = await acEnviar('POST', '/api/access-control/painel/dados/backup', { site });
     daBaixar(r.nome);
     acToast(`Backup pronto: ${apNum(r.contagem.access_people)} pessoas e ${apNum(r.contagem.fotos)} fotos (${daTam(r.bytes)}).`);
-    _daDados = await apiJson('/api/access-control/painel/dados');
+    _daDados = await acJson('/api/access-control/painel/dados');
     daDesenhar(daCampo('daExSite') ? daCampo('daExSite').value : undefined);
   } catch (err) {
     acToast((err && err.message) || 'Não foi possível fazer o backup.', true);
@@ -128,7 +128,7 @@ async function daExcluir(site, confirmacao) {
       b.innerHTML = `<i data-lucide="loader-circle" class="dv-gira"></i> ${t.etapa === 'pessoas' ? `Excluindo pessoas: ${apNum(t.feitas)} de ${apNum(t.total)}` : t.etapa === 'backup' ? 'Fazendo backup…' : 'Excluindo leitores e grupos…'}`;
       if (window.lucide) lucide.createIcons();
       await new Promise(ok => setTimeout(ok, 1500));
-      try { t = await apiJson(`/api/access-control/painel/dados/excluir-local/${encodeURIComponent(t.id)}`); falhasSeguidas = 0; }
+      try { t = await acJson(`/api/access-control/painel/dados/excluir-local/${encodeURIComponent(t.id)}`); falhasSeguidas = 0; }
       catch (err) { if (++falhasSeguidas >= 5) throw err; }
     }
     if (t.estado === 'erro') throw new Error(t.erro || 'Não foi possível excluir.');
@@ -137,7 +137,7 @@ async function daExcluir(site, confirmacao) {
     erro = (err && err.message) || 'Não foi possível excluir.';
   }
   _daOcupado = false;
-  try { _daDados = await apiJson('/api/access-control/painel/dados'); } catch (_) {}
+  try { _daDados = await acJson('/api/access-control/painel/dados'); } catch (_) {}
   daDesenhar('');
   const res = daCampo('daExRes');
   if (erro) {

@@ -290,7 +290,7 @@ function agDesenhar() {
 
 async function agCarregar() {
   const q = agSite() ? `?site=${encodeURIComponent(agSite())}` : '';
-  const d = await apiJson(`/api/access-control/painel/acesso${q}`);
+  const d = await acJson(`/api/access-control/painel/acesso${q}`);
   if (!d) return;
   _agDados = d;
   if (d.perfil && typeof apMostrarPerfil === 'function') apMostrarPerfil(d.perfil);
@@ -305,7 +305,7 @@ async function agSimular() {
   try {
     const q = new URLSearchParams({ dias });
     if (agSite()) q.set('site', agSite());
-    _agSim = await apiJson(`/api/access-control/painel/acesso/simulacao?${q}`);
+    _agSim = await acJson(`/api/access-control/painel/acesso/simulacao?${q}`);
   } catch (err) {
     _agSim = null;
     acToast('Não consegui simular: ' + err.message, true);
@@ -386,7 +386,7 @@ async function agCompararLeitores() {
   agDesenhar();
   try {
     const q = agSite() ? `?site=${encodeURIComponent(agSite())}` : '';
-    _agLeitores = await apiJson(`/api/access-control/painel/acesso/leitores${q}`);
+    _agLeitores = await acJson(`/api/access-control/painel/acesso/leitores${q}`);
   } catch (err) {
     _agLeitores = null;
     acToast('Não consegui ler os leitores: ' + err.message, true);
@@ -405,7 +405,7 @@ async function agEnviarLeitor(id) {
     let falhasSeguidas = 0;
     while (t.estado === 'rodando') {
       await new Promise(ok => setTimeout(ok, 1500));
-      try { t = await apiJson(`/api/access-control/painel/acesso/envios/${encodeURIComponent(t.id)}`); falhasSeguidas = 0; }
+      try { t = await acJson(`/api/access-control/painel/acesso/envios/${encodeURIComponent(t.id)}`); falhasSeguidas = 0; }
       catch (err) { if (++falhasSeguidas >= 5) throw err; }
       _agEnvio[id] = t;
       if (_agVista === 'leitores') agDesenhar();
@@ -416,7 +416,7 @@ async function agEnviarLeitor(id) {
   // le de novo so este leitor para o cartao mostrar o estado real
   try {
     const q = agSite() ? `?site=${encodeURIComponent(agSite())}` : '';
-    const novo = await apiJson(`/api/access-control/painel/acesso/leitores${q}`);
+    const novo = await acJson(`/api/access-control/painel/acesso/leitores${q}`);
     if (novo && _agLeitores && _agLeitores.leitores) {
       const p = novo.leitores.find(x => x.id === id);
       if (p) _agLeitores.leitores = _agLeitores.leitores.map(x => (x.id === id ? p : x));

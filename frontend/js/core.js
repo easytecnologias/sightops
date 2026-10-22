@@ -414,6 +414,8 @@ async function loadProfile() {
 // inclusive modulos criados depois que ninguem configurou ainda pra esse
 // cliente). A chave de cada modulo E o data-view do item de menu -- ver
 // MODULE_CATALOG em app/services/auth_store.py.
+const AC_TELAS_PAINEL = ['access-control', 'access-live', 'access-painel'];
+
 function applyModuleVisibility() {
   const enabled = _currentUser?.enabled_modules;
   // Telas sem acesso pelo perfil de acesso (so vem preenchido quando a regra nova vale).
@@ -422,7 +424,12 @@ function applyModuleVisibility() {
     const key = btn.dataset.view;
     const restricted = Array.isArray(enabled);
     const accessAddon = restricted && (key === 'access-live' || key === 'access-painel') && enabled.includes('access-control');
-    const visible = !DISABLED_VIEWS.has(key) && !isStaffOnlyView(key) && !semAcesso.has(key) && (!restricted || enabled.includes(key) || accessAddon);
+    let visible = !DISABLED_VIEWS.has(key) && !isStaffOnlyView(key) && !semAcesso.has(key) && (!restricted || enabled.includes(key) || accessAddon);
+    // Submenus do Controle de Acesso (abas do Painel): aparecem para quem tem
+    // qualquer uma das telas que ele substituiu.
+    if (key === 'access-painel') {
+      visible = AC_TELAS_PAINEL.some(k => !semAcesso.has(k) && (!restricted || enabled.includes(k) || enabled.includes('access-control')));
+    }
     btn.classList.toggle('nav-item-hidden', !visible);
   });
   // Grupo do menu (Snapshots, Redes, CFTV...) some por completo se todas as telas
@@ -619,7 +626,7 @@ const VIEW_META = {
   'access-messenger': { title: 'Messenger', sub: 'Conversas de WhatsApp enviadas e recebidas' },
   'access-whatsapp-triage': { title: 'Triagem WhatsApp', sub: 'Fila de cadastros recebidos por grupos' },
   'access-control': { title: 'Controle de Acesso', sub: 'Reconhecimento facial e eventos de entrada e saida' },
-  'access-painel':  { title: 'Painel de Acesso', sub: 'Ao vivo, avisos e o que precisa de atencao' },
+  'access-painel':  { title: 'Controle de Acesso', sub: 'Ao vivo, pessoas, horários, relatórios e mensagens' },
   'alert-live':     { title: 'Alerta ao Vivo', sub: 'Pedidos de ajuda do botao de panico' },
   'alert-members':  { title: 'Pessoas do Alerta', sub: 'Quem usa o app de panico' },
   'net-operate':   { title: 'Manutencao - Rede', sub: 'Tuneis, diagnostico e teste pontual' },
@@ -693,8 +700,22 @@ function navigateTo(view) {
   // (ex: digitando no console) sem ser, cai no Dashboard normal.
   if (String(view).startsWith('owner-') && !_currentUser?.is_platform_admin) view = 'dashboard';
   if (DISABLED_VIEWS.has(view) || isStaffOnlyView(view)) view = 'dashboard';
+  // Controle de Acesso (22/10/2026): o Painel e a tela unica, com as abas
+  // como submenus do menu Controle de Acesso. As telas antigas (Acesso ao
+  // Vivo, Controle de Acesso, Messenger) abrem a aba certa dele. As chaves de
+  // tela continuam as mesmas: quem tem qualquer uma entra no Painel.
+  const AC_ABA = { 'access-control': 'vivo', 'access-live': 'vivo', 'access-painel': '', 'access-messenger': 'messenger' };
+  let acLiberado = false;
+  if (view in AC_ABA) {
+    const sem = new Set(_currentUser?.views_sem_acesso || []);
+    acLiberado = view === 'access-messenger' ? !sem.has(view) : AC_TELAS_PAINEL.some(v => !sem.has(v));
+    if (acLiberado) {
+      if (AC_ABA[view]) { try { sessionStorage.setItem('sightops.acesso.painel.tela', AC_ABA[view]); } catch (_) {} }
+      view = 'access-painel';
+    }
+  }
   // Tela sem acesso pelo perfil do usuario (so com a regra valendo).
-  if ((_currentUser?.views_sem_acesso || []).includes(view)) view = primeiraTelaLiberada();
+  if (!acLiberado && (_currentUser?.views_sem_acesso || []).includes(view)) view = primeiraTelaLiberada();
 
   // Sair de Gravadores fecha o gravador aberto. Sem isto ele sobrevivia a troca
   // de tela E a troca de cliente: ao entrar na conta da RADS, a tela ainda

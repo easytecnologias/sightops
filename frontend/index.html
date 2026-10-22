@@ -8,6 +8,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="styles.css?v=1792600185">
+  <link rel="stylesheet" href="acesso/acesso.css?v=1792600204">
 </head>
 <body>
 
@@ -120,10 +121,22 @@
 
         <!-- Controle de Acesso -->
         <div class="nav-section-label">Controle de Acesso</div>
-        <button class="nav-item" data-view="access-live"><i data-lucide="activity"></i><span>Acesso ao Vivo</span></button>
-        <button class="nav-item" data-view="access-messenger"><i data-lucide="message-circle"></i><span>Messenger</span></button>
-        <button class="nav-item" data-view="access-control"><i data-lucide="scan-face"></i><span>Controle de Acesso</span></button>
-        <button class="nav-item" data-view="access-painel"><i data-lucide="layout-dashboard"></i><span>Painel de Acesso</span><span class="nav-novo">novo</span></button>
+        <div class="nav-group" id="ngAcesso">
+          <button class="nav-item nav-group-toggle">
+            <i data-lucide="scan-face"></i><span>Controle de Acesso</span>
+            <i data-lucide="chevron-right" class="nav-chevron"></i>
+          </button>
+          <div class="nav-sub">
+            <button class="nav-item nav-sub-item" data-view="access-painel" data-ap-tela="vivo"><i data-lucide="activity"></i><span>Ao vivo</span></button>
+            <button class="nav-item nav-sub-item" data-view="access-painel" data-ap-tela="dispositivos"><i data-lucide="door-open"></i><span>Dispositivos</span></button>
+            <button class="nav-item nav-sub-item" data-view="access-painel" data-ap-tela="pessoas"><i data-lucide="users"></i><span>Pessoas</span></button>
+            <button class="nav-item nav-sub-item" data-view="access-painel" data-ap-tela="acesso"><i data-lucide="calendar-clock"></i><span>Acesso</span></button>
+            <button class="nav-item nav-sub-item" data-view="access-painel" data-ap-tela="alertas"><i data-lucide="bell"></i><span>Alertas</span></button>
+            <button class="nav-item nav-sub-item" data-view="access-painel" data-ap-tela="relatorios"><i data-lucide="file-text"></i><span>Relatórios</span></button>
+            <button class="nav-item nav-sub-item" data-view="access-messenger" data-ap-tela="messenger"><i data-lucide="message-circle"></i><span>Messenger</span></button>
+            <button class="nav-item nav-sub-item" data-view="access-painel" data-ap-tela="conexoes"><i data-lucide="plug-zap"></i><span>Conexões</span></button>
+          </div>
+        </div>
         <button class="nav-item nav-item-hidden" data-view="access-whatsapp-triage"><i data-lucide="inbox"></i><span>Triagem WhatsApp</span></button>
 
         <!-- Alerta (botao de panico) -->
@@ -1942,28 +1955,416 @@
         </div>
       </section>
 
-      <!-- --- VIEW: PAINEL DE ACESSO (novo, fase 1: so leitura) ---
-           Convive com Acesso ao Vivo e Controle de Acesso, que seguem iguais.
-           Montado por js/accessPainel.js. -->
+      <!-- --- VIEW: CONTROLE DE ACESSO (Painel) --- veio de /acesso/ em 22/10/2026;
+           as abas viraram submenus do menu Controle de Acesso. Montado por acesso/*.js. -->
       <section class="workspace hidden" id="viewAccessPainel">
         <div class="page-heading">
           <div>
             <p class="eyebrow">Controle de Acesso</p>
-            <h1>Painel de Acesso</h1>
-            <p>Quem está passando agora, se os responsáveis foram avisados e o que precisa de alguém.</p>
+            <h1>Controle de Acesso <button type="button" class="ap-perfil" id="apPerfil" aria-haspopup="menu"></button></h1>
+            <p id="apSubtitulo">Quem está passando agora e o que precisa de alguém.</p>
           </div>
           <div class="page-heading-actions">
             <span class="ap-relogio monospace" id="apRelogio"></span>
             <select id="apSite" aria-label="Site"><option value="">Todos os sites</option></select>
+            <button class="secondary-action ap-portas-btn" id="apPortas" type="button" aria-haspopup="true"><i data-lucide="door-open"></i> <span>Todas as portas</span></button>
+            <button class="secondary-action" id="apDados" type="button" title="Backup e excluir local (administrador)"><i data-lucide="database"></i> Dados</button>
             <button class="secondary-action" id="btnApAtualizar" type="button"><i data-lucide="refresh-cw"></i> Atualizar</button>
           </div>
         </div>
-        <div class="tabs access-control-tabs" role="tablist">
-          <button type="button" class="tab-btn active" data-ap-tela="vivo" role="tab" aria-selected="true">Ao vivo</button>
-          <button type="button" class="tab-btn" data-ap-tela="geral" role="tab" aria-selected="false">Visão geral</button>
+        <div class="dv-gaveta" id="daGaveta" hidden>
+          <div class="dv-fundo" id="daFundo"></div>
+          <aside class="dv-painel pi-painel" role="dialog" aria-modal="true" aria-labelledby="daTitulo">
+            <header class="dv-gaveta-cab">
+              <div><p class="eyebrow">Controle de Acesso · administrador</p><h2 id="daTitulo">Dados</h2><p>Backup dos dados deste cliente e exclusão de um local inteiro.</p></div>
+              <button class="icon-button" id="daFechar" type="button" aria-label="Fechar"><i data-lucide="x"></i></button>
+            </header>
+            <div class="dv-form" id="daConteudo"></div>
+          </aside>
         </div>
         <div id="apVivo"></div>
-        <div id="apGeral" hidden></div>
+        <div id="apDisp" hidden>
+          <div class="dv-barra">
+            <label class="dv-busca"><i data-lucide="search"></i><input id="dvBusca" type="search" placeholder="Buscar leitor, local ou IP" aria-label="Buscar dispositivo"></label>
+            <button class="primary-action" id="dvNovo" type="button"><i data-lucide="plus"></i> Novo dispositivo</button>
+          </div>
+          <div id="dvConteudo"><p class="ap-vazio">Carregando dispositivos…</p></div>
+        <div class="dv-gaveta" id="dvcGaveta" hidden>
+          <div class="dv-fundo" id="dvcFundo"></div>
+          <aside class="dv-painel ps-painel" role="dialog" aria-modal="true" aria-labelledby="dvcTitulo">
+            <header class="dv-gaveta-cab">
+              <div><p class="eyebrow">Controladora</p><h2 id="dvcTitulo"></h2><p id="dvcSub"></p></div>
+              <div class="dvc-cab-acoes"><button type="button" class="secondary-action" id="dvcEditar"><i data-lucide="pencil"></i> Editar cadastro</button>
+                <button class="icon-button" id="dvcFechar" type="button" aria-label="Fechar"><i data-lucide="x"></i></button></div>
+            </header>
+            <div class="dv-form">
+              <section class="dv-passo">
+                <div class="dvc-cab"><h3 class="dv-passo-tit"><i data-lucide="activity"></i>Estado do leitor</h3>
+                  <button type="button" class="dv-btn" id="dvcLer"><i data-lucide="refresh-cw"></i><span>Ler de novo</span></button></div>
+                <div id="dvcEstado"></div>
+              </section>
+              <section class="dv-passo">
+                <h3 class="dv-passo-tit"><i data-lucide="clock"></i>Hora</h3>
+                <p class="dv-ajuda">Leitor com a hora errada grava a passagem no dia errado e foge dos relatórios e do horário de acesso.</p>
+                <div class="dvc-linha"><button type="button" class="primary-action" id="dvcHora"><i data-lucide="clock-check"></i> Acertar a hora agora</button>
+                  <small class="dv-ajuda">Usa a hora do servidor, de Brasília.</small></div>
+                <p class="dvc-res" id="dvcResHora" hidden></p>
+                <label class="dv-rot" for="dvcNtp">Sincronização automática (NTP)</label>
+                <div class="dvc-linha"><input id="dvcNtp" class="monospace" value="a.ntp.br" aria-label="Servidor de hora">
+                  <button type="button" class="secondary-action" id="dvcNtpLigar"><i data-lucide="refresh-ccw"></i> Ligar</button>
+                  <button type="button" class="secondary-action" id="dvcNtpDesligar">Desligar</button></div>
+                <small class="dv-ajuda">Com o NTP ligado, o leitor acerta sozinho, inclusive depois de queda de energia. Ele precisa alcançar a internet. O fuso vai como Brasília (GMT-03).</small>
+                <p class="dvc-res" id="dvcResNtp" hidden></p>
+              </section>
+              <section class="dv-passo">
+                <h3 class="dv-passo-tit"><i data-lucide="door-open"></i>Porta</h3>
+                <div class="dvc-linha"><button type="button" class="secondary-action dv-porta-abrir" id="dvcAbrirPorta"><i data-lucide="lock-open"></i> Abrir agora</button>
+                  <button type="button" class="secondary-action" id="dvcFecharPorta"><i data-lucide="lock"></i> Fechar agora</button></div>
+                <small class="dv-ajuda">Pede confirmação. Fica registrado no log com o seu usuário.</small>
+                <p class="dvc-res" id="dvcResPorta" hidden></p>
+              </section>
+              <section class="dv-passo">
+                <h3 class="dv-passo-tit"><i data-lucide="globe"></i>Acesso ao leitor</h3>
+                <div class="dvc-linha"><button type="button" class="secondary-action" id="dvcWeb"><i data-lucide="external-link"></i> Abrir a página do leitor</button>
+                  <button type="button" class="secondary-action" id="dvcTestar"><i data-lucide="activity"></i> Testar conexão</button></div>
+                <small class="dv-ajuda">A página abre pelo SightOps Agent deste computador, através do conector do local, igual às câmeras. Sem o agente, abre pelo acesso web do servidor.</small>
+                <p class="dvc-res" id="dvcResTeste" hidden></p>
+              </section>
+              <section class="dv-passo">
+                <h3 class="dv-passo-tit"><i data-lucide="triangle-alert"></i>Avançado</h3>
+                <div class="dvc-linha"><button type="button" class="dv-remover" id="dvcReiniciar"><i data-lucide="power"></i> Reiniciar o leitor</button>
+                  <button type="button" class="dv-remover" id="dvcExcluir"><i data-lucide="trash-2"></i> Excluir do SightOps</button></div>
+                <small class="dv-ajuda">Só administrador. Reiniciar deixa o leitor cerca de 1 minuto sem reconhecer ninguém. Excluir tira o leitor do Painel e do Zabbix e não mexe no aparelho: as pessoas gravadas nele continuam abrindo a porta e as passagens antigas ficam nos relatórios.</small>
+                <p class="dvc-res" id="dvcResReinicio" hidden></p>
+              </section>
+            </div>
+          </aside>
+        </div>
+        <div class="dv-gaveta" id="dvGaveta" hidden>
+          <div class="dv-fundo" id="dvFundo"></div>
+          <aside class="dv-painel" role="dialog" aria-modal="true" aria-labelledby="dvTitulo">
+            <header class="dv-gaveta-cab">
+              <div><p class="eyebrow">Controle de Acesso</p><h2 id="dvTitulo">Novo dispositivo</h2><p id="dvSubtitulo"></p></div>
+              <button class="icon-button" id="dvFechar" type="button" aria-label="Fechar"><i data-lucide="x"></i></button>
+            </header>
+            <form id="dvForm" class="dv-form" novalidate>
+              <fieldset class="dv-passo">
+                <h3 class="dv-passo-tit"><span>1</span>Onde fica</h3>
+                <label class="dv-rot" for="dvSite">Local</label>
+                <input id="dvSite" list="dvSites" autocomplete="off" placeholder="Escolha o local do cliente">
+                <datalist id="dvSites"></datalist>
+                <div class="dv-sugestoes" id="dvSugestoes" hidden></div>
+                <span class="dv-rot">Este local é</span>
+                <input type="hidden" id="dvTipoLocal" value="">
+                <div class="dv-seg dv-seg-tipo" data-dv-seg="dvTipoLocal" role="group" aria-label="Tipo do local">
+                  <button type="button" data-valor="escola"><i data-lucide="graduation-cap"></i>Escola</button>
+                  <button type="button" data-valor="condominio"><i data-lucide="building-2"></i>Condomínio</button>
+                  <button type="button" data-valor="empresa"><i data-lucide="briefcase"></i>Empresa</button>
+                  <button type="button" data-valor="evento"><i data-lucide="ticket"></i>Evento</button>
+                </div>
+                <small class="dv-ajuda" id="dvTipoNota"></small>
+                <span class="dv-rot">Função na porta</span>
+                <input type="hidden" id="dvFuncao" value="entrada">
+                <div class="dv-seg" data-dv-seg="dvFuncao" role="group" aria-label="Função na porta">
+                  <button type="button" data-valor="entrada"><i data-lucide="log-in"></i>Entrada</button>
+                  <button type="button" data-valor="saida"><i data-lucide="log-out"></i>Saída</button>
+                  <button type="button" data-valor="entrada_saida"><i data-lucide="arrow-left-right"></i>Entrada e saída</button>
+                </div>
+                <label class="dv-rot" for="dvNome">Nome</label>
+                <input id="dvNome" maxlength="160" placeholder="Ex.: ENTRADA - ESCOLA PRESIDENTE DUTRA">
+                <small class="dv-ajuda">É o nome que aparece no Painel e nos relatórios. Ele acompanha o local e a função até você editar.</small>
+              </fieldset>
+              <fieldset class="dv-passo">
+                <h3 class="dv-passo-tit"><span>2</span>Como o SightOps chega até ele</h3>
+                <label class="dv-rot" for="dvConector">Conector do local</label>
+                <select id="dvConector"></select>
+                <label class="dv-rot" for="dvHost">IP do leitor na rede do local</label>
+                <input id="dvHost" inputmode="decimal" autocomplete="off" placeholder="Ex.: 192.168.1.201" class="monospace">
+                <div class="dv-previa neutro" id="dvPrevia" aria-live="polite"></div>
+                <div class="dv-duas">
+                  <div><label class="dv-rot" for="dvUsuario">Usuário</label><input id="dvUsuario" autocomplete="off" value="admin"></div>
+                  <div><label class="dv-rot" for="dvSenha">Senha</label>
+                    <div class="dv-senha"><input id="dvSenha" type="password" autocomplete="new-password">
+                      <button type="button" id="dvVerSenha" aria-label="Mostrar senha" aria-pressed="false"><i data-lucide="eye"></i></button></div></div>
+                </div>
+              </fieldset>
+              <fieldset class="dv-passo">
+                <h3 class="dv-passo-tit"><span>3</span>Equipamento</h3>
+                <span class="dv-rot">Fabricante</span>
+                <input type="hidden" id="dvFabricante" value="intelbras">
+                <div class="dv-seg" data-dv-seg="dvFabricante" role="group" aria-label="Fabricante">
+                  <button type="button" data-valor="intelbras">Intelbras<small>coleta homologada</small></button>
+                  <button type="button" data-valor="dahua">Dahua</button>
+                </div>
+                <label class="dv-chave"><input type="checkbox" id="dvAtivo" checked><span></span>Leitor ativo<small>Inativo deixa de ser consultado e sai do Painel.</small></label>
+              </fieldset>
+              <p class="dv-erro" id="dvErro" role="alert" hidden></p>
+            </form>
+            <footer class="dv-gaveta-pe">
+              <button type="button" class="dv-remover" id="dvRemover" hidden><i data-lucide="trash-2"></i> Excluir</button>
+              <div class="dv-confirma" id="dvConfirma" hidden>
+                <span>Excluir este leitor do SightOps? O aparelho não é mexido e as passagens já registradas continuam.</span>
+                <button type="button" class="secondary-action" id="dvConfirmaNao">Não</button>
+                <button type="button" class="dv-remover forte" id="dvConfirmaSim">Excluir</button>
+              </div>
+              <span class="dv-espaco"></span>
+              <button type="button" class="secondary-action" id="dvCancelar">Cancelar</button>
+              <button type="button" class="secondary-action" id="dvSoSalvar"><i data-lucide="save"></i> Salvar</button>
+              <button type="submit" form="dvForm" class="primary-action"><i data-lucide="activity"></i> Salvar e testar</button>
+            </footer>
+          </aside>
+        </div>
+        </div>
+        <div id="apPess" hidden>
+          <div class="dv-barra">
+            <label class="dv-busca"><i data-lucide="search"></i><input id="psBusca" type="search" placeholder="Nome, CPF, matrícula, turma" aria-label="Buscar pessoa"></label>
+            <button class="secondary-action" id="psImportarFotos" type="button"><i data-lucide="images"></i> Importar fotos</button>
+            <button class="secondary-action" id="psImportar" type="button"><i data-lucide="file-spreadsheet"></i> Importar planilha</button>
+            <button class="primary-action" id="psNova" type="button"><i data-lucide="user-plus"></i> Nova pessoa</button>
+          </div>
+          <div id="psConteudo"><p class="ap-vazio">Carregando pessoas…</p></div>
+
+          <div class="dv-gaveta" id="pfGaveta" hidden>
+            <div class="dv-fundo" id="pfFundo"></div>
+            <aside class="dv-painel pi-painel" role="dialog" aria-modal="true" aria-labelledby="pfTitulo">
+              <header class="dv-gaveta-cab">
+                <div><p class="eyebrow">Pessoas</p><h2 id="pfTitulo">Importar fotos</h2><p>Muitas fotos de uma vez, cada uma na pessoa certa pelo nome do arquivo.</p></div>
+                <button class="icon-button" id="pfFechar" type="button" aria-label="Fechar"><i data-lucide="x"></i></button>
+              </header>
+              <div class="dv-form">
+                <section class="dv-passo">
+                  <h3 class="dv-passo-tit"><span>1</span>Como nomear</h3>
+                  <p class="dv-ajuda">O nome de cada foto é o <b>CPF</b> ou a <b>matrícula</b> da pessoa. Exemplos: <span class="monospace">52998224725.jpg</span>, <span class="monospace">529.982.247-25.jpg</span>, <span class="monospace">1577.png</span>. A foto deve ser de frente, com o rosto inteiro, boa luz e fundo liso.</p>
+                </section>
+                <section class="dv-passo">
+                  <h3 class="dv-passo-tit"><span>2</span>Fotos</h3>
+                  <label class="ps-foto-zona pi-zona" id="pfZona">
+                    <input type="file" id="pfArquivos" multiple accept=".zip,application/zip,image/jpeg,image/png,image/webp">
+                    <i data-lucide="images"></i><b id="pfZonaTxt">Escolher um .zip ou várias fotos</b>
+                    <small>ou arraste aqui. As fotos são reduzidas no seu computador antes de enviar.</small>
+                  </label>
+                </section>
+                <section class="dv-passo" id="pfPassoConferir" hidden>
+                  <h3 class="dv-passo-tit"><span>3</span>Conferir</h3>
+                  <div id="pfAnalise"></div>
+                </section>
+                <p class="dv-erro" id="pfErro" role="alert" hidden></p>
+              </div>
+              <footer class="dv-gaveta-pe">
+                <span class="dv-espaco"></span>
+                <button type="button" class="secondary-action" id="pfCancelar">Cancelar</button>
+                <button type="button" class="primary-action" id="pfAplicar" disabled><i data-lucide="upload"></i> Enviar fotos</button>
+              </footer>
+            </aside>
+          </div>
+          <div class="dv-gaveta" id="piGaveta" hidden>
+            <div class="dv-fundo" id="piFundo"></div>
+            <aside class="dv-painel pi-painel" role="dialog" aria-modal="true" aria-labelledby="piTitulo">
+              <header class="dv-gaveta-cab">
+                <div><p class="eyebrow">Pessoas</p><h2 id="piTitulo">Importar planilha</h2><p>Cadastre ou atualize muitas pessoas de uma vez. Nada é gravado antes de você conferir.</p></div>
+                <button class="icon-button" id="piFechar" type="button" aria-label="Fechar"><i data-lucide="x"></i></button>
+              </header>
+              <div class="dv-form">
+                <section class="dv-passo">
+                  <h3 class="dv-passo-tit"><span>1</span>Planilha modelo</h3>
+                  <p class="dv-ajuda" id="piModeloTxt"></p>
+                  <div class="dvc-linha"><button type="button" class="secondary-action" id="piModelo"><i data-lucide="download"></i> Baixar modelo</button></div>
+                  <small class="dv-ajuda">Pode ser Excel (.xlsx) ou CSV. Os nomes das colunas não precisam ser exatos: "Celular do responsável", "Apto" e "Setor" também são reconhecidos. A foto não vem pela planilha: ela entra depois, em cada pessoa.</small>
+                </section>
+                <section class="dv-passo">
+                  <h3 class="dv-passo-tit"><span>2</span>Arquivo</h3>
+                  <div class="dv-duas">
+                    <div><label class="dv-rot" for="piSite">Local</label><input id="piSite" list="psSites" autocomplete="off" placeholder="Local das pessoas"></div>
+                    <div><label class="dv-rot" for="piGrupo">Colocar todos no grupo</label><select id="piGrupo"></select></div>
+                  </div>
+                  <label class="ps-foto-zona pi-zona" id="piZona">
+                    <input type="file" id="piArquivo" accept=".xlsx,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv">
+                    <i data-lucide="file-up"></i><b id="piZonaTxt">Escolher a planilha</b>
+                    <small>ou arraste aqui (.xlsx ou .csv, até 10 MB)</small>
+                  </label>
+                </section>
+                <section class="dv-passo" id="piPassoConferir" hidden>
+                  <h3 class="dv-passo-tit"><span>3</span>Conferir</h3>
+                  <div id="piAnalise"></div>
+                </section>
+                <p class="dv-erro" id="piErro" role="alert" hidden></p>
+              </div>
+              <footer class="dv-gaveta-pe">
+                <span class="dv-espaco"></span>
+                <button type="button" class="secondary-action" id="piCancelar">Cancelar</button>
+                <button type="button" class="primary-action" id="piAplicar" disabled><i data-lucide="check"></i> Importar</button>
+              </footer>
+            </aside>
+          </div>
+          <div class="dv-gaveta" id="psGaveta" hidden>
+            <div class="dv-fundo" id="psFundo"></div>
+            <aside class="dv-painel ps-painel" role="dialog" aria-modal="true" aria-labelledby="psTitulo">
+              <header class="dv-gaveta-cab">
+                <div><p class="eyebrow">Controle de Acesso</p><h2 id="psTitulo">Nova pessoa</h2><p id="psSubtitulo"></p></div>
+                <button class="icon-button" id="psFechar" type="button" aria-label="Fechar"><i data-lucide="x"></i></button>
+              </header>
+              <form id="psForm" class="dv-form" novalidate>
+                <fieldset class="dv-passo">
+                  <h3 class="dv-passo-tit"><span>1</span>Quem é</h3>
+                  <label class="dv-rot" for="psSite">Local</label>
+                  <input id="psSite" list="psSites" autocomplete="off" placeholder="Escola ou condomínio">
+                  <datalist id="psSites"></datalist>
+                  <span class="dv-rot">Tipo</span>
+                  <input type="hidden" id="psTipo">
+                  <div class="dv-seg" id="psTipos" data-ps-seg="psTipo" role="group" aria-label="Tipo de pessoa"></div>
+                  <small class="dv-ajuda" id="psNotaTipo" hidden>Estava cadastrada como Aluno. Vai ser salva como Morador.</small>
+                  <label class="dv-rot" for="psNome">Nome completo</label>
+                  <input id="psNome" maxlength="160" autocomplete="off">
+                  <div class="dv-duas">
+                    <div><label class="dv-rot" for="psCpf" id="psRotCpf">CPF</label><input id="psCpf" inputmode="numeric" autocomplete="off" placeholder="000.000.000-00" class="monospace"><small class="ps-falta" id="psCpfNota"></small></div>
+                    <div id="psMatriculaBox"><label class="dv-rot" for="psMatricula">Matrícula</label><input id="psMatricula" autocomplete="off" class="monospace"></div>
+                  </div>
+                  <label class="dv-rot" for="psTurma" id="psRotTurma">Turma</label>
+                  <input id="psTurma" list="psTurmas" autocomplete="off">
+                  <datalist id="psTurmas"></datalist>
+                </fieldset>
+                <fieldset class="dv-passo">
+                  <h3 class="dv-passo-tit"><span>2</span>Rosto</h3>
+                  <div class="ps-foto">
+                    <div class="ps-foto-ver" id="psFotoVer"></div>
+                    <label class="ps-foto-zona" id="psFotoZona">
+                      <input type="file" id="psFotoArq" accept="image/jpeg,image/png,image/webp">
+                      <i data-lucide="camera"></i><b>Escolher foto</b>
+                      <small>ou arraste aqui. De frente, rosto inteiro, boa luz e fundo liso.</small>
+                      <small class="ps-foto-nota" id="psFotoNota"></small>
+                    </label>
+                  </div>
+                  <span class="dv-rot">Nos leitores</span>
+                  <div class="ps-leitores" id="psLeitores"></div>
+                  <small class="dv-ajuda">ID no leitor: <b class="monospace" id="psIdLeitor"></b></small>
+                </fieldset>
+                <fieldset class="dv-passo">
+                  <h3 class="dv-passo-tit"><span>3</span>Acesso</h3>
+                  <span class="dv-rot">Grupos (definem as portas que a pessoa abre)</span>
+                  <div class="ps-grupos" id="psGrupos"></div>
+                  <label class="dv-chave"><input type="checkbox" id="psAtivo" checked><span></span>Pessoa ativa<small>Inativa fica bloqueada nos leitores e some do Painel.</small></label>
+                </fieldset>
+                <fieldset class="dv-passo" id="psPassoAviso">
+                  <h3 class="dv-passo-tit"><span>4</span>Aviso ao responsável</h3>
+                  <div class="dv-duas">
+                    <div><label class="dv-rot" for="psResp">Responsável</label><input id="psResp" autocomplete="off"></div>
+                    <div><label class="dv-rot" for="psFone">WhatsApp do responsável</label><input id="psFone" inputmode="tel" autocomplete="off" placeholder="(82) 99999-0000" class="monospace"></div>
+                  </div>
+                  <label class="dv-chave"><input type="checkbox" id="psZap" checked><span></span>Avisar entrada e saída pelo WhatsApp</label>
+                </fieldset>
+                <fieldset class="dv-passo">
+                  <label class="dv-rot" for="psNotas">Observações</label>
+                  <textarea id="psNotas" rows="2" maxlength="500" class="ps-notas"></textarea>
+                </fieldset>
+                <p class="dv-erro" id="psErro" role="alert" hidden></p>
+                <div class="ps-resultado" id="psResultado" role="alert" hidden></div>
+              </form>
+              <footer class="dv-gaveta-pe">
+                <button type="button" class="dv-remover" id="psExcluir" hidden><i data-lucide="trash-2"></i> Excluir</button>
+                <div class="dv-confirma" id="psConfirma" hidden>
+                  <span id="psConfirmaTxt"></span>
+                  <button type="button" class="secondary-action" id="psConfirmaNao">Não</button>
+                  <button type="button" class="dv-remover forte" id="psConfirmaSim">Excluir</button>
+                </div>
+                <span class="dv-espaco"></span>
+                <button type="button" class="secondary-action" id="psCancelar">Cancelar</button>
+                <button type="submit" form="psForm" class="primary-action"><i data-lucide="save"></i> Salvar</button>
+              </footer>
+            </aside>
+          </div>
+        </div>
+        <div id="apAcesso" hidden>
+          <div class="ag-topo">
+            <div class="dv-seg ag-vistas" role="group" aria-label="Parte da aba Acesso">
+              <button type="button" data-ag-vista="grupos"><i data-lucide="users"></i>Grupos</button>
+              <button type="button" data-ag-vista="horarios"><i data-lucide="calendar-clock"></i>Horários e feriados</button>
+              <button type="button" data-ag-vista="simulacao"><i data-lucide="flask-conical"></i>Simulação</button>
+              <button type="button" data-ag-vista="leitores"><i data-lucide="upload"></i>No leitor</button>
+            </div>
+            <span class="ag-selo"><i data-lucide="shield-check"></i>Nada vai ao leitor sem você clicar em Enviar</span>
+          </div>
+          <div id="agConteudo"><p class="ap-vazio">Carregando…</p></div>
+
+          <div class="dv-gaveta" id="agGGaveta" hidden>
+            <div class="dv-fundo" id="agGFundo"></div>
+            <aside class="dv-painel ps-painel" role="dialog" aria-modal="true" aria-labelledby="agGTitulo">
+              <header class="dv-gaveta-cab">
+                <div><p class="eyebrow">Controle de Acesso</p><h2 id="agGTitulo">Novo grupo</h2><p id="agGSub"></p></div>
+                <button class="icon-button" id="agGFechar" type="button" aria-label="Fechar"><i data-lucide="x"></i></button>
+              </header>
+              <form id="agGForm" class="dv-form" novalidate>
+                <fieldset class="dv-passo">
+                  <h3 class="dv-passo-tit"><span>1</span>Quem</h3>
+                  <label class="dv-rot" for="agGNome">Nome do grupo</label>
+                  <input id="agGNome" maxlength="160" placeholder="Ex.: Alunos manhã">
+                  <label class="dv-rot" for="agGSite">Local</label>
+                  <input id="agGSite" list="agGSites" autocomplete="off"><datalist id="agGSites"></datalist>
+                  <small class="dv-ajuda" id="agGMembros"></small>
+                </fieldset>
+                <fieldset class="dv-passo">
+                  <h3 class="dv-passo-tit"><span>2</span>Abre quais portas</h3>
+                  <div class="ps-grupos" id="agGPortas"></div>
+                </fieldset>
+                <fieldset class="dv-passo">
+                  <h3 class="dv-passo-tit"><span>3</span>Quando</h3>
+                  <div class="ag-ops" id="agGHorarios"></div>
+                  <label class="dv-chave"><input type="checkbox" id="agGSaida" checked><span></span>Saída livre a qualquer hora<small>Recomendado: o horário vale para entrar; ninguém fica preso do lado de dentro.</small></label>
+                  <label class="dv-chave"><input type="checkbox" id="agGAtivo" checked><span></span>Grupo ativo</label>
+                </fieldset>
+                <p class="dv-erro" id="agGErro" role="alert" hidden></p>
+              </form>
+              <footer class="dv-gaveta-pe">
+                <button type="button" class="dv-remover" id="agGExcluir" hidden><i data-lucide="trash-2"></i> Excluir</button>
+                <div class="dv-confirma" id="agGConfirma" hidden>
+                  <span>Excluir este grupo? Só dá para excluir grupo sem pessoas.</span>
+                  <button type="button" class="secondary-action" id="agGConfirmaNao">Não</button>
+                  <button type="button" class="dv-remover forte" id="agGConfirmaSim">Excluir</button>
+                </div>
+                <span class="dv-espaco"></span>
+                <button type="button" class="secondary-action" id="agGCancelar">Cancelar</button>
+                <button type="submit" form="agGForm" class="primary-action"><i data-lucide="save"></i> Salvar grupo</button>
+              </footer>
+            </aside>
+          </div>
+
+          <div class="dv-gaveta" id="agHGaveta" hidden>
+            <div class="dv-fundo" id="agHFundo"></div>
+            <aside class="dv-painel ag-painel-h" role="dialog" aria-modal="true" aria-labelledby="agHTitulo">
+              <header class="dv-gaveta-cab">
+                <div><p class="eyebrow">Controle de Acesso</p><h2 id="agHTitulo">Novo horário</h2><p>Arraste sobre a grade para pintar quando pode entrar. Cada quadrinho é meia hora.</p></div>
+                <button class="icon-button" id="agHFechar" type="button" aria-label="Fechar"><i data-lucide="x"></i></button>
+              </header>
+              <form id="agHForm" class="dv-form" novalidate>
+                <div class="dv-duas">
+                  <div><label class="dv-rot" for="agHNome">Nome</label><input id="agHNome" maxlength="63" placeholder="Ex.: Turno manhã"></div>
+                  <div><label class="dv-rot" for="agHSite">Local (opcional)</label><input id="agHSite" list="agGSites" autocomplete="off"></div>
+                </div>
+                <div class="ag-grade" id="agHGrade"></div>
+                <div class="ag-grade-acoes">
+                  <button type="button" class="secondary-action" id="agHCopiar"><i data-lucide="copy"></i> Copiar segunda para terça a sexta</button>
+                  <button type="button" class="secondary-action" id="agHLimpar"><i data-lucide="eraser"></i> Limpar tudo</button>
+                </div>
+                <small class="dv-ajuda">A linha "Feriado" vale nas datas da lista de feriados do local. Deixe vazia para fechar no feriado.</small>
+                <p class="dv-erro" id="agHErro" role="alert" hidden></p>
+              </form>
+              <footer class="dv-gaveta-pe">
+                <button type="button" class="dv-remover" id="agHExcluir" hidden><i data-lucide="trash-2"></i> Excluir</button>
+                <div class="dv-confirma" id="agHConfirma" hidden>
+                  <span>Excluir este horário?</span>
+                  <button type="button" class="secondary-action" id="agHConfirmaNao">Não</button>
+                  <button type="button" class="dv-remover forte" id="agHConfirmaSim">Excluir</button>
+                </div>
+                <span class="dv-espaco"></span>
+                <button type="button" class="secondary-action" id="agHCancelar">Cancelar</button>
+                <button type="submit" form="agHForm" class="primary-action"><i data-lucide="save"></i> Salvar horário</button>
+              </footer>
+            </aside>
+          </div>
+        </div>
+        <div id="apAlertas" hidden></div>
+        <div id="apRel" hidden><div id="apRelTopo"></div><div id="apGeral"></div></div>
+        <div id="apMsg" hidden><div id="msConteudo"></div></div>
+        <div id="apConex" hidden><div id="cnConteudo"></div></div>
       </section>
 
       <!-- --- VIEW: CONTROLE DE ACESSO --- -->
@@ -7203,7 +7604,7 @@
        trechos do app.js original na sequencia em que estavam, entao carregar
        fora de ordem muda o comportamento. Ao adicionar um arquivo novo, entre
        antes de bootstrap.js, que e quem liga os botoes no DOMContentLoaded. -->
-  <script src="js/core.js?v=1792600180"></script>
+  <script src="js/core.js?v=1792600206"></script>
   <script src="js/licencas.js?v=1792600103"></script>
   <script src="js/configuracoes.js?v=1792600138"></script>
   <script src="js/notificacoes.js?v=1792600139"></script>
@@ -7236,10 +7637,17 @@
   <script src="js/accessControl.js?v=1791000212"></script>
   <script src="js/accessLive.js?v=1791000212"></script>
   <script src="js/accessWhatsappTriage.js?v=1791000212"></script>
-  <script src="js/accessPainel.js?v=1792000033"></script>
+  <script src="acesso/ponte.js?v=1792600205"></script>
+  <script src="acesso/dispositivos/dispositivos.js?v=1792600205"></script>
+  <script src="acesso/pessoas.js?v=1792600205"></script>
+  <script src="acesso/acesso-grupos.js?v=1792600205"></script>
+  <script src="acesso/mensagens.js?v=1792600205"></script>
+  <script src="acesso/conexoes.js?v=1792600205"></script>
+  <script src="acesso/dados.js?v=1792600205"></script>
+  <script src="acesso/acesso.js?v=1792600205"></script>
   <script src="js/messenger.js?v=1791000212"></script>
   <script src="js/alert.js?v=1791000212"></script>
   <script src="js/tr069.js?v=1791000212"></script>
-  <script src="js/bootstrap.js?v=1792000023"></script>
+  <script src="js/bootstrap.js?v=1792600207"></script>
 </body>
 </html>

@@ -1073,22 +1073,74 @@ def api_access_control_report_present(
 
 # Painel novo (/v3/acesso/), so leitura: convive com as telas antigas sem
 # mudar nenhuma rota que elas usam.
+def _site_do_painel(site: str) -> str:
+    """Usuario restrito: local fora dos sites dele da 403; sem local e com um
+    so local liberado, usa esse. (revisor-isolamento, 22/10/2026: estas rotas
+    nao conferiam o site.)"""
+    sites = permissions.sites_da_sessao()
+    if sites is None:
+        return site
+    liberados = {s.strip().upper() for s in sites}
+    if site and site.strip().upper() not in liberados:
+        raise HTTPException(status_code=403, detail="local fora dos seus sites")
+    if not site and len(sites) == 1:
+        return sites[0]
+    return site
+
+
 @router.get("/painel/visao-geral")
 def api_access_control_painel_visao_geral(site: str = Query("")) -> Dict[str, Any]:
     from app.services.access_control_painel import visao_geral
-    return visao_geral(site=site)
+    return visao_geral(site=_site_do_painel(site))
 
 
 @router.get("/painel/ao-vivo")
 def api_access_control_painel_ao_vivo(site: str = Query(""), limit: int = Query(40), portas: str = Query("")) -> Dict[str, Any]:
     from app.services.access_control_painel import ao_vivo
-    return ao_vivo(site=site, limite=limit, portas=[p.strip() for p in portas.split(",") if p.strip()])
+    return ao_vivo(site=_site_do_painel(site), limite=limit, portas=[p.strip() for p in portas.split(",") if p.strip()])
 
 
 @router.get("/painel/relatorios")
 def api_access_control_painel_relatorios(site: str = Query(""), dias: int = Query(28), portas: str = Query("")) -> Dict[str, Any]:
     from app.services.access_control_painel import relatorios
-    return relatorios(site=site, dias=dias, portas=[p.strip() for p in portas.split(",") if p.strip()])
+    return relatorios(site=_site_do_painel(site), dias=dias, portas=[p.strip() for p in portas.split(",") if p.strip()])
+
+
+# ---- Relatorios por modo do local (catalogo, dados na tela e PDF)
+def _relatorio_args(rid: str, site: str, de: str, ate: str, dia: str, grupo: str, quem: str, portas: str) -> Dict[str, Any]:
+    from app.services.access_control_relatorios import gerar
+    return gerar(rid, site=site, de=de, ate=ate, dia=dia, grupo=grupo, quem=quem,
+                 portas=[p.strip() for p in portas.split(",") if p.strip()])
+
+
+@router.get("/painel/relatorios/catalogo")
+def api_access_control_painel_relatorios_catalogo(site: str = Query("")) -> Dict[str, Any]:
+    from app.services.access_control_relatorios import catalogo
+    return catalogo(site=site)
+
+
+@router.get("/painel/relatorios/r/{rid}")
+def api_access_control_painel_relatorio(rid: str, site: str = Query(""), de: str = Query(""), ate: str = Query(""),
+                                        dia: str = Query(""), grupo: str = Query(""), quem: str = Query(""),
+                                        portas: str = Query("")) -> Dict[str, Any]:
+    return _relatorio_args(rid, site, de, ate, dia, grupo, quem, portas)
+
+
+@router.get("/painel/relatorios/r/{rid}/pdf")
+def api_access_control_painel_relatorio_pdf(rid: str, site: str = Query(""), de: str = Query(""), ate: str = Query(""),
+                                            dia: str = Query(""), grupo: str = Query(""), quem: str = Query(""),
+                                            portas: str = Query(""), user: Dict[str, Any] = Depends(current_user)) -> Response:
+    import re as _re
+    from app.core.tenant_context import tenant_report_logo_path
+    from app.services.access_control_relatorios_pdf import gerar_pdf
+    r = _relatorio_args(rid, site, de, ate, dia, grupo, quem, portas)
+    logo = tenant_report_logo_path("inventory")
+    pdf = gerar_pdf(r, usuario=str(user.get("username") or ""), logo=logo if logo.exists() else None)
+    import unicodedata
+    base = unicodedata.normalize("NFKD", f"{r['nome']} {r['site']} {r.get('dia') or r.get('ate') or ''}")
+    nome = _re.sub(r"[^A-Za-z0-9]+", "-", base.encode("ascii", "ignore").decode()).strip("-").lower() or "relatorio"
+    return Response(content=pdf, media_type="application/pdf",
+                    headers={"Content-Disposition": f'attachment; filename="{nome}.pdf"', "Cache-Control": "no-store"})
 
 
 @router.get("/painel/dispositivos")
@@ -1376,6 +1428,9 @@ def api_access_control_manual_exit(req: AccessManualExitRequest, request: Reques
     try:
         user = getattr(request.state, "user", {}) or {}
         operator_user = str(user.get("username") or user.get("sub") or "")
+        # Usuario restrito so registra saida de pessoa de local que ele acessa.
+        pessoa = next((p for p in list_people() if str(p.get("id") or "") == str(req.person_id or "")), None)
+        _site_do_painel(str(req.site or (pessoa or {}).get("site") or ""))
         event = record_manual_exit(req.person_id, site=req.site, reason=req.reason, operator_user=operator_user)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))

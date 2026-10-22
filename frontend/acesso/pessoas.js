@@ -174,7 +174,7 @@ function psDesenhar() {
 
 async function psCarregar() {
   const q = typeof _apSite === 'string' && _apSite ? `?site=${encodeURIComponent(_apSite)}` : '';
-  const dados = await apiJson(`/api/access-control/painel/pessoas${q}`);
+  const dados = await acJson(`/api/access-control/painel/pessoas${q}`);
   if (!dados) return;
   _psDados = dados;
   if (dados.perfil && typeof apMostrarPerfil === 'function') apMostrarPerfil(dados.perfil);

@@ -252,7 +252,7 @@ function dvLigar(el) {
 }
 
 async function dvCarregar() {
-  const dados = await apiJson('/api/access-control/painel/dispositivos');
+  const dados = await acJson('/api/access-control/painel/dispositivos');
   if (!dados) return;
   _dvDados = dados;
   const chip = document.getElementById('dvPerfil');
@@ -383,7 +383,7 @@ function dvPrevia() {
   }
   _dvPreviaTimer = setTimeout(async () => {
     try {
-      const r = await apiJson(`/api/access-control/painel/ip-virtual?connector_id=${encodeURIComponent(cid)}&host=${encodeURIComponent(host)}`);
+      const r = await acJson(`/api/access-control/painel/ip-virtual?connector_id=${encodeURIComponent(cid)}&host=${encodeURIComponent(host)}`);
       if (!r) return;
       if (r.bloqueado) {
         box.className = 'dv-previa ruim';
@@ -551,7 +551,7 @@ async function dvcLer() {
   _dvcDiag = null;
   dvcEstado();
   try {
-    _dvcDiag = await apiJson(`/api/access-control/painel/controladora/${encodeURIComponent(_dvcId)}`);
+    _dvcDiag = await acJson(`/api/access-control/painel/controladora/${encodeURIComponent(_dvcId)}`);
   } catch (err) {
     _dvcDiag = { erro: `Não consegui ler o leitor: ${err.message}` };
   }

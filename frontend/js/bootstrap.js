@@ -40,7 +40,20 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Navegacao
   document.querySelectorAll('.nav-item[data-view]').forEach(btn => {
-    btn.addEventListener('click', () => navigateTo(btn.dataset.view));
+    btn.addEventListener('click', () => {
+      // Submenu do Controle de Acesso = aba do Painel. Ja no Painel, so troca a
+      // aba (sem recarregar); de outra tela, abre o Painel nessa aba.
+      const aba = btn.dataset.apTela;
+      if (aba) {
+        try { sessionStorage.setItem('sightops.acesso.painel.tela', aba); } catch (_) {}
+        if (_currentView === 'access-painel' && typeof apTrocarTela === 'function') {
+          apTrocarTela(aba);
+          if (typeof closeSidebar === 'function') closeSidebar();
+          return;
+        }
+      }
+      navigateTo(btn.dataset.view);
+    });
   });
   document.addEventListener('click', (e) => {
     const btn = e.target.closest?.('[data-dash-nav]');

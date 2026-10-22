@@ -121,8 +121,13 @@ function acMenu(user) {
   document.querySelectorAll('#sidebar .nav-item[data-view]').forEach(btn => {
     const key = btn.dataset.view;
     const addon = restrito && (key === 'access-live' || key === 'access-painel') && enabled.includes('access-control');
-    const visivel = !AC_DESLIGADAS.has(key) && !(AC_SO_EQUIPE.has(key) && !(user && user.is_platform_admin))
-      && (!restrito || enabled.includes(key) || addon);
+    const sem = new Set((user && user.views_sem_acesso) || []);
+    let visivel = !AC_DESLIGADAS.has(key) && !(AC_SO_EQUIPE.has(key) && !(user && user.is_platform_admin))
+      && !sem.has(key) && (!restrito || enabled.includes(key) || addon);
+    // "Controle de Acesso" e o Painel: aparece para quem tem qualquer tela que ele substituiu.
+    if (key === 'access-control' || btn.dataset.acAba === 'vivo') {
+      visivel = ['access-control', 'access-live', 'access-painel'].some(k => !sem.has(k) && (!restrito || enabled.includes(k) || enabled.includes('access-control')));
+    }
     btn.classList.toggle('nav-item-hidden', !visivel);
   });
   // Paginas novas aparecem para quem tem o Controle de Acesso.
@@ -135,11 +140,16 @@ function acMenu(user) {
 function acLigarShell() {
   const pagina = (window.acPagina && window.acPagina.id) || 'painel';
   document.querySelectorAll('#sidebar .nav-item').forEach(btn => btn.classList.remove('active'));
+  // Controle de Acesso e Messenger sao abas desta pagina: trocam sem recarregar.
+  const ABAS = { 'access-control': 'vivo', 'access-messenger': 'messenger' };
   document.querySelectorAll('#sidebar .nav-item[data-view]').forEach(btn => {
-    // "Painel de Acesso" do menu do /v3 vira a pagina nova daqui.
-    if (btn.dataset.view === 'access-painel') {
-      btn.dataset.pagina = 'painel';
-      delete btn.dataset.view;
+    if (ABAS[btn.dataset.view] && pagina === 'painel') {
+      btn.dataset.acAba = ABAS[btn.dataset.view];
+      btn.addEventListener('click', () => {
+        if (typeof apTrocarTela === 'function') apTrocarTela(btn.dataset.acAba);
+        document.getElementById('sidebar')?.classList.remove('open');
+        document.getElementById('mobileBackdrop')?.classList.remove('open');
+      });
       return;
     }
     btn.addEventListener('click', () => { window.location.href = AC_RAIZ + '?tela=' + encodeURIComponent(btn.dataset.view); });
