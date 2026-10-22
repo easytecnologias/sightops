@@ -105,3 +105,85 @@ def test_texto_do_motivo_no_relatorio():
     assert M._texto_motivo({}).startswith("sem motivo informado")
     assert M._texto_motivo({"motivo": "camera retirada", "por": "joao", "em": "2026-10-17T21:30:00"}) ==         "camera retirada (por joao em 17/10/2026)"
     assert M._texto_motivo({"motivo": "previsto"}) == "previsto"
+
+
+def test_tipo_do_ponto_so_camera_e_pendencia():
+    assert M._tipo_do_ponto("CTO-07") == "cto"
+    assert M._tipo_do_ponto("PT-12") == "poste"
+    assert M._tipo_do_ponto("Caixa hermetica 3") == "caixa"
+    assert M._tipo_do_ponto("CAI") == "caixa"
+    assert M._tipo_do_ponto("CDO centro") == "cdo"
+    assert M._tipo_do_ponto("14 - RUA A") == "camera"
+
+
+def _camada_infra():
+    meta = {
+        "caixas": {
+            "cx1": {"id": "cx1", "ponto": "CAI", "nome": "C.CFTV-14", "tipo": "onu", "portas": 4, "lat": -10.0, "lng": -36.0,
+                    "itens": [{"tipo": "fonte", "qtd": 1}], "switch_modelo": "AN5506-04"},
+            "cx2": {"id": "cx2", "ponto": "CAI", "nome": "C.CFTV-02", "portas": 8, "lat": -10.01, "lng": -36.01,
+                    "switch_nome": "SW-2", "switch_modelo": "HIK", "uplinks": 1, "uplink_para": "onu"},
+        },
+        "cabos": {
+            "k1": {"id": "k1", "caixa": "cx1", "camera": {"ponto": "14 - RUA A", "ip": "10.0.0.14"}, "tipo": "utp5e", "porta": 2,
+                   "metros": 98.0, "metros_com_folga": 107.8, "alimentacao": "fonte12",
+                   "caminho": [[-10.0, -36.0], [-10.0008, -36.0]]},
+            "k2": {"id": "k2", "caixa": "cx1", "cto": {"ponto": "CTO-07", "porta": 3}, "camera": {}, "tipo": "drop",
+                   "metros": 40.0, "metros_com_folga": 44.0, "caminho": [[-10.0, -36.0], [-10.0003, -36.0004]]},
+        },
+    }
+    feats = [
+        {"type": "Feature", "properties": {"name": "CTO-07"}, "geometry": {"type": "Point", "coordinates": [-36.0004, -10.0003]}},
+        {"type": "Feature", "properties": {"name": "CAI"}, "geometry": {"type": "Point", "coordinates": [-36.0, -10.0]}},
+        {"type": "Feature", "properties": {"name": "PT-1"}, "geometry": {"type": "Point", "coordinates": [-36.002, -10.002]}},
+        {"type": "Feature", "properties": {"name": "Fibra 1"},
+         "geometry": {"type": "LineString", "coordinates": [[-36.0, -10.0], [-36.0, -10.0009]]}},
+    ]
+    return [{"id": "c1", "label": "PORTO", "meta": meta, "features": feats}]
+
+
+def test_infra_liga_cabo_a_camera_cto_e_conta_o_resto():
+    cam = {"titulo": "14 - RUA A", "ip": "10.0.0.14", "_status": "online"}
+    infra = M._infra_do_mapa(_camada_infra(), [cam])
+    cx14 = next(c for c in infra["caixas"] if c["nome"] == "C.CFTV-14")
+    assert cx14["tipo"] == "onu" and cx14["cabos"][0]["_cam"] is cam and cx14["cto"]["id"] == "k2"
+    assert [c["nome"] for c in infra["caixas"]] == ["C.CFTV-02", "C.CFTV-14"]  # pelo numero
+    assert next(c for c in infra["caixas"] if c["nome"] == "C.CFTV-02")["tipo"] == "switch"  # antiga sem tipo
+    assert infra["ctos"][0]["caixas"] == [cx14]
+    assert infra["contagem"]["poste"] == 1 and round(infra["linhas"][0]["metros"]) == 100
+    assert M._rotulo_porta(cx14, 2) == "LAN2" and "AN5506-04" in M._equipamento_da_caixa(cx14)
+    # pontos: a caixa cadastrada e caixa (nao pendencia), CTO e CTO
+    tipos = {p["nome"]: p["tipo"] for p in M._pontos_do_mapa(camadas=_camada_infra())}
+    assert tipos == {"CTO-07": "cto", "CAI": "caixa", "PT-1": "poste"}
+
+
+def test_mapa_com_cabos_caixa_e_cto(monkeypatch):
+    monkeypatch.setattr(M, "_tile", lambda *a, **k: None)
+    infra = M._infra_do_mapa(_camada_infra(), [{"titulo": "14 - RUA A", "ip": "10.0.0.14", "_status": "online"}])
+    linhas = M._linhas_dos_cabos(infra["caixas"])
+    assert len(linhas) == 2 and linhas[1][3] is True  # drop tracejado
+    img = M.renderizar_mapa([(-10.0, -36.0, "14", M.COR_CAIXA, "quadrado"), (-10.0003, -36.0004, "", M.COR_CTO, "losango"),
+                             (-10.0008, -36.0, "14", M.COR_ONLINE)], 600, 400, linhas=linhas)
+    assert img is not None and img.size == (600, 400)
+
+
+def test_relatorio_completo_com_caixas(tmp_path, monkeypatch):
+    """O PDF inteiro sai com caixas, CTO e pendencias novas (sem internet)."""
+    import app.core.tenant_context as TC
+
+    monkeypatch.setattr(M, "_tile", lambda *a, **k: None)
+    monkeypatch.setattr(M, "OUTPUT_DIR", tmp_path)
+    monkeypatch.setattr(M, "_camadas_do_relatorio", lambda site="": _camada_infra())
+    monkeypatch.setattr(M, "_gravacao_por_camera", lambda: {})
+    monkeypatch.setattr(M, "_cameras_do_cliente", lambda site="": [
+        {"titulo": "14 - RUA A", "ip": "10.0.0.14", "status": "online"},
+        {"titulo": "15 - RUA B", "ip": "10.0.0.15", "status": "offline", "lat": -10.002, "lon": -36.0}])
+    monkeypatch.setattr(TC, "get_current_tenant_slug", lambda: None)  # _coordenadas_do_mapa vazio
+    fitz = pytest.importorskip("fitz")  # PyMuPDF so para ler o PDF no teste
+    pdf = M.build_map_pdf_report(include_photos=False)
+
+    texto = "\n".join(p.get_text() for p in fitz.open(pdf))
+    for trecho in ("Infraestrutura de CFTV", "Caixa C.CFTV-14 | Direto na ONU", "LAN2", "Fonte 12V",
+                   "CTO-07", "Cabos acima do limite do UTP/PoE (1)", "Cameras no mapa sem cabo ate uma caixa (1)",
+                   "Caixas sem camera ligada (1)", "Pontos do mapa sem camera cadastrada (0)"):
+        assert trecho in texto, trecho

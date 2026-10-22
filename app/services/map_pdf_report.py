@@ -2,8 +2,10 @@
 
 Feito para apresentar em reuniao. Pagina 1 e o mapa inteiro com um pino por
 camera, colorido pelo status; depois um mapa ampliado por area (quadra/local),
-com a tabela daquela area; a galeria de fotos; e as pendencias -- ponto do mapa
-sem camera, camera sem posicao, camera fora do ar.
+com a tabela daquela area; a infraestrutura (caixas de CFTV, materiais, CTOs,
+linhas do KMZ) e uma pagina por caixa com as portas; a galeria de fotos; e as
+pendencias -- ponto do mapa sem camera, camera sem posicao, camera fora do ar,
+camera sem cabo, cabo acima do limite, caixa vazia ou com nome repetido.
 
 Posicao de cada camera: a do Mapa (camadas KMZ do cliente, casando pelo NOME,
 como a tela do Mapa faz). Detalhes em recorder_pdf_report._coordenadas_do_mapa.
@@ -69,6 +71,19 @@ COR_ONLINE = "#16a34a"
 COR_OFFLINE = "#dc2626"
 COR_SEM_STATUS = "#64748b"
 COR_OUTROS = "#d97706"   # ponto do mapa sem camera (mesmo laranja da legenda "outros" do Mapa)
+COR_CAIXA = "#92400e"    # caixa de CFTV (quadrado, como o pino do Mapa)
+COR_CTO = "#7c3aed"      # CTO (losango)
+COR_LINHA = "#0e7490"    # linhas do KMZ (fibra/rota)
+# cabos: mesmas cores e nomes do Mapa (frontend/js/mapaCaixas.js CX_CABOS)
+CABOS = {
+    "utp5e": ("UTP Cat5e", "#1971c2", False, 100), "utp6": ("UTP Cat6", "#1864ab", False, 100),
+    "drop": ("Fibra drop", "#0ea5e9", True, None), "coaxial": ("Coaxial", "#7950f2", False, None),
+    "outro": ("Outro", "#64748b", False, None),
+}
+TIPOS_CAIXA = {"switch": "Com switch", "onu": "Direto na ONU", "passagem": "So passagem / fonte"}
+ITENS_CAIXA = {"switch_poe": "Switch PoE", "switch": "Switch", "onu": "ONU", "fonte": "Fonte", "nobreak": "Nobreak",
+               "dio": "DIO", "roteador": "Roteador", "injetor_poe": "Injetor PoE", "outro": "Outro"}
+ALIMENTACAO = {"fonte12": "Fonte 12V", "injetor_poe": "Injetor PoE", "poe_switch": "PoE do switch", "outro": "Outra"}
 
 # --------------------------------------------------------------------- tiles
 TILE = 256
@@ -127,23 +142,31 @@ def _fonte(tamanho: int) -> ImageFont.ImageFont:
         return ImageFont.load_default()
 
 
-def renderizar_mapa(pontos: List[Tuple[float, float, str, str]], largura: int, altura: int,
-                    margem: int = 70, zoom_max: int = _ZOOM_MAX, raio: int = 17) -> Optional[Image.Image]:
-    """Imagem do mapa com um pino por ponto: [(lat, lon, rotulo, cor_hex)].
+def renderizar_mapa(pontos: List[tuple], largura: int, altura: int,
+                    margem: int = 70, zoom_max: int = _ZOOM_MAX, raio: int = 17,
+                    linhas: Optional[List[tuple]] = None) -> Optional[Image.Image]:
+    """Imagem do mapa com um pino por ponto: [(lat, lon, rotulo, cor_hex[, forma])].
 
-    Escolhe o maior zoom em que todos os pontos cabem dentro da margem. Tile que
-    nao baixar vira fundo liso -- o mapa sai sem o desenho daquele pedaco, mas
-    os pinos (que sao o que importa) continuam no lugar certo.
+    forma: "circulo" (camera, padrao), "quadrado" (caixa de CFTV) ou "losango"
+    (CTO). linhas: [([(lat, lon), ...], cor_hex, largura_px, tracejado)] --
+    cabos e fibra, desenhados por baixo dos pinos.
+
+    Escolhe o maior zoom em que todos os pontos (e as linhas) cabem dentro da
+    margem. Tile que nao baixar vira fundo liso -- o mapa sai sem o desenho
+    daquele pedaco, mas os pinos (que sao o que importa) continuam no lugar certo.
     """
-    pts = [(la, lo, rot, cor) for la, lo, rot, cor in pontos if la is not None and lo is not None]
+    pts = [(p[0], p[1], p[2], p[3], p[4] if len(p) > 4 else "circulo") for p in pontos
+           if p[0] is not None and p[1] is not None]
     if not pts:
         return None
+    trechos = [(list(c), cor, larg, trac) for c, cor, larg, trac in (linhas or []) if c and len(c) >= 2]
+    todos = [(p[0], p[1]) for p in pts] + [xy for t in trechos for xy in t[0]]
     z = zoom_max
     for z in range(zoom_max, 0, -1):
-        xs, ys = zip(*(_px(la, lo, z) for la, lo, _, _ in pts))
+        xs, ys = zip(*(_px(la, lo, z) for la, lo in todos))
         if max(xs) - min(xs) <= largura - 2 * margem and max(ys) - min(ys) <= altura - 2 * margem:
             break
-    xs, ys = zip(*(_px(la, lo, z) for la, lo, _, _ in pts))
+    xs, ys = zip(*(_px(la, lo, z) for la, lo in todos))
     ox = (max(xs) + min(xs)) / 2 - largura / 2
     oy = (max(ys) + min(ys)) / 2 - altura / 2
 
@@ -158,10 +181,16 @@ def renderizar_mapa(pontos: List[Tuple[float, float, str, str]], largura: int, a
             mapa.paste(im, (int(tx * TILE - ox), int(ty * TILE - oy)))
 
     d = ImageDraw.Draw(mapa)
+    for coords, cor, larg, trac in trechos:
+        pix = [(_px(la, lo, z)[0] - ox, _px(la, lo, z)[1] - oy) for la, lo in coords]
+        if trac:
+            _linha_tracejada(d, pix, cor, larg)
+        else:
+            d.line(pix, fill=cor, width=larg, joint="curve")
     fonte = _fonte(int(raio * 0.95))
     # offline por ultimo: em cima dos outros, que e o que precisa aparecer
     ordem = sorted(pts, key=lambda p: (p[3] == COR_OFFLINE, p[3] == COR_OUTROS))
-    reais = [(_px(la, lo, z)[0] - ox, _px(la, lo, z)[1] - oy) for la, lo, _, _ in ordem]
+    reais = [(_px(p[0], p[1], z)[0] - ox, _px(p[0], p[1], z)[1] - oy) for p in ordem]
     desenho = _afastar(reais, 2 * raio + 6, largura, altura, raio + 4)
     # Pino que saiu do lugar ganha uma linha ate a posicao real: cameras a poucos
     # metros (entrada, portaria) ficavam uma em cima da outra mesmo no zoom maximo.
@@ -169,9 +198,17 @@ def renderizar_mapa(pontos: List[Tuple[float, float, str, str]], largura: int, a
         if math.hypot(x - rx, y - ry) > 3:
             d.line((rx, ry, x, y), fill=(40, 40, 40), width=3)
             d.ellipse((rx - 4, ry - 4, rx + 4, ry + 4), fill=(40, 40, 40))
-    for (la, lo, rot, cor), (x, y) in zip(ordem, desenho):
-        d.ellipse((x - raio - 3, y - raio - 3, x + raio + 3, y + raio + 3), fill="white")
-        d.ellipse((x - raio, y - raio, x + raio, y + raio), fill=cor)
+    for (_, _, rot, cor, forma), (x, y) in zip(ordem, desenho):
+        if forma == "quadrado":
+            d.rounded_rectangle((x - raio - 3, y - raio - 3, x + raio + 3, y + raio + 3), radius=6, fill="white")
+            d.rounded_rectangle((x - raio, y - raio, x + raio, y + raio), radius=4, fill=cor)
+        elif forma == "losango":
+            r = raio + 4
+            d.polygon([(x, y - r - 3), (x + r + 3, y), (x, y + r + 3), (x - r - 3, y)], fill="white")
+            d.polygon([(x, y - r), (x + r, y), (x, y + r), (x - r, y)], fill=cor)
+        else:
+            d.ellipse((x - raio - 3, y - raio - 3, x + raio + 3, y + raio + 3), fill="white")
+            d.ellipse((x - raio, y - raio, x + raio, y + raio), fill=cor)
         if rot:
             d.text((x, y), str(rot)[:3], fill="white", font=fonte, anchor="mm")
     fa = _fonte(14)
@@ -179,6 +216,18 @@ def renderizar_mapa(pontos: List[Tuple[float, float, str, str]], largura: int, a
     d.rectangle((largura - w - 14, altura - 24, largura, altura), fill=(255, 255, 255))
     d.text((largura - w - 7, altura - 12), ATRIBUICAO, fill=(70, 70, 70), font=fa, anchor="lm")
     return mapa
+
+
+def _linha_tracejada(d: ImageDraw.ImageDraw, pix: List[Tuple[float, float]], cor: str, larg: int,
+                     traco: float = 16, vao: float = 10) -> None:
+    for (x1, y1), (x2, y2) in zip(pix, pix[1:]):
+        seg = math.hypot(x2 - x1, y2 - y1)
+        t = 0.0
+        while t < seg:
+            t2 = min(t + traco, seg)
+            d.line((x1 + (x2 - x1) * t / seg, y1 + (y2 - y1) * t / seg,
+                    x1 + (x2 - x1) * t2 / seg, y1 + (y2 - y1) * t2 / seg), fill=cor, width=larg)
+            t += traco + vao
 
 
 def _afastar(pontos: List[Tuple[float, float]], minimo: float, largura: int, altura: int,
@@ -314,20 +363,22 @@ def _gravacao_por_camera() -> Dict[Tuple[str, str], Dict[str, Any]]:
     return out
 
 
-def _pontos_do_mapa() -> List[Dict[str, Any]]:
-    """Todos os pontos das camadas do Mapa do cliente atual (nome, posicao, cor dos 'outros')."""
+def _camadas_do_relatorio(site: str = "") -> List[Dict[str, Any]]:
+    """Camadas importadas do Mapa do cliente atual: [{id, label, meta, features}].
+
+    So as que o Mapa mostra a quem pediu (restricao de site da sessao); com
+    `site`, so as daquele site (mesma conta de site da camada do Mapa)."""
+    from app.core import permissions
     from app.core.tenant_context import get_current_tenant_slug, tenant_kmz_input_dir
 
     if not get_current_tenant_slug():
         return []
-    from app.core import permissions
+    from app.api.endpoints import tools
 
     liberadas = None
     if permissions.sites_da_sessao() is not None:
-        # usuario com restricao de site: so as camadas que o Mapa mostra a ele
-        from app.api.endpoints.tools import _list_kmz_import_layers
-
-        liberadas = {str(l.get("id") or "") for l in _list_kmz_import_layers(include_features=False)}
+        liberadas = {str(l.get("id") or "") for l in tools._list_kmz_import_layers(include_features=False)}
+    indice = tools._indice_sites_inventario() if _to_text(site) else None
     pasta = tenant_kmz_input_dir().parent / "kmz_layers"
     out: List[Dict[str, Any]] = []
     for geo in sorted(pasta.glob("*.geojson")):
@@ -341,18 +392,178 @@ def _pontos_do_mapa() -> List[Dict[str, Any]]:
             dados = json.loads(geo.read_text(encoding="utf-8") or "{}")
         except (OSError, ValueError):
             continue
+        features = [f for f in (dados.get("features") or []) if isinstance(f, dict)]
+        if indice is not None and tools._chave_site(site) not in tools._sites_da_camada(meta, features, indice):
+            continue
+        out.append({"id": geo.stem, "label": str(meta.get("label") or meta.get("original_name") or geo.stem),
+                    "meta": meta, "features": features})
+    return out
+
+
+# Tipo de um ponto do KMZ que nao casou com camera: a mesma leitura do Mapa
+# (frontend/js/cameras.js mapFeatureType). So "camera" sem cadastro e pendencia.
+_RE_POSTE = re.compile(r"^pt[-\s]?\d+\b|\bpostes?\b|\bpole\b", re.I)
+_RE_CAIXA = re.compile(r"caixa\s*herm[eé]tica|caixa\s*cftv|herm[eé]tica|^(cai|cx)(\s*[-_]?\s*\d+)?$", re.I)
+_RE_CTO = re.compile(r"\bcto\b|^cto", re.I)
+_RE_CDO = re.compile(r"\bcdo\b|^cdo|emenda|splice", re.I)
+
+
+def _tipo_do_ponto(nome: str) -> str:
+    n = _to_text(nome).strip()
+    for tipo, rx in (("poste", _RE_POSTE), ("caixa", _RE_CAIXA), ("cto", _RE_CTO), ("cdo", _RE_CDO)):
+        if rx.search(n):
+            return tipo
+    return "camera"
+
+
+def _perto(a: Optional[tuple], b: Optional[tuple]) -> bool:
+    return bool(a and b) and abs(a[0] - b[0]) < 3e-5 and abs(a[1] - b[1]) < 3e-5
+
+
+def _pos_feature(f: Dict[str, Any]) -> Optional[tuple]:
+    g = f.get("geometry") or {}
+    if g.get("type") != "Point" or len(g.get("coordinates") or []) < 2:
+        return None
+    return _coordenadas({"lat": g["coordinates"][1], "lon": g["coordinates"][0]})
+
+
+def _pontos_caixa(meta: Dict[str, Any], features: List[Dict[str, Any]]) -> List[tuple]:
+    """(nome minusculo, posicao) dos pontos que sao caixa cadastrada."""
+    out = []
+    for cx in (meta.get("caixas") or {}).values():
+        if isinstance(cx, dict):
+            out.append((_to_text(cx.get("ponto")).strip().lower(), _posicao_da_caixa(cx, meta, features)))
+    return out
+
+
+def _posicao_da_caixa(cx: Dict[str, Any], meta: Dict[str, Any], features: List[Dict[str, Any]]) -> Optional[tuple]:
+    """Mesma regra do Mapa (cxPosDaCaixa): a gravada; senao o inicio do primeiro
+    cabo dela; senao o ponto com o nome."""
+    c = _coordenadas({"lat": cx.get("lat"), "lon": cx.get("lng")}) if cx.get("lat") is not None else None
+    if c:
+        return c
+    for cb in (meta.get("cabos") or {}).values():
+        if isinstance(cb, dict) and cb.get("caixa") == cx.get("id") and len(cb.get("caminho") or []) >= 2:
+            return _coordenadas({"lat": cb["caminho"][0][0], "lon": cb["caminho"][0][1]})
+    nome = _to_text(cx.get("ponto")).strip().lower()
+    return next((p for f in features
+                 if _to_text((f.get("properties") or {}).get("name")).strip().lower() == nome
+                 for p in [_pos_feature(f)] if p), None)
+
+
+def _pontos_do_mapa(site: str = "", camadas: Optional[List[Dict[str, Any]]] = None) -> List[Dict[str, Any]]:
+    """Pontos das camadas do Mapa (nome, posicao, tipo, cor dos 'outros'); o
+    ponto que e caixa cadastrada sai como tipo "caixa"."""
+    out: List[Dict[str, Any]] = []
+    for cam in (camadas if camadas is not None else _camadas_do_relatorio(site)):
+        meta = cam["meta"]
         cor = str(meta.get("cor_outros") or "") or COR_OUTROS
-        camada = str(meta.get("label") or meta.get("original_name") or geo.stem)
         motivos = meta.get("motivos") if isinstance(meta.get("motivos"), dict) else {}
-        for f in dados.get("features") or []:
-            g = (f or {}).get("geometry") or {}
-            if g.get("type") != "Point" or len(g.get("coordinates") or []) < 2:
+        caixas = _pontos_caixa(meta, cam["features"])
+        for f in cam["features"]:
+            c = _pos_feature(f)
+            if not c:
                 continue
-            c = _coordenadas({"lat": g["coordinates"][1], "lon": g["coordinates"][0]})
-            if c:
-                nome = _to_text(((f or {}).get("properties") or {}).get("name"))
-                out.append({"nome": nome, "pos": c, "camada": camada, "cor": cor,
-                            "motivo": motivos.get(nome.strip().lower()) or {}})
+            nome = _to_text((f.get("properties") or {}).get("name"))
+            chave = nome.strip().lower()
+            tipo = "caixa" if any(n == chave and _perto(p, c) for n, p in caixas) else _tipo_do_ponto(nome)
+            out.append({"nome": nome, "pos": c, "camada": cam["label"], "cor": cor, "tipo": tipo,
+                        "motivo": motivos.get(chave) or {}})
+    return out
+
+
+def _rotulo_caixa(nome: str) -> str:
+    """"C-CFTV-14" -> "14" (o numero cabe no pino); sem numero, as iniciais."""
+    nums = re.findall(r"\d+", nome or "")
+    return nums[-1][-3:] if nums else _to_text(nome)[:2].upper()
+
+
+def _infra_do_mapa(camadas: List[Dict[str, Any]], cams: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Caixas de CFTV, cabos, CTOs e linhas das camadas, com a camera de cada
+    cabo (do inventario ja filtrado do relatorio: pelo IP, senao pelo nome)."""
+    por_ip = {_to_text(c.get("ip")): c for c in cams if _to_text(c.get("ip"))}
+    por_nome = {_to_text(c.get("titulo")).strip().lower(): c for c in cams if _to_text(c.get("titulo"))}
+    caixas: List[Dict[str, Any]] = []
+    ctos: List[Dict[str, Any]] = []
+    linhas: List[Dict[str, Any]] = []
+    contagem = {"poste": 0, "cdo": 0}
+    for cam in camadas:
+        meta, features = cam["meta"], cam["features"]
+        cabos = [v for v in (meta.get("cabos") or {}).values() if isinstance(v, dict)]
+        ctos_da_camada: Dict[str, Dict[str, Any]] = {}
+        for f in features:
+            nome = _to_text((f.get("properties") or {}).get("name"))
+            g = f.get("geometry") or {}
+            if g.get("type") == "LineString":
+                coords = [(float(x[1]), float(x[0])) for x in g.get("coordinates") or [] if len(x) >= 2]
+                if len(coords) >= 2:
+                    metros = sum(_metros(a, b) for a, b in zip(coords, coords[1:]))
+                    linhas.append({"nome": nome, "coords": coords, "metros": metros, "camada": cam["label"]})
+                continue
+            pos = _pos_feature(f)
+            tipo = _tipo_do_ponto(nome) if pos else ""
+            if tipo == "cto":
+                cto = {"nome": nome, "pos": pos, "camada": cam["label"], "caixas": []}
+                ctos.append(cto)
+                ctos_da_camada.setdefault(nome.strip().lower(), cto)
+            elif tipo in contagem:
+                contagem[tipo] += 1
+        for cx in (meta.get("caixas") or {}).values():
+            if not isinstance(cx, dict):
+                continue
+            tipo = cx.get("tipo") if cx.get("tipo") in TIPOS_CAIXA else "switch"
+            ligacoes = []
+            for cb in sorted((c for c in cabos if c.get("caixa") == cx.get("id") and not c.get("cto")),
+                             key=lambda c: (int(c.get("porta") or 999), _to_text((c.get("camera") or {}).get("ponto")))):
+                destino = cb.get("camera") or {}
+                camera = por_ip.get(_to_text(destino.get("ip"))) or por_nome.get(_to_text(destino.get("ponto")).strip().lower())
+                ligacoes.append({**cb, "_cam": camera})
+            cto_cabo = next((c for c in cabos if c.get("caixa") == cx.get("id") and c.get("cto")), None)
+            item = {"cx": cx, "nome": _to_text(cx.get("nome") or cx.get("ponto")) or "Caixa", "tipo": tipo,
+                    "pos": _posicao_da_caixa(cx, meta, features), "camada": cam["label"],
+                    "cabos": ligacoes, "cto": cto_cabo}
+            caixas.append(item)
+            if cto_cabo:
+                cto = ctos_da_camada.get(_to_text((cto_cabo.get("cto") or {}).get("ponto")).strip().lower())
+                if cto:
+                    cto["caixas"].append(item)
+    caixas.sort(key=lambda c: (int(_rotulo_caixa(c["nome"])) if _rotulo_caixa(c["nome"]).isdigit() else 10 ** 6, c["nome"]))
+    return {"caixas": caixas, "ctos": ctos, "linhas": linhas, "contagem": contagem}
+
+
+def _rotulo_porta(caixa: Dict[str, Any], porta: Any) -> str:
+    if not porta:
+        return "-"
+    return f"LAN{porta}" if caixa["tipo"] == "onu" else f"P{porta}"
+
+
+def _equipamento_da_caixa(caixa: Dict[str, Any]) -> str:
+    cx = caixa["cx"]
+    nome, modelo = _to_text(cx.get("switch_nome")), _to_text(cx.get("switch_modelo"))
+    if caixa["tipo"] == "passagem":
+        return "-"
+    base = "ONU" if caixa["tipo"] == "onu" else "Switch"
+    return " ".join(x for x in (base, nome, f"({modelo})" if modelo else "") if x)
+
+
+def _cabo_txt(cb: Dict[str, Any]) -> Tuple[str, str]:
+    nome = CABOS.get(cb.get("tipo"), CABOS["outro"])[0]
+    m = float(cb.get("metros") or 0)
+    mf = float(cb.get("metros_com_folga") or m)
+    return nome, f"{m:.0f} m ({mf:.0f} m c/ folga)"
+
+
+def _linhas_dos_cabos(caixas: List[Dict[str, Any]], so_cams: Optional[set] = None) -> List[tuple]:
+    """Cabos das caixas para o renderizar_mapa (so os das cameras em `so_cams`, se dado)."""
+    out = []
+    for cx in caixas:
+        for cb in cx["cabos"] + ([cx["cto"]] if cx["cto"] else []):
+            if so_cams is not None and id(cb.get("_cam")) not in so_cams:
+                continue
+            nome, cor, trac, _ = CABOS.get(cb.get("tipo"), CABOS["outro"])
+            coords = [(float(p[0]), float(p[1])) for p in cb.get("caminho") or [] if len(p) >= 2]
+            if len(coords) >= 2:
+                out.append((coords, cor, 6, trac))
     return out
 
 
@@ -425,17 +636,46 @@ def _tabela(cabec: List[str], linhas: List[List[Any]], pesos: List[int], styles,
     return t
 
 
-def _legenda(styles, largura: float, tem_outros: bool, cor_outros: str) -> Table:
+def _legenda(styles, largura: float, tem_outros: bool, cor_outros: str,
+             extras: Iterable[Tuple[str, str]] = ()) -> Table:
     itens = [(COR_ONLINE, "Online"), (COR_OFFLINE, "Offline"), (COR_SEM_STATUS, "Sem status")]
     if tem_outros:
         itens.append((cor_outros, "Ponto do mapa sem camera"))
+    itens += list(extras)
     celulas = []
     for cor, txt in itens:
         celulas += [_p("", styles["small"], fallback=""), _p(txt, styles["small"])]
-    t = Table([celulas], colWidths=[10, 120] * len(itens), hAlign="LEFT")
+    t = Table([celulas], colWidths=[10, min(120, largura / len(itens) - 10)] * len(itens), hAlign="LEFT")
     cmds = [("VALIGN", (0, 0), (-1, -1), "MIDDLE"), ("LEFTPADDING", (0, 0), (-1, -1), 3)]
     for i, (cor, _) in enumerate(itens):
         cmds.append(("BACKGROUND", (2 * i, 0), (2 * i, 0), colors.HexColor(cor)))
+    t.setStyle(TableStyle(cmds))
+    return t
+
+
+def _grade_portas(cx: Dict[str, Any], portas: int, styles, largura: float) -> Table:
+    """As portas da caixa como no painel do Mapa: verde/vermelho/cinza = camera
+    online/fora/sem status, branco = livre; UP (switch) ou PON (ONU) no fim."""
+    por_porta = {int(cb["porta"]): cb for cb in cx["cabos"] if cb.get("porta")}
+    celulas, cores = [], []
+    for n in range(1, portas + 1):
+        cb = por_porta.get(n)
+        cam = cb["_cam"] if cb else None
+        celulas.append(_rotulo_porta(cx, n))
+        cores.append(None if not cb else _cor_status(cam["_status"]) if cam is not None else COR_SEM_STATUS)
+    if cx["tipo"] == "onu":
+        celulas.append("PON")
+        cores.append(COR_CTO if cx["cto"] else "#cbd5e1")
+    else:
+        for u in range(int(cx["cx"].get("uplinks") or 0)):
+            celulas.append("UP" if int(cx["cx"].get("uplinks") or 0) == 1 else f"UP{u + 1}")
+            cores.append("#475569")
+    larg = min(16 * mm, largura / max(len(celulas), 1))
+    t = Table([[_p(c, styles["small_b"], color=colors.white if cor else INK) for c, cor in zip(celulas, cores)]],
+              colWidths=[larg] * len(celulas), rowHeights=[9 * mm], hAlign="LEFT")
+    cmds = [("ALIGN", (0, 0), (-1, -1), "CENTER"), ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("BOX", (0, 0), (-1, -1), 0.6, BORDER), ("INNERGRID", (0, 0), (-1, -1), 0.6, BORDER)]
+    cmds += [("BACKGROUND", (i, 0), (i, 0), colors.HexColor(cor)) for i, cor in enumerate(cores) if cor]
     t.setStyle(TableStyle(cmds))
     return t
 
@@ -460,10 +700,26 @@ def build_map_pdf_report(site: str = "", company_name: str = "", report_color: s
     cams = _cameras_do_cliente(site)
     mapa_nomes = _coordenadas_do_mapa()
     gravacao = _gravacao_por_camera()
-    pontos = _pontos_do_mapa()
+    camadas = _camadas_do_relatorio(site)
+    pontos = _pontos_do_mapa(camadas=camadas)
     titulos = {_to_text(c.get("titulo")).strip().lower() for c in cams}
+    # Ponto so com o numero ("51") e a camera "51 - ESTADIO", como o Mapa casa
+    # (mapNumeroDoTitulo): so quando o numero e unico nos dois lados.
+    so_numero: Dict[str, List[tuple]] = {}
+    for p in pontos:
+        if p["tipo"] == "camera" and re.fullmatch(r"\d+", p["nome"].strip()):
+            so_numero.setdefault(str(int(p["nome"].strip())), []).append(p["pos"])
+    nums_cam: Dict[str, int] = {}
+    for c in cams:
+        n = _numero(_to_text(c.get("titulo")))
+        if n:
+            nums_cam[str(int(n))] = nums_cam.get(str(int(n)), 0) + 1
+    casados_por_numero = {n for n, ps in so_numero.items() if len(ps) == 1 and nums_cam.get(n) == 1}
     for c in cams:
         c["_pos"] = _posicao_camera(c, mapa_nomes)
+        n = _numero(_to_text(c.get("titulo")))
+        if not c["_pos"] and n and str(int(n)) in casados_por_numero:
+            c["_pos"] = so_numero[str(int(n))][0]
         c["_status"] = _status(c)
         c["_num"] = _numero(_to_text(c.get("titulo")))
         if c["_pos"]:
@@ -471,10 +727,26 @@ def build_map_pdf_report(site: str = "", company_name: str = "", report_color: s
         conn = _to_text(c.get("remote_connector_id") or c.get("connector_id"))
         c["_rec"] = gravacao.get((conn, _to_text(c.get("ip")))) or gravacao.get(("", _to_text(c.get("ip"))))
         c["_foto"] = _pick_image_path(c)
-    sem_camera = [p for p in pontos if p["nome"].strip().lower() not in titulos]
+    # so ponto com cara de camera e pendencia: caixa, CTO, poste e CDO sao infraestrutura
+    sem_camera = [p for p in pontos if p["tipo"] == "camera" and p["nome"].strip().lower() not in titulos
+                  and not (re.fullmatch(r"\d+", p["nome"].strip()) and str(int(p["nome"].strip())) in casados_por_numero)]
     cor_outros = sem_camera[0]["cor"] if sem_camera else COR_OUTROS
     com_pos = [c for c in cams if c["_pos"]]
     areas = agrupar_areas(cams)
+    infra = _infra_do_mapa(camadas, cams)
+    caixas, ctos, linhas_kmz = infra["caixas"], infra["ctos"], infra["linhas"]
+    caixa_da_cam: Dict[int, str] = {}
+    for cx in caixas:
+        for cb in cx["cabos"]:
+            if cb["_cam"] is not None:
+                caixa_da_cam[id(cb["_cam"])] = f"{cx['nome']} {_rotulo_porta(cx, cb.get('porta'))}".replace(" -", "")
+    pinos_caixa = [(cx["pos"][0], cx["pos"][1], _rotulo_caixa(cx["nome"]), COR_CAIXA, "quadrado")
+                   for cx in caixas if cx["pos"]]
+    pinos_cto = [(c["pos"][0], c["pos"][1], "", COR_CTO, "losango") for c in ctos if c["pos"]]
+    linhas_cabos = _linhas_dos_cabos(caixas)
+    linhas_rede = [(l["coords"], COR_LINHA, 4, False) for l in linhas_kmz]
+    extras_legenda = ([(COR_CAIXA, "Caixa de CFTV")] if caixas else []) + ([(COR_CTO, "CTO")] if ctos else []) \
+        + ([(CABOS["utp5e"][1], "Cabo UTP")] if linhas_cabos else []) + ([(COR_LINHA, "Linha do KMZ")] if linhas_rede else [])
 
     total = len(cams)
     online = sum(1 for c in cams if c["_status"] == "online")
@@ -501,7 +773,7 @@ def build_map_pdf_report(site: str = "", company_name: str = "", report_color: s
                             topMargin=18 * mm, bottomMargin=14 * mm, title=f"Relatorio do mapa - {site_label}",
                             author="SightOps", subject="Mapa das cameras")
     story: List[Any] = []
-    n_mapas = 1 + len(areas)
+    n_mapas = 1 + len(areas) + len(caixas)
     passo(0, n_mapas, "mapas")
 
     # ---- pagina 1: visao geral
@@ -515,16 +787,35 @@ def build_map_pdf_report(site: str = "", company_name: str = "", report_color: s
         ("Gravando", f"{gravando} de {grav_conhecida}", INK) if grav_conhecida
         else ("Em gravador", f"{em_gravador} de {total}", INK),
     ], styles, util))
+    portas_total = sum(int(cx["cx"].get("portas") or 0) for cx in caixas if cx["tipo"] != "passagem")
+    portas_uso = sum(1 for cx in caixas if cx["tipo"] != "passagem" for cb in cx["cabos"] if cb.get("porta"))
+    metros_por_tipo: Dict[str, float] = {}
+    for cx in caixas:
+        for cb in cx["cabos"] + ([cx["cto"]] if cx["cto"] else []):
+            t = cb.get("tipo") if cb.get("tipo") in CABOS else "outro"
+            metros_por_tipo[t] = metros_por_tipo.get(t, 0) + float(cb.get("metros_com_folga") or cb.get("metros") or 0)
+    if caixas or ctos:
+        ligadas = len(caixa_da_cam)
+        story.append(Spacer(1, 2 * mm))
+        story.append(_kpis([
+            ("Caixas de CFTV", str(len(caixas)), INK),
+            ("Portas em uso", f"{portas_uso} de {portas_total}", INK),
+            ("Cameras com cabo", f"{ligadas} de {total}", OK if ligadas == total else INK),
+            ("Cabo UTP", f"{metros_por_tipo.get('utp5e', 0) + metros_por_tipo.get('utp6', 0):,.0f} m".replace(",", "."), INK),
+            ("CTOs", str(len(ctos)), INK),
+        ], styles, util))
     story.append(Spacer(1, 3 * mm))
     geral = renderizar_mapa(
         [(c["_pos"][0], c["_pos"][1], c["_num"], _cor_status(c["_status"])) for c in com_pos]
-        + [(p["pos"][0], p["pos"][1], _numero(p["nome"]), p["cor"]) for p in sem_camera],
-        1800, 860, raio=15)
+        + [(p["pos"][0], p["pos"][1], _numero(p["nome"]), p["cor"]) for p in sem_camera]
+        + pinos_caixa + pinos_cto,
+        # com a 2a linha de numeros, o mapa encolhe para caber na pagina 1
+        1800, 700 if (caixas or ctos) else 860, raio=15, linhas=linhas_rede + linhas_cabos)
     passo(1, n_mapas, "mapas")
     if geral is not None:
         story.append(_imagem_pdf(geral, util))
         story.append(Spacer(1, 2 * mm))
-        story.append(_legenda(styles, util, bool(sem_camera), cor_outros))
+        story.append(_legenda(styles, util, bool(sem_camera), cor_outros, extras_legenda))
     else:
         story.append(_p("Nenhuma camera com posicao no mapa.", styles["small"]))
 
@@ -566,6 +857,106 @@ def build_map_pdf_report(site: str = "", company_name: str = "", report_color: s
     dupla.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP"), ("LEFTPADDING", (0, 0), (-1, -1), 0)]))
     story.append(dupla)
 
+    # ---- infraestrutura: caixas, materiais, CTOs e o resto do mapa
+    if caixas or ctos or linhas_kmz or any(infra["contagem"].values()):
+        story.append(PageBreak())
+        story.append(_p("Infraestrutura de CFTV", styles["title"]))
+        story.append(_p("Caixas, cabos e CTOs desenhados no Mapa. Metragem pelo tracado, com a folga de cada cabo.",
+                        styles["subtitle"]))
+        if caixas:
+            story.append(_p(f"Caixas de CFTV ({len(caixas)})", styles["h2"]))
+            linhas = []
+            for cx in caixas:
+                c_cams = [cb["_cam"] for cb in cx["cabos"]]
+                fora = sum(1 for c in c_cams if c is not None and c["_status"] != "online")
+                usadas = sum(1 for cb in cx["cabos"] if cb.get("porta"))
+                portas = int(cx["cx"].get("portas") or 0)
+                if cx["cto"]:
+                    nome_cto = (cx["cto"].get("cto") or {})
+                    lig = f"CTO {nome_cto.get('ponto')}{' porta ' + str(nome_cto['porta']) if nome_cto.get('porta') else ''}" \
+                          f" - {float(cx['cto'].get('metros_com_folga') or cx['cto'].get('metros') or 0):.0f} m"
+                elif cx["tipo"] == "switch" and int(cx["cx"].get("uplinks") or 0):
+                    lig = f"uplink -> {_to_text(cx['cx'].get('uplink_para') or 'onu').upper()}"
+                else:
+                    lig = "-"
+                itens = ", ".join(f"{int(i.get('qtd') or 1)}x {ITENS_CAIXA.get(i.get('tipo'), 'Outro')}"
+                                  f"{' ' + _to_text(i.get('modelo')) if _to_text(i.get('modelo')) else ''}"
+                                  for i in cx["cx"].get("itens") or [] if isinstance(i, dict))
+                linhas.append([
+                    _p(cx["nome"], styles["small_b"]), _p(TIPOS_CAIXA[cx["tipo"]], styles["small"]),
+                    _p(_equipamento_da_caixa(cx), styles["small"]),
+                    _p("-" if cx["tipo"] == "passagem" else f"{usadas} de {portas}", styles["small"]),
+                    _p(f"{len(c_cams)}" + (f" ({fora} fora)" if fora else ""), styles["small_b"] if fora else styles["small"],
+                       color=BAD if fora else None),
+                    _p(lig, styles["small"]), _p(itens, styles["small"]),
+                ])
+            story.append(_tabela(["CAIXA", "TIPO", "EQUIPAMENTO", "PORTAS", "CAMERAS", "LIGACAO", "ITENS"],
+                                 linhas, [16, 13, 22, 9, 10, 18, 24], styles, accent, util))
+        # materiais: o que foi lancado no mapa, para conferir com o almoxarifado
+        cabos_tab = []
+        for t, (nome, _, _, _) in CABOS.items():
+            todos = [cb for cx in caixas for cb in cx["cabos"] + ([cx["cto"]] if cx["cto"] else []) if (cb.get("tipo") or "outro") == t]
+            if todos:
+                tracado = sum(float(cb.get("metros") or 0) for cb in todos)
+                cabos_tab.append([_p(nome, styles["small_b"]), _p(str(len(todos)), styles["small"]),
+                                  _p(f"{tracado:,.0f} m".replace(",", "."), styles["small"]),
+                                  _p(f"{metros_por_tipo.get(t, 0):,.0f} m".replace(",", "."), styles["small_b"])])
+        equip: Dict[Tuple[str, str], int] = {}
+        for cx in caixas:
+            itens = [i for i in cx["cx"].get("itens") or [] if isinstance(i, dict)]
+            tipos = {i.get("tipo") for i in itens}
+            # o switch/ONU da caixa conta mesmo sem estar na lista de itens
+            if cx["tipo"] == "switch" and not tipos & {"switch", "switch_poe"}:
+                itens.append({"tipo": "switch_poe", "modelo": cx["cx"].get("switch_modelo"), "qtd": 1})
+            if cx["tipo"] == "onu" and "onu" not in tipos:
+                itens.append({"tipo": "onu", "modelo": cx["cx"].get("switch_modelo"), "qtd": 1})
+            for i in itens:
+                k = (ITENS_CAIXA.get(i.get("tipo"), "Outro"), _to_text(i.get("modelo")) or "-")
+                equip[k] = equip.get(k, 0) + int(i.get("qtd") or 1)
+        alim: Dict[str, int] = {}
+        for cx in caixas:
+            for cb in cx["cabos"]:
+                if cb.get("alimentacao"):
+                    a = ALIMENTACAO.get(cb["alimentacao"], cb["alimentacao"])
+                    alim[a] = alim.get(a, 0) + 1
+        equip_tab = [[_p(k[0], styles["small_b"]), _p(k[1], styles["small"]), _p(str(n), styles["small"])]
+                     for k, n in sorted(equip.items(), key=lambda x: (-x[1], x[0]))]
+        equip_tab += [[_p(f"{a} (camera)", styles["small_b"]), _p("-", styles["small"]), _p(str(n), styles["small"])]
+                      for a, n in sorted(alim.items())]
+        if cabos_tab or equip_tab:
+            story.append(CondPageBreak(40 * mm))
+            story.append(_p("Materiais lancados no mapa", styles["h2"]))
+            t_cab = _tabela(["CABO", "TRECHOS", "TRACADO", "COM FOLGA"], cabos_tab or [[_p("-", styles["small"])] * 4],
+                            [30, 14, 18, 18], styles, accent, lado)
+            t_eq = _tabela(["EQUIPAMENTO", "MODELO", "QTD"], equip_tab or [[_p("-", styles["small"])] * 3],
+                           [30, 30, 10], styles, accent, lado)
+            mat = Table([[t_cab, t_eq]], colWidths=[lado + 3 * mm, lado + 3 * mm], hAlign="LEFT")
+            mat.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP"), ("LEFTPADDING", (0, 0), (-1, -1), 0)]))
+            story.append(mat)
+        if ctos:
+            story.append(CondPageBreak(40 * mm))
+            story.append(_p(f"CTOs no mapa ({len(ctos)})", styles["h2"]))
+            story.append(_tabela(
+                ["CTO", "CAMADA", "CAIXAS LIGADAS", "DROP", "LOCALIZACAO"],
+                [[_p(c["nome"], styles["small_b"]), _p(c["camada"], styles["small"]),
+                  _p(", ".join(f"{cx['nome']}{' (porta ' + str(cx['cto']['cto']['porta']) + ')' if (cx['cto'].get('cto') or {}).get('porta') else ''}"
+                               for cx in c["caixas"]) or "nenhuma", styles["small"]),
+                  _p(f"{sum(float(cx['cto'].get('metros_com_folga') or 0) for cx in c['caixas']):.0f} m" if c["caixas"] else "-", styles["small"]),
+                  _p_localizacao({"lat": c["pos"][0], "lon": c["pos"][1]}, styles["mono"])] for c in ctos],
+                [18, 20, 34, 10, 18], styles, accent, util))
+        if linhas_kmz or any(infra["contagem"].values()):
+            story.append(CondPageBreak(30 * mm))
+            story.append(_p("Outros elementos do mapa", styles["h2"]))
+            outros = []
+            if linhas_kmz:
+                outros.append([_p("Linhas (fibra / rota)", styles["small_b"]), _p(str(len(linhas_kmz)), styles["small"]),
+                               _p(f"{sum(l['metros'] for l in linhas_kmz):,.0f} m".replace(",", "."), styles["small"])])
+            for tipo, nome in (("poste", "Postes"), ("cdo", "CDO / emendas")):
+                if infra["contagem"][tipo]:
+                    outros.append([_p(nome, styles["small_b"]), _p(str(infra["contagem"][tipo]), styles["small"]),
+                                   _p("-", styles["small"])])
+            story.append(_tabela(["ELEMENTO", "QUANTIDADE", "EXTENSAO"], outros, [30, 14, 18], styles, accent, lado))
+
     # ---- uma pagina por area
     for i, a in enumerate(areas, 1):
         story.append(PageBreak())
@@ -574,8 +965,12 @@ def build_map_pdf_report(site: str = "", company_name: str = "", report_color: s
         story.append(_p(f"Area {i}  |  {a['nome']}", styles["title"]))
         story.append(_p(f"{len(ac)} camera{'s' if len(ac) != 1 else ''}  -  {on} online  -  {len(ac) - on} fora",
                         styles["subtitle"]))
-        img = renderizar_mapa([(c["_pos"][0], c["_pos"][1], c["_num"], _cor_status(c["_status"])) for c in ac],
-                              1800, 620, raio=19)
+        # cabos das cameras da area e as caixas de onde eles saem
+        ids_area = {id(c) for c in ac}
+        cx_area = [cx for cx in caixas if cx["pos"] and any(id(cb["_cam"]) in ids_area for cb in cx["cabos"])]
+        img = renderizar_mapa([(c["_pos"][0], c["_pos"][1], c["_num"], _cor_status(c["_status"])) for c in ac]
+                              + [(cx["pos"][0], cx["pos"][1], _rotulo_caixa(cx["nome"]), COR_CAIXA, "quadrado") for cx in cx_area],
+                              1800, 620, raio=19, linhas=_linhas_dos_cabos(cx_area, ids_area))
         passo(1 + i, n_mapas, "mapas")
         if img is not None:
             story.append(_imagem_pdf(img, util))
@@ -585,15 +980,89 @@ def build_map_pdf_report(site: str = "", company_name: str = "", report_color: s
             rec = c["_rec"]
             sufixo = {"sim": " - gravando", "nao": " - NAO GRAVA"}.get(rec["gravando"], "") if rec else ""
             rec_txt = f"{rec['gravador']} canal {rec['canal']}{sufixo}" if rec else "fora de gravador"
-            linhas.append([
+            linha = [
                 _p(c["_num"] or "-", styles["small_b"]), _p(c.get("titulo"), styles["small_b"]),
                 _p(c.get("ip"), styles["mono"]),
                 _p(c["_status"].upper(), styles["small_b"], color=OK if c["_status"] == "online" else BAD),
                 _p(rec_txt, styles["small"]), _p("sim" if c["_foto"] is not None else "nao", styles["small"]),
                 _p(c.get("modelo") or c.get("model"), styles["small"]), _p_localizacao(c, styles["mono"]),
+            ]
+            if caixas:
+                linha.insert(5, _p(caixa_da_cam.get(id(c), "sem cabo"), styles["small"]))
+            linhas.append(linha)
+        if caixas:
+            story.append(_tabela(["N", "CAMERA", "IP", "STATUS", "GRAVADOR", "CAIXA / PORTA", "FOTO", "MODELO", "LOCALIZACAO"],
+                                 linhas, [5, 30, 14, 10, 28, 15, 6, 14, 16], styles, accent, util))
+        else:
+            story.append(_tabela(["N", "CAMERA", "IP", "STATUS", "GRAVADOR", "FOTO", "MODELO", "LOCALIZACAO"],
+                                 linhas, [5, 34, 15, 11, 34, 7, 18, 16], styles, accent, util))
+
+    # ---- uma pagina por caixa de CFTV: o que tem dentro e cada porta
+    for k, cx in enumerate(caixas, 1):
+        story.append(PageBreak())
+        c_cams = [cb["_cam"] for cb in cx["cabos"] if cb["_cam"] is not None]
+        fora = sum(1 for c in c_cams if c["_status"] != "online")
+        portas = 0 if cx["tipo"] == "passagem" else int(cx["cx"].get("portas") or 0)
+        usadas = sum(1 for cb in cx["cabos"] if cb.get("porta"))
+        story.append(_p(f"Caixa {cx['nome']}  |  {TIPOS_CAIXA[cx['tipo']]}", styles["title"]))
+        partes = [_equipamento_da_caixa(cx) if cx["tipo"] != "passagem" else "",
+                  f"{usadas} de {portas} portas em uso" if portas else "",
+                  f"{len(cx['cabos'])} camera{'s' if len(cx['cabos']) != 1 else ''}" + (f" ({fora} fora do ar)" if fora else ""),
+                  f"VLAN {cx['cx']['switch_vlan']}" if _to_text(cx["cx"].get("switch_vlan")) else "", cx["camada"]]
+        story.append(_p("  -  ".join(x for x in partes if x), styles["subtitle"]))
+        dentro = ", ".join(f"{int(i.get('qtd') or 1)}x {ITENS_CAIXA.get(i.get('tipo'), 'Outro')}"
+                           f"{' ' + _to_text(i.get('modelo')) if _to_text(i.get('modelo')) else ''}"
+                           for i in cx["cx"].get("itens") or [] if isinstance(i, dict))
+        if dentro:
+            story.append(_p(f"Dentro da caixa: {dentro}", styles["small"]))
+            story.append(Spacer(1, 2 * mm))
+        pinos = [(c["_pos"][0], c["_pos"][1], c["_num"], _cor_status(c["_status"])) for c in c_cams if c["_pos"]]
+        if cx["pos"]:
+            pinos.append((cx["pos"][0], cx["pos"][1], _rotulo_caixa(cx["nome"]), COR_CAIXA, "quadrado"))
+        cto_pos = None
+        if cx["cto"] and len(cx["cto"].get("caminho") or []) >= 2:
+            cto_pos = tuple(float(v) for v in cx["cto"]["caminho"][-1][:2])
+            pinos.append((cto_pos[0], cto_pos[1], "", COR_CTO, "losango"))
+        img = renderizar_mapa(pinos, 1800, 560, raio=19, linhas=_linhas_dos_cabos([cx])) if pinos else None
+        passo(1 + len(areas) + k, n_mapas, "mapas")
+        if img is not None:
+            story.append(_imagem_pdf(img, util))
+            story.append(Spacer(1, 3 * mm))
+        if portas:
+            story.append(_grade_portas(cx, portas, styles, util))
+            story.append(Spacer(1, 3 * mm))
+        linhas = []
+        for cb in cx["cabos"]:
+            c = cb["_cam"]
+            st = c["_status"] if c is not None else "sem cadastro"
+            nome_cabo, metros = _cabo_txt(cb)
+            longe = (CABOS.get(cb.get("tipo"), CABOS["outro"])[3] or 10 ** 9) < float(cb.get("metros_com_folga") or cb.get("metros") or 0)
+            destino = cb.get("camera") or {}
+            linhas.append([
+                _p(_rotulo_porta(cx, cb.get("porta")), styles["small_b"]),
+                _p(c.get("titulo") if c is not None else (destino.get("ponto") or destino.get("ip")), styles["small_b"]),
+                _p(c.get("ip") if c is not None else destino.get("ip"), styles["mono"]),
+                _p(st.upper(), styles["small_b"], color=OK if st == "online" else BAD),
+                _p(_to_text(cb.get("vlan")) or _to_text(cx["cx"].get("switch_vlan")) or "-", styles["small"]),
+                _p(nome_cabo, styles["small"]),
+                _p(metros + (" - acima do limite" if longe else ""), styles["small_b"] if longe else styles["small"],
+                   color=BAD if longe else None),
+                _p(ALIMENTACAO.get(cb.get("alimentacao"), "PoE do switch" if cx["tipo"] == "switch" and cb.get("porta") else "-"),
+                   styles["small"]),
             ])
-        story.append(_tabela(["N", "CAMERA", "IP", "STATUS", "GRAVADOR", "FOTO", "MODELO", "LOCALIZACAO"],
-                             linhas, [5, 34, 15, 11, 34, 7, 18, 16], styles, accent, util))
+        if linhas:
+            story.append(_tabela(["PORTA", "CAMERA", "IP", "STATUS", "VLAN", "CABO", "METRAGEM", "ALIMENTACAO"],
+                                 linhas, [8, 32, 14, 11, 7, 11, 20, 13], styles, accent, util))
+        else:
+            story.append(_p("Nenhuma camera ligada nesta caixa.", styles["small"]))
+        if cx["cto"]:
+            alvo = cx["cto"].get("cto") or {}
+            story.append(Spacer(1, 2 * mm))
+            story.append(_p(f"ONU ligada a CTO {alvo.get('ponto')}{', porta ' + str(alvo['porta']) if alvo.get('porta') else ''}: "
+                            f"{_cabo_txt(cx['cto'])[0]}, {_cabo_txt(cx['cto'])[1]}.", styles["small"]))
+        if _to_text(cx["cx"].get("obs")):
+            story.append(Spacer(1, 2 * mm))
+            story.append(_p(f"Observacao: {cx['cx']['obs']}", styles["small"]))
 
     # ---- galeria
     if include_photos:
@@ -651,6 +1120,43 @@ def build_map_pdf_report(site: str = "", company_name: str = "", report_color: s
                     _p(f"{c['_rec']['gravador']} canal {c['_rec']['canal']}", styles["small"])],
          ["CAMERA", "IP", "GRAVADOR"], [40, 16, 44]),
     ]
+    if caixas:
+        # infraestrutura: so quando o mapa ja tem caixas (sem elas, tudo seria pendencia)
+        sem_cabo = [c for c in com_pos if id(c) not in caixa_da_cam]
+        longos = [(cx, cb) for cx in caixas for cb in cx["cabos"]
+                  if (CABOS.get(cb.get("tipo"), CABOS["outro"])[3] or 10 ** 9) < float(cb.get("metros_com_folga") or cb.get("metros") or 0)]
+        vazias = [cx for cx in caixas if not cx["cabos"]]
+        n_nome: Dict[str, int] = {}
+        for cx in caixas:
+            n_nome[cx["nome"].strip().upper()] = n_nome.get(cx["nome"].strip().upper(), 0) + 1
+        repetidas = [cx for cx in caixas if n_nome[cx["nome"].strip().upper()] > 1]
+        blocos += [
+            (f"Cameras no mapa sem cabo ate uma caixa ({len(sem_cabo)})", sem_cabo,
+             lambda c: [_p(c.get("titulo"), styles["small_b"]), _p(c.get("ip"), styles["mono"]),
+                        _p("no Mapa: abra a caixa e use Ligar camera", styles["small"])],
+             ["CAMERA", "IP", "O QUE FAZER"], [40, 16, 44]),
+            (f"Cabos acima do limite do UTP/PoE ({len(longos)})", longos,
+             lambda x: [_p(x[0]["nome"], styles["small_b"]),
+                        _p((x[1]["_cam"] or {}).get("titulo") or (x[1].get("camera") or {}).get("ponto"), styles["small"]),
+                        _p(_cabo_txt(x[1])[1], styles["small_b"], color=BAD),
+                        _p(f"acima de {CABOS.get(x[1].get('tipo'), CABOS['outro'])[3]} m o sinal e o PoE caem", styles["small"])],
+             ["CAIXA", "CAMERA", "METRAGEM", "PROBLEMA"], [18, 34, 20, 28]),
+            (f"Caixas sem camera ligada ({len(vazias)})", vazias,
+             lambda cx: [_p(cx["nome"], styles["small_b"]), _p(TIPOS_CAIXA[cx["tipo"]], styles["small"]),
+                         _p(cx["camada"], styles["small"])],
+             ["CAIXA", "TIPO", "CAMADA"], [30, 30, 40]),
+            (f"Caixas com nome repetido ({len(repetidas)})", repetidas,
+             lambda cx: [_p(cx["nome"], styles["small_b"]), _p(_equipamento_da_caixa(cx), styles["small"]),
+                         _p(f"{len(cx['cabos'])} camera(s)", styles["small"]),
+                         _p_localizacao({"lat": cx["pos"][0], "lon": cx["pos"][1]} if cx["pos"] else {}, styles["mono"])],
+             ["CAIXA", "EQUIPAMENTO", "CAMERAS", "LOCALIZACAO"], [22, 34, 16, 28]),
+        ]
+        if ctos:
+            sem_cto = [cx for cx in caixas if not cx["cto"] and cx["tipo"] != "passagem"]
+            blocos.append((f"Caixas com ONU sem ligacao a CTO ({len(sem_cto)})", sem_cto,
+                           lambda cx: [_p(cx["nome"], styles["small_b"]), _p(TIPOS_CAIXA[cx["tipo"]], styles["small"]),
+                                       _p("no Mapa: abra a caixa e use Ligar a CTO", styles["small"])],
+                           ["CAIXA", "TIPO", "O QUE FAZER"], [30, 30, 40]))
     for titulo, itens, linha, cabec, pesos in blocos:
         story.append(CondPageBreak(30 * mm))
         story.append(_p(titulo, styles["h2"]))
