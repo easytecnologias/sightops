@@ -7,6 +7,8 @@
 // A ONU da caixa pode ser ligada numa CTO (cabo {cto:{ponto,porta}}, fibra drop):
 // um por caixa, nao vai para o inventario de cameras.
 // O painel lateral nao fecha ao clicar fora: so X, Cancelar ou Esc.
+// Tipo da caixa: com switch (portas PoE), direto na ONU (porta LAN, camera com
+// fonte ou injetor) ou so passagem/fonte (sem portas). Antiga sem tipo = switch.
 
 const _cx = { painel: null, desenho: null, edicao: null };
 
@@ -15,6 +17,14 @@ const CX_ITENS = {
   dio: 'DIO', roteador: 'Roteador', injetor_poe: 'Injetor PoE', outro: 'Outro',
 };
 const CX_UPLINK = { onu: 'ONU', fibra: 'Fibra / conversor', radio: 'Rádio', switch: 'Outro switch', outro: 'Outro' };
+const CX_TIPOS = {
+  switch: { nome: 'Com switch', ajuda: 'Câmeras nas portas PoE do switch da caixa' },
+  onu: { nome: 'Direto na ONU', ajuda: 'Câmera na porta LAN da ONU, alimentada por fonte ou injetor' },
+  passagem: { nome: 'Só passagem / fonte', ajuda: 'Sem portas: fonte, emenda ou passagem de cabo' },
+};
+const CX_ALIM = { fonte12: 'Fonte 12V', injetor_poe: 'Injetor PoE', poe_switch: 'PoE do switch', outro: 'Outra' };
+const cxTipo = caixa => (CX_TIPOS[caixa?.tipo] ? caixa.tipo : 'switch');
+const cxNomePorta = (caixa, n) => (cxTipo(caixa) === 'onu' ? `LAN${n}` : `P${n}`);
 const CX_CABOS = {
   utp5e: { nome: 'UTP Cat5e', cor: '#1971c2', limite: 100 },
   utp6: { nome: 'UTP Cat6', cor: '#1864ab', limite: 100 },
@@ -107,8 +117,11 @@ function cxDestinoDoCabo(c) {
 function cxMarcador(id, def, f, lat, lng) {
   const nome = mapFeatureName(f);
   const caixa = cxCaixaDoPonto(def, nome, [lat, lng]);
-  const usadas = caixa ? cxCabosDaCaixa(def, caixa.id).filter(c => c.porta).length : 0;
-  const rotulo = caixa ? `${esc(caixa.nome)}${caixa.portas ? ` · ${usadas}/${caixa.portas}` : ''}` : esc(nome || 'Caixa');
+  const dela = caixa ? cxCabosDaCaixa(def, caixa.id) : [];
+  const usadas = dela.filter(c => c.porta).length;
+  const conta = !caixa ? '' : cxTipo(caixa) === 'passagem' ? (dela.length ? ` · ${dela.length} câm.` : '')
+    : caixa.portas ? ` · ${usadas}/${caixa.portas}${cxTipo(caixa) === 'onu' ? ' LAN' : ''}` : '';
+  const rotulo = caixa ? `${esc(caixa.nome)}${conta}` : esc(nome || 'Caixa');
   const icon = L.divIcon({
     className: '',
     html: `<div class="cx-pino${caixa ? '' : ' cx-pino-novo'}" title="${caixa ? 'Caixa de CFTV' : 'Parece uma caixa: clique para cadastrar'}">
@@ -141,7 +154,7 @@ function cxDesenharCabos(id, def, group) {
       color: fora ? '#c92a2a' : t.cor, weight: 4, opacity: 0.95, dashArray: t.tracejado || null,
     });
     const caixa = def.caixas?.[cabo.caixa];
-    linha.bindTooltip(`${esc(t.nome)} · ${cxFmtMetros(cabo.metros || 0)}${cabo.porta ? ` · porta ${cabo.porta}` : ''} → ${cabo.cto ? 'CTO ' : ''}${esc(cxDestinoDoCabo(cabo))}${fora ? ' · câmera fora do ar' : ''}`, { sticky: true });
+    linha.bindTooltip(`${esc(t.nome)} · ${cxFmtMetros(cabo.metros || 0)}${cabo.porta ? ` · ${cxTipo(caixa) === 'onu' ? 'LAN' : 'porta '}${cabo.porta}` : ''} → ${cabo.cto ? 'CTO ' : ''}${esc(cxDestinoDoCabo(cabo))}${fora ? ' · câmera fora do ar' : ''}`, { sticky: true });
     linha.on('click', () => { if (!_cx.desenho && !_cx.edicao && caixa) cxAbrirPainel(id, def, caixa.ponto, cxPosDaCaixa(def, caixa)); });
     group.addLayer(linha);
   });
@@ -232,30 +245,38 @@ function cxAbrirPainel(id, def, nomePonto, latlng) {
   if (!def?.updateUrl || def.source !== 'imported') { showToast('Caixas só em camadas importadas (KMZ).', true); return; }
   latlng = latlng || cxLatLngDoPonto(def, nomePonto);
   const caixa = cxCaixaDoPonto(def, nomePonto, latlng);
-  const itens = caixa?.itens?.length ? caixa.itens.filter(it => !cxEItemSwitch(it)) : [{ tipo: 'onu', qtd: 1 }, { tipo: 'fonte', qtd: 1 }];
+  // caixa nova: o tipo e escolhido (nao presume switch); antiga sem tipo = switch
+  const tipo = caixa ? cxTipo(caixa) : '';
+  const itens = caixa?.itens?.length ? caixa.itens.filter(it => !cxEItemSwitch(it)) : [{ tipo: 'fonte', qtd: 1 }];
   const caboCto = caixa ? cxCaboDaCto(def, caixa.id) : null;
-  const portas = caixa ? Number(caixa.portas || 0) : 8;
+  const portas = caixa ? Number(caixa.portas || 0) : 0;
   const cabos = caixa ? cxCabosDaCaixa(def, caixa.id) : [];
   const porPorta = Object.fromEntries(cabos.filter(c => c.porta).map(c => [c.porta, c]));
   const statusCabo = c => cxEstadoCamera(cxCameraDoCabo(def, c));
   const uplinks = caixa ? Number(caixa.uplinks ?? 1) : 1;
   const uplinkPara = caixa?.uplink_para || 'onu';
-  const grade = Array.from({ length: portas }, (_, i) => {
-    const c = porPorta[i + 1];
-    return `<span class="cx-porta ${c ? `cx-p-${statusCabo(c)}` : 'cx-p-livre'}" title="${c ? esc(`Porta ${i + 1}: ${c.camera?.ponto || c.camera?.ip}`) : `Porta ${i + 1} livre`}">${i + 1}</span>`;
-  }).join('') + Array.from({ length: uplinks }, (_, i) =>
-    `<span class="cx-porta cx-p-up" title="${esc(`Uplink ${uplinks > 1 ? i + 1 : ''} → ${CX_UPLINK[uplinkPara] || uplinkPara}${caixa?.uplink_obs ? ` (${caixa.uplink_obs})` : ''}`)}">UP${uplinks > 1 ? i + 1 : ''}</span>`).join('');
+  const portaCel = n => {
+    const c = porPorta[n];
+    const rot = cxNomePorta(caixa, n);
+    return `<span class="cx-porta ${c ? `cx-p-${statusCabo(c)}` : 'cx-p-livre'}" title="${c ? esc(`${rot}: ${c.camera?.ponto || c.camera?.ip}${c.alimentacao ? ` · ${CX_ALIM[c.alimentacao] || c.alimentacao}` : ''}`) : `${rot} livre`}">${tipo === 'onu' ? rot : n}</span>`;
+  };
+  const grade = Array.from({ length: portas }, (_, i) => portaCel(i + 1)).join('') + (tipo === 'onu'
+    ? `<span class="cx-porta cx-p-up" title="${esc(caboCto ? `PON → CTO ${cxDestinoDoCabo(caboCto)}` : 'PON (ligue à CTO)')}">PON</span>`
+    : Array.from({ length: uplinks }, (_, i) =>
+      `<span class="cx-porta cx-p-up" title="${esc(`Uplink ${uplinks > 1 ? i + 1 : ''} → ${CX_UPLINK[uplinkPara] || uplinkPara}${caixa?.uplink_obs ? ` (${caixa.uplink_obs})` : ''}`)}">UP${uplinks > 1 ? i + 1 : ''}</span>`).join(''));
   // modelo do switch: o salvo, senao o do item "Switch PoE" (caixas antigas)
   const itemSwitch = (caixa?.itens || []).find(it => it.tipo === 'switch_poe' || it.tipo === 'switch');
-  const swModelo = caixa?.switch_modelo || itemSwitch?.modelo || '';
+  const itemOnu = (caixa?.itens || []).find(it => it.tipo === 'onu');
+  const swModelo = tipo === 'switch' ? (caixa?.switch_modelo || itemSwitch?.modelo || '') : '';
+  const onuModelo = tipo === 'onu' ? (caixa?.switch_modelo || '') : (itemOnu?.modelo || '');
   const temOnu = (caixa?.itens || []).some(it => it.tipo === 'onu') || uplinkPara === 'onu';
-  const blocoCto = !caixa ? '' : caboCto ? `<div class="cx-cto">
+  const blocoCto = sempre => !caixa ? '' : caboCto ? `<div class="cx-cto">
       <i data-lucide="git-commit-horizontal"></i>
       <div><strong>ONU → CTO ${esc(cxDestinoDoCabo(caboCto))}</strong>
         <small>${esc((CX_CABOS[caboCto.tipo] || CX_CABOS.outro).nome)} · ${cxFmtMetros(caboCto.metros || 0)} (${cxFmtMetros(caboCto.metros_com_folga || caboCto.metros || 0)} com folga)</small></div>
       <button type="button" class="ghost-action" data-cx="editar-cabo" data-id="${esc(caboCto.id)}" aria-label="Editar traçado" title="Editar traçado"><i data-lucide="pencil"></i></button>
       <button type="button" class="ghost-action" data-cx="excluir-cabo" data-id="${esc(caboCto.id)}" aria-label="Excluir cabo da CTO"><i data-lucide="trash-2"></i></button></div>`
-    : temOnu ? `<div class="cx-cto cx-cto-vazio"><i data-lucide="git-commit-horizontal"></i>
+    : (sempre || temOnu) ? `<div class="cx-cto cx-cto-vazio"><i data-lucide="git-commit-horizontal"></i>
       <div><strong>ONU sem CTO</strong><small>Se a ONU desta caixa vem de uma CTO, ligue com o cabo drop.</small></div>
       <button type="button" class="secondary-action" data-cx="ligar-cto">Ligar à CTO</button></div>` : '';
   const linhasCabo = cabos.sort((a, b) => (a.porta || 99) - (b.porta || 99)).map(c => {
@@ -263,22 +284,28 @@ function cxAbrirPainel(id, def, nomePonto, latlng) {
     const st = statusCabo(c);
     const cam = cxCameraDoCabo(def, c);
     const longe = t.limite && (c.metros_com_folga || c.metros) > t.limite;
-    return `<tr class="${st === 'off' ? 'cx-tr-off' : ''}"><td>${c.porta ? `P${c.porta}` : '—'}</td>
-      <td><strong>${esc(cam?.titulo || c.camera?.ponto || c.camera?.ip || '')}</strong>${cam?.ip ? ` <small>${esc(cam.ip)}</small>` : ''}${st === 'off' ? ' <small class="cx-off">fora do ar</small>' : ''}</td>
-      <td><input class="cx-vlan" data-cx-vlan="${esc(c.id)}" type="number" min="1" max="4094" value="${esc(c.vlan || '')}" placeholder="${esc(caixa?.switch_vlan || 'VLAN')}" title="VLAN desta porta (vazio = a da caixa)" aria-label="VLAN da porta"></td>
+    return `<tr class="${st === 'off' ? 'cx-tr-off' : ''}"><td>${c.porta ? cxNomePorta(caixa, c.porta) : '—'}</td>
+      <td><strong>${esc(cam?.titulo || c.camera?.ponto || c.camera?.ip || '')}</strong>${cam?.ip ? ` <small>${esc(cam.ip)}</small>` : ''}${c.alimentacao ? ` <small>· ${esc(CX_ALIM[c.alimentacao] || c.alimentacao)}</small>` : ''}${st === 'off' ? ' <small class="cx-off">fora do ar</small>' : ''}</td>
+      <td>${tipo === 'passagem' ? '' : `<input class="cx-vlan" data-cx-vlan="${esc(c.id)}" type="number" min="1" max="4094" value="${esc(c.vlan || '')}" placeholder="${esc(caixa?.switch_vlan || 'VLAN')}" title="VLAN desta porta (vazio = a da caixa)" aria-label="VLAN da porta">`}</td>
       <td>${esc(t.nome)} ${cxFmtMetros(c.metros || 0)}${longe ? ` <small class="cx-off" title="Acima de ${t.limite} m o PoE/UTP perde sinal">acima de ${t.limite} m</small>` : ''}</td>
       <td class="cx-acoes"><button type="button" class="ghost-action" data-cx="editar-cabo" data-id="${esc(c.id)}" aria-label="Editar traçado" title="Editar traçado"><i data-lucide="pencil"></i></button><button type="button" class="ghost-action" data-cx="excluir-cabo" data-id="${esc(c.id)}" aria-label="Excluir cabo" title="Excluir cabo"><i data-lucide="trash-2"></i></button></td></tr>`;
   }).join('');
+  const tituloPortas = tipo === 'onu' ? `Portas LAN da ONU <small>${cabos.filter(c => c.porta).length} de ${portas} LAN em uso</small>`
+    : tipo === 'passagem' ? `Câmeras desta caixa <small>${cabos.length} ligada(s), sem porta</small>`
+    : `Portas do switch <small title="VLAN em branco na porta = a VLAN da caixa">${cabos.filter(c => c.porta).length} de ${portas} PoE em uso${uplinks ? ` · uplink → ${esc(CX_UPLINK[uplinkPara] || uplinkPara)}` : ''}</small>`;
   const corpo = `
-    ${caixa ? '' : '<div class="so-note"><i data-lucide="info"></i><span>Este ponto vira uma caixa de CFTV. Diga o que tem dentro e quantas portas tem o switch.</span></div>'}
+    ${caixa ? '' : '<div class="so-note"><i data-lucide="info"></i><span>Este ponto vira uma caixa de CFTV. Escolha o tipo: com switch, câmera direto na ONU ou só passagem/fonte.</span></div>'}
     <div class="form-group" style="margin:0"><label for="cxNome">Nome da caixa</label><input id="cxNome" maxlength="80" value="${esc(caixa?.nome || nomePonto)}"></div>
-    <section class="cx-switch"><h3>Switch <small>nome e portas vão para o inventário das câmeras</small></h3>
+    <fieldset class="cx-tipos"><legend>Tipo de caixa</legend>
+      ${Object.entries(CX_TIPOS).map(([k, v]) => `<label class="nt-pill" title="${esc(v.ajuda)}"><input type="radio" name="cxTipoCaixa" value="${k}" ${tipo === k ? 'checked' : ''}><span>${esc(v.nome)}</span></label>`).join('')}
+      <small class="text-muted" id="cxTipoAjuda" style="flex-basis:100%"></small></fieldset>
+    <section class="cx-switch" data-cx-so="switch"><h3>Switch <small>nome e portas vão para o inventário das câmeras</small></h3>
       <div class="form-row">
-        <div class="form-group" style="margin:0"><label for="cxSwNome">Nome do switch</label><input id="cxSwNome" maxlength="60" value="${esc(caixa?.switch_nome || '')}" placeholder="ex.: SW-CFTV-01"></div>
+        <div class="form-group" style="margin:0"><label for="cxSwNome">Nome do switch</label><input id="cxSwNome" maxlength="60" value="${esc(tipo === 'switch' ? caixa?.switch_nome || '' : '')}" placeholder="ex.: SW-CFTV-01"></div>
         <div class="form-group" style="margin:0"><label for="cxSwModelo">Modelo</label><input id="cxSwModelo" maxlength="80" value="${esc(swModelo)}" placeholder="ex.: Hikvision 4+1 PoE"></div>
       </div>
       <div class="cx-sw-linha">
-        <div class="form-group" style="margin:0"><label for="cxPortas">Portas PoE</label><input id="cxPortas" type="number" min="0" max="64" value="${portas}"></div>
+        <div class="form-group" style="margin:0"><label for="cxPortas">Portas PoE</label><input id="cxPortas" type="number" min="0" max="64" value="${tipo === 'switch' ? portas : 8}"></div>
         <div class="form-group" style="margin:0"><label for="cxUplinks">Uplink</label><input id="cxUplinks" type="number" min="0" max="8" value="${uplinks}"></div>
         <div class="form-group" style="margin:0"><label for="cxSwVlan" title="Vale para as portas sem VLAN própria">VLAN padrão</label><input id="cxSwVlan" type="number" min="1" max="4094" value="${esc(caixa?.switch_vlan || '')}" placeholder="ex.: 120"></div>
       </div>
@@ -286,14 +313,25 @@ function cxAbrirPainel(id, def, nomePonto, latlng) {
         <div class="form-group" style="margin:0"><label for="cxUplinkPara">Uplink liga em</label><select id="cxUplinkPara">${Object.entries(CX_UPLINK).map(([k, v]) => `<option value="${k}" ${uplinkPara === k ? 'selected' : ''}>${esc(v)}</option>`).join('')}</select></div>
         <div class="form-group" style="margin:0"><label for="cxSwIp">IP do switch</label><input id="cxSwIp" maxlength="45" value="${esc(caixa?.switch_ip || '')}" placeholder="opcional"></div>
       </div>
-      ${blocoCto}
+      ${blocoCto(false)}
     </section>
-    <section class="cx-bloco"><h3>O que tem dentro <small>além do switch</small></h3>
+    <section class="cx-switch" data-cx-so="onu"><h3>ONU <small>a câmera liga na porta LAN; nome e porta vão para o inventário</small></h3>
+      <div class="form-row">
+        <div class="form-group" style="margin:0"><label for="cxOnuNome">Nome da ONU</label><input id="cxOnuNome" maxlength="60" value="${esc(tipo === 'onu' ? caixa?.switch_nome || '' : '')}" placeholder="vazio = ONU ${esc(caixa?.nome || nomePonto || '')}"></div>
+        <div class="form-group" style="margin:0"><label for="cxOnuModelo">Modelo</label><input id="cxOnuModelo" maxlength="80" value="${esc(onuModelo)}" placeholder="ex.: FiberHome AN5506-04"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group" style="margin:0"><label for="cxLan">Portas LAN</label><input id="cxLan" type="number" min="1" max="8" value="${tipo === 'onu' ? portas : 4}"></div>
+        <div class="form-group" style="margin:0"><label for="cxOnuVlan" title="Vale para as portas sem VLAN própria">VLAN padrão</label><input id="cxOnuVlan" type="number" min="1" max="4094" value="${esc(caixa?.switch_vlan || '')}" placeholder="opcional"></div>
+      </div>
+      ${blocoCto(true)}
+    </section>
+    <section class="cx-bloco"><h3>O que tem dentro <small>fonte, nobreak, DIO…</small></h3>
       <div class="cx-item-cab"><span>Item</span><span>Modelo</span><span>Qtd</span><span></span></div>
       <div id="cxItens">${itens.map(cxLinhaItem).join('')}</div>
       <button type="button" class="cx-mais" data-cx="mais-item"><i data-lucide="plus"></i> Adicionar item</button></section>
-    ${caixa ? `<section><h3>Portas do switch <small title="VLAN em branco na porta = a VLAN da caixa">${cabos.filter(c => c.porta).length} de ${portas} PoE em uso${uplinks ? ` · uplink → ${esc(CX_UPLINK[uplinkPara] || uplinkPara)}` : ''}</small></h3>
-      <div class="cx-portas">${grade || '<span class="text-muted">Sem switch informado.</span>'}</div>
+    ${caixa ? `<section data-cx-so="${tipo}"><h3>${tituloPortas}</h3>
+      ${tipo === 'passagem' ? '' : `<div class="cx-portas">${grade || '<span class="text-muted">Sem portas informadas.</span>'}</div>`}
       ${cabos.length ? `<table class="cx-tabela"><tbody>${linhasCabo}</tbody></table>` : '<p class="text-muted" style="margin:6px 0 0">Nenhuma câmera ligada ainda. Use "Ligar câmera".</p>'}
     </section>` : ''}
     <div class="form-group" style="margin:0"><label for="cxObs">Observação</label><input id="cxObs" maxlength="300" value="${esc(caixa?.obs || '')}" placeholder="ex.: chave do cadeado com o síndico"></div>
@@ -304,6 +342,15 @@ function cxAbrirPainel(id, def, nomePonto, latlng) {
     ${caixa ? '<button type="button" class="secondary-action" data-cx="ligar"><i data-lucide="cable"></i> Ligar câmera</button>' : ''}
     <button type="button" class="primary-action" data-cx="salvar"><i data-lucide="save"></i> ${caixa ? 'Salvar' : 'Cadastrar caixa'}</button>`;
   const el = cxPainelBase(caixa?.nome || nomePonto || 'Caixa', corpo, rodape);
+  // so a parte do tipo escolhido aparece (as portas, so do tipo salvo)
+  const aplicarTipo = () => {
+    const t = el.querySelector('input[name="cxTipoCaixa"]:checked')?.value || '';
+    el.querySelectorAll('[data-cx-so]').forEach(s => { s.style.display = s.dataset.cxSo === t ? '' : 'none'; });
+    const aj = el.querySelector('#cxTipoAjuda');
+    if (aj) aj.textContent = t ? CX_TIPOS[t].ajuda + (caixa && t !== tipo ? '. Salve para ver as portas.' : '') : 'Escolha como as câmeras desta caixa são ligadas.';
+  };
+  el.addEventListener('change', ev => { if (ev.target.name === 'cxTipoCaixa') aplicarTipo(); });
+  aplicarTipo();
   const latlngCaixa = latlng || cxLatLngDoPonto(def, nomePonto);
   _cx.painel = { el, id, def, caixa, nomePonto, latlng: latlngCaixa };
 }
@@ -348,10 +395,17 @@ async function cxAcao(btn) {
     }))];
     try {
       const v = idc => document.getElementById(idc)?.value ?? '';
+      const tipo = p.el.querySelector('input[name="cxTipoCaixa"]:checked')?.value;
+      if (!tipo) throw new Error('Escolha o tipo da caixa: com switch, direto na ONU ou só passagem.');
+      const equip = tipo === 'switch'
+        ? { portas: Number(v('cxPortas') || 0), switch_nome: v('cxSwNome').trim(), switch_modelo: v('cxSwModelo').trim(), switch_ip: v('cxSwIp').trim(),
+            switch_vlan: v('cxSwVlan').trim(), uplinks: Number(v('cxUplinks') || 0), uplink_para: v('cxUplinkPara') || 'onu' }
+        : tipo === 'onu'
+          ? { portas: Number(v('cxLan') || 0), switch_nome: v('cxOnuNome').trim(), switch_modelo: v('cxOnuModelo').trim(), switch_ip: '',
+              switch_vlan: v('cxOnuVlan').trim(), uplinks: 0, uplink_para: 'onu' }
+          : { portas: 0, switch_nome: '', switch_modelo: '', switch_ip: '', switch_vlan: '', uplinks: 0, uplink_para: 'onu' };
       await cxGravar(p.def, { caixa: { id: p.caixa?.id || '', ponto: p.nomePonto, lat: p.latlng?.[0], lng: p.latlng?.[1], nome: v('cxNome').trim(),
-        portas: Number(v('cxPortas') || 0), itens, obs: v('cxObs').trim(),
-        switch_nome: v('cxSwNome').trim(), switch_modelo: v('cxSwModelo').trim(), switch_ip: v('cxSwIp').trim(), switch_vlan: v('cxSwVlan').trim(),
-        uplinks: Number(v('cxUplinks') || 0), uplink_para: v('cxUplinkPara') || 'onu' } });
+        tipo, itens, obs: v('cxObs').trim(), ...equip } });
     } catch (e) {
       const er = document.getElementById('cxErro');
       if (er) { er.textContent = e.message; er.hidden = false; }
@@ -366,7 +420,7 @@ async function cxAcao(btn) {
           tipo: cabo.tipo, porta: cabo.porta, folga_pct: cabo.folga_pct, vlan } });
       } catch (e) {
         const er = document.getElementById('cxErro');
-        if (er) { er.textContent = `Porta ${cabo.porta || '—'}: ${e.message}`; er.hidden = false; }
+        if (er) { er.textContent = `${cabo.porta ? cxNomePorta(p.def.caixas?.[cabo.caixa], cabo.porta) : 'Cabo'}: ${e.message}`; er.hidden = false; }
         return;
       }
     }
@@ -377,7 +431,7 @@ async function cxAcao(btn) {
   }
   if (acao === 'excluir-cabo') {
     const cabo = p.def.cabos?.[btn.dataset.id];
-    if (!cabo || !(await showConfirm({ title: 'Excluir cabo', msg: cabo.cto ? `Tirar do mapa o cabo da ONU até a CTO ${cxDestinoDoCabo(cabo)}?` : `Tirar do mapa o cabo da ${cabo.porta ? `porta ${cabo.porta}` : 'caixa'} até ${cabo.camera?.ponto || cabo.camera?.ip}?`, label: 'Excluir' }))) return;
+    if (!cabo || !(await showConfirm({ title: 'Excluir cabo', msg: cabo.cto ? `Tirar do mapa o cabo da ONU até a CTO ${cxDestinoDoCabo(cabo)}?` : `Tirar do mapa o cabo da ${cabo.porta ? `porta ${cxNomePorta(p.caixa, cabo.porta)}` : 'caixa'} até ${cabo.camera?.ponto || cabo.camera?.ip}?`, label: 'Excluir' }))) return;
     await cxGravar(p.def, { cabo: { id: cabo.id, excluir: true } });
     showToast('Cabo excluído.');
     cxRedesenhar(p.id, p.def);
@@ -642,12 +696,18 @@ function cxTerminarDesenho(camera, cto = null) {
   d.linha.setLatLngs(d.pontos);
   d.linha.setStyle({ dashArray: null });
   const padrao = cto ? 'drop' : 'utp5e';
+  const tipoCx = cxTipo(caixa);
+  const onu = tipoCx === 'onu';
+  // na ONU e na passagem a camera nao tem PoE do switch: fonte ou injetor
+  const campoAlim = tipoCx === 'switch' ? '' : `<div class="form-group" style="margin:0"><label for="cxAlim">Alimentação</label><select id="cxAlim">${Object.entries(CX_ALIM).filter(([k]) => k !== 'poe_switch').map(([k, v]) => `<option value="${k}" ${k === 'fonte12' ? 'selected' : ''}>${esc(v)}</option>`).join('')}</select></div>`;
   const campoPorta = cto
     ? '<div class="form-group" style="margin:0"><label for="cxPortaCto">Porta da CTO</label><input id="cxPortaCto" type="number" min="1" max="64" placeholder="ex.: 3"></div>'
-    : `<div class="form-group" style="margin:0"><label for="cxPorta">Porta do switch</label><select id="cxPorta"><option value="">sem porta</option>${livres.map((n, i) => `<option value="${n}" ${i === 0 ? 'selected' : ''}>Porta ${n} (livre)</option>`).join('')}</select></div>
-      <div class="form-group" style="margin:0"><label for="cxVlanCabo">VLAN da porta</label><input id="cxVlanCabo" type="number" min="1" max="4094" placeholder="${esc(caixa.switch_vlan ? `${caixa.switch_vlan} (da caixa)` : 'a da caixa')}"></div>`;
+    : tipoCx === 'passagem' ? campoAlim
+    : `<div class="form-group" style="margin:0"><label for="cxPorta">${onu ? 'Porta LAN da ONU' : 'Porta do switch'}</label><select id="cxPorta"><option value="">sem porta</option>${livres.map((n, i) => `<option value="${n}" ${i === 0 ? 'selected' : ''}>${onu ? `LAN ${n}` : `Porta ${n}`} (livre)</option>`).join('')}</select></div>
+      <div class="form-group" style="margin:0"><label for="cxVlanCabo">VLAN da porta</label><input id="cxVlanCabo" type="number" min="1" max="4094" placeholder="${esc(caixa.switch_vlan ? `${caixa.switch_vlan} (da caixa)` : 'a da caixa')}"></div>
+      ${campoAlim}`;
   const corpo = `
-    <p style="margin:0"><strong>${esc(caixa.nome)}</strong>${cto ? ' (ONU)' : ''} → <strong>${cto ? `CTO ${esc(cto.ponto)}` : esc(camera.ponto || camera.ip)}</strong></p>
+    <p style="margin:0"><strong>${esc(caixa.nome)}</strong>${cto || onu ? ' (ONU)' : ''} → <strong>${cto ? `CTO ${esc(cto.ponto)}` : esc(camera.ponto || camera.ip)}</strong></p>
     <fieldset class="cx-tipos"><legend>Tipo de cabo</legend>${Object.entries(CX_CABOS).map(([k, v]) => `<label class="nt-pill"><input type="radio" name="cxTipo" value="${k}" ${k === padrao ? 'checked' : ''}><span>${esc(v.nome)}</span></label>`).join('')}</fieldset>
     <div class="form-row">
       ${campoPorta}
@@ -684,7 +744,8 @@ async function cxSalvarCabo() {
     await cxGravar(d.def, { cabo: d.cto
       ? { ...comum, cto: { ponto: d.cto.ponto, porta: document.getElementById('cxPortaCto')?.value || null } }
       : { ...comum, camera: d.camera, porta: document.getElementById('cxPorta')?.value || null,
-          vlan: document.getElementById('cxVlanCabo')?.value.trim() || '' } });
+          vlan: document.getElementById('cxVlanCabo')?.value.trim() || '',
+          ...(document.getElementById('cxAlim') ? { alimentacao: document.getElementById('cxAlim').value } : {}) } });
   } catch (e) {
     const er = document.getElementById('cxErro');
     if (er) { er.textContent = e.message; er.hidden = false; }
@@ -693,9 +754,12 @@ async function cxSalvarCabo() {
   const { id, def, caixa, camera, cto } = d;
   const porta = document.getElementById('cxPorta')?.value;
   cxLimparDesenho();
-  const sw = def.caixas?.[caixa.id]?.switch_nome || caixa.nome;
+  const salva = def.caixas?.[caixa.id] || caixa;
+  const onu = cxTipo(salva) === 'onu';
+  const sw = salva.switch_nome || (onu ? `ONU ${salva.nome}` : salva.nome);
   if (cto) showToast(`ONU ligada à CTO ${cto.ponto}.`);
-  else showToast(camera?.ip ? `Cabo salvo. No inventário, ${camera.ponto || camera.ip}: switch ${sw}${porta ? `, porta ${porta}` : ''}.` : 'Cabo salvo.');
+  else if (cxTipo(salva) === 'passagem' || !camera?.ip) showToast('Cabo salvo.');
+  else showToast(`Cabo salvo. No inventário, ${camera.ponto || camera.ip}: ${onu ? '' : 'switch '}${sw}${porta ? `, porta ${onu ? `LAN${porta}` : porta}` : ''}.`);
   cxRedesenhar(id, def);
   cxAbrirPainel(id, def, caixa.ponto, cxPosDaCaixa(def, def.caixas?.[caixa.id] || caixa));
 }

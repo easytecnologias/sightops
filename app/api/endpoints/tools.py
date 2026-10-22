@@ -1758,6 +1758,27 @@ _MODOS_CAMADA = ("", "olt", "switch", "basico", "todos")
 _TIPOS_ITEM_CAIXA = ("switch_poe", "switch", "onu", "fonte", "nobreak", "dio", "roteador", "injetor_poe", "outro")
 _TIPOS_CABO = ("utp5e", "utp6", "drop", "coaxial", "outro")
 _UPLINK_PARA = ("onu", "fibra", "radio", "switch", "outro")
+# Tipo da caixa: com switch (portas PoE), direto na ONU (camera na porta LAN
+# da ONU, com fonte ou injetor) ou so passagem/fonte (sem portas). Caixa
+# antiga, sem tipo, e "switch".
+_TIPOS_CAIXA = ("switch", "onu", "passagem")
+_ALIMENTACAO = ("", "fonte12", "injetor_poe", "poe_switch", "outro")
+_MAX_LAN_ONU = 8
+
+
+def _tipo_da_caixa(caixa: Dict[str, Any]) -> str:
+    tipo = str((caixa or {}).get("tipo") or "switch")
+    return tipo if tipo in _TIPOS_CAIXA else "switch"
+
+
+def _equipamento_da_caixa(caixa: Dict[str, Any]) -> str:
+    """Nome que vai na coluna SWITCH do inventario: o do switch/ONU, senao o
+    da caixa ("ONU <caixa>" quando a camera esta direto na ONU)."""
+    nome = str(caixa.get("switch_nome") or "").strip()
+    if nome:
+        return nome
+    base = str(caixa.get("nome") or "").strip()
+    return f"ONU {base}".strip() if _tipo_da_caixa(caixa) == "onu" else base
 
 
 def _vlan_valida(valor: Any) -> str:
@@ -1773,8 +1794,12 @@ def _switch_no_inventario(cabos: list, caixa: Dict[str, Any], limpar: bool = Fal
     limpar=True tira -- so se ainda for deste switch (outra fonte, como a
     tabela MAC do switch gerenciavel, pode ter escrito depois). Todos os modos
     (basico/olt/switch): a camera pode estar em mais de um. VLAN: a da porta
-    (cabo) vale sobre a da caixa."""
-    nome = str(caixa.get("switch_nome") or caixa.get("nome") or "").strip()
+    (cabo) vale sobre a da caixa. Caixa direto na ONU: SWITCH = a ONU e
+    PORTA = "LAN N"; caixa de passagem nao tem porta e nao escreve nada."""
+    nome = _equipamento_da_caixa(caixa)
+    if not limpar and _tipo_da_caixa(caixa) == "passagem":
+        return 0
+    lan = _tipo_da_caixa(caixa) == "onu"
     sw_ip = str(caixa.get("switch_ip") or "").strip()
     vlan = str(caixa.get("switch_vlan") or "").strip()
     por_ip = {str((c.get("camera") or {}).get("ip") or "").strip(): c for c in cabos}
@@ -1807,7 +1832,8 @@ def _switch_no_inventario(cabos: list, caixa: Dict[str, Any], limpar: bool = Fal
             r["switch_name"] = nome
             if sw_ip:
                 r["switch_ip"] = sw_ip
-            r["switch_port"] = str(cabo.get("porta") or "")
+            porta = str(cabo.get("porta") or "")
+            r["switch_port"] = f"LAN{porta}" if lan and porta else porta
             vlan_porta = str(cabo.get("vlan") or "") or vlan
             if vlan_porta:
                 r["switch_vlan"] = vlan_porta
@@ -1958,13 +1984,21 @@ def _caixa_da_camada_sem_lock(layer_id: str, dados: Dict[str, Any], por: str = "
                 qtd = 1
             itens.append({"tipo": tipo, "modelo": _texto_curto(it.get("modelo"), 80), "qtd": qtd,
                           "obs": _texto_curto(it.get("obs"), 120)})
+        tipo = _texto_curto(dados.get("tipo") or (atual or {}).get("tipo") or "switch", 10)
+        if tipo not in _TIPOS_CAIXA:
+            raise HTTPException(400, "Tipo de caixa invalido.")
         try:
-            portas = max(0, min(int(dados.get("portas") if dados.get("portas") is not None else 8), 64))
+            padrao = 4 if tipo == "onu" else 8
+            portas = max(0, min(int(dados.get("portas") if dados.get("portas") is not None else padrao), 64))
         except (TypeError, ValueError):
             raise HTTPException(400, "Numero de portas invalido.")
+        if tipo == "passagem":
+            portas = 0
+        elif tipo == "onu" and not 1 <= portas <= _MAX_LAN_ONU:
+            raise HTTPException(400, f"A ONU tem de 1 a {_MAX_LAN_ONU} portas LAN.")
         em_uso = [int(v.get("porta")) for v in cabos.values() if (v or {}).get("caixa") == cid and v.get("porta")]
         if em_uso and max(em_uso) > portas:
-            raise HTTPException(400, f"A porta {max(em_uso)} tem cabo ligado: o switch nao pode ter menos portas.")
+            raise HTTPException(400, f"A porta {max(em_uso)} tem cabo ligado: a caixa nao pode ter menos portas. Tire o cabo da porta antes.")
         agora = datetime.now().isoformat(timespec="seconds")
         cid = cid or f"cx{uuid.uuid4().hex[:10]}"
         sw_ip = _texto_curto(dados.get("switch_ip"), 45)
@@ -1982,26 +2016,25 @@ def _caixa_da_camada_sem_lock(layer_id: str, dados: Dict[str, Any], por: str = "
         if uplink_para not in _UPLINK_PARA:
             raise HTTPException(400, "Destino do uplink invalido.")
         caixas[cid] = {
-            "id": cid, "ponto": ponto, "nome": _texto_curto(dados.get("nome"), 80) or ponto,
+            "id": cid, "ponto": ponto, "nome": _texto_curto(dados.get("nome"), 80) or ponto, "tipo": tipo,
             "lat": round(lat, 7) if lat is not None else None, "lng": round(lng, 7) if lng is not None else None,
             "itens": itens, "portas": portas, "obs": _texto_curto(dados.get("obs"), 300),
             # o switch da caixa: nome e portas vao para o inventario das cameras
             "switch_nome": _texto_curto(dados.get("switch_nome"), 60),
             "switch_modelo": _texto_curto(dados.get("switch_modelo"), 80),
             "switch_ip": sw_ip, "switch_vlan": vlan,
-            "uplinks": uplinks, "uplink_para": uplink_para,
+            "uplinks": uplinks if tipo == "switch" else 0, "uplink_para": uplink_para,
             "uplink_obs": _texto_curto(dados.get("uplink_obs"), 80),
             "criado_em": (atual or {}).get("criado_em") or agora, "criado_por": (atual or {}).get("criado_por") or por,
             "atualizado_em": agora, "atualizado_por": por,
         }
-        anterior_nome = str((atual or {}).get("switch_nome") or (atual or {}).get("nome") or "")
-        novo_nome = str(caixas[cid].get("switch_nome") or caixas[cid].get("nome") or "")
-        dela = [v for v in cabos.values() if (v or {}).get("caixa") == cid]
+        dela = [v for v in cabos.values() if (v or {}).get("caixa") == cid and not (v or {}).get("cto")]
         if atual and dela and any((c.get("camera") or {}).get("ip") for c in dela):
             # salvar a caixa sempre leva o switch/porta das cameras dela ao
-            # inventario (cabos feitos antes de existir o switch tambem entram)
-            if anterior_nome != novo_nome:
-                _switch_no_inventario(dela, {**atual, "switch_nome": anterior_nome}, limpar=True)
+            # inventario (cabos feitos antes de existir o switch tambem entram);
+            # mudou o nome ou o tipo: tira o antigo antes
+            if (_equipamento_da_caixa(atual), _tipo_da_caixa(atual)) != (_equipamento_da_caixa(caixas[cid]), tipo):
+                _switch_no_inventario(dela, atual, limpar=True)
             inventario = (dela, caixas[cid], False)
     meta["caixas"], meta["cabos"] = caixas, cabos
     meta["updated_at"] = datetime.now().isoformat(timespec="seconds")
@@ -2145,6 +2178,8 @@ def _cabo_da_camada_sem_lock(layer_id: str, dados: Dict[str, Any], por: str = ""
                 porta = int(porta)
             except (TypeError, ValueError):
                 raise HTTPException(400, "Porta invalida.")
+            if _tipo_da_caixa(caixa) == "passagem":
+                raise HTTPException(400, "Caixa de passagem nao tem porta: ligue a camera sem porta.")
             if not 1 <= porta <= int(caixa.get("portas") or 0):
                 raise HTTPException(400, f"A caixa tem {caixa.get('portas') or 0} portas.")
             ocupada = next((c for k, c in cabos.items() if k != kid and c.get("caixa") == caixa["id"] and c.get("porta") == porta), None)
@@ -2156,11 +2191,16 @@ def _cabo_da_camada_sem_lock(layer_id: str, dados: Dict[str, Any], por: str = ""
             folga = max(0, min(int(dados.get("folga_pct") if dados.get("folga_pct") is not None else 10), 100))
         except (TypeError, ValueError):
             folga = 10
+        # alimentacao da camera (fonte 12V, injetor...): sem o campo, fica a gravada
+        alimentacao = _texto_curto(dados["alimentacao"], 12) if "alimentacao" in dados else str((antigo_cabo or {}).get("alimentacao") or "")
+        if alimentacao not in _ALIMENTACAO:
+            raise HTTPException(400, "Alimentacao invalida.")
         metros = _metros_do_caminho(caminho)
         agora = datetime.now().isoformat(timespec="seconds")
         kid = kid or f"cb{uuid.uuid4().hex[:10]}"
         cabos[kid] = {
             "id": kid, "caixa": caixa["id"], "camera": destino, "tipo": tipo, "porta": porta, "folga_pct": folga,
+            "alimentacao": alimentacao,
             "vlan": _vlan_valida(dados.get("vlan")),  # vazio = a VLAN da caixa
             "caminho": caminho, "metros": metros, "metros_com_folga": round(metros * (1 + folga / 100), 1),
             "criado_em": (cabos.get(kid) or {}).get("criado_em") or agora, "criado_por": (cabos.get(kid) or {}).get("criado_por") or por,

@@ -291,3 +291,57 @@ def test_excluir_e_renomear_ponto_com_nome_repetido_so_o_do_lugar(tmp_path):
     editar_ponto_no_kmz(k, nome="Caixa - S 4P", novo_nome="C-CFTV-09", lat_atual=-10.7, lon_atual=-36.7)
     pts = sorted((f["properties"]["name"], f["geometry"]["coordinates"][1]) for f in kmz_to_geojson(k)["features"])
     assert pts == [("C-CFTV-09", -10.7), ("Caixa - S 4P", -10.0)]
+
+
+def test_tipo_da_caixa_onu_e_passagem(camada, inventario):
+    # caixa antiga (sem tipo) continua sendo de switch
+    cx = _caixa(portas=5)
+    assert cx["tipo"] == "switch"
+    # direto na ONU: portas = LAN, padrao 4, maximo 8; sem uplink de switch
+    onu = tools._caixa_da_camada("c1", {"ponto": "C14", "nome": "C.CFTV-14", "tipo": "onu", "lat": -10.1, "lng": -36.1}, "op")
+    onu = next(c for c in onu["caixas"].values() if c["nome"] == "C.CFTV-14")
+    assert onu["tipo"] == "onu" and onu["portas"] == 4 and onu["uplinks"] == 0
+    with pytest.raises(HTTPException):
+        _caixa(id=onu["id"], ponto="C14", lat=-10.1, lng=-36.1, tipo="onu", portas=12)
+    r = tools._cabo_da_camada("c1", {"caixa": onu["id"], "camera": {"ponto": "4", "ip": "10.45.0.104"}, "porta": 2,
+                                     "alimentacao": "fonte12", "caminho": _CAMINHO})
+    kid = next(k for k, c in r["cabos"].items() if c["caixa"] == onu["id"])
+    assert r["cabos"][kid]["alimentacao"] == "fonte12"
+    linha = inventario["switch"][0]
+    assert (linha["switch_name"], linha["switch_port"]) == ("ONU C.CFTV-14", "LAN2")
+    with pytest.raises(HTTPException):
+        tools._cabo_da_camada("c1", {"caixa": onu["id"], "camera": {"ponto": "5"}, "porta": 5, "caminho": _CAMINHO})
+    with pytest.raises(HTTPException):
+        tools._cabo_da_camada("c1", {"caixa": onu["id"], "camera": {"ponto": "5"}, "alimentacao": "bateria", "caminho": _CAMINHO})
+    # salvar o traçado sem o campo nao apaga a alimentacao
+    r = tools._cabo_da_camada("c1", {"id": kid, "caixa": onu["id"], "camera": {"ponto": "4", "ip": "10.45.0.104"}, "porta": 2, "caminho": _CAMINHO})
+    assert r["cabos"][kid]["alimentacao"] == "fonte12"
+    # a ONU com nome proprio renomeia no inventario
+    _caixa(id=onu["id"], ponto="C14", nome="C.CFTV-14", lat=-10.1, lng=-36.1, switch_nome="ONU-FH-14")
+    assert inventario["switch"][0]["switch_name"] == "ONU-FH-14"
+    # virar passagem com camera na porta: recusa (tire o cabo da porta antes)
+    with pytest.raises(HTTPException) as e:
+        _caixa(id=onu["id"], ponto="C14", lat=-10.1, lng=-36.1, tipo="passagem")
+    assert "porta 2" in e.value.detail
+    # passagem: sem portas, camera ligada sem porta, nada no inventario
+    ps = tools._caixa_da_camada("c1", {"ponto": "P1", "nome": "PASSAGEM-1", "tipo": "passagem", "portas": 8, "lat": -10.2, "lng": -36.2}, "op")
+    ps = next(c for c in ps["caixas"].values() if c["nome"] == "PASSAGEM-1")
+    assert ps["portas"] == 0
+    with pytest.raises(HTTPException):
+        tools._cabo_da_camada("c1", {"caixa": ps["id"], "camera": {"ponto": "5", "ip": "10.45.0.105"}, "porta": 1, "caminho": _CAMINHO})
+    tools._cabo_da_camada("c1", {"caixa": ps["id"], "camera": {"ponto": "5", "ip": "10.45.0.105"}, "alimentacao": "fonte12", "caminho": _CAMINHO})
+    assert "switch_name" not in inventario["switch"][1]
+    with pytest.raises(HTTPException):
+        _caixa(tipo="armario")
+
+
+def test_trocar_tipo_limpa_o_inventario_antigo(camada, inventario):
+    cx = _caixa(portas=5, switch_nome="")
+    tools._cabo_da_camada("c1", {"caixa": cx["id"], "camera": {"ponto": "4", "ip": "10.45.0.104"}, "caminho": _CAMINHO})
+    assert inventario["switch"][0]["switch_name"] == "CAI-01"
+    # switch -> passagem (o cabo nao tinha porta): o inventario deixa de dizer switch
+    _caixa(id=cx["id"], tipo="passagem")
+    assert "switch_name" not in inventario["switch"][0]
+    # passagem -> ONU: volta como ONU
+    _caixa(id=cx["id"], tipo="onu", portas=4)
+    assert inventario["switch"][0]["switch_name"] == "ONU CAI-01"
