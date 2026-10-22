@@ -98,7 +98,7 @@ class AlertTransitionRequest(BaseModel):
 @router.get("/members")
 def api_alert_members(search: str = Query("")) -> Dict[str, Any]:
     members = list_members(search)
-    return {"ok": True, "count": len(members), "members": members}
+    return {"ok": True, "count": len(members), "members": members, "meus_sites": permissions.sites_da_sessao()}
 
 
 @router.post("/members")
@@ -137,7 +137,8 @@ def api_alert_revoke_devices(member_id: str) -> Dict[str, Any]:
 @router.get("/incidents")
 def api_alert_incidents(scope: str = Query("live"), limit: int = Query(200)) -> Dict[str, Any]:
     incidents = list_incidents(scope=scope, limit=limit)
-    return {"ok": True, "count": len(incidents), "incidents": incidents}
+    # meus_sites: null = ve todos; lista = so estes (a tela mostra o escopo).
+    return {"ok": True, "count": len(incidents), "incidents": incidents, "meus_sites": permissions.sites_da_sessao()}
 
 
 @router.get("/incidents/{incident_id}")

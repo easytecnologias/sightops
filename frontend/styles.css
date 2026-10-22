@@ -9967,6 +9967,21 @@ body.shell-owner .nav-item.active { box-shadow: inset 3px 0 #c9962c; }
 .alert-table-wrap { overflow-x: auto; }
 .alert-members-table { min-width: 1040px; }
 .alert-members-table td { vertical-align: middle; }
+
+/* Escopo por site: o operador sabe de quais sites ve alertas e pessoas. */
+.alert-scope { display: inline-flex; align-items: center; gap: 8px; margin-top: 10px; padding: 6px 12px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface); color: var(--muted); font-size: 12px; max-width: 100%; }
+.alert-scope svg { width: 14px; height: 14px; flex: 0 0 auto; }
+.alert-scope span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.alert-scope b { color: var(--text); font-weight: 600; }
+.alert-scope.is-restrito { border-color: var(--primary); background: var(--primary-soft); color: var(--primary); }
+.alert-site-tag { display: inline-block; margin-right: 6px; padding: 1px 7px; border-radius: 999px; background: var(--blue-soft); color: var(--blue); font-size: 11px; font-weight: 600; vertical-align: 1px; }
+.alert-member-site { font-size: 11px; font-weight: 600; color: var(--blue); text-transform: uppercase; letter-spacing: .02em; }
+.alert-member-site.is-vazio { color: var(--amber); text-transform: none; }
+.alert-site-tabs { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.alert-site-tab { display: inline-flex; align-items: center; gap: 6px; height: 34px; padding: 0 14px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface); color: var(--text); font-size: 13px; font-weight: 600; }
+.alert-site-tab span { color: var(--muted); font-weight: 500; }
+.alert-site-tab.active { background: var(--text); border-color: var(--text); color: #fff; }
+.alert-site-tab.active span { color: #c9d3d8; }
 .alert-row-actions { display: flex; gap: 6px; justify-content: flex-end; white-space: nowrap; }
 .alert-inline-icon { width: 13px; height: 13px; vertical-align: -2px; color: var(--muted); }
 .alert-member-modal { width: min(620px, 100%); }

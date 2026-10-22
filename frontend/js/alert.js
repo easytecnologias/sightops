@@ -26,6 +26,9 @@ let _alertSummaryTimer = null;
 let _alertSirenTimer = null;
 let _alertAudio = null;
 let _alertConnectors = null;
+// Sites que o usuario ve: null = todos; lista = so estes (vem do backend).
+let _alertMeusSites = null;
+let _alertMemberSite = '';
 
 const ALERT_REFRESH_MS = 3000;
 const ALERT_SUMMARY_MS = 10000;
@@ -138,6 +141,22 @@ async function alertLoadConnectors() {
 function alertConnectorName(id) {
   if (!id) return '';
   return (_alertConnectors || []).find((c) => c.id === id)?.name || 'local monitorado';
+}
+
+function alertRenderScope(id, sites) {
+  const box = document.getElementById(id);
+  if (!box) return;
+  const lista = Array.isArray(sites) ? sites : null;
+  box.hidden = false;
+  box.classList.toggle('is-restrito', !!lista);
+  box.innerHTML = lista
+    ? `<i data-lucide="map-pin"></i><span>${lista.length === 1 ? 'Seu site' : 'Seus sites'}: <b>${lista.map(esc).join('</b> · <b>')}</b></span>`
+    : '<i data-lucide="globe"></i><span>Todos os sites do cliente</span>';
+  if (window.lucide) lucide.createIcons();
+}
+
+function alertSiteTag(site) {
+  return site ? `<span class="alert-site-tag">${esc(site)}</span>` : '';
 }
 
 async function alertApiJson(path, opts = {}) {
@@ -593,6 +612,8 @@ async function alertRefresh(force) {
     const fresh = incidents.filter((i) => i.status === 'new' && !_alertKnownIds.has(i.id));
     incidents.forEach((i) => _alertKnownIds.add(i.id));
     _alertIncidents = incidents;
+    _alertMeusSites = Array.isArray(data.meus_sites) ? data.meus_sites : null;
+    alertRenderScope('alertScopeLive', _alertMeusSites);
     setText('alertLiveState', `atualizado ${alertClock(new Date().toISOString())}`);
     if (fresh.length) {
       // Alerta novo chegou: seleciona e centraliza nele.
@@ -647,7 +668,7 @@ function alertRenderList() {
           <strong>${esc(m.full_name)}</strong>
           <span class="alert-card-age">${esc(alertAgo(inc.opened_at))}</span>
         </div>
-        <div class="alert-card-meta">${esc([m.role_title, m.unit_name].filter(Boolean).join(' · ') || 'sem lotacao')}</div>
+        <div class="alert-card-meta">${alertSiteTag(inc.site)}${esc([m.role_title, m.unit_name].filter(Boolean).join(' · ') || (inc.site ? '' : 'sem lotacao'))}</div>
         <div class="alert-card-pills">${alertKindPill(inc)} ${alertStatusPill(inc)}${alertPoint(inc)?.gps === false ? ' <span class="pill neutral">sem GPS</span>' : ''}</div>
       </button>`;
   }).join('');
@@ -761,7 +782,7 @@ function alertRenderDetail() {
       <div>
         <div class="alert-detail-pills">${alertKindPill(inc)} ${alertStatusPill(inc)}</div>
         <h2>${esc(m.full_name)}</h2>
-        <p>${esc([m.role_title, m.unit_name].filter(Boolean).join(' · ') || 'sem lotacao cadastrada')}</p>
+        <p>${alertSiteTag(inc.site)}${esc([m.role_title, m.unit_name].filter(Boolean).join(' · ') || (inc.site ? '' : 'sem lotacao cadastrada'))}</p>
       </div>
       <div class="alert-detail-actions">${actions}</div>
     </div>
@@ -996,15 +1017,19 @@ async function alertLoadMembers() {
   try {
     const data = await alertApiJson(`/api/alert/members?search=${encodeURIComponent(q)}`);
     _alertMembers = data.members || [];
+    _alertMeusSites = Array.isArray(data.meus_sites) ? data.meus_sites : null;
   } catch (err) {
     body.innerHTML = `<tr class="empty-row"><td colspan="8">${esc(err.message || 'Falha ao carregar.')}</td></tr>`;
     return;
   }
-  if (!_alertMembers.length) {
-    body.innerHTML = `<tr class="empty-row"><td colspan="8">${q ? 'Ninguem encontrado.' : 'Nenhuma pessoa cadastrada. Clique em "Nova pessoa".'}</td></tr>`;
+  alertRenderScope('alertScopeMembers', _alertMeusSites);
+  alertRenderMemberSites();
+  const visiveis = _alertMemberSite ? _alertMembers.filter((m) => (m.site || '') === _alertMemberSite) : _alertMembers;
+  if (!visiveis.length) {
+    body.innerHTML = `<tr class="empty-row"><td colspan="8">${q || _alertMemberSite ? 'Ninguem encontrado.' : 'Nenhuma pessoa cadastrada. Clique em "Nova pessoa".'}</td></tr>`;
     return;
   }
-  body.innerHTML = _alertMembers.map((m) => {
+  body.innerHTML = visiveis.map((m) => {
     const app = m.app_devices
       ? `<span class="pill success">${m.app_devices} aparelho${m.app_devices > 1 ? 's' : ''}</span>${m.pins_configured ? '' : ' <span class="pill amber">sem senha</span>'}`
       : (m.activation_pending ? '<span class="pill amber">codigo gerado</span>' : '<span class="pill neutral">nao ativado</span>');
@@ -1013,7 +1038,7 @@ async function alertLoadMembers() {
         <td><strong>${esc(m.full_name)}</strong></td>
         <td class="monospace">${esc(alertCpf(m.document_id))}</td>
         <td>${esc(m.role_title || '-')}</td>
-        <td title="${esc(alertConnectorName(m.unit_connector_id))}">${esc(m.unit_name || '-')}${m.unit_lat == null ? '' : ' <i data-lucide="map-pin" class="alert-inline-icon" title="lotacao com coordenada"></i>'}${m.unit_connector_id ? ' <i data-lucide="cctv" class="alert-inline-icon" title="cameras do local monitorado"></i>' : ''}</td>
+        <td title="${esc(alertConnectorName(m.unit_connector_id))}">${m.site ? `<div class="alert-member-site">${esc(m.site)}</div>` : '<div class="alert-member-site is-vazio">sem site</div>'}${esc(m.unit_name || '-')}${m.unit_lat == null ? '' : ' <i data-lucide="map-pin" class="alert-inline-icon" title="lotacao com coordenada"></i>'}${m.unit_connector_id ? ' <i data-lucide="cctv" class="alert-inline-icon" title="cameras do local monitorado"></i>' : ''}</td>
         <td>${esc(alertPhone(m.phone) || '-')}</td>
         <td>${app}</td>
         <td>${m.active ? '<span class="pill success">ativo</span>' : '<span class="pill neutral">inativo</span>'}</td>
@@ -1028,11 +1053,36 @@ async function alertLoadMembers() {
   if (window.lucide) lucide.createIcons();
 }
 
+function alertRenderMemberSites() {
+  const nav = document.getElementById('alertMemberSites');
+  if (!nav) return;
+  const contagem = new Map();
+  _alertMembers.forEach((m) => { const k = m.site || ''; contagem.set(k, (contagem.get(k) || 0) + 1); });
+  if (_alertMemberSite && !contagem.has(_alertMemberSite)) _alertMemberSite = '';
+  // Um site so: aba nao ajuda, esconde.
+  if (contagem.size < 2) { nav.hidden = true; nav.innerHTML = ''; return; }
+  const sites = [...contagem.keys()].sort((a, b) => (a || '\uffff').localeCompare(b || '\uffff', 'pt-BR'));
+  const aba = (valor, rotulo, n) => `<button type="button" class="alert-site-tab${_alertMemberSite === valor ? ' active' : ''}" data-site="${esc(valor)}">${esc(rotulo)} <span>${n}</span></button>`;
+  nav.hidden = false;
+  nav.innerHTML = aba('', 'Todos', _alertMembers.length) + sites.map((s) => aba(s, s || 'Sem site', contagem.get(s))).join('');
+  if (!nav.dataset.bound) {
+    nav.dataset.bound = '1';
+    nav.addEventListener('click', (ev) => {
+      const b = ev.target.closest('[data-site]');
+      if (!b) return;
+      _alertMemberSite = b.dataset.site;
+      alertLoadMembers();
+    });
+  }
+}
+
 async function alertFillConnectorSelect(selected) {
   const sel = document.getElementById('alertMemberConnector');
   if (!sel) return;
   const list = await alertLoadConnectors();
-  sel.innerHTML = '<option value="">Nenhum</option>' + list.map((c) =>
+  // Restrito a sites: sem local monitorado a pessoa nao teria site e o backend recusa.
+  const vazio = _alertMeusSites ? 'Escolha o local monitorado' : 'Nenhum';
+  sel.innerHTML = `<option value="">${vazio}</option>` + list.map((c) =>
     `<option value="${esc(c.id)}"${c.id === selected ? ' selected' : ''}>${esc(c.name)}</option>`).join('');
   if (selected && !list.some((c) => c.id === selected)) {
     sel.insertAdjacentHTML('beforeend', `<option value="${esc(selected)}" selected>(conector removido)</option>`);
