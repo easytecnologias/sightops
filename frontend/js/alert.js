@@ -30,6 +30,7 @@ let _alertConnectors = null;
 let _alertMeusSites = null;
 let _alertMemberSite = '';
 let _alertSoPendencia = false;
+let _alertEditPonto = null;   // centro das cameras do local (botao no editar)
 let _alertPostos = null;      // postos online (vem do /summary)
 let _alertSeguir = true;       // mapa acompanha a pessoa
 let _alertUnits = null;        // camada com as lotacoes (tela calma)
@@ -1551,6 +1552,14 @@ async function loadAlertMembers() {
       document.getElementById('alertMemberLon').value = m[2];
     });
     document.getElementById('alertMembersBody')?.addEventListener('click', alertMembersClick);
+    document.getElementById('alertAtivacao')?.addEventListener('click', alertAtivacaoClick);
+    document.getElementById('btnAlertCoordCams')?.addEventListener('click', () => {
+      const pt = _alertEditPonto;
+      if (!pt) return;
+      document.getElementById('alertMemberLat').value = Number(pt.lat).toFixed(6);
+      document.getElementById('alertMemberLon').value = Number(pt.lon).toFixed(6);
+      showToast('Posicao preenchida com o centro das cameras do local. Confira e salve.');
+    });
     alertBindModalClose();
   }
   await alertLoadMembers();
@@ -1575,30 +1584,188 @@ async function alertLoadMembers() {
   // Pendencia primeiro: e o que a central precisa resolver.
   const visiveis = (_alertSoPendencia ? doSite.filter((m) => !alertPronta(m)) : doSite)
     .slice().sort((a, b) => Number(alertPronta(a)) - Number(alertPronta(b)));
+  alertRenderPplKpis(doSite);
+  const foot = document.getElementById('alertPplFoot');
+  if (foot) foot.textContent = doSite.length ? `Mostrando ${visiveis.length} de ${doSite.length} · pendencias primeiro` : '';
   if (!visiveis.length) {
-    body.innerHTML = `<tr class="empty-row"><td colspan="8">${_alertSoPendencia ? 'Ninguem com pendencia. Tudo pronto.' : (q || _alertMemberSite ? 'Ninguem encontrado.' : 'Nenhuma pessoa cadastrada. Clique em "Nova pessoa".')}</td></tr>`;
+    body.innerHTML = `<tr class="empty-row"><td colspan="7">${_alertSoPendencia ? 'Ninguem com pendencia. Tudo pronto.' : (q || _alertMemberSite ? 'Ninguem encontrado.' : 'Nenhuma pessoa cadastrada. Clique em "Nova pessoa".')}</td></tr>`;
     return;
   }
-  body.innerHTML = visiveis.map((m) => {
-    const app = alertReadinessCell(m);
-    return `
-      <tr class="${alertPronta(m) ? '' : 'alert-row-pendente'}">
-        <td><strong>${esc(m.full_name)}</strong></td>
-        <td class="monospace">${esc(alertCpf(m.document_id))}</td>
-        <td>${esc(m.role_title || '-')}</td>
-        <td title="${esc(alertConnectorName(m.unit_connector_id))}">${m.site ? `<div class="alert-member-site">${esc(m.site)}</div>` : '<div class="alert-member-site is-vazio">sem site</div>'}${esc(m.unit_name || '-')}${m.unit_lat == null ? '' : ' <i data-lucide="map-pin" class="alert-inline-icon" title="lotacao com coordenada"></i>'}${m.unit_connector_id ? ' <i data-lucide="cctv" class="alert-inline-icon" title="cameras do local monitorado"></i>' : ''}</td>
-        <td>${esc(alertPhone(m.phone) || '-')}</td>
-        <td>${app}</td>
-        <td>${m.active ? '<span class="pill success">ativo</span>' : '<span class="pill neutral">inativo</span>'}</td>
+  body.innerHTML = visiveis.map(alertMemberRow).join('');
+  if (window.lucide) lucide.createIcons();
+}
+
+// Uma linha de Pessoas: cada coluna e um item da prontidao, e o botao principal
+// e o que resolve a pendencia daquela pessoa.
+function alertMemberRow(m) {
+  const dev = m.device || {};
+  const cod = new Set((m.prontidao?.pendencias || []).map((p) => p.codigo));
+  const tick = (ok, txt, titulo, cls = '') => `<span class="alert-tick ${ok ? 'ok' : cls}" title="${esc(titulo)}">${ok ? '<i data-lucide="check"></i>' : esc(txt)}</span>`;
+  const app = m.app_devices ? tick(true, '', `${m.app_devices} aparelho(s) ativo(s)`)
+    : tick(false, '–', m.activation_pending ? 'Codigo gerado, ainda nao ativou' : 'Nunca ativou o app', m.activation_pending ? 'warn' : 'off');
+  const senhas = m.pins_configured ? tick(true, '', 'Senha normal e de coacao criadas')
+    : tick(false, m.app_devices ? '!' : '–', m.app_devices ? 'Ativou, mas nao criou as senhas' : 'Cria as senhas ao ativar', m.app_devices ? 'info' : 'off');
+  const cams = m.unit_connector_id ? tick(true, '', `Local monitorado: ${alertConnectorName(m.unit_connector_id)}`) : tick(false, '0', 'Lotacao sem local monitorado (cameras)', 'warn');
+  let sinal = '<span class="alert-sinal off">nunca</span>';
+  if (dev.last_seen_at) {
+    const ago = alertAgo(dev.last_seen_at);
+    const velho = cod.has('sem_sinal');
+    sinal = `<span class="alert-sinal${velho ? ' bad' : ''}">${esc(ago.includes('/') ? `em ${ago}` : `ha ${ago}`)}</span>`;
+  } else if (!m.app_devices) {
+    sinal = `<span class="alert-sinal warn">${m.activation_pending ? `codigo vence ${esc(alertDate(m.activation_expires_at)?.toLocaleDateString('pt-BR') || '')}` : 'nunca ativou'}</span>`;
+  }
+  const det = [];
+  if (cod.has('gps_bloqueado')) det.push('<b class="bad">localizacao bloqueada</b>');
+  else if (dev.gps_permission === 'granted') det.push('GPS liberado');
+  if (dev.battery != null) det.push(cod.has('bateria') ? `<b class="warn">bateria ${dev.battery}%</b>` : `bateria ${dev.battery}%`);
+  const plat = alertPlataforma(dev.platform);
+  if (plat) det.push(plat);
+  if (m.app_devices > 1) det.push(`${m.app_devices} aparelhos`);
+  let principal;
+  if (!m.active) principal = '<span class="pill neutral">inativo</span>';
+  else if (!m.app_devices) principal = `<button class="primary-action" data-member-act="code" data-id="${esc(m.id)}" type="button"><i data-lucide="qr-code"></i> QR de ativacao</button>`;
+  else if (!m.pins_configured) principal = `<button class="secondary-action" data-member-act="lembrar" data-id="${esc(m.id)}" type="button"><i data-lucide="message-circle"></i> Lembrar</button>`;
+  else if (cod.has('gps_bloqueado') || cod.has('sem_sinal')) principal = `<button class="secondary-action" data-member-act="teste" data-id="${esc(m.id)}" type="button"><i data-lucide="message-circle"></i> Pedir teste</button>`;
+  else if (cod.has('sem_cameras')) principal = `<button class="secondary-action" data-member-act="edit" data-id="${esc(m.id)}" type="button"><i data-lucide="cctv"></i> Ligar cameras</button>`;
+  else principal = `<button class="secondary-action" data-member-act="code" data-id="${esc(m.id)}" type="button"><i data-lucide="key-round"></i> Codigo</button>`;
+  const meta = [m.role_title, alertCpf(m.document_id), alertPhone(m.phone)].filter(Boolean).join(' · ');
+  return `
+      <tr class="${alertPronta(m) ? '' : 'alert-row-pendente'}${m.id === _alertAtivId ? ' is-sel' : ''}">
+        <td><strong>${esc(m.full_name)}</strong><small class="alert-ppl-meta">${esc(meta || '-')}</small></td>
+        <td title="${esc(alertConnectorName(m.unit_connector_id))}">${m.site ? `<div class="alert-member-site">${esc(m.site)}</div>` : '<div class="alert-member-site is-vazio">sem site</div>'}${esc(m.unit_name || '-')}</td>
+        <td class="c">${app}</td>
+        <td class="c">${senhas}</td>
+        <td class="c">${cams}</td>
+        <td>${sinal}${det.length ? `<small class="alert-ppl-meta">${det.join(' · ')}</small>` : ''}</td>
         <td><div class="alert-row-actions">
-          <button class="secondary-action" data-member-act="code" data-id="${esc(m.id)}" type="button" ${m.active ? '' : 'disabled'}><i data-lucide="key-round"></i> Codigo</button>
+          ${principal}
           <button class="icon-button" data-member-act="edit" data-id="${esc(m.id)}" type="button" title="Editar"><i data-lucide="pencil"></i></button>
           <button class="icon-button" data-member-act="revoke" data-id="${esc(m.id)}" type="button" title="Desconectar aparelhos" ${m.app_devices ? '' : 'disabled'}><i data-lucide="unplug"></i></button>
           <button class="icon-button" data-member-act="delete" data-id="${esc(m.id)}" type="button" title="Excluir"><i data-lucide="trash-2"></i></button>
         </div></td>
       </tr>`;
-  }).join('');
+}
+
+function alertPlataforma(p) {
+  const v = String(p || '').toLowerCase();
+  if (v === 'android') return 'Android (app)';
+  if (v === 'ios') return 'iPhone (app)';
+  if (v === 'android-web') return 'Android (navegador)';
+  if (v === 'web') return 'navegador';
+  return '';
+}
+
+function alertRenderPplKpis(lista) {
+  const dv = document.getElementById('alertPplDevices');
+  const sn = document.getElementById('alertPplSinal');
+  if (!dv || !sn) return;
+  const ativos = lista.filter((m) => m.active);
+  if (!ativos.length) { dv.hidden = true; sn.hidden = true; return; }
+  const comApp = ativos.filter((m) => m.app_devices);
+  const aparelhos = comApp.reduce((n, m) => n + (m.app_devices || 0), 0);
+  const plat = {};
+  comApp.forEach((m) => { const k = alertPlataforma(m.device?.platform) || 'sem informacao'; plat[k] = (plat[k] || 0) + 1; });
+  const bat = comApp.filter((m) => m.device?.battery != null && m.device.battery < 15).length;
+  dv.hidden = false;
+  dv.innerHTML = `<span class="lbl">Aparelhos ativos</span><b>${aparelhos}</b>
+    <small>${Object.entries(plat).map(([k, n]) => `${n} ${esc(k)}`).join(' · ') || 'nenhum ainda'}${bat ? ` · <span class="warn">${bat} com bateria abaixo de 15%</span>` : ''}</small>`;
+  const dia = Date.now() - 86400000;
+  const recentes = comApp.filter((m) => (alertDate(m.device?.last_seen_at)?.getTime() || 0) >= dia).length;
+  const gps = comApp.filter((m) => m.device?.gps_permission === 'granted').length;
+  sn.hidden = false;
+  sn.innerHTML = `<span class="lbl">Deram sinal nas ultimas 24 h</span><b>${recentes}<em>/${comApp.length}</em></b>
+    <small>${gps} com localizacao liberada confirmada · o celular avisa quando o app e aberto</small>`;
+}
+
+// ---------------------------------------------------------------- ativacao (QR, WhatsApp, impressao)
+let _alertAtivId = '';
+let _alertAtiv = null;
+
+function alertLinkAtivacao(code) {
+  return new URL(`alerta/?codigo=${encodeURIComponent(code)}`, window.location.href).href;
+}
+
+function alertQrSvg(texto) {
+  if (typeof qrcode !== 'function') return '<div class="alert-live-empty">QR indisponivel: use o codigo abaixo.</div>';
+  const q = qrcode(0, 'M');
+  q.addData(texto);
+  q.make();
+  return q.createSvgTag({ cellSize: 5, margin: 2, scalable: true, alt: 'QR code de ativacao' });
+}
+
+function alertWhatsappLink(phone, texto) {
+  let d = String(phone || '').replace(/\D/g, '');
+  if (!d) return '';
+  if (d.length <= 11) d = `55${d}`;
+  return `https://wa.me/${d}?text=${encodeURIComponent(texto)}`;
+}
+
+function alertRenderAtivacao() {
+  const box = document.getElementById('alertAtivacao');
+  if (!box) return;
+  const a = _alertAtiv;
+  if (!a) { box.hidden = true; box.innerHTML = ''; return; }
+  const m = a.m;
+  const codigo = `${a.code.slice(0, 4)}-${a.code.slice(4)}`;
+  const link = alertLinkAtivacao(a.code);
+  const vence = alertDate(a.expires_at)?.toLocaleDateString('pt-BR') || '';
+  const zap = alertWhatsappLink(m.phone, `Ola, ${m.full_name.split(' ')[0]}! Este e o seu acesso ao botao de ajuda do SightOps.\n\n1. Abra no celular: ${link}\n2. Se pedir, digite o codigo: ${codigo}\n3. Crie a sua senha e a senha de coacao.\n\nO codigo vale uma vez, ate ${vence}.`);
+  box.hidden = false;
+  box.innerHTML = `
+    <div class="alert-ativ-head">
+      <div><span class="lbl">Ativar aparelho</span><strong>${esc(m.full_name)}</strong><small>${esc([m.role_title, m.site, m.unit_name].filter(Boolean).join(' · '))}</small></div>
+      <button class="icon-button" type="button" data-ativ="fechar" aria-label="Fechar"><i data-lucide="x"></i></button>
+    </div>
+    <div class="alert-ativ-qr">${alertQrSvg(link)}</div>
+    <div class="alert-ativ-code"><b>${esc(codigo)}</b><small>Aponte a camera do celular · vale uma vez, ate ${esc(vence)}. O codigo nao aparece de novo depois que este painel fechar.</small></div>
+    <div class="alert-ativ-btns">
+      ${zap ? `<a class="primary-action" href="${esc(zap)}" target="_blank" rel="noopener"><i data-lucide="message-circle"></i> Enviar por WhatsApp</a>` : '<span class="alert-ativ-nozap">Sem telefone cadastrado para enviar por WhatsApp.</span>'}
+      <button class="secondary-action" type="button" data-ativ="copiar"><i data-lucide="copy"></i> Copiar link</button>
+      <button class="secondary-action" type="button" data-ativ="imprimir"><i data-lucide="printer"></i> Imprimir</button>
+    </div>
+    <div class="alert-ativ-steps"><span class="lbl">Depois de ativar, o app</span>
+      <ol><li>Pede as duas senhas (normal e coacao)</li><li>Pede permissao de localizacao</li><li>Avisa a central se o GPS esta liberado e a bateria</li><li>Da sinal toda vez que a pessoa abre o app</li></ol>
+    </div>`;
   if (window.lucide) lucide.createIcons();
+}
+
+function alertImprimirAtivacao() {
+  const a = _alertAtiv;
+  if (!a) return;
+  const codigo = `${a.code.slice(0, 4)}-${a.code.slice(4)}`;
+  const w = window.open('', '_blank', 'width=520,height=720');
+  if (!w) { showToast('O navegador bloqueou a janela de impressao.', true); return; }
+  const vence = alertDate(a.expires_at)?.toLocaleDateString('pt-BR') || '';
+  w.document.write(`<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Ativacao - ${esc(a.m.full_name)}</title>
+    <style>body{font-family:Inter,Arial,sans-serif;color:#172026;text-align:center;padding:32px}svg{width:260px;height:260px}
+    h1{font-size:20px;margin:0 0 4px}p{color:#66747e;margin:4px 0}b{display:block;font:700 30px ui-monospace,Consolas,monospace;letter-spacing:.18em;margin:16px 0 4px}
+    ol{text-align:left;max-width:360px;margin:20px auto;line-height:1.7}</style></head><body>
+    <h1>Botao de ajuda SightOps</h1><p>${esc(a.m.full_name)}${a.m.unit_name ? ` · ${esc(a.m.unit_name)}` : ''}</p>
+    ${alertQrSvg(alertLinkAtivacao(a.code))}<b>${esc(codigo)}</b><p>Vale uma vez, ate ${esc(vence)}</p>
+    <ol><li>Aponte a camera do celular para o QR.</li><li>Se pedir, digite o codigo acima.</li><li>Crie a sua senha e a senha de coacao.</li><li>Libere a localizacao quando o app pedir.</li></ol>
+    <script>window.onload=function(){window.print()}<\/script></body></html>`);
+  w.document.close();
+}
+
+async function alertAtivacaoClick(ev) {
+  const act = ev.target.closest('[data-ativ]')?.dataset.ativ;
+  if (!act) return;
+  if (act === 'fechar') { _alertAtiv = null; _alertAtivId = ''; alertRenderAtivacao(); alertLoadMembers(); return; }
+  if (act === 'copiar' && _alertAtiv) {
+    navigator.clipboard?.writeText(alertLinkAtivacao(_alertAtiv.code)).then(() => showToast('Link copiado.'), () => showToast('Nao deu para copiar.', true));
+  }
+  if (act === 'imprimir') alertImprimirAtivacao();
+}
+
+function alertMandarLembrete(m, tipo) {
+  const link = new URL('alerta/', window.location.href).href;
+  const nome = m.full_name.split(' ')[0];
+  const texto = tipo === 'lembrar'
+    ? `Ola, ${nome}! O seu botao de ajuda do SightOps ja esta ativado, mas falta criar as senhas. Abra ${link} e crie a senha normal e a de coacao.`
+    : `Ola, ${nome}! Pode abrir o app do botao de ajuda (${link}) e tocar em "Testar localizacao" no menu? Se pedir, libere a localizacao. Assim a central confirma que o seu celular esta pronto.`;
+  const zap = alertWhatsappLink(m.phone, texto);
+  if (!zap) { showToast('Sem telefone cadastrado: edite a pessoa para mandar por WhatsApp.', true); return; }
+  window.open(zap, '_blank', 'noopener');
 }
 
 function alertRenderMemberSites() {
@@ -1703,6 +1870,9 @@ function alertOpenMember(m) {
   v('alertMemberNotes', m?.notes);
   document.getElementById('alertMemberActive').checked = m ? !!m.active : true;
   alertFillConnectorSelect(m?.unit_connector_id || '');
+  _alertEditPonto = m?.ponto && m.ponto.origem === 'cameras' ? m.ponto : null;
+  const bc = document.getElementById('btnAlertCoordCams');
+  if (bc) bc.hidden = !_alertEditPonto || m?.unit_lat != null;
   document.getElementById('modalAlertMember').classList.remove('hidden');
   setTimeout(() => document.getElementById('alertMemberName')?.focus(), 50);
 }
@@ -1746,10 +1916,13 @@ async function alertMembersClick(ev) {
         msg: `${m.full_name} ja tem aparelho ativado. Gerar codigo para ativar mais um (ou um celular novo)? O aparelho atual continua funcionando.`,
       }))) return;
       const out = await alertApiJson(`/api/alert/members/${encodeURIComponent(m.id)}/activation-code`, { method: 'POST' });
-      setText('alertCodeWho', m.full_name);
-      setText('alertCodeValue', `${out.code.slice(0, 4)}-${out.code.slice(4)}`);
-      setText('alertCodeExpires', alertDate(out.expires_at)?.toLocaleDateString('pt-BR') || '');
-      document.getElementById('modalAlertCode').classList.remove('hidden');
+      _alertAtiv = { m, code: out.code, expires_at: out.expires_at };
+      _alertAtivId = m.id;
+      alertRenderAtivacao();
+      document.getElementById('alertAtivacao')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    } else if (act === 'lembrar' || act === 'teste') {
+      alertMandarLembrete(m, act);
+      return;
     } else if (act === 'revoke') {
       if (!(await showConfirm({
         eyebrow: 'Aparelhos', title: 'Desconectar aparelhos?', label: 'Desconectar',

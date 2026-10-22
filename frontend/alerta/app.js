@@ -21,7 +21,7 @@
   const FLUSH_MS = 5000;
   const STATUS_POLL_MS = 5000;
   const RETRY_MS = 3000;
-  const APP_VERSION = '2';
+  const APP_VERSION = '3';
   const CHECKIN_MIN_MS = 10 * 60 * 1000; // no maximo um aviso a cada 10 min
 
   const store = {
@@ -119,8 +119,24 @@
     show('scrActivate');
   }
 
+  // QR de ativacao: o link traz ?codigo=XXXXXXXX. Preenche e tira da barra de
+  // endereco (o codigo nao fica no historico do navegador).
+  function codigoDoLink() {
+    try {
+      const u = new URL(window.location.href);
+      const c = (u.searchParams.get('codigo') || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8);
+      if (u.searchParams.has('codigo')) { u.searchParams.delete('codigo'); history.replaceState(null, '', u.pathname + u.search + u.hash); }
+      return c;
+    } catch { return ''; }
+  }
+
   async function boot() {
-    if (!state.token) { show('scrActivate'); return; }
+    const doLink = codigoDoLink();
+    if (!state.token) {
+      if (doLink) $('inCode').value = doLink.length > 4 ? doLink.slice(0, 4) + '-' + doLink.slice(4) : doLink;
+      show('scrActivate');
+      return;
+    }
     // Mostra o inicio na hora com o que esta salvo: o botao tem que funcionar
     // mesmo sem internet no momento em que o app abre.
     if (state.member) renderHome();
