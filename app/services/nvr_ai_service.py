@@ -105,8 +105,40 @@ def _read_nvr_inventory() -> List[Dict[str, Any]]:
     return rows
 
 
+def _nomes_das_cameras_ip() -> Dict[tuple, str]:
+    """(ip, SITE) -> titulo cadastrado em Cameras IP (o mesmo do Zabbix).
+
+    O NVR so guarda o nome de fabrica da camera (serial/modelo) quando ninguem
+    renomeou o canal; o nome que o cliente cuida fica no inventario de cameras."""
+    from app.core.permissions import site_da_linha
+    from app.services.inventory_json import load_inventory_json
+
+    nomes: Dict[tuple, str] = {}
+    for modo in ("olt", "switch", "basic"):
+        try:
+            linhas = load_inventory_json(mode=modo) or []
+        except Exception:
+            continue
+        for r in linhas:
+            if not isinstance(r, dict):
+                continue
+            ip = _safe_text(r.get("ip"))
+            titulo = _safe_text(r.get("titulo") or r.get("title"))
+            if ip and titulo:
+                nomes.setdefault((ip, site_da_linha(r).upper()), titulo)
+    return nomes
+
+
 def list_nvr_targets() -> Dict[str, Any]:
     rows = _read_nvr_inventory()
+    nomes = _nomes_das_cameras_ip()
+    # IP de camera que aparece em mais de um canal do mesmo site e ambiguo: fica o nome do NVR.
+    uso: Dict[tuple, int] = {}
+    for r in rows:
+        ip = _safe_text(r.get("camera_ip"))
+        if ip:
+            k = (ip, _safe_text(r.get("site") or r.get("site_name") or r.get("local")).upper())
+            uso[k] = uso.get(k, 0) + 1
     targets: List[Dict[str, Any]] = []
     seen: set[tuple[str, int, int]] = set()
     for r in rows:
@@ -121,12 +153,16 @@ def list_nvr_targets() -> Dict[str, Any]:
         if key in seen:
             continue
         seen.add(key)
+        titulo_nvr = _safe_text(r.get("title") or r.get("titulo") or f"Canal {ch:02d}")
+        chave_cam = (_safe_text(r.get("camera_ip")), site.upper())
+        titulo = nomes.get(chave_cam) if uso.get(chave_cam) == 1 else ""
         targets.append(
             {
                 "host": host,
                 "http_port": port,
                 "channel": ch,
-                "title": _safe_text(r.get("title") or r.get("titulo") or f"Canal {ch:02d}"),
+                "title": titulo or titulo_nvr,
+                "nvr_title": titulo_nvr,
                 "recorder_name": _safe_text(r.get("recorder_name")),
                 "site": site,
                 "local": local or site,
