@@ -320,11 +320,21 @@ def _pontos_do_mapa() -> List[Dict[str, Any]]:
 
     if not get_current_tenant_slug():
         return []
+    from app.core import permissions
+
+    liberadas = None
+    if permissions.sites_da_sessao() is not None:
+        # usuario com restricao de site: so as camadas que o Mapa mostra a ele
+        from app.api.endpoints.tools import _list_kmz_import_layers
+
+        liberadas = {str(l.get("id") or "") for l in _list_kmz_import_layers(include_features=False)}
     pasta = tenant_kmz_input_dir().parent / "kmz_layers"
     out: List[Dict[str, Any]] = []
     for geo in sorted(pasta.glob("*.geojson")):
         meta_p, kmz_p = pasta / f"{geo.stem}.meta.json", pasta / f"{geo.stem}.kmz"
         if not meta_p.exists() or not kmz_p.exists():
+            continue
+        if liberadas is not None and geo.stem not in liberadas:
             continue
         try:
             meta = json.loads(meta_p.read_text(encoding="utf-8") or "{}")
@@ -347,13 +357,15 @@ def _pontos_do_mapa() -> List[Dict[str, Any]]:
 
 
 def _cameras_do_cliente(site: str = "") -> List[Dict[str, Any]]:
+    from app.core import permissions
     from app.services.inventory_json import load_inventory_json
 
     vistas, out = set(), []
     alvo = _to_text(site).lower()
     for modo in ("olt", "basic", "switch"):
         try:
-            linhas = load_inventory_json(mode=modo) or []
+            # restricao de site da sessao (o job roda no contexto de quem pediu)
+            linhas = permissions.filtrar_por_site(load_inventory_json(mode=modo) or [])
         except Exception:
             continue
         for r in linhas:
@@ -362,7 +374,9 @@ def _cameras_do_cliente(site: str = "") -> List[Dict[str, Any]]:
             chave = (_to_text(r.get("remote_connector_id") or r.get("connector_id")), _to_text(r.get("ip")))
             if chave in vistas:
                 continue
-            if alvo and not any(_to_text(r.get(k)).lower() == alvo for k in ("site", "site_name", "local")):
+            # o site e o PRIMEIRO campo preenchido (nao a uniao: editar o
+            # "local" nao muda de site -- ver permissions.site_da_linha)
+            if alvo and permissions.site_da_linha(r).lower() != alvo:
                 continue
             vistas.add(chave)
             out.append(dict(r))

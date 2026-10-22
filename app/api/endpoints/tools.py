@@ -159,6 +159,103 @@ def _write_kmz_layer_meta(meta_path: Path, meta: dict[str, Any]) -> None:
     meta_path.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
+# ------------------------------------------------------------ camada x site
+# Camada KMZ nao tem site gravado: o site e o das cameras do inventario que
+# casam com os pontos (nome = titulo, ou IP), o mais frequente -- a mesma conta
+# do mapa (mapLayerSite), mas com o inventario COMPLETO do cliente; aqui valem
+# TODOS os sites casados (camada mista so para quem acessa todos). Sem camera
+# casada, pelo nome da camada. meta["sites"] (camada criada/importada por
+# usuario restrito) vale sobre a conta. Quem tem restricao de site so ve a
+# camada cujos sites sao todos dele; sem site descoberto, nao ve (na duvida,
+# nao mostra -- mesma regra do filtrar_por_site).
+_RE_IP = re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b")
+
+
+def _chave_site(valor: Any) -> str:
+    import unicodedata
+
+    s = unicodedata.normalize("NFD", str(valor or ""))
+    return "".join(c for c in s if not unicodedata.combining(c)).strip().upper()
+
+
+def _sites_liberados() -> Optional[set]:
+    """Chaves dos sites da sessao; None = sem restricao."""
+    sites = permissions.sites_da_sessao()
+    return None if sites is None else {_chave_site(s) for s in sites if str(s or "").strip()}
+
+
+def _indice_sites_inventario() -> Dict[str, Any]:
+    nome: Dict[str, str] = {}
+    ip: Dict[str, str] = {}
+    for modo in ("basico", "switch", "olt"):
+        try:
+            linhas = load_inventory_json(mode=modo) or []
+        except Exception:
+            continue
+        for r in linhas:
+            if not isinstance(r, dict):
+                continue
+            site = _chave_site(permissions.site_da_linha(r))
+            if not site:
+                continue
+            titulo = str(r.get("titulo") or "").strip().lower()
+            if titulo:
+                nome.setdefault(titulo, site)
+            r_ip = str(r.get("ip") or r.get("IP") or "").strip()
+            if r_ip:
+                ip.setdefault(r_ip, site)
+    return {"nome": nome, "ip": ip, "sites": set(nome.values()) | set(ip.values())}
+
+
+def _sites_da_camada(meta: Dict[str, Any], features: list, indice: Dict[str, Any]) -> list[str]:
+    explicitos = meta.get("sites")
+    if isinstance(explicitos, list) and any(str(s or "").strip() for s in explicitos):
+        return sorted({_chave_site(s) for s in explicitos if str(s or "").strip()})
+    conta: Dict[str, int] = {}
+    for f in features or []:
+        props = (f or {}).get("properties") or {} if isinstance(f, dict) else {}
+        nome = str(props.get("name") or "").strip()
+        achado = _RE_IP.search(str(props.get("description") or "")) or _RE_IP.search(nome)
+        site = indice["nome"].get(nome.lower()) or (indice["ip"].get(achado.group(0)) if achado else None)
+        if site:
+            conta[site] = conta.get(site, 0) + 1
+    if conta:
+        return sorted(conta)
+    rotulo = f" {re.sub(r'[^A-Z0-9]+', ' ', _chave_site(meta.get('label') or meta.get('original_name')))} "
+    pelo_nome = [s for s in indice["sites"]
+                 if len(s) >= 4 and f" {re.sub(r'[^A-Z0-9]+', ' ', s).strip()} " in rotulo]
+    return [max(pelo_nome, key=len)] if pelo_nome else []
+
+
+def _camada_liberada(meta: Dict[str, Any], features: list, indice: Optional[Dict[str, Any]], liberados: set) -> bool:
+    sites = _sites_da_camada(meta, features, indice or {"nome": {}, "ip": {}, "sites": set()})
+    return bool(sites) and set(sites) <= liberados
+
+
+def _exigir_camada_liberada(layer_id: str, generated: bool = False) -> None:
+    """404 (e nao 403: nem diz que existe) para camada de site alheio."""
+    if _sites_liberados() is None:
+        return
+    paths_fn = _kmz_generated_layer_paths if generated else _kmz_layer_paths
+    lista = _list_kmz_generated_layers(include_features=False) if generated else _list_kmz_import_layers(include_features=False)
+    arquivos = {paths_fn(str(l.get("id") or ""))[0].name for l in lista}
+    if paths_fn(layer_id)[0].name not in arquivos:
+        raise HTTPException(404, "Camada KMZ nao encontrada.")
+
+
+def _exigir_sem_restricao_de_site() -> None:
+    """Rotas antigas do "ultimo KMZ importado" nao sabem de que site e o
+    arquivo: so para quem acessa todos os sites."""
+    if _sites_liberados() is not None:
+        raise HTTPException(403, "Disponivel so para quem acessa todos os sites. Escolha a camada no mapa.")
+
+
+def _sites_para_meta_nova() -> Dict[str, Any]:
+    """Camada criada/importada por usuario restrito nasce com os sites dele."""
+    sites = permissions.sites_da_sessao()
+    return {"sites": sorted({str(s).strip() for s in sites if str(s or "").strip()})} if sites is not None else {}
+
+
 def _kmz_layer_download_name(label: str, fallback: str = "mapa.kmz") -> str:
     raw = str(label or "").strip() or fallback
     stem = Path(raw).stem or "mapa"
@@ -167,6 +264,8 @@ def _kmz_layer_download_name(label: str, fallback: str = "mapa.kmz") -> str:
 
 def _list_kmz_import_layers(include_features: bool = True) -> list[dict[str, Any]]:
     layers: list[dict[str, Any]] = []
+    liberados = _sites_liberados()
+    indice = _indice_sites_inventario() if liberados is not None else None
     for meta_path in sorted(_kmz_layers_dir().glob("*.meta.json"), key=lambda p: p.stat().st_mtime, reverse=True):
         meta = _read_kmz_layer_meta(meta_path)
         layer_id = str(meta.get("id") or meta_path.stem.replace(".meta", "")).strip()
@@ -183,6 +282,8 @@ def _list_kmz_import_layers(include_features: bool = True) -> list[dict[str, Any
                 features = json.loads(geojson_path.read_text(encoding="utf-8") or "{}").get("features") or []
             except Exception:
                 features = []
+        if liberados is not None and not _camada_liberada(meta, features, indice, liberados):
+            continue  # camada de site que o usuario nao acessa
         layers.append({
             "id": layer_id,
             "label": str(meta.get("label") or meta.get("original_name") or kmz_path.name).replace(".kmz", "").replace(".kml", ""),
@@ -210,6 +311,8 @@ def _list_kmz_import_layers(include_features: bool = True) -> list[dict[str, Any
 
 def _list_kmz_generated_layers(include_features: bool = True) -> list[dict[str, Any]]:
     layers: list[dict[str, Any]] = []
+    liberados = _sites_liberados()
+    indice = _indice_sites_inventario() if liberados is not None else None
     for meta_path in sorted(_kmz_generated_layers_dir().glob("*.meta.json"), key=lambda p: p.stat().st_mtime, reverse=True):
         meta = _read_kmz_layer_meta(meta_path)
         generated_from = str(meta.get("generated_from") or "").strip()
@@ -229,6 +332,8 @@ def _list_kmz_generated_layers(include_features: bool = True) -> list[dict[str, 
                 features = json.loads(geojson_path.read_text(encoding="utf-8") or "{}").get("features") or []
             except Exception:
                 features = []
+        if liberados is not None and not _camada_liberada(meta, features, indice, liberados):
+            continue  # camada de site que o usuario nao acessa
         layers.append({
             "id": layer_id,
             "label": str(meta.get("label") or meta.get("original_name") or kmz_path.name).replace(".kmz", "").replace(".kml", ""),
@@ -273,7 +378,9 @@ def _ensure_imported_layer_enriched(layer_id: str, source: str, mode: str = "") 
     if not import_kmz_path.exists():
         raise HTTPException(404, "Camada KMZ nao encontrada.")
 
-    rows_raw = _load_rows_by_source(src, mode=normalized_mode)
+    # restrito: so cameras dos sites dele no popup (um ponto com IP de outro
+    # site nao traz os dados daquela camera)
+    rows_raw = permissions.filtrar_por_site(_load_rows_by_source(src, mode=normalized_mode))
     rows = _kmz_rows_for_source(src, rows_raw)
     if not rows:
         raise HTTPException(400, "Inventario vazio.")
@@ -1120,9 +1227,18 @@ async def _run_map_report_job(job_id: str, cfg: Dict[str, Any]) -> None:
         job["status"], job["error"] = "error", str(exc) or repr(exc)
 
 
+def _id_do_usuario() -> str:
+    from app.core.tenant_context import get_current_user
+
+    u = get_current_user() or {}
+    return str(u.get("id") or "") if isinstance(u, dict) else ""
+
+
 def _map_report_job_do_cliente(job_id: str) -> dict[str, Any]:
     job = _report_jobs.get(job_id)
     if not job or job.get("kind") != "mapa" or job.get("tenant") != (get_current_tenant_slug() or ""):
+        raise HTTPException(status_code=404, detail="job nao encontrado ou expirado")
+    if job.get("user") and job.get("user") != _id_do_usuario():
         raise HTTPException(status_code=404, detail="job nao encontrado ou expirado")
     return job
 
@@ -1131,10 +1247,15 @@ def _map_report_job_do_cliente(job_id: str) -> dict[str, Any]:
 async def api_map_report_job_start(site: str = "", company_name: str = "", report_color: str = "") -> Dict[str, Any]:
     if not get_current_tenant_slug():
         raise HTTPException(status_code=400, detail="relatorio do mapa precisa de um cliente selecionado")
+    # restrito: site vazio = os sites dele (o relatorio filtra cameras e
+    # camadas pela sessao); site de outro, nao
+    liberados = _sites_liberados()
+    if liberados is not None and site.strip() and _chave_site(site) not in liberados:
+        raise HTTPException(status_code=403, detail="Site fora do seu acesso.")
     _prune_report_jobs()
     job_id = uuid.uuid4().hex
     _report_jobs[job_id] = {"status": "queued", "done": 0, "total": 0, "stage": "preparando", "kind": "mapa",
-                            "tenant": get_current_tenant_slug() or "", "_created": datetime.now()}
+                            "tenant": get_current_tenant_slug() or "", "user": _id_do_usuario(), "_created": datetime.now()}
     cfg = {"site": site, "company_name": company_name, "report_color": report_color}
     task = asyncio.create_task(_run_map_report_job(job_id, cfg), name=f"map-report-{job_id[:8]}")
     _report_tasks.add(task)
@@ -1500,6 +1621,7 @@ async def api_kmz_import(file: UploadFile = File(...)) -> Dict[str, Any]:
         "label": Path(original_name).stem,
         "created_at": datetime.now().isoformat(timespec="seconds"),
         "features_count": len(geojson.get("features") or []),
+        **_sites_para_meta_nova(),
     }
     layer_meta_path.write_text(json.dumps(layer_meta, ensure_ascii=False, indent=2), encoding="utf-8")
 
@@ -1561,6 +1683,7 @@ async def api_kmz_import_layer_create(payload: Dict[str, Any]) -> Dict[str, Any]
         "created_at": datetime.now().isoformat(timespec="seconds"),
         "features_count": 0,
         "origem": "mapa",
+        **_sites_para_meta_nova(),
     }
     _write_kmz_layer_meta(meta_path, meta)
     layer = next((l for l in _list_kmz_import_layers(include_features=False) if l["id"] == layer_id), None)
@@ -1569,6 +1692,7 @@ async def api_kmz_import_layer_create(payload: Dict[str, Any]) -> Dict[str, Any]
 
 @router.get("/kmz/import/layers/{layer_id}/download")
 async def api_kmz_import_layer_download(layer_id: str) -> FileResponse:
+    _exigir_camada_liberada(layer_id)
     kmz_path, _, meta_path = _kmz_layer_paths(layer_id)
     if not kmz_path.exists():
         raise HTTPException(404, "Camada KMZ nao encontrada.")
@@ -1583,6 +1707,7 @@ async def api_kmz_import_layer_download_enriched(
     source: str = "ip",
     mode: str = "",
 ) -> FileResponse:
+    _exigir_camada_liberada(layer_id)
     kmz_path, filename = _ensure_imported_layer_enriched(layer_id, source=source, mode=mode)
     return FileResponse(kmz_path, media_type="application/vnd.google-earth.kmz", filename=filename)
 
@@ -1676,6 +1801,7 @@ def _remover_linhas_da_camada(layer_id: str, dados: Dict[str, Any]) -> Dict[str,
 
 @router.patch("/kmz/import/layers/{layer_id}")
 async def api_kmz_import_layer_update(layer_id: str, payload: Dict[str, Any], request: Request) -> Dict[str, Any]:
+    _exigir_camada_liberada(layer_id)
     if isinstance(payload.get("ponto"), dict):
         return {"ok": True, **_editar_ponto_da_camada(layer_id, payload["ponto"])}
     if isinstance(payload.get("linhas"), dict):
@@ -2266,6 +2392,7 @@ def _apagar_geradas_do_mapa(layer_id: str) -> list[str]:
 
 @router.delete("/kmz/import/layers/{layer_id}")
 async def api_kmz_import_layer_delete(layer_id: str) -> Dict[str, Any]:
+    _exigir_camada_liberada(layer_id)
     kmz_path, geojson_path, meta_path = _kmz_layer_paths(layer_id)
     existed = kmz_path.exists() or geojson_path.exists() or meta_path.exists()
     _safe_unlink(kmz_path)
@@ -2284,12 +2411,14 @@ async def api_kmz_import_layer_delete(layer_id: str) -> Dict[str, Any]:
 
 @router.get("/kmz/import/geojson")
 async def api_kmz_import_geojson() -> Dict[str, Any]:
+    _exigir_sem_restricao_de_site()
     kmz_geojson_path = tenant_kmz_imported_geojson_path() if get_current_tenant_slug() else KMZ_IMPORTED_GEOJSON_PATH
     return read_geojson_file(kmz_geojson_path)
 
 
 @router.get("/kmz/import/download")
 async def api_kmz_import_download() -> FileResponse:
+    _exigir_sem_restricao_de_site()
     kmz_imported_path = tenant_kmz_imported_path() if get_current_tenant_slug() else KMZ_IMPORTED_PATH
     if not kmz_imported_path.exists():
         raise HTTPException(404, "Nenhum KMZ importado.")
@@ -2316,6 +2445,10 @@ async def api_kmz_import_locations_apply(payload: Dict[str, Any]) -> Dict[str, A
     # aplicar um mapa achando que era outro.
     layer_id = str(payload.get("layer_id") or "").strip()
     if layer_id:
+        _exigir_camada_liberada(layer_id)
+    else:
+        _exigir_sem_restricao_de_site()
+    if layer_id:
         _, layer_geojson_path, _ = _kmz_layer_paths(layer_id)
         geojson = read_geojson_file(layer_geojson_path)
         if not geojson:
@@ -2329,14 +2462,20 @@ async def api_kmz_import_locations_apply(payload: Dict[str, Any]) -> Dict[str, A
     rows = _load_rows_by_source(source, mode=mode)
     if not rows:
         raise HTTPException(400, "Inventario vazio.")
+    # Restrito: so as linhas dos sites dele entram no Aplicar (previa e
+    # gravacao); as outras voltam intactas ao salvar. Site pedido de outro: 403.
+    liberados = _sites_liberados()
+    if liberados is not None and str(payload.get("site") or "").strip() and _chave_site(payload.get("site")) not in liberados:
+        raise HTTPException(403, "Site fora do seu acesso.")
+    visiveis = [i for i, r in enumerate(rows) if isinstance(r, dict)
+                and (liberados is None or _chave_site(permissions.site_da_linha(r)) in liberados)]
 
-    rows_for_apply = rows
+    rows_for_apply = [rows[i] for i in visiveis]
     dvr_idx_map: dict[int, int] = {}
     if source in ("dvr", "nvr"):
         mapped: list[dict[str, Any]] = []
-        for i, r in enumerate(rows):
-            if not isinstance(r, dict):
-                continue
+        for i in visiveis:
+            r = rows[i]
             host = str(r.get("host") or "").strip()
             ch = int(r.get("channel") or 0)
             ch_txt = f"{ch:02d}" if ch > 0 else "00"
@@ -2379,7 +2518,11 @@ async def api_kmz_import_locations_apply(payload: Dict[str, Any]) -> Dict[str, A
                     rows_out[raw_idx]["lon"] = m.get("lon")
             _save_rows_by_source(source, rows_out)
         else:
-            _save_rows_by_source(source, new_rows, mode=mode)
+            rows_out = list(rows)
+            for j, i in enumerate(visiveis):
+                if j < len(new_rows):
+                    rows_out[i] = new_rows[j]
+            _save_rows_by_source(source, rows_out, mode=mode)
 
     report_path = tenant_locations_apply_report_path() if get_current_tenant_slug() else (DATA_DIR / "input" / "locations_apply_report.json")
     report_path.parent.mkdir(parents=True, exist_ok=True)
@@ -2443,12 +2586,16 @@ async def api_kmz_generate(payload: Dict[str, Any]) -> Dict[str, Any]:
     kmz_output_dir = tenant_kmz_output_dir() if get_current_tenant_slug() else KMZ_OUTPUT_DIR
     source_kmz_path = kmz_imported_path
     if source_layer_id:
+        _exigir_camada_liberada(source_layer_id)
+    else:
+        _exigir_sem_restricao_de_site()
+    if source_layer_id:
         layer_kmz_path, _, _ = _kmz_layer_paths(source_layer_id)
         if layer_kmz_path.exists():
             source_kmz_path = layer_kmz_path
     if not source_kmz_path.exists():
         raise HTTPException(400, "Importe um KMZ antes de gerar.")
-    rows_raw = _load_rows_by_source(source, mode=mode)
+    rows_raw = permissions.filtrar_por_site(_load_rows_by_source(source, mode=mode))
     rows = _kmz_rows_for_source(source, rows_raw)
     if not rows:
         raise HTTPException(400, "Inventario vazio.")
@@ -2472,6 +2619,7 @@ async def api_kmz_generate(payload: Dict[str, Any]) -> Dict[str, Any]:
             "source_layer_id": source_layer_id,
             "source": source,
             "mode": mode if source == "ip" else "",
+            **_sites_para_meta_nova(),
         }
         layer_meta_path.write_text(json.dumps(layer_meta, ensure_ascii=False, indent=2), encoding="utf-8")
     except Exception as exc:
@@ -2500,6 +2648,7 @@ async def api_kmz_generated_layers(include_features: bool = True) -> Dict[str, A
 
 @router.get("/kmz/generated/layers/{layer_id}/download")
 async def api_kmz_generated_layer_download(layer_id: str) -> FileResponse:
+    _exigir_camada_liberada(layer_id, generated=True)
     kmz_path, _, meta_path = _kmz_generated_layer_paths(layer_id)
     if not kmz_path.exists():
         raise HTTPException(404, "Camada KMZ gerada nao encontrada.")
@@ -2510,6 +2659,7 @@ async def api_kmz_generated_layer_download(layer_id: str) -> FileResponse:
 
 @router.patch("/kmz/generated/layers/{layer_id}")
 async def api_kmz_generated_layer_update(layer_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    _exigir_camada_liberada(layer_id, generated=True)
     if isinstance(payload.get("ponto"), dict):
         return {"ok": True, **_editar_ponto_da_camada(layer_id, payload["ponto"], generated=True)}
     layer = _rename_kmz_layer(layer_id, str(payload.get("label") or ""), generated=True)
@@ -2518,6 +2668,7 @@ async def api_kmz_generated_layer_update(layer_id: str, payload: Dict[str, Any])
 
 @router.delete("/kmz/generated/layers/{layer_id}")
 async def api_kmz_generated_layer_delete(layer_id: str) -> Dict[str, Any]:
+    _exigir_camada_liberada(layer_id, generated=True)
     kmz_path, geojson_path, meta_path = _kmz_generated_layer_paths(layer_id)
     existed = kmz_path.exists() or geojson_path.exists() or meta_path.exists()
     _safe_unlink(kmz_path)
@@ -2528,12 +2679,14 @@ async def api_kmz_generated_layer_delete(layer_id: str) -> Dict[str, Any]:
 
 @router.get("/kmz/generated/geojson")
 async def api_kmz_generated_geojson() -> Dict[str, Any]:
+    _exigir_sem_restricao_de_site()
     kmz_output_dir = tenant_kmz_output_dir() if get_current_tenant_slug() else KMZ_OUTPUT_DIR
     return read_geojson_file(kmz_output_dir / "generated.geojson")
 
 
 @router.get("/kmz/generated/download")
 async def api_kmz_generated_download() -> FileResponse:
+    _exigir_sem_restricao_de_site()
     kmz_output_dir = tenant_kmz_output_dir() if get_current_tenant_slug() else KMZ_OUTPUT_DIR
     if not kmz_output_dir.exists():
         raise HTTPException(404, "Nenhum KMZ gerado.")
@@ -2545,6 +2698,7 @@ async def api_kmz_generated_download() -> FileResponse:
 
 @router.get("/geo/camera.kml")
 async def api_geo_camera_kml() -> FileResponse:
+    _exigir_sem_restricao_de_site()
     kmz_output_dir = tenant_kmz_output_dir() if get_current_tenant_slug() else KMZ_OUTPUT_DIR
     kml = kmz_output_dir / "camera.kml"
     if not kml.exists():
