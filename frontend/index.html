@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=1792600233">
+  <link rel="stylesheet" href="styles.css?v=1792600235">
   <link rel="stylesheet" href="acesso/acesso.css?v=1792600213">
 </head>
 <body>
@@ -1598,6 +1598,7 @@
           <div class="page-heading-actions">
             <button class="secondary-action" id="btnAlertSoundTest" type="button"><i data-lucide="megaphone"></i> Testar som</button>
             <button class="secondary-action" id="btnAlertSound" type="button"><i data-lucide="sliders-horizontal"></i> <span>Som do alerta</span></button>
+            <button class="secondary-action" id="btnAlertProtocolos" type="button" hidden><i data-lucide="list-checks"></i> <span>Passos por site</span></button>
             <button class="secondary-action" id="btnAlertHistory" type="button"><i data-lucide="history"></i> <span>Historico</span></button>
             <button class="secondary-action" id="btnAlertRefresh" type="button"><i data-lucide="refresh-cw"></i> Atualizar</button>
           </div>
@@ -1787,6 +1788,25 @@
             <button class="secondary-action" id="btnAlertSoundTestPanic" type="button"><i data-lucide="play"></i> Testar alerta</button>
             <button class="secondary-action" id="btnAlertSoundTestDuress" type="button"><i data-lucide="play"></i> Testar coacao</button>
             <button class="primary-action" id="btnAlertSoundSave" type="button"><i data-lucide="save"></i> Salvar</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="modalAlertProtocolos" class="modal-backdrop hidden">
+        <div class="modal">
+          <div class="modal-header">
+            <div><h2>Passos do atendimento</h2><p>Aparecem para marcar em todo alerta do site. Cada passo marcado fica na linha do tempo.</p></div>
+            <button class="icon-button" data-alert-close="modalAlertProtocolos" type="button" aria-label="Fechar"><i data-lucide="x"></i></button>
+          </div>
+          <div class="modal-body">
+            <div class="form-group"><label for="alertProtSite">Site</label><select id="alertProtSite"></select></div>
+            <div class="form-group"><label for="alertProtPassos">Um passo por linha (ate 15)</label>
+              <textarea id="alertProtPassos" rows="7" placeholder="Ver as cameras do local&#10;Acionar viatura da Guarda&#10;Avisar a direcao: Sra. Rita (82) 99999-0000&#10;Registrar BO, se houver"></textarea></div>
+            <p class="inline-help">Deixe vazio para tirar a lista do site (ele passa a usar a lista padrao, se houver).</p>
+          </div>
+          <div class="modal-actions">
+            <button class="secondary-action" data-alert-close="modalAlertProtocolos" type="button"><i data-lucide="x"></i> Cancelar</button>
+            <button class="primary-action" id="btnAlertProtSave" type="button"><i data-lucide="save"></i> Salvar</button>
           </div>
         </div>
       </div>
@@ -7660,7 +7680,7 @@
   <script src="acesso/dados.js?v=1792600205"></script>
   <script src="acesso/acesso.js?v=1792600205"></script>
   <script src="js/messenger.js?v=1791000212"></script>
-  <script src="js/alert.js?v=1792600222"></script>
+  <script src="js/alert.js?v=1792600236"></script>
   <script src="js/tr069.js?v=1791000212"></script>
   <script src="js/bootstrap.js?v=1792600207"></script>
 </body>

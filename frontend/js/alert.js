@@ -144,6 +144,7 @@ function alertPoint(inc) {
 }
 
 function alertStatusPill(inc) {
+  if (inc.arrived_at && alertOpen(inc)) return '<span class="pill success">equipe no local</span>';
   const st = ALERT_STATUS[inc.status] || { label: inc.status, pill: 'neutral' };
   return `<span class="pill ${st.pill}">${esc(st.label)}</span>`;
 }
@@ -610,6 +611,9 @@ function alertBind() {
     const ver = ev.target.closest('[data-banner-ver]');
     if (ver) alertSelect(ver.dataset.bannerVer, true);
   });
+  document.getElementById('btnAlertProtocolos')?.addEventListener('click', () => alertOpenProtocolos(''));
+  document.getElementById('alertProtSite')?.addEventListener('change', alertProtocoloMostrarSite);
+  document.getElementById('btnAlertProtSave')?.addEventListener('click', alertSalvarProtocolo);
   document.getElementById('alertCloseQuick')?.addEventListener('click', (ev) => {
     const b = ev.target.closest('[data-close-text]');
     if (!b) return;
@@ -637,6 +641,8 @@ function alertCloseModal(id) {
 
 async function loadAlertLive() {
   alertBind();
+  const btnProt = document.getElementById('btnAlertProtocolos');
+  if (btnProt) btnProt.hidden = !alertPodeEditarPassos();
   alertInitMap();
   alertAudioCtx(); // abrir a tela e um clique: aproveita pra liberar o audio
   alertRenderSoundButton();
@@ -741,6 +747,7 @@ function alertStepsHtml(inc) {
     { t: 'Disparo', at: inc.opened_at, quem: '' },
     { t: 'Assumido', at: inc.acknowledged_at, quem: inc.acknowledged_by },
     { t: 'Equipe enviada', at: inc.dispatched_at, quem: inc.dispatched_by },
+    { t: 'Chegou ao local', at: inc.arrived_at, quem: inc.arrived_by },
     cancelado
       ? { t: 'Cancelado pela pessoa', at: inc.closed_at || inc.updated_at, quem: '' }
       : { t: 'Encerrado', at: inc.closed_at, quem: inc.closed_by },
@@ -754,7 +761,78 @@ function alertStepsHtml(inc) {
   }).join('')}</ol>`;
 }
 
-const ALERT_QUICK_NOTES = ['Viatura chegou ao local', 'Pessoa segura', 'Contato com a direcao', 'Possivel falso disparo'];
+// Passos do atendimento (lista do site, editada em "Passos por site").
+function alertPodeEditarPassos() {
+  return ['admin', 'owner'].includes(String(_currentUser?.role || '').toLowerCase()) || !!_currentUser?.is_platform_admin;
+}
+
+function alertProtocoloHtml(inc, open) {
+  const passos = inc.protocolo || [];
+  if (!passos.length) {
+    return open && alertPodeEditarPassos()
+      ? `<div class="alert-protocolo is-vazio"><span>Este site nao tem passos de atendimento definidos.</span><button type="button" class="link-action" data-alert-protocolo-edit>Definir passos</button></div>`
+      : '';
+  }
+  const feitos = passos.filter((p) => p.feito).length;
+  return `<div class="alert-protocolo">
+    <div class="alert-protocolo-head"><b>Passos do atendimento</b><span>${feitos} de ${passos.length}${inc.site ? ` · ${esc(inc.site)}` : ''}</span></div>
+    <div class="alert-protocolo-list">${passos.map((p) => `
+      <label class="alert-protocolo-item${p.feito ? ' done' : ''}">
+        <input type="checkbox" data-alert-passo="${esc(p.texto)}" ${p.feito ? 'checked' : ''} ${open ? '' : 'disabled'}>
+        <span>${esc(p.texto)}</span>
+        ${p.feito ? `<small>${esc(p.por)} · ${esc(alertClock(p.em))}</small>` : ''}
+      </label>`).join('')}</div>
+  </div>`;
+}
+
+let _alertProtocolos = null;
+
+async function alertOpenProtocolos(siteInicial) {
+  try {
+    _alertProtocolos = await alertApiJson('/api/alert/protocols');
+  } catch (err) {
+    showToast(err.message || 'Falha ao carregar os passos.', true);
+    return;
+  }
+  const sel = document.getElementById('alertProtSite');
+  const opcoes = [];
+  if (_alertProtocolos.pode_padrao) opcoes.push(['*', 'Padrao (site sem lista propria)']);
+  (_alertProtocolos.sites || []).forEach((x) => opcoes.push([x.site, `${x.site}${x.passos.length ? ` (${x.passos.length})` : ''}`]));
+  if (!opcoes.length) { showToast('Nenhum site disponivel.', true); return; }
+  sel.innerHTML = opcoes.map(([v, t]) => `<option value="${esc(v)}">${esc(t)}</option>`).join('');
+  const alvo = opcoes.find(([v]) => v.toUpperCase() === String(siteInicial || '').toUpperCase());
+  sel.value = alvo ? alvo[0] : opcoes[0][0];
+  alertProtocoloMostrarSite();
+  document.getElementById('modalAlertProtocolos').classList.remove('hidden');
+  setTimeout(() => document.getElementById('alertProtPassos')?.focus(), 50);
+}
+
+function alertProtocoloMostrarSite() {
+  const site = document.getElementById('alertProtSite').value;
+  const passos = site === '*'
+    ? (_alertProtocolos?.padrao || [])
+    : ((_alertProtocolos?.sites || []).find((x) => x.site === site)?.passos || []);
+  document.getElementById('alertProtPassos').value = passos.join('\n');
+}
+
+async function alertSalvarProtocolo() {
+  const site = document.getElementById('alertProtSite').value;
+  const passos = document.getElementById('alertProtPassos').value.split('\n').map((x) => x.trim()).filter(Boolean);
+  const btn = document.getElementById('btnAlertProtSave');
+  btn.disabled = true;
+  try {
+    await alertApiJson('/api/alert/protocols', { method: 'PUT', body: JSON.stringify({ site, passos }) });
+    showToast(passos.length ? 'Passos salvos.' : 'Lista removida.');
+    alertCloseModal('modalAlertProtocolos');
+    if (_alertDetail) alertLoadDetail();
+  } catch (err) {
+    showToast(err.message || 'Falha ao salvar.', true);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+const ALERT_QUICK_NOTES = ['Pessoa segura', 'Contato com a pessoa', 'Contato com a direcao', 'Possivel falso disparo'];
 
 function alertQuickNotesHtml() {
   return `<div class="alert-quick"><span>Registrar rapido:</span>${ALERT_QUICK_NOTES.map((t) =>
@@ -869,6 +947,9 @@ const ALERT_LOG_LABEL = {
   cancelled_by_user: 'Cancelado pela pessoa (senha normal)',
   acknowledge: 'Assumido',
   dispatch: 'Equipe enviada',
+  arrive: 'Equipe chegou ao local',
+  step: 'Passo feito',
+  step_undo: 'Passo desmarcado',
   note: 'Observacao',
   close: 'Encerrado',
   escalated: 'Aviso enviado ao Telegram',
@@ -886,6 +967,7 @@ function alertRenderDetail() {
   const actions = open ? `
       ${inc.status === 'new' ? '<button class="primary-action alert-btn-big" data-alert-act="acknowledge" type="button"><i data-lucide="hand"></i> Assumir alerta</button>' : ''}
       ${inc.status !== 'dispatched' ? '<button class="secondary-action" data-alert-act="dispatch" type="button"><i data-lucide="car"></i> Equipe enviada</button>' : ''}
+      ${inc.status !== 'new' && !inc.arrived_at ? '<button class="secondary-action" data-alert-act="arrive" type="button"><i data-lucide="map-pin-check"></i> Equipe chegou</button>' : ''}
       <button class="secondary-action" data-alert-act="note" type="button"><i data-lucide="message-square-plus"></i> Observacao</button>
       <button class="secondary-action" data-alert-act="close" type="button"><i data-lucide="check-circle-2"></i> Encerrar</button>` : '';
   const duressBanner = inc.kind === 'duress'
@@ -910,6 +992,7 @@ function alertRenderDetail() {
     </div>
     ${duressBanner}
     ${alertStepsHtml(inc)}
+    ${alertProtocoloHtml(inc, open)}
     ${open ? alertQuickNotesHtml() : ''}
     <div class="alert-detail-grid">
       <div class="alert-facts">
@@ -1039,6 +1122,21 @@ async function alertLoadNearby() {
 async function alertDetailClick(ev) {
   const cam = ev.target.closest('[data-alert-cam]');
   if (cam) { alertOpenCamera(cam.dataset); return; }
+  const passo = ev.target.closest('[data-alert-passo]');
+  if (passo && _alertDetail) {
+    passo.disabled = true;
+    try {
+      await alertApiJson(`/api/alert/incidents/${encodeURIComponent(_alertDetail.id)}/step`, {
+        method: 'POST', body: JSON.stringify({ note: passo.dataset.alertPasso, feito: passo.checked }),
+      });
+      await alertRefresh(true);
+    } catch (err) {
+      passo.checked = !passo.checked;
+      showToast(err.message || 'Falha ao registrar o passo.', true);
+    } finally { passo.disabled = false; }
+    return;
+  }
+  if (ev.target.closest('[data-alert-protocolo-edit]')) { alertOpenProtocolos(_alertDetail?.site || ''); return; }
   const quick = ev.target.closest('[data-alert-quick]');
   if (quick && _alertDetail) {
     quick.disabled = true;

@@ -143,6 +143,8 @@ class ApiAuthMiddleware(BaseHTTPMiddleware):
             (("POST",), "/api/ia/", "operator"),
             (("POST", "DELETE"), "/api/alert/members", "operator"),
             (("POST",), "/api/alert/incidents", "operator"),
+            # Passos do atendimento por site: regra da central, nao do plantao.
+            (("PUT",), "/api/alert/protocols", "admin"),
 
             # --- Fase 1 da correcao de autorizacao (2026-09-20) ---------------
             # Estas rotas de ESCRITA caiam no default "basta estar logado", que

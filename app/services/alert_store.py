@@ -691,6 +691,8 @@ def _incident_view(inc: Dict[str, Any], member: Optional[Dict[str, Any]]) -> Dic
         "acknowledged_by": inc.get("acknowledged_by") or "",
         "dispatched_at": inc.get("dispatched_at") or "",
         "dispatched_by": inc.get("dispatched_by") or "",
+        "arrived_at": inc.get("arrived_at") or "",
+        "arrived_by": inc.get("arrived_by") or "",
         "closed_at": inc.get("closed_at") or "",
         "closed_by": inc.get("closed_by") or "",
         "close_note": inc.get("close_note") or "",
@@ -790,6 +792,7 @@ def get_incident(incident_id: str) -> Dict[str, Any]:
     out = _incident_view(inc, members.get(inc["member_id"]))
     out["positions"] = positions
     out["log"] = log
+    out["protocolo"] = _protocolo_do_incidente(out["site"], log)
     return out
 
 
@@ -801,6 +804,8 @@ _TRANSITIONS = {
 
 
 def transition_incident(incident_id: str, action: str, operator: str, note: str = "") -> Dict[str, Any]:
+    if action == "arrive":
+        return _marcar_chegada(incident_id, operator, note)
     if action not in _TRANSITIONS:
         raise ValueError("Acao invalida.")
     allowed_from, new_status, at_col, by_col, default_note = _TRANSITIONS[action]
@@ -828,6 +833,153 @@ def transition_incident(incident_id: str, action: str, operator: str, note: str 
                 (now, _text(operator, 120), tenant, incident_id),
             )
         _log(c, tenant, incident_id, action, operator, note or default_note)
+    return get_incident(incident_id)
+
+
+def _marcar_chegada(incident_id: str, operator: str, note: str = "") -> Dict[str, Any]:
+    """Equipe chegou ao local. Nao muda o status (continua em atendimento):
+    so marca a hora, para medir quanto a ajuda levou para chegar."""
+    tenant = _tenant()
+    now = _now()
+    quem = _text(operator, 120)
+    with db_store._conn() as c:
+        inc = _exigir_incidente_liberado(c, tenant, incident_id)
+        if inc["status"] not in ("acknowledged", "dispatched"):
+            raise ValueError("Assuma o alerta antes de marcar a chegada." if inc["status"] == "new"
+                             else f"Alerta ja esta como '{inc['status']}'.")
+        if inc.get("arrived_at"):
+            raise ValueError("A chegada ja foi marcada.")
+        c.execute(
+            "UPDATE alert_incidents SET arrived_at=?, arrived_by=?, updated_at=? WHERE tenant_slug=? AND id=?",
+            (now, quem, now, tenant, incident_id),
+        )
+        # Chegou sem ter marcado "equipe enviada": a equipe foi, entao conta.
+        if not inc.get("dispatched_at"):
+            c.execute(
+                "UPDATE alert_incidents SET status='dispatched', dispatched_at=?, dispatched_by=? WHERE tenant_slug=? AND id=?",
+                (now, quem, tenant, incident_id),
+            )
+        _log(c, tenant, incident_id, "arrive", operator, _text(note, 2000) or "Equipe chegou ao local")
+    return get_incident(incident_id)
+
+
+# --------------------------------------------------------------------------
+# passos do atendimento por site (o "protocolo")
+# --------------------------------------------------------------------------
+# Guardado na config do cliente: {"<SITE>": ["passo", ...], "*": [...]}.
+# "*" vale para site sem lista propria. Cada passo marcado vira uma linha na
+# linha do tempo do alerta (acao "step"/"step_undo"), entao o historico mostra
+# quem fez o que e quando -- e nada fica num estado solto fora do log.
+
+PROTOCOLO_PADRAO = "*"
+_PROTOCOLO_MAX_PASSOS = 15
+_PROTOCOLO_MAX_TEXTO = 140
+
+
+def _chave_protocolos() -> str:
+    return f"alert_protocolos__tenant__{_tenant()}"
+
+
+def _ler_protocolos() -> Dict[str, List[str]]:
+    dados = db_store.get_json_state(_chave_protocolos(), {}) or {}
+    if not isinstance(dados, dict):
+        return {}
+    out: Dict[str, List[str]] = {}
+    for site, passos in dados.items():
+        if isinstance(passos, list):
+            out[str(site)] = [str(p) for p in passos if str(p or "").strip()]
+    return out
+
+
+def _passos_do_site(site: str, dados: Optional[Dict[str, List[str]]] = None) -> List[str]:
+    dados = _ler_protocolos() if dados is None else dados
+    alvo = str(site or "").strip().upper()
+    for k, passos in dados.items():
+        if k != PROTOCOLO_PADRAO and k.strip().upper() == alvo and alvo:
+            return passos
+    return dados.get(PROTOCOLO_PADRAO, [])
+
+
+def listar_protocolos() -> Dict[str, Any]:
+    """Para a tela de edicao: a lista de cada site que o usuario ve, mais o
+    padrao. Restrito a sites nao ve (nem edita) o padrao nem site alheio."""
+    from app.core import permissions
+
+    dados = _ler_protocolos()
+    liberados = _sites_liberados()
+    sites = [s["name"] for s in permissions.sites_do_cliente(_tenant())]
+    if liberados is not None:
+        sites = [s for s in sites if s.strip().upper() in liberados]
+    itens = [{"site": s, "passos": next((v for k, v in dados.items() if k != PROTOCOLO_PADRAO and k.strip().upper() == s.strip().upper()), [])}
+             for s in sites]
+    out: Dict[str, Any] = {"sites": itens, "pode_padrao": liberados is None}
+    if liberados is None:
+        out["padrao"] = dados.get(PROTOCOLO_PADRAO, [])
+    return out
+
+
+def salvar_protocolo(site: str, passos: Any) -> Dict[str, Any]:
+    from app.core import permissions
+
+    site = _text(site, 160)
+    if not isinstance(passos, list):
+        raise ValueError("passos deve ser uma lista")
+    limpos: List[str] = []
+    for p in passos:
+        t = _text(p, _PROTOCOLO_MAX_TEXTO)
+        if t and t not in limpos:
+            limpos.append(t)
+    if len(limpos) > _PROTOCOLO_MAX_PASSOS:
+        raise ValueError(f"No maximo {_PROTOCOLO_MAX_PASSOS} passos por site.")
+    liberados = _sites_liberados()
+    if site == PROTOCOLO_PADRAO:
+        if liberados is not None:
+            raise ValueError("So quem ve todos os sites altera a lista padrao.")
+        chave = PROTOCOLO_PADRAO
+    else:
+        validos = {s["name"].strip().upper(): s["name"] for s in permissions.sites_do_cliente(_tenant())}
+        if site.strip().upper() not in validos:
+            raise ValueError("Site desconhecido.")
+        if liberados is not None and site.strip().upper() not in liberados:
+            raise ValueError("Site desconhecido.")
+        chave = validos[site.strip().upper()]
+    dados = _ler_protocolos()
+    for k in [k for k in dados if k != PROTOCOLO_PADRAO and k.strip().upper() == chave.strip().upper()]:
+        dados.pop(k)
+    if limpos:
+        dados[chave] = limpos
+    else:
+        dados.pop(chave, None)
+    res = db_store.set_json_state(_chave_protocolos(), dados)
+    if not res.get("ok"):
+        raise ValueError("Nao foi possivel salvar agora. Tente de novo.")
+    return {"site": chave, "passos": limpos}
+
+
+def _protocolo_do_incidente(site: str, log: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    estado: Dict[str, Dict[str, Any]] = {}
+    for item in log:
+        if item.get("action") in ("step", "step_undo"):
+            estado[str(item.get("note") or "")] = item
+    out = []
+    for passo in _passos_do_site(site):
+        ult = estado.get(passo)
+        feito = bool(ult and ult.get("action") == "step")
+        out.append({"texto": passo, "feito": feito,
+                    "por": (ult or {}).get("actor", "") if feito else "",
+                    "em": (ult or {}).get("created_at", "") if feito else ""})
+    return out
+
+
+def marcar_passo(incident_id: str, operator: str, passo: str, feito: bool = True) -> Dict[str, Any]:
+    passo = _text(passo, _PROTOCOLO_MAX_TEXTO)
+    tenant = _tenant()
+    with db_store._conn() as c:
+        inc = _exigir_incidente_liberado(c, tenant, incident_id)
+        member = _members_by_id(c, tenant, [inc["member_id"]]).get(inc["member_id"])
+        if passo not in _passos_do_site(site_do_membro(member)):
+            raise ValueError("Esse passo nao esta na lista deste site.")
+        _log(c, tenant, incident_id, "step" if feito else "step_undo", operator, passo)
     return get_incident(incident_id)
 
 

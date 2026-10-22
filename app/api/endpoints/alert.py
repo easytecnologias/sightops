@@ -21,6 +21,9 @@ from app.services.alert_store import (
     get_incident,
     list_incidents,
     list_members,
+    listar_protocolos,
+    marcar_passo,
+    salvar_protocolo,
     live_summary,
     connector_cameras,
     nearby_cameras,
@@ -94,6 +97,12 @@ class AlertMemberRequest(BaseModel):
 
 class AlertTransitionRequest(BaseModel):
     note: str = ""
+    feito: bool = True   # so para action=step (marcar/desmarcar um passo)
+
+
+class AlertProtocolRequest(BaseModel):
+    site: str = Field(min_length=1, max_length=160)
+    passos: List[str] = []
 
 
 @router.get("/members")
@@ -157,7 +166,9 @@ def api_alert_incident_action(incident_id: str, action: str, req: AlertTransitio
     try:
         if action == "note":
             incident = add_incident_note(incident_id, _operator(request), req.note)
-        elif action in ("acknowledge", "dispatch", "close"):
+        elif action == "step":
+            incident = marcar_passo(incident_id, _operator(request), req.note, req.feito)
+        elif action in ("acknowledge", "dispatch", "arrive", "close"):
             incident = transition_incident(incident_id, action, _operator(request), req.note)
         else:
             raise HTTPException(status_code=404, detail="acao desconhecida")
@@ -166,6 +177,20 @@ def api_alert_incident_action(incident_id: str, action: str, req: AlertTransitio
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     return {"ok": True, "incident": incident}
+
+
+@router.get("/protocols")
+def api_alert_protocols() -> Dict[str, Any]:
+    """Passos do atendimento por site (so os sites que o usuario ve)."""
+    return {"ok": True, **listar_protocolos()}
+
+
+@router.put("/protocols")
+def api_alert_save_protocol(req: AlertProtocolRequest) -> Dict[str, Any]:
+    try:
+        return {"ok": True, **salvar_protocolo(req.site, req.passos)}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
 
 @router.get("/summary")
