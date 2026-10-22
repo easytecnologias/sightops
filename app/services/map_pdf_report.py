@@ -531,6 +531,10 @@ def _infra_do_mapa(camadas: List[Dict[str, Any]], cams: List[Dict[str, Any]]) ->
     return {"caixas": caixas, "ctos": ctos, "linhas": linhas, "contagem": contagem}
 
 
+def _loc_caixa(caixa: Dict[str, Any]) -> Dict[str, Any]:
+    return {"lat": caixa["pos"][0], "lon": caixa["pos"][1]} if caixa.get("pos") else {}
+
+
 def _rotulo_porta(caixa: Dict[str, Any], porta: Any) -> str:
     if not porta:
         return "-"
@@ -889,9 +893,10 @@ def build_map_pdf_report(site: str = "", company_name: str = "", report_color: s
                     _p(f"{len(c_cams)}" + (f" ({fora} fora)" if fora else ""), styles["small_b"] if fora else styles["small"],
                        color=BAD if fora else None),
                     _p(lig, styles["small"]), _p(itens, styles["small"]),
+                    _p_localizacao(_loc_caixa(cx), styles["mono"]),
                 ])
-            story.append(_tabela(["CAIXA", "TIPO", "EQUIPAMENTO", "PORTAS", "CAMERAS", "LIGACAO", "ITENS"],
-                                 linhas, [16, 13, 22, 9, 10, 18, 24], styles, accent, util))
+            story.append(_tabela(["CAIXA", "TIPO", "EQUIPAMENTO", "PORTAS", "CAMERAS", "LIGACAO", "ITENS", "LOCALIZACAO"],
+                                 linhas, [14, 11, 20, 8, 9, 16, 21, 14], styles, accent, util))
         # materiais: o que foi lancado no mapa, para conferir com o almoxarifado
         cabos_tab = []
         for t, (nome, _, _, _) in CABOS.items():
@@ -1013,9 +1018,13 @@ def build_map_pdf_report(site: str = "", company_name: str = "", report_color: s
         dentro = ", ".join(f"{int(i.get('qtd') or 1)}x {ITENS_CAIXA.get(i.get('tipo'), 'Outro')}"
                            f"{' ' + _to_text(i.get('modelo')) if _to_text(i.get('modelo')) else ''}"
                            for i in cx["cx"].get("itens") or [] if isinstance(i, dict))
-        if dentro:
-            story.append(_p(f"Dentro da caixa: {dentro}", styles["small"]))
-            story.append(Spacer(1, 2 * mm))
+        # localizacao clicavel (Google Maps), como a das cameras
+        loc = Table([[_p("Localizacao:", styles["small_b"]), _p_localizacao(_loc_caixa(cx), styles["mono"]),
+                      _p(f"Dentro da caixa: {dentro}" if dentro else "", styles["small"])]],
+                    colWidths=[24 * mm, 32 * mm, util - 56 * mm], hAlign="LEFT")
+        loc.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "MIDDLE"), ("LEFTPADDING", (0, 0), (-1, -1), 0)]))
+        story.append(loc)
+        story.append(Spacer(1, 2 * mm))
         pinos = [(c["_pos"][0], c["_pos"][1], c["_num"], _cor_status(c["_status"])) for c in c_cams if c["_pos"]]
         if cx["pos"]:
             pinos.append((cx["pos"][0], cx["pos"][1], _rotulo_caixa(cx["nome"]), COR_CAIXA, "quadrado"))
@@ -1023,7 +1032,8 @@ def build_map_pdf_report(site: str = "", company_name: str = "", report_color: s
         if cx["cto"] and len(cx["cto"].get("caminho") or []) >= 2:
             cto_pos = tuple(float(v) for v in cx["cto"]["caminho"][-1][:2])
             pinos.append((cto_pos[0], cto_pos[1], "", COR_CTO, "losango"))
-        img = renderizar_mapa(pinos, 1800, 560, raio=19, linhas=_linhas_dos_cabos([cx])) if pinos else None
+        # 8 portas + mapa + localizacao cabem numa pagina
+        img = renderizar_mapa(pinos, 1800, 490, raio=19, linhas=_linhas_dos_cabos([cx])) if pinos else None
         passo(1 + len(areas) + k, n_mapas, "mapas")
         if img is not None:
             story.append(_imagem_pdf(img, util))
@@ -1143,20 +1153,21 @@ def build_map_pdf_report(site: str = "", company_name: str = "", report_color: s
              ["CAIXA", "CAMERA", "METRAGEM", "PROBLEMA"], [18, 34, 20, 28]),
             (f"Caixas sem camera ligada ({len(vazias)})", vazias,
              lambda cx: [_p(cx["nome"], styles["small_b"]), _p(TIPOS_CAIXA[cx["tipo"]], styles["small"]),
-                         _p(cx["camada"], styles["small"])],
-             ["CAIXA", "TIPO", "CAMADA"], [30, 30, 40]),
+                         _p(cx["camada"], styles["small"]), _p_localizacao(_loc_caixa(cx), styles["mono"])],
+             ["CAIXA", "TIPO", "CAMADA", "LOCALIZACAO"], [26, 24, 30, 20]),
             (f"Caixas com nome repetido ({len(repetidas)})", repetidas,
              lambda cx: [_p(cx["nome"], styles["small_b"]), _p(_equipamento_da_caixa(cx), styles["small"]),
                          _p(f"{len(cx['cabos'])} camera(s)", styles["small"]),
-                         _p_localizacao({"lat": cx["pos"][0], "lon": cx["pos"][1]} if cx["pos"] else {}, styles["mono"])],
+                         _p_localizacao(_loc_caixa(cx), styles["mono"])],
              ["CAIXA", "EQUIPAMENTO", "CAMERAS", "LOCALIZACAO"], [22, 34, 16, 28]),
         ]
         if ctos:
             sem_cto = [cx for cx in caixas if not cx["cto"] and cx["tipo"] != "passagem"]
             blocos.append((f"Caixas com ONU sem ligacao a CTO ({len(sem_cto)})", sem_cto,
                            lambda cx: [_p(cx["nome"], styles["small_b"]), _p(TIPOS_CAIXA[cx["tipo"]], styles["small"]),
-                                       _p("no Mapa: abra a caixa e use Ligar a CTO", styles["small"])],
-                           ["CAIXA", "TIPO", "O QUE FAZER"], [30, 30, 40]))
+                                       _p("no Mapa: abra a caixa e use Ligar a CTO", styles["small"]),
+                                       _p_localizacao(_loc_caixa(cx), styles["mono"])],
+                           ["CAIXA", "TIPO", "O QUE FAZER", "LOCALIZACAO"], [24, 22, 34, 20]))
     for titulo, itens, linha, cabec, pesos in blocos:
         story.append(CondPageBreak(30 * mm))
         story.append(_p(titulo, styles["h2"]))

@@ -187,3 +187,10 @@ def test_relatorio_completo_com_caixas(tmp_path, monkeypatch):
                    "CTO-07", "Cabos acima do limite do UTP/PoE (1)", "Cameras no mapa sem cabo ate uma caixa (1)",
                    "Caixas sem camera ligada (1)", "Pontos do mapa sem camera cadastrada (0)"):
         assert trecho in texto, trecho
+
+
+def test_caixa_tem_localizacao_clicavel():
+    infra = M._infra_do_mapa(_camada_infra(), [])
+    cx = next(c for c in infra["caixas"] if c["nome"] == "C.CFTV-14")
+    assert M._loc_caixa(cx) == {"lat": -10.0, "lon": -36.0}
+    assert M._loc_caixa({"pos": None}) == {}
