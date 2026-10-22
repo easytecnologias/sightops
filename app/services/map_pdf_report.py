@@ -478,6 +478,38 @@ def _rotulo_caixa(nome: str) -> str:
     return nums[-1][-3:] if nums else _to_text(nome)[:2].upper()
 
 
+def _cadastro_da_cto(meta: Dict[str, Any], nome: str, pos) -> Optional[Dict[str, Any]]:
+    """Cadastro da CTO (meta.ctos) do ponto: pelo nome E posicao, como no Mapa."""
+    doNome = [c for c in (meta.get("ctos") or {}).values()
+              if isinstance(c, dict) and _to_text(c.get("ponto")).strip().lower() == nome.strip().lower()]
+    for c in doNome:
+        if c.get("lat") is not None and pos and abs(float(c["lat"]) - pos[0]) < 3e-5 and abs(float(c["lng"]) - pos[1]) < 3e-5:
+            return c
+    return doNome[0] if len(doNome) == 1 and doNome[0].get("lat") is None else None
+
+
+def _onus_do_monitoramento() -> Dict[str, Dict[str, Any]]:
+    """entity_key -> ONU do monitoramento (status e sinal) para as portas das CTOs.
+
+    So dos sites do usuario (a mesma regra de /api/monitoring/entities): ONU de
+    outro site ligada na CTO sai no PDF so com o nome anotado, sem sinal."""
+    try:
+        from app.core import permissions
+        from app.services.monitoring_service import list_entities
+        saida = {}
+        for e in permissions.filtrar_por_site(list_entities(entity_type="onu", limit=2000), ("site",)):
+            det = e.get("detail_json")
+            if isinstance(det, str):
+                try:
+                    det = json.loads(det)
+                except ValueError:
+                    det = {}
+            saida[_to_text(e.get("entity_key"))] = {**e, "det": det if isinstance(det, dict) else {}}
+        return saida
+    except Exception:
+        return {}
+
+
 def _infra_do_mapa(camadas: List[Dict[str, Any]], cams: List[Dict[str, Any]]) -> Dict[str, Any]:
     """Caixas de CFTV, cabos, CTOs e linhas das camadas, com a camera de cada
     cabo (do inventario ja filtrado do relatorio: pelo IP, senao pelo nome)."""
@@ -503,7 +535,8 @@ def _infra_do_mapa(camadas: List[Dict[str, Any]], cams: List[Dict[str, Any]]) ->
             pos = _pos_feature(f)
             tipo = _tipo_do_ponto(nome) if pos else ""
             if tipo == "cto":
-                cto = {"nome": nome, "pos": pos, "camada": cam["label"], "caixas": []}
+                cto = {"nome": nome, "pos": pos, "camada": cam["label"], "caixas": [],
+                       "cad": _cadastro_da_cto(meta, nome, pos)}
                 ctos.append(cto)
                 ctos_da_camada.setdefault(nome.strip().lower(), cto)
             elif tipo in contagem:
@@ -941,14 +974,75 @@ def build_map_pdf_report(site: str = "", company_name: str = "", report_color: s
         if ctos:
             story.append(CondPageBreak(40 * mm))
             story.append(_p(f"CTOs no mapa ({len(ctos)})", styles["h2"]))
+            onus = _onus_do_monitoramento() if any(c.get("cad") for c in ctos) else {}
+
+            def _portas_da_cto(c: Dict[str, Any]) -> Dict[int, Dict[str, Any]]:
+                """porta -> {caixa, onu, obs}: caixa pelo cabo drop, ONU/obs pelo cadastro."""
+                portas: Dict[int, Dict[str, Any]] = {}
+                for cx in c["caixas"]:
+                    n = (cx["cto"].get("cto") or {}).get("porta")
+                    if n:
+                        portas.setdefault(int(n), {})["caixa"] = cx
+                for n, info in ((c.get("cad") or {}).get("portas_info") or {}).items():
+                    if isinstance(info, dict) and str(n).isdigit():
+                        portas.setdefault(int(n), {}).update({"onu": info, "obs": _to_text(info.get("obs"))})
+                return portas
+
+            def _origem(cad: Dict[str, Any]) -> str:
+                partes = [_to_text(cad.get("olt_nome")), f"PON {cad['pon']}" if cad.get("pon") else "",
+                          f"de {cad['vem_de']}" if cad.get("vem_de") else ""]
+                return " - ".join(x for x in partes if x) or "-"
+
+            linhas_cto = []
+            for c in ctos:
+                cad = c.get("cad") or {}
+                usadas = len([n for n, v in _portas_da_cto(c).items() if v.get("caixa") or (v.get("onu") or {}).get("onu_key")])
+                total = int(cad.get("portas") or 0)
+                linhas_cto.append([
+                    _p(_to_text(cad.get("nome")) or c["nome"], styles["small_b"]),
+                    _p(" ".join(x for x in (_to_text(cad.get("splitter")), {"primario": "primario", "secundario": "secundario"}.get(cad.get("nivel"), "")) if x) or "-", styles["small"]),
+                    _p(_origem(cad) if cad else "sem cadastro", styles["small"]),
+                    _p(f"{usadas}/{total}" if total else str(usadas or "-"), styles["small"]),
+                    _p(", ".join(f"{cx['nome']}{' (porta ' + str(cx['cto']['cto']['porta']) + ')' if (cx['cto'].get('cto') or {}).get('porta') else ''}"
+                                 for cx in c["caixas"]) or "nenhuma", styles["small"]),
+                    _p(f"{sum(float(cx['cto'].get('metros_com_folga') or 0) for cx in c['caixas']):.0f} m" if c["caixas"] else "-", styles["small"]),
+                    _p_localizacao({"lat": c["pos"][0], "lon": c["pos"][1]}, styles["mono"])])
             story.append(_tabela(
-                ["CTO", "CAMADA", "CAIXAS LIGADAS", "DROP", "LOCALIZACAO"],
-                [[_p(c["nome"], styles["small_b"]), _p(c["camada"], styles["small"]),
-                  _p(", ".join(f"{cx['nome']}{' (porta ' + str(cx['cto']['cto']['porta']) + ')' if (cx['cto'].get('cto') or {}).get('porta') else ''}"
-                               for cx in c["caixas"]) or "nenhuma", styles["small"]),
-                  _p(f"{sum(float(cx['cto'].get('metros_com_folga') or 0) for cx in c['caixas']):.0f} m" if c["caixas"] else "-", styles["small"]),
-                  _p_localizacao({"lat": c["pos"][0], "lon": c["pos"][1]}, styles["mono"])] for c in ctos],
-                [18, 20, 34, 10, 18], styles, accent, util))
+                ["CTO", "SPLITTER", "ORIGEM", "PORTAS", "CAIXAS LIGADAS", "DROP", "LOCALIZACAO"],
+                linhas_cto, [13, 9, 18, 7, 25, 8, 20], styles, accent, util))
+            # porta a porta, so das CTOs cadastradas
+            for c in ctos:
+                cad = c.get("cad")
+                if not cad:
+                    continue
+                portas = _portas_da_cto(c)
+                total = int(cad.get("portas") or 0)
+                livres = [str(n) for n in range(1, total + 1) if n not in portas or not (portas[n].get("caixa") or (portas[n].get("onu") or {}).get("onu_key"))]
+                story.append(CondPageBreak(30 * mm))
+                story.append(_p(f"{_to_text(cad.get('nome')) or c['nome']} - portas"
+                                f"{'  (' + cad['splitter'] + ')' if cad.get('splitter') else ''}", styles["small_b"]))
+                linhas_p = []
+                for n in sorted(portas):
+                    v = portas[n]
+                    info = v.get("onu") or {}
+                    onu = onus.get(_to_text(info.get("onu_key")))
+                    det = (onu or {}).get("det") or {}
+                    try:
+                        rx = f"{float(det.get('onu_rx')):.2f} dBm" if det.get("onu_rx") not in (None, "", 0, "0") else "-"
+                    except (TypeError, ValueError):
+                        rx = "-"
+                    st = {"up": "no ar", "down": "fora do ar"}.get(_to_text((onu or {}).get("status")).lower(), "-") if onu else "-"
+                    linhas_p.append([_p(str(n), styles["small_b"]),
+                                     _p(v["caixa"]["nome"] if v.get("caixa") else "-", styles["small"]),
+                                     _p(_to_text(info.get("onu_nome")) or "-", styles["small"]),
+                                     _p(rx, styles["small"]), _p(st, styles["small"]),
+                                     _p(_to_text(v.get("obs")) or "-", styles["small"])])
+                if not linhas_p:
+                    linhas_p = [[_p("-", styles["small"])] * 6]
+                story.append(_tabela(["PORTA", "CAIXA", "ONU", "SINAL", "STATUS", "OBS"], linhas_p,
+                                     [8, 20, 28, 12, 12, 20], styles, accent, util))
+                if livres:
+                    story.append(_p(f"Livres: {', '.join(livres)}", styles["small"]))
         if linhas_kmz or any(infra["contagem"].values()):
             story.append(CondPageBreak(30 * mm))
             story.append(_p("Outros elementos do mapa", styles["h2"]))

@@ -1458,6 +1458,7 @@ async function loadMapLayers() {
     modoFixo: layer.modo || '',
     caixas: layer.caixas || {},
     cabos: layer.cabos || {},
+    ctos: layer.ctos || {},
     motivos: layer.motivos || {},
   }));
   const importedSignatures = new Set(importedLayers.map(layer => mapLayerSignature(layer.features)).filter(Boolean));
@@ -1858,6 +1859,17 @@ function renderMapLayerGroup(id, def, skipFit = false) {
         return;
       }
 
+      // CTO: marcador e painel proprios (mapaCaixas.js) com splitter, origem
+      // e portas. No modo de edicao de pontos fica o marcador comum (arrastar).
+      if (!cam && pointType === 'cto' && !editing && def?.source === 'imported' && typeof ctMarcador === 'function') {
+        const mk = ctMarcador(id, def, f, +lat, +lng);
+        state.markers[mapFeatureKey(f, cam)] = mk;
+        state.group.addLayer(mk);
+        bounds.push([+lat, +lng]);
+        drawnCount += 1;
+        return;
+      }
+
       const isOnlinePop = cam?.status
         ? String(cam.status).toLowerCase() === 'online'
         : String(f.properties?.description || '').toUpperCase().includes('ONLINE');
@@ -1922,8 +1934,10 @@ function renderMapLayerGroup(id, def, skipFit = false) {
       // Ponto sem camera nao e "camera offline": o selo dizia OFFLINE e confundia.
       const semCamera = !cam && pointType === 'other';
       const motivoPonto = semCamera ? (def?.motivos || {})[String(name).trim().toLowerCase()] : null;
-      const seloTexto = semCamera ? 'SEM CAMERA' : (isOnlinePop ? 'ONLINE' : 'OFFLINE');
-      const seloCor = semCamera ? (def?.corOutros || '#d97706') : statusColor;
+      // CTO, CDO, poste e fibra sao passivos: o selo diz o tipo, nao ONLINE/OFFLINE.
+      const passivo = !cam && ['cto', 'cdo', 'pole', 'fiber', 'box'].includes(pointType);
+      const seloTexto = passivo ? (typeConfig[pointType]?.label || 'PONTO') : semCamera ? 'SEM CAMERA' : (isOnlinePop ? 'ONLINE' : 'OFFLINE');
+      const seloCor = passivo ? typeConfig[pointType].bg : semCamera ? (def?.corOutros || '#d97706') : statusColor;
       const motivoHtml = semCamera && def?.updateUrl ? `
           <div style="margin-top:8px;padding:6px 8px;background:#f8f9fa;border:1px solid #e9ecef;border-radius:6px;font-size:11px;color:#495057">
             <div style="font-weight:700;margin-bottom:2px">Motivo</div>

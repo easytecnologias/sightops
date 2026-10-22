@@ -194,3 +194,49 @@ def test_caixa_tem_localizacao_clicavel():
     cx = next(c for c in infra["caixas"] if c["nome"] == "C.CFTV-14")
     assert M._loc_caixa(cx) == {"lat": -10.0, "lon": -36.0}
     assert M._loc_caixa({"pos": None}) == {}
+
+
+def test_relatorio_com_cto_cadastrada(tmp_path, monkeypatch):
+    """CTO cadastrada no Mapa: splitter, origem e porta a porta (caixa do cabo + ONU com sinal)."""
+    import app.core.tenant_context as TC
+
+    camadas = _camada_infra()
+    camadas[0]["meta"]["ctos"] = {"ct1": {
+        "id": "ct1", "ponto": "CTO-07", "nome": "CTO VERDE 07", "lat": -10.0003, "lng": -36.0004, "splitter": "1:8",
+        "nivel": "secundario", "portas": 8, "olt_nome": "OLT CENTRAL", "pon": "0/3", "vem_de": "CDO-01",
+        "portas_info": {"5": {"onu_key": "onu:x|0/3|5", "onu_nome": "ONU ESCOLA", "obs": ""},
+                        "8": {"onu_key": "", "onu_nome": "", "obs": "reservada"}}}}
+    infra = M._infra_do_mapa(camadas, [])
+    assert infra["ctos"][0]["cad"]["id"] == "ct1"
+    monkeypatch.setattr(M, "_onus_do_monitoramento", lambda: {
+        "onu:x|0/3|5": {"status": "up", "det": {"onu_rx": "-19.52"}}})
+    monkeypatch.setattr(M, "_tile", lambda *a, **k: None)
+    monkeypatch.setattr(M, "OUTPUT_DIR", tmp_path)
+    monkeypatch.setattr(M, "_camadas_do_relatorio", lambda site="": camadas)
+    monkeypatch.setattr(M, "_gravacao_por_camera", lambda: {})
+    monkeypatch.setattr(M, "_cameras_do_cliente", lambda site="": [{"titulo": "14 - RUA A", "ip": "10.0.0.14", "status": "online"}])
+    monkeypatch.setattr(TC, "get_current_tenant_slug", lambda: None)
+    fitz = pytest.importorskip("fitz")
+    texto = "\n".join(p.get_text() for p in fitz.open(M.build_map_pdf_report(include_photos=False)))
+    for trecho in ("CTO VERDE 07", "1:8 secundario", "OLT CENTRAL - PON 0/3 - de CDO-01", "2/8",
+                   "CTO VERDE 07 - portas", "C.CFTV-14", "ONU ESCOLA", "-19.52 dBm", "no ar", "reservada",
+                   "Livres: 1, 2, 4, 6, 7, 8"):
+        assert trecho in texto, trecho
+
+
+def test_cto_sem_cadastro_continua_no_relatorio():
+    infra = M._infra_do_mapa(_camada_infra(), [])
+    assert infra["ctos"][0]["cad"] is None and infra["ctos"][0]["nome"] == "CTO-07"
+
+
+def test_onus_do_pdf_respeitam_sites_do_usuario(monkeypatch):
+    from app.core import permissions
+    from app.services import monitoring_service
+    monkeypatch.setattr(monitoring_service, "list_entities", lambda **k: [
+        {"entity_key": "onu:a", "site": "PORTO", "status": "up", "detail_json": '{"onu_rx": "-19"}'},
+        {"entity_key": "onu:b", "site": "BARRA", "status": "up", "detail_json": "{}"}])
+    monkeypatch.setattr(permissions, "sites_da_sessao", lambda: ["PORTO"])
+    assert set(M._onus_do_monitoramento()) == {"onu:a"}
+    assert M._onus_do_monitoramento()["onu:a"]["det"]["onu_rx"] == "-19"
+    monkeypatch.setattr(permissions, "sites_da_sessao", lambda: None)
+    assert set(M._onus_do_monitoramento()) == {"onu:a", "onu:b"}

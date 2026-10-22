@@ -13046,3 +13046,27 @@ button.map-layer-stat.parcial .map-layer-stat-dot { box-shadow: 0 0 0 2px var(--
 .mcp-video .mcp-ampliar { display: flex; }
 .mcp-video:fullscreen { aspect-ratio: auto; border-radius: 0; background: #000; }
 .mcp-video.mcp-video-cheio { position: fixed; inset: 0; z-index: 2000; aspect-ratio: auto; border-radius: 0; background: #000; }
+
+/* --- CTO no mapa (mapaCaixas.js: ctMarcador / ctAbrirPainel) --- */
+.ct-pino { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
+.ct-pino b { background: #1971c2; color: #fff; border: 2px solid #fff; border-radius: 6px; padding: 2px 5px; font: 700 10px Inter, Arial, sans-serif; box-shadow: 0 2px 8px rgba(0,0,0,.4); }
+.ct-pino span { background: #fff; color: #172026; font: 700 11px Inter, Arial, sans-serif; padding: 2px 7px; border-radius: 6px; white-space: nowrap; box-shadow: 0 1px 4px rgba(0,0,0,.3); }
+.ct-pino-novo b { border-style: dashed; }
+.ct-pino-cheia b { background: var(--danger); }
+.cx-porta.cx-p-cx { background: #1971c2; color: #fff; }
+.ct-legenda { display: flex; flex-wrap: wrap; gap: 12px; margin: -2px 0 8px; font-size: 11px; color: var(--muted); }
+.ct-legenda span { display: inline-flex; align-items: center; gap: 5px; }
+.ct-legenda i { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+.ct-legenda i.cx-p-livre { background: var(--surface-soft); border: 1px dashed var(--border); }
+.ct-legenda i.cx-p-cx { background: #1971c2; }
+.ct-legenda i.cx-p-on { background: var(--primary); }
+.ct-legenda i.cx-p-off { background: var(--danger); }
+.ct-tabela th { text-align: left; font-size: 11px; font-weight: 600; color: var(--muted); padding: 4px; }
+.ct-tabela select.ct-onu { width: 100%; min-width: 150px; max-width: 220px; font-size: 12px; padding: 4px 6px; }
+.ct-tabela input.ct-obs { width: 100%; min-width: 70px; font-size: 12px; padding: 4px 6px; }
+.ct-sinal { font-weight: 700; white-space: nowrap; }
+.ct-sinal.ct-ok { color: var(--primary); }
+.ct-sinal.ct-atencao { color: var(--amber, #d97706); }
+.ct-sinal.ct-ruim { color: var(--danger); }
+.cx-painel.ct-painel { width: min(580px, calc(100% - 24px)); }
+.cx-painel.ct-painel > header .eyebrow { color: #1971c2; }

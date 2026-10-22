@@ -303,6 +303,7 @@ def _list_kmz_import_layers(include_features: bool = True) -> list[dict[str, Any
             # caixas de CFTV e cabos desenhados no mapa (meta da camada)
             "caixas": meta.get("caixas") if isinstance(meta.get("caixas"), dict) else {},
             "cabos": meta.get("cabos") if isinstance(meta.get("cabos"), dict) else {},
+            "ctos": meta.get("ctos") if isinstance(meta.get("ctos"), dict) else {},
             "motivos": meta.get("motivos") if isinstance(meta.get("motivos"), dict) else {},
             **({"features": features, "type": geojson.get("type") or "FeatureCollection"} if include_features else {}),
         })
@@ -1820,6 +1821,9 @@ async def api_kmz_import_layer_update(layer_id: str, payload: Dict[str, Any], re
     if isinstance(payload.get("cabo"), dict):
         u = getattr(request.state, "current_user", None) or {}
         return {"ok": True, **_cabo_da_camada(layer_id, payload["cabo"], str(u.get("username") or "") if isinstance(u, dict) else "")}
+    if isinstance(payload.get("cto"), dict):
+        u = getattr(request.state, "current_user", None) or {}
+        return {"ok": True, **_cto_da_camada(layer_id, payload["cto"], str(u.get("username") or "") if isinstance(u, dict) else "")}
     layer = _rename_kmz_layer(layer_id, str(payload.get("label") or ""))
     return {"ok": True, "layer": layer}
 
@@ -2170,6 +2174,112 @@ def _caixa_da_camada_sem_lock(layer_id: str, dados: Dict[str, Any], por: str = "
     return {"caixas": caixas, "cabos": cabos}
 
 
+# --------------------------------------------------------------------------- CTO
+# A CTO e um ponto da camada (pelo nome E posicao, como a caixa) com splitter,
+# origem (OLT/PON, de qual CDO/CTO vem) e as portas: em cada uma, a ONU que
+# esta ligada (entity_key do monitoramento, para mostrar sinal e status). As
+# caixas ligadas por cabo drop ({cto:{ponto,porta}}) ocupam a porta sozinhas.
+# CTO e passiva: nao tem host no Zabbix; as ONUs das portas ja tem.
+
+_SPLITTERS = ("", "1:2", "1:4", "1:8", "1:16", "1:32", "1:64")
+_NIVEIS_CTO = ("", "primario", "secundario")
+
+
+def _cto_da_camada(layer_id: str, dados: Dict[str, Any], por: str = "") -> dict[str, Any]:
+    with _LOCK_CAIXAS:
+        return _cto_da_camada_sem_lock(layer_id, dados, por)
+
+
+def _cto_da_camada_sem_lock(layer_id: str, dados: Dict[str, Any], por: str = "") -> dict[str, Any]:
+    meta, meta_path = _meta_da_camada_ou_404(layer_id)
+    ctos = meta.get("ctos") if isinstance(meta.get("ctos"), dict) else {}
+    cabos = meta.get("cabos") if isinstance(meta.get("cabos"), dict) else {}
+    tid = _texto_curto(dados.get("id"), 24)
+    if dados.get("excluir"):
+        if tid not in ctos:
+            raise HTTPException(404, "CTO nao encontrada.")
+        _exige_admin_para_excluir()
+        ctos.pop(tid, None)  # o ponto e os cabos das caixas continuam no mapa
+    else:
+        ponto = _texto_curto(dados.get("ponto"), 160)
+        if not ponto:
+            raise HTTPException(400, "Informe o ponto do mapa que e a CTO.")
+        atual = ctos.get(tid) if tid else None
+        if tid and not atual:
+            raise HTTPException(404, "CTO nao encontrada.")
+        try:
+            lat = float(dados["lat"]) if dados.get("lat") not in (None, "") else None
+            lng = float(dados["lng"]) if dados.get("lng") not in (None, "") else None
+        except (TypeError, ValueError):
+            raise HTTPException(400, "Posicao da CTO invalida.")
+        if lat is None or lng is None:
+            lat, lng = (atual or {}).get("lat"), (atual or {}).get("lng")
+        elif not (-90 <= lat <= 90 and -180 <= lng <= 180):
+            raise HTTPException(400, "Posicao da CTO fora do mapa.")
+
+        def _mesmo_lugar(c: dict) -> bool:
+            if c.get("lat") is None or lat is None:
+                return c.get("lat") is None and lat is None
+            return abs(float(c["lat"]) - lat) < 3e-5 and abs(float(c["lng"]) - lng) < 3e-5
+
+        if any(c.get("ponto", "").lower() == ponto.lower() and c.get("id") != tid and _mesmo_lugar(c) for c in ctos.values()):
+            raise HTTPException(400, "Este ponto ja e uma CTO.")
+        if not atual and len(ctos) >= 1000:
+            raise HTTPException(400, "Limite de CTOs na camada.")
+        splitter = _texto_curto(dados.get("splitter"), 5)
+        if splitter not in _SPLITTERS:
+            raise HTTPException(400, "Splitter invalido.")
+        nivel = _texto_curto(dados.get("nivel"), 12)
+        if nivel not in _NIVEIS_CTO:
+            raise HTTPException(400, "Nivel do splitter invalido.")
+        try:
+            padrao = int(splitter.split(":")[1]) if splitter else 8
+            portas = int(dados.get("portas") if dados.get("portas") not in (None, "") else padrao)
+        except (TypeError, ValueError):
+            raise HTTPException(400, "Numero de portas invalido.")
+        if not 1 <= portas <= 64:
+            raise HTTPException(400, "A CTO tem de 1 a 64 portas.")
+        # porta com caixa ligada nao some
+        em_uso = [int((c.get("cto") or {}).get("porta") or 0) for c in cabos.values()
+                  if isinstance(c, dict) and str((c.get("cto") or {}).get("ponto") or "").lower() == ponto.lower()]
+        if em_uso and max(em_uso) > portas:
+            raise HTTPException(400, f"A porta {max(em_uso)} tem caixa ligada: a CTO nao pode ter menos portas.")
+        onus: Dict[str, Any] = {}
+        vistos: set = set()
+        bruto = dados.get("portas_info") if isinstance(dados.get("portas_info"), dict) else {}
+        for chave, info in list(bruto.items())[:64]:
+            try:
+                n = int(chave)
+            except (TypeError, ValueError):
+                raise HTTPException(400, "Porta invalida.")
+            if not 1 <= n <= portas or not isinstance(info, dict):
+                raise HTTPException(400, f"Porta {chave} fora da CTO (1 a {portas}).")
+            item = {"onu_key": _texto_curto(info.get("onu_key"), 200), "onu_nome": _texto_curto(info.get("onu_nome"), 80),
+                    "obs": _texto_curto(info.get("obs"), 120)}
+            if item["onu_key"]:
+                if item["onu_key"] in vistos:
+                    raise HTTPException(400, f"A ONU {item['onu_nome'] or item['onu_key']} esta em duas portas.")
+                vistos.add(item["onu_key"])
+            if item["onu_key"] or item["obs"]:
+                onus[str(n)] = item
+        agora = datetime.now().isoformat(timespec="seconds")
+        tid = tid or f"ct{uuid.uuid4().hex[:10]}"
+        ctos[tid] = {
+            "id": tid, "ponto": ponto, "nome": _texto_curto(dados.get("nome"), 80) or ponto,
+            "lat": round(lat, 7) if lat is not None else None, "lng": round(lng, 7) if lng is not None else None,
+            "modelo": _texto_curto(dados.get("modelo"), 80), "splitter": splitter, "nivel": nivel, "portas": portas,
+            "olt_key": _texto_curto(dados.get("olt_key"), 200), "olt_nome": _texto_curto(dados.get("olt_nome"), 80),
+            "pon": _texto_curto(dados.get("pon"), 20), "vem_de": _texto_curto(dados.get("vem_de"), 160),
+            "portas_info": onus, "obs": _texto_curto(dados.get("obs"), 300),
+            "criado_em": (atual or {}).get("criado_em") or agora, "criado_por": (atual or {}).get("criado_por") or por,
+            "atualizado_em": agora, "atualizado_por": por,
+        }
+    meta["ctos"] = ctos
+    meta["updated_at"] = datetime.now().isoformat(timespec="seconds")
+    _write_kmz_layer_meta(meta_path, meta)
+    return {"ctos": ctos, "caixas": meta.get("caixas") or {}, "cabos": cabos}
+
+
 def _caminho_do_cabo(dados: Dict[str, Any]) -> list:
     bruto = dados.get("caminho") if isinstance(dados.get("caminho"), list) else []
     caminho = []
@@ -2273,6 +2383,11 @@ def _cabo_da_camada_sem_lock(layer_id: str, dados: Dict[str, Any], por: str = ""
                 antigo = cabos[kid]
                 if antigo.get("caixa") != caixa["id"] or (antigo.get("cto") or {}).get("ponto") != ponto_cto:
                     _exige_admin_para_excluir()  # trocar a CTO = excluir + criar
+            na_porta = porta_cto and next((c for k, c in cabos.items() if k != kid and (c.get("cto") or {}).get("porta") == porta_cto
+                                           and str((c.get("cto") or {}).get("ponto") or "").lower() == ponto_cto.lower()), None)
+            if na_porta:
+                outra_cx = (caixas.get(na_porta.get("caixa")) or {}).get("nome") or "outra caixa"
+                raise HTTPException(400, f"A porta {porta_cto} da CTO {ponto_cto} ja tem a caixa {outra_cx}.")
             outro = next((c for k, c in cabos.items() if k != kid and c.get("caixa") == caixa["id"] and c.get("cto")), None)
             if outro:
                 raise HTTPException(400, f"Esta caixa ja esta ligada na CTO {outro['cto'].get('ponto')}. Exclua o cabo antigo antes.")

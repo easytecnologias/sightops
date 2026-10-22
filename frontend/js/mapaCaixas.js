@@ -186,7 +186,7 @@ function cxCliqueNoPonto(def, f, cam, latlng, marker) {
   if (d.alvo === 'cto') {
     if (tipo !== 'cto') { showToast('Dois cliques numa CTO terminam o cabo. Aqui ficou só uma curva.', true); return true; }
     if (!cxPerto(d.pontos[d.pontos.length - 1], latlng)) d.pontos.push(latlng);
-    cxTerminarDesenho(null, { ponto: mapFeatureName(f) });
+    cxTerminarDesenho(null, { ponto: mapFeatureName(f), latlng });
     return true;
   }
   if (tipo !== 'camera') { showToast('Dois cliques numa câmera terminam o cabo. Aqui ficou só uma curva.', true); return true; }
@@ -210,13 +210,13 @@ function cxEsc(e) {
   else if (_cx.desenho) cxCancelarDesenho(); else cxFecharPainel();
 }
 
-function cxPainelBase(titulo, corpo, rodape) {
+function cxPainelBase(titulo, corpo, rodape, eyebrow = 'Caixa de CFTV') {
   cxFecharPainel();
   const el = document.createElement('aside');
   el.className = 'cx-painel';
   el.setAttribute('role', 'dialog');
   el.setAttribute('aria-label', titulo);
-  el.innerHTML = `<header><div><p class="eyebrow">Caixa de CFTV</p><h2>${esc(titulo)}</h2></div>
+  el.innerHTML = `<header><div><p class="eyebrow">${esc(eyebrow)}</p><h2>${esc(titulo)}</h2></div>
       <button type="button" class="ghost-action" data-cx="fechar" aria-label="Fechar"><i data-lucide="x"></i></button></header>
     <div class="cx-corpo">${corpo}</div><footer>${rodape}</footer>`;
   cxAnexar(el);
@@ -367,6 +367,7 @@ async function cxGravar(def, corpo) {
   if (!res?.ok) throw new Error(data?.detail || 'Não foi possível salvar.');
   def.caixas = data.caixas || {};
   def.cabos = data.cabos || {};
+  if (data.ctos) def.ctos = data.ctos;
   return data;
 }
 
@@ -700,8 +701,13 @@ function cxTerminarDesenho(camera, cto = null) {
   const onu = tipoCx === 'onu';
   // na ONU e na passagem a camera nao tem PoE do switch: fonte ou injetor
   const campoAlim = tipoCx === 'switch' ? '' : `<div class="form-group" style="margin:0"><label for="cxAlim">Alimentação</label><select id="cxAlim">${Object.entries(CX_ALIM).filter(([k]) => k !== 'poe_switch').map(([k, v]) => `<option value="${k}" ${k === 'fonte12' ? 'selected' : ''}>${esc(v)}</option>`).join('')}</select></div>`;
+  // CTO cadastrada: so as portas livres dela; sem cadastro, numero livre
+  const ctoCad = cto ? ctDoPonto(d.def, cto.ponto, cto.latlng) : null;
+  const livresCto = ctoCad ? ctPortasLivres(d.def, ctoCad) : [];
   const campoPorta = cto
-    ? '<div class="form-group" style="margin:0"><label for="cxPortaCto">Porta da CTO</label><input id="cxPortaCto" type="number" min="1" max="64" placeholder="ex.: 3"></div>'
+    ? (ctoCad
+      ? `<div class="form-group" style="margin:0"><label for="cxPortaCto">Porta da CTO</label><select id="cxPortaCto"><option value="">sem porta</option>${livresCto.map((n, i) => `<option value="${n}" ${i === 0 ? 'selected' : ''}>Porta ${n} (livre)</option>`).join('')}</select></div>`
+      : '<div class="form-group" style="margin:0"><label for="cxPortaCto">Porta da CTO</label><input id="cxPortaCto" type="number" min="1" max="64" placeholder="ex.: 3"></div>')
     : tipoCx === 'passagem' ? campoAlim
     : `<div class="form-group" style="margin:0"><label for="cxPorta">${onu ? 'Porta LAN da ONU' : 'Porta do switch'}</label><select id="cxPorta"><option value="">sem porta</option>${livres.map((n, i) => `<option value="${n}" ${i === 0 ? 'selected' : ''}>${onu ? `LAN ${n}` : `Porta ${n}`} (livre)</option>`).join('')}</select></div>
       <div class="form-group" style="margin:0"><label for="cxVlanCabo">VLAN da porta</label><input id="cxVlanCabo" type="number" min="1" max="4094" placeholder="${esc(caixa.switch_vlan ? `${caixa.switch_vlan} (da caixa)` : 'a da caixa')}"></div>
@@ -762,4 +768,244 @@ async function cxSalvarCabo() {
   else showToast(`Cabo salvo. No inventário, ${camera.ponto || camera.ip}: ${onu ? '' : 'switch '}${sw}${porta ? `, porta ${onu ? `LAN${porta}` : porta}` : ''}.`);
   cxRedesenhar(id, def);
   cxAbrirPainel(id, def, caixa.ponto, cxPosDaCaixa(def, def.caixas?.[caixa.id] || caixa));
+}
+
+// ------------------------------------------------------------------ CTO
+// Ponto da camada com "CTO" no nome. O cadastro (meta.ctos, pelo nome E
+// posicao, como a caixa) guarda splitter, origem (OLT/PON, de qual CDO/CTO
+// vem) e a ONU de cada porta, escolhida da lista do monitoramento: o painel
+// mostra sinal e status dela. Caixa ligada por cabo drop ocupa a porta sozinha.
+// CTO e passiva: nunca aparece como "offline".
+
+const CT_SPLITTERS = ['1:2', '1:4', '1:8', '1:16', '1:32', '1:64'];
+const CT_NIVEIS = { primario: 'Primário', secundario: 'Secundário' };
+
+function ctPosDaCto(def, cto) {
+  if (cto?.lat != null && cto?.lng != null) return [+cto.lat, +cto.lng];
+  return cxLatLngDoPonto(def, cto?.ponto);
+}
+
+function ctDoPonto(def, nome, latlng) {
+  const chave = String(nome || '').trim().toLowerCase();
+  const doNome = Object.values(def?.ctos || {}).filter(c => String(c.ponto || '').trim().toLowerCase() === chave);
+  if (!latlng) return doNome.length === 1 ? doNome[0] : null;
+  return doNome.find(c => cxPerto(ctPosDaCto(def, c), latlng)) || null;
+}
+
+// Caixas ligadas nesta CTO (o cabo guarda so o nome do ponto da CTO).
+function ctCabosDaCto(def, cto) {
+  const chave = String(cto?.ponto || '').trim().toLowerCase();
+  return Object.values(def?.cabos || {}).filter(c => c.cto && String(c.cto.ponto || '').trim().toLowerCase() === chave);
+}
+
+function ctPortasLivres(def, cto) {
+  const usadas = new Set(ctCabosDaCto(def, cto).map(c => Number(c.cto.porta)).filter(Boolean));
+  Object.entries(cto?.portas_info || {}).forEach(([n, i]) => { if (i?.onu_key) usadas.add(Number(n)); });
+  return Array.from({ length: Number(cto?.portas || 0) }, (_, i) => i + 1).filter(n => !usadas.has(n));
+}
+
+function ctUsadas(def, cto) {
+  return Number(cto?.portas || 0) - ctPortasLivres(def, cto).length;
+}
+
+function ctMarcador(id, def, f, lat, lng) {
+  const nome = mapFeatureName(f);
+  const cto = ctDoPonto(def, nome, [lat, lng]);
+  const livres = cto ? ctPortasLivres(def, cto).length : 0;
+  const conta = cto ? ` · ${ctUsadas(def, cto)}/${cto.portas}` : '';
+  const dica = cto ? `CTO${cto.splitter ? ` ${cto.splitter}` : ''}: ${livres} porta(s) livre(s)` : 'CTO sem cadastro: clique para informar splitter, origem e portas';
+  const icon = L.divIcon({
+    className: '',
+    html: `<div class="ct-pino${cto ? '' : ' ct-pino-novo'}${cto && !livres ? ' ct-pino-cheia' : ''}" title="${esc(dica)}"><b>CTO</b><span>${esc(cto?.nome || nome)}${conta}</span></div>`,
+    iconSize: [40, 22], iconAnchor: [20, 11],
+  });
+  const marker = L.marker([lat, lng], { icon, zIndexOffset: 400 });
+  marker.on('click', () => {
+    // desenhando o cabo da caixa: dois cliques na CTO terminam o cabo nela
+    if (_cx.desenho) { cxCliqueNoPonto(def, f, null, [lat, lng], marker); return; }
+    if (_cx.edicao) return;
+    ctAbrirPainel(id, def, nome, [lat, lng]).catch(e => showToast(e?.message || 'Falha ao abrir a CTO.', true));
+  });
+  return marker;
+}
+
+// ONUs e OLTs do monitoramento (ja filtradas pelos sites do usuario).
+const _ct = { cache: {} };
+async function ctEntidades(tipo) {
+  const c = _ct.cache[tipo];
+  if (c && Date.now() - c.t < 60000) return c.lista;
+  let lista = [];
+  try {
+    const res = await api(`/api/monitoring/entities?entity_type=${tipo}&limit=2000`);
+    const data = res?.ok ? await res.json() : null;
+    lista = (data?.entities || []).map(e => {
+      let det = e.detail_json;
+      if (typeof det === 'string') { try { det = JSON.parse(det); } catch (_) { det = {}; } }
+      return { ...e, det: det || {} };
+    });
+  } catch (_) { /* sem acesso ao monitoramento: o painel funciona sem sinal */ }
+  _ct.cache[tipo] = { t: Date.now(), lista };
+  return lista;
+}
+
+// Sinal GPON na ONU: ate -25 bom, ate -28 atencao, abaixo disso ruim.
+function ctSinal(rx) {
+  const v = parseFloat(rx);
+  if (!Number.isFinite(v) || v === 0) return '';
+  const cls = v >= -25 ? 'ct-ok' : v >= -28 ? 'ct-atencao' : 'ct-ruim';
+  return `<span class="ct-sinal ${cls}" title="Sinal recebido na ONU">${v.toFixed(2)} dBm</span>`;
+}
+
+function ctEstadoOnu(e) {
+  const st = String(e?.status || '').toLowerCase();
+  if (st === 'up') return 'on';
+  if (st === 'down') return 'off';
+  return 'sem';
+}
+
+function ctNomeOnu(e) {
+  const pon = e?.det?.pon != null && e.det.pon !== '' ? ` · PON ${e.det.pon}` : '';
+  return `${e?.display_name || e?.entity_id || e?.entity_key}${pon}`;
+}
+
+async function ctAbrirPainel(id, def, nomePonto, latlng) {
+  if (!def?.updateUrl || def.source !== 'imported') { showToast('CTO só em camadas importadas (KMZ).', true); return; }
+  latlng = latlng || cxLatLngDoPonto(def, nomePonto);
+  const cto = ctDoPonto(def, nomePonto, latlng);
+  const [onus, olts] = await Promise.all([ctEntidades('onu'), ctEntidades('olt')]);
+  const porKey = Object.fromEntries(onus.map(e => [e.entity_key, e]));
+  const portas = Number(cto?.portas || 8);
+  const info = cto?.portas_info || {};
+  const caboNaPorta = {};
+  const semPorta = [];
+  ctCabosDaCto(def, cto || { ponto: nomePonto }).forEach(c => {
+    if (c.cto.porta) caboNaPorta[Number(c.cto.porta)] = c; else semPorta.push(c);
+  });
+  const nomeCaixa = c => def.caixas?.[c.caixa]?.nome || 'Caixa';
+  const estadoPorta = n => {
+    const onu = porKey[info[n]?.onu_key];
+    if (onu) return ctEstadoOnu(onu);
+    if (caboNaPorta[n] || info[n]?.onu_key) return 'cx';
+    return 'livre';
+  };
+  const grade = Array.from({ length: portas }, (_, i) => {
+    const n = i + 1;
+    const st = estadoPorta(n);
+    const quem = [caboNaPorta[n] ? `caixa ${nomeCaixa(caboNaPorta[n])}` : '', info[n]?.onu_nome ? `ONU ${info[n].onu_nome}` : ''].filter(Boolean).join(' · ');
+    const cls = st === 'livre' ? 'cx-p-livre' : st === 'cx' ? 'cx-p-cx' : `cx-p-${st}`;
+    return `<span class="cx-porta ${cls}" title="Porta ${n}: ${esc(quem || 'livre')}">${n}</span>`;
+  }).join('');
+  const porSite = {};
+  onus.forEach(e => { (porSite[e.site || 'Sem site'] = porSite[e.site || 'Sem site'] || []).push(e); });
+  Object.values(porSite).forEach(l => l.sort((a, b) => ctNomeOnu(a).localeCompare(ctNomeOnu(b), 'pt-BR', { numeric: true })));
+  const opcoesOnu = (sel, nomeSalvo) => '<option value="">—</option>'
+    + Object.keys(porSite).sort().map(s => `<optgroup label="${esc(s)}">${porSite[s]
+      .map(e => `<option value="${esc(e.entity_key)}" ${e.entity_key === sel ? 'selected' : ''}>${esc(ctNomeOnu(e))}</option>`).join('')}</optgroup>`).join('')
+    + (sel && !porKey[sel] ? `<option value="${esc(sel)}" selected>${esc(nomeSalvo || sel)} (fora do monitoramento)</option>` : '');
+  const linhas = Array.from({ length: portas }, (_, i) => {
+    const n = i + 1;
+    const cabo = caboNaPorta[n];
+    const sel = info[n]?.onu_key || '';
+    const onu = porKey[sel];
+    const st = onu ? ctEstadoOnu(onu) : '';
+    const estado = st === 'off' ? ' <small class="cx-off">fora do ar</small>' : st === 'on' ? ' <small class="cx-ok">no ar</small>' : '';
+    return `<tr class="${st === 'off' ? 'cx-tr-off' : ''}"><td>${n}</td>
+      <td>${cabo ? `<strong>${esc(nomeCaixa(cabo))}</strong> <small>${cxFmtMetros(cabo.metros || 0)} drop</small>` : '<span class="text-muted">—</span>'}</td>
+      <td><select class="ct-onu" data-ct-onu="${n}" aria-label="ONU da porta ${n}">${opcoesOnu(sel, info[n]?.onu_nome)}</select></td>
+      <td>${onu ? `${ctSinal(onu.det?.onu_rx)}${estado}` : ''}</td>
+      <td><input class="ct-obs" data-ct-obs="${n}" maxlength="120" value="${esc(info[n]?.obs || '')}" placeholder="obs." aria-label="Observação da porta ${n}"></td></tr>`;
+  }).join('');
+  const usadas = cto ? ctUsadas(def, cto) : Object.keys(caboNaPorta).length;
+  const pontosRede = [...new Set((def.features || [])
+    .filter(x => x.geometry?.type === 'Point' && /\b(cto|cdo)\b|^(cto|cdo)|emenda/i.test(mapFeatureName(x)) && mapFeatureName(x) !== nomePonto)
+    .map(x => mapFeatureName(x)))];
+  const oltSalvaFora = cto?.olt_key && !olts.some(o => o.entity_key === cto.olt_key);
+  const corpo = `
+    ${cto ? '' : '<div class="so-note"><i data-lucide="info"></i><span>Cadastre a CTO para guardar splitter, origem e o que está em cada porta. As caixas já ligadas a ela por cabo drop entram sozinhas nas portas.</span></div>'}
+    <div class="form-row">
+      <div class="form-group" style="margin:0"><label for="ctNome">Nome</label><input id="ctNome" maxlength="80" value="${esc(cto?.nome || nomePonto)}"></div>
+      <div class="form-group" style="margin:0"><label for="ctModelo">Modelo</label><input id="ctModelo" maxlength="80" value="${esc(cto?.modelo || '')}" placeholder="ex.: CTO 16 portas"></div>
+    </div>
+    <section class="cx-bloco"><h3>Splitter</h3>
+      <div class="cx-sw-linha">
+        <div class="form-group" style="margin:0"><label for="ctSplitter">Divisão</label><select id="ctSplitter"><option value="">—</option>${CT_SPLITTERS.map(s => `<option value="${s}" ${cto?.splitter === s ? 'selected' : ''}>${s}</option>`).join('')}</select></div>
+        <div class="form-group" style="margin:0"><label for="ctNivel">Nível</label><select id="ctNivel"><option value="">—</option>${Object.entries(CT_NIVEIS).map(([k, v]) => `<option value="${k}" ${cto?.nivel === k ? 'selected' : ''}>${v}</option>`).join('')}</select></div>
+        <div class="form-group" style="margin:0"><label for="ctPortas">Portas</label><input id="ctPortas" type="number" min="1" max="64" value="${portas}"></div>
+      </div></section>
+    <section class="cx-bloco"><h3>Origem <small>de onde vem o sinal</small></h3>
+      <div class="cx-sw-linha">
+        <div class="form-group" style="margin:0"><label for="ctOlt">OLT</label><select id="ctOlt"><option value="">—</option>${olts.map(o => `<option value="${esc(o.entity_key)}" ${cto?.olt_key === o.entity_key ? 'selected' : ''}>${esc(o.display_name || o.entity_id)}${o.site ? ` · ${esc(o.site)}` : ''}</option>`).join('')}${oltSalvaFora ? `<option value="${esc(cto.olt_key)}" selected>${esc(cto.olt_nome || cto.olt_key)}</option>` : ''}</select></div>
+        <div class="form-group" style="margin:0"><label for="ctPon">PON</label><input id="ctPon" maxlength="20" value="${esc(cto?.pon || '')}" placeholder="ex.: 0/3"></div>
+        <div class="form-group" style="margin:0"><label for="ctVemDe">Vem de (CDO/CTO)</label><input id="ctVemDe" maxlength="160" list="ctVemDeLista" value="${esc(cto?.vem_de || '')}" placeholder="ex.: CDO-01"><datalist id="ctVemDeLista">${pontosRede.map(n => `<option value="${esc(n)}">`).join('')}</datalist></div>
+      </div></section>
+    <section><h3>Portas <small>${usadas} de ${portas} em uso</small></h3>
+      <div class="cx-portas">${grade}</div>
+      <div class="ct-legenda"><span><i class="cx-p-livre"></i>livre</span><span><i class="cx-p-cx"></i>caixa / ONU</span><span><i class="cx-p-on"></i>ONU no ar</span><span><i class="cx-p-off"></i>ONU fora do ar</span></div>
+      ${onus.length ? '' : '<p class="text-muted" style="margin:6px 0 0">Sem lista de ONUs do monitoramento: dá para anotar as portas, mas sem sinal.</p>'}
+      <table class="cx-tabela ct-tabela"><thead><tr><th>Porta</th><th>Caixa</th><th>ONU</th><th>Sinal</th><th>Obs.</th></tr></thead><tbody>${linhas}</tbody></table>
+      ${semPorta.length ? `<p class="text-muted" style="margin:6px 0 0">Ligada(s) sem porta: ${semPorta.map(c => esc(nomeCaixa(c))).join(', ')}. Edite o cabo na caixa para informar a porta.</p>` : ''}
+    </section>
+    <div class="form-group" style="margin:0"><label for="ctObs">Observação</label><input id="ctObs" maxlength="300" value="${esc(cto?.obs || '')}" placeholder="ex.: no poste em frente à escola"></div>
+    <p id="cxErro" class="login-error" hidden></p>`;
+  const rodape = `${cto ? '<button type="button" class="ghost-action cx-perigo cx-ico" data-ct="excluir" title="Excluir cadastro da CTO" aria-label="Excluir cadastro da CTO"><i data-lucide="trash-2"></i></button>' : ''}
+    <span style="flex:1"></span>
+    <button type="button" class="primary-action" data-ct="salvar"><i data-lucide="save"></i> ${cto ? 'Salvar' : 'Cadastrar CTO'}</button>`;
+  const el = cxPainelBase(cto?.nome || nomePonto || 'CTO', corpo, rodape, `CTO${cto?.splitter ? ` ${cto.splitter}` : ''}`);
+  el.classList.add('ct-painel');
+  // trocar o splitter sugere o numero de portas
+  el.querySelector('#ctSplitter')?.addEventListener('change', ev => {
+    const n = Number(String(ev.target.value).split(':')[1] || 0);
+    if (n) el.querySelector('#ctPortas').value = n;
+  });
+  el.addEventListener('click', ev => {
+    const b = ev.target.closest('[data-ct]');
+    if (b) ctAcao(b.dataset.ct).catch(e => showToast(e?.message || 'Falha na ação.', true));
+  });
+  _cx.painel = { el, id, def, cto, nomePonto, latlng, porKey };
+}
+
+async function ctAcao(acao) {
+  const p = _cx.painel;
+  if (!p?.el) return;
+  const er = p.el.querySelector('#cxErro');
+  if (acao === 'excluir') {
+    if (!(await showConfirm({ title: 'Excluir CTO', msg: `Apagar o cadastro da CTO "${p.cto.nome}" (splitter, origem e ONUs das portas)? O ponto e os cabos das caixas continuam no mapa.`, label: 'Excluir' }))) return;
+    try {
+      await cxGravar(p.def, { cto: { id: p.cto.id, excluir: true } });
+    } catch (e) {
+      if (er) { er.textContent = e.message; er.hidden = false; }
+      return;
+    }
+    showToast('Cadastro da CTO excluído.');
+    cxFecharPainel();
+    cxRedesenhar(p.id, p.def);
+    return;
+  }
+  if (acao !== 'salvar') return;
+  const v = idc => p.el.querySelector(`#${idc}`)?.value ?? '';
+  const portas_info = {};
+  p.el.querySelectorAll('[data-ct-onu]').forEach(s => {
+    const n = s.dataset.ctOnu;
+    const onu_key = s.value;
+    const obs = (p.el.querySelector(`[data-ct-obs="${n}"]`)?.value || '').trim();
+    const onu = p.porKey[onu_key];
+    const nomeAntigo = p.cto?.portas_info?.[n]?.onu_key === onu_key ? p.cto.portas_info[n].onu_nome : '';
+    if (onu_key || obs) portas_info[n] = { onu_key, onu_nome: onu ? ctNomeOnu(onu) : nomeAntigo, obs };
+  });
+  const olt = p.el.querySelector('#ctOlt');
+  try {
+    await cxGravar(p.def, { cto: {
+      id: p.cto?.id || '', ponto: p.nomePonto, lat: p.latlng?.[0], lng: p.latlng?.[1],
+      nome: v('ctNome').trim(), modelo: v('ctModelo').trim(), splitter: v('ctSplitter'), nivel: v('ctNivel'),
+      portas: Number(v('ctPortas') || 0), olt_key: olt?.value || '',
+      olt_nome: olt?.value ? (olt.selectedOptions[0]?.textContent || '').trim() : '',
+      pon: v('ctPon').trim(), vem_de: v('ctVemDe').trim(), obs: v('ctObs').trim(), portas_info,
+    } });
+  } catch (e) {
+    if (er) { er.textContent = e.message; er.hidden = false; }
+    return;
+  }
+  showToast(p.cto ? 'CTO salva.' : 'CTO cadastrada.');
+  cxRedesenhar(p.id, p.def);
+  ctAbrirPainel(p.id, p.def, p.nomePonto, p.latlng);
 }
