@@ -405,8 +405,12 @@ async function cxAcao(btn) {
           ? { portas: Number(v('cxLan') || 0), switch_nome: v('cxOnuNome').trim(), switch_modelo: v('cxOnuModelo').trim(), switch_ip: '',
               switch_vlan: v('cxOnuVlan').trim(), uplinks: 0, uplink_para: 'onu' }
           : { portas: 0, switch_nome: '', switch_modelo: '', switch_ip: '', switch_vlan: '', uplinks: 0, uplink_para: 'onu' };
-      await cxGravar(p.def, { caixa: { id: p.caixa?.id || '', ponto: p.nomePonto, lat: p.latlng?.[0], lng: p.latlng?.[1], nome: v('cxNome').trim(),
+      const salvo = await cxGravar(p.def, { caixa: { id: p.caixa?.id || '', ponto: p.nomePonto, lat: p.latlng?.[0], lng: p.latlng?.[1], nome: v('cxNome').trim(),
         tipo, itens, obs: v('cxObs').trim(), ...equip } });
+      // o ponto do mapa passa a ter o nome da caixa (o servidor renomeia)
+      const nova = Object.values(p.def.caixas || {}).find(c => c.id === (p.caixa?.id || '') ) || Object.values(p.def.caixas || {}).find(c => c.nome === v('cxNome').trim());
+      if (nova?.ponto) p.nomePonto = nova.ponto;
+      if (salvo?.aviso) setTimeout(() => showToast(salvo.aviso, true), 1200);
     } catch (e) {
       const er = document.getElementById('cxErro');
       if (er) { er.textContent = e.message; er.hidden = false; }
@@ -994,13 +998,16 @@ async function ctAcao(acao) {
   });
   const olt = p.el.querySelector('#ctOlt');
   try {
-    await cxGravar(p.def, { cto: {
+    const salvo = await cxGravar(p.def, { cto: {
       id: p.cto?.id || '', ponto: p.nomePonto, lat: p.latlng?.[0], lng: p.latlng?.[1],
       nome: v('ctNome').trim(), modelo: v('ctModelo').trim(), splitter: v('ctSplitter'), nivel: v('ctNivel'),
       portas: Number(v('ctPortas') || 0), olt_key: olt?.value || '',
       olt_nome: olt?.value ? (olt.selectedOptions[0]?.textContent || '').trim() : '',
       pon: v('ctPon').trim(), vem_de: v('ctVemDe').trim(), obs: v('ctObs').trim(), portas_info,
     } });
+    const nova = p.cto ? p.def.ctos?.[p.cto.id] : Object.values(p.def.ctos || {}).find(c => c.nome === v('ctNome').trim());
+    if (nova?.ponto) p.nomePonto = nova.ponto;
+    if (salvo?.aviso) setTimeout(() => showToast(salvo.aviso, true), 1200);
   } catch (e) {
     if (er) { er.textContent = e.message; er.hidden = false; }
     return;

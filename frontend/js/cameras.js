@@ -2268,7 +2268,13 @@ async function criarPontoLivre(def, latlng) {
   const jaExiste = (_mapLayerGroups[def.id]?.features || def.features || [])
     .some(f => mapFeatureName(f).toLowerCase() === nome.toLowerCase());
   if (jaExiste) {
-    showToast(`Ja existe um ponto "${nome}" nesta camada. Use outro nome ou arraste o existente.`, true);
+    // o ponto pode ser de uma caixa/CTO que mostra outro nome no rotulo
+    const chave = nome.toLowerCase();
+    const dono = [...Object.values(def.caixas || {}).map(c => ['a caixa', c]), ...Object.values(def.ctos || {}).map(c => ['a CTO', c])]
+      .find(([, c]) => String(c.ponto || '').toLowerCase() === chave && String(c.nome || '').toLowerCase() !== chave);
+    showToast(dono
+      ? `O ponto "${nome}" desta camada e ${dono[0]} que aparece como "${dono[1].nome}". Abra essa caixa e salve para o ponto ganhar o nome dela, ou use outro nome.`
+      : `Ja existe um ponto "${nome}" nesta camada. Use outro nome ou arraste o existente.`, true);
     return;
   }
   await saveMapPoint(def, { nome, lat: latlng.lat, lon: latlng.lng }, `Ponto "${nome}" marcado.`);

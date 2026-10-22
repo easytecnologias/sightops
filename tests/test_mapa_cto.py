@@ -78,3 +78,84 @@ def test_excluir_so_admin(camada, monkeypatch):
         tools._cto_da_camada("c1", {"id": c["id"], "excluir": True})
     monkeypatch.setattr(permissions, "pode_excluir", lambda: True)
     assert tools._cto_da_camada("c1", {"id": c["id"], "excluir": True})["ctos"] == {}
+
+
+@pytest.fixture()
+def camada_kmz(tmp_path, monkeypatch):
+    """Camada com KMZ de verdade: C.CFTV-01 e C.CFTV-02 (caixas) e CTO-07."""
+    import zipfile
+    from app.services.kmz_ops import kmz_to_geojson
+    monkeypatch.setattr(tools, "_kmz_layers_dir", lambda: tmp_path)
+    monkeypatch.setattr(tools, "_apagar_geradas_do_mapa", lambda *a, **k: None)
+    pts = [("C.CFTV-01", -10.0, -36.0), ("C.CFTV-02", -10.001, -36.001), ("CTO-07", -10.002, -36.002)]
+    kml = ('<?xml version="1.0" encoding="UTF-8"?><kml xmlns="http://www.opengis.net/kml/2.2"><Document>'
+           + "".join(f"<Placemark><name>{n}</name><Point><coordinates>{lo},{la},0</coordinates></Point></Placemark>" for n, la, lo in pts)
+           + "</Document></kml>")
+    with zipfile.ZipFile(tmp_path / "c1.kmz", "w") as zf:
+        zf.writestr("doc.kml", kml)
+    (tmp_path / "c1.geojson").write_text(json.dumps(kmz_to_geojson(tmp_path / "c1.kmz")), encoding="utf-8")
+    (tmp_path / "c1.meta.json").write_text(json.dumps({"id": "c1", "label": "JARDINS"}), encoding="utf-8")
+    return tmp_path
+
+
+def _nomes(pasta):
+    return sorted(f["properties"]["name"] for f in json.loads((pasta / "c1.geojson").read_text(encoding="utf-8"))["features"])
+
+
+def test_renomear_caixa_renomeia_o_ponto(camada_kmz):
+    r = tools._caixa_da_camada("c1", {"ponto": "C.CFTV-02", "nome": "C.CFTV-02", "tipo": "passagem", "lat": -10.001, "lng": -36.001})
+    cx2 = next(iter(r["caixas"].values()))
+    # trocar para um nome livre: o ponto vai junto
+    r = tools._caixa_da_camada("c1", {"id": cx2["id"], "ponto": "C.CFTV-02", "nome": "C.CFTV-03", "tipo": "passagem"})
+    assert r["aviso"] == "" and r["caixas"][cx2["id"]]["ponto"] == "C.CFTV-03"
+    assert _nomes(camada_kmz) == ["C.CFTV-01", "C.CFTV-03", "CTO-07"]
+    # nome de outro ponto: nao renomeia, avisa, e a caixa salva assim mesmo
+    r = tools._caixa_da_camada("c1", {"id": cx2["id"], "ponto": "C.CFTV-03", "nome": "C.CFTV-01", "tipo": "passagem"})
+    assert "ja existe outro ponto" in r["aviso"] and r["caixas"][cx2["id"]]["ponto"] == "C.CFTV-03"
+    assert r["caixas"][cx2["id"]]["nome"] == "C.CFTV-01" and _nomes(camada_kmz) == ["C.CFTV-01", "C.CFTV-03", "CTO-07"]
+
+
+def test_renomear_cto_leva_os_cabos(camada_kmz):
+    cx = next(iter(tools._caixa_da_camada("c1", {"ponto": "C.CFTV-01", "nome": "C.CFTV-01", "tipo": "onu", "portas": 4,
+                                                 "lat": -10.0, "lng": -36.0})["caixas"].values()))
+    tools._cabo_da_camada("c1", {"caixa": cx["id"], "cto": {"ponto": "CTO-07", "porta": 2}, "tipo": "drop", "caminho": _CAMINHO})
+    r = tools._cto_da_camada("c1", {"ponto": "CTO-07", "nome": "CTO VERDE 01", "lat": -10.002, "lng": -36.002, "splitter": "1:8"})
+    assert r["aviso"] == "" and next(iter(r["ctos"].values()))["ponto"] == "CTO VERDE 01"
+    assert next(iter(r["cabos"].values()))["cto"]["ponto"] == "CTO VERDE 01"
+    assert "CTO VERDE 01" in _nomes(camada_kmz)
+
+
+def test_renomear_ponto_no_editor_leva_a_caixa(camada_kmz):
+    cx = next(iter(tools._caixa_da_camada("c1", {"ponto": "C.CFTV-01", "nome": "C.CFTV-01", "tipo": "passagem",
+                                                 "lat": -10.0, "lng": -36.0})["caixas"].values()))
+    tools._editar_ponto_da_camada("c1", {"nome": "C.CFTV-01", "novo_nome": "CX-ENTRADA", "lat_atual": -10.0, "lon_atual": -36.0})
+    meta = json.loads((camada_kmz / "c1.meta.json").read_text(encoding="utf-8"))
+    assert meta["caixas"][cx["id"]]["ponto"] == "CX-ENTRADA"
+
+
+def test_nome_repetido_renomeia_so_o_ponto_da_caixa(tmp_path, monkeypatch):
+    """Porto Real tem 14 "Caixa - S 4P": renomear uma caixa mexe so no ponto dela."""
+    import zipfile
+    from app.services.kmz_ops import kmz_to_geojson
+    monkeypatch.setattr(tools, "_kmz_layers_dir", lambda: tmp_path)
+    monkeypatch.setattr(tools, "_apagar_geradas_do_mapa", lambda *a, **k: None)
+    pts = [("Caixa - S 4P", -10.0 - i * 0.001, -36.0) for i in range(14)]
+    kml = ('<?xml version="1.0" encoding="UTF-8"?><kml xmlns="http://www.opengis.net/kml/2.2"><Document>'
+           + "".join(f"<Placemark><name>{n}</name><Point><coordinates>{lo},{la},0</coordinates></Point></Placemark>" for n, la, lo in pts)
+           + "</Document></kml>")
+    with zipfile.ZipFile(tmp_path / "c1.kmz", "w") as zf:
+        zf.writestr("doc.kml", kml)
+    (tmp_path / "c1.geojson").write_text(json.dumps(kmz_to_geojson(tmp_path / "c1.kmz")), encoding="utf-8")
+    (tmp_path / "c1.meta.json").write_text(json.dumps({"id": "c1"}), encoding="utf-8")
+    a = next(iter(tools._caixa_da_camada("c1", {"ponto": "Caixa - S 4P", "nome": "Caixa - S 4P", "tipo": "passagem",
+                                                "lat": -10.003, "lng": -36.0})["caixas"].values()))
+    tools._caixa_da_camada("c1", {"ponto": "Caixa - S 4P", "nome": "Caixa - S 4P", "tipo": "passagem", "lat": -10.005, "lng": -36.0})
+    r = tools._caixa_da_camada("c1", {"id": a["id"], "ponto": "Caixa - S 4P", "nome": "C.CFTV-09", "tipo": "passagem"})
+    assert r["aviso"] == ""
+    nomes = _nomes(tmp_path)
+    assert nomes.count("Caixa - S 4P") == 13 and nomes.count("C.CFTV-09") == 1
+    feat = next(f for f in json.loads((tmp_path / "c1.geojson").read_text(encoding="utf-8"))["features"] if f["properties"]["name"] == "C.CFTV-09")
+    assert abs(feat["geometry"]["coordinates"][1] - -10.003) < 1e-6
+    caixas = r["caixas"]
+    assert caixas[a["id"]]["ponto"] == "C.CFTV-09"
+    assert [c["ponto"] for k, c in caixas.items() if k != a["id"]] == ["Caixa - S 4P"]  # a outra nao foi junto

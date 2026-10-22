@@ -1758,6 +1758,23 @@ def _editar_ponto_da_camada(layer_id: str, ponto: Dict[str, Any], generated: boo
 
     meta = _read_kmz_layer_meta(meta_path)
     meta["id"] = layer_id
+    novo_nome = str(ponto.get("novo_nome") or "").strip()
+    if novo_nome and not generated and not ponto.get("remover"):
+        # renomear o ponto de uma caixa/CTO pelo editor: o cadastro acompanha
+        # (senao a caixa ficava presa ao nome antigo e sumia do mapa)
+        la, lo = _coord("lat_atual"), _coord("lon_atual")
+        try:
+            restantes = [str((f.get("properties") or {}).get("name") or "").strip().lower()
+                         for f in json.loads(geojson_path.read_text(encoding="utf-8")).get("features") or []]
+        except (OSError, ValueError):
+            restantes = []
+        pos = (la, lo) if la is not None and lo is not None else None
+        antigo = str(ponto.get("nome") or "")
+        # sem posicao e com o nome antigo ainda no mapa (nome repetido): nao da
+        # para saber de qual caixa era -- nao mexe no cadastro
+        if pos is not None or antigo.strip().lower() not in restantes:
+            _trocar_nome_do_ponto_no_meta(meta, antigo, novo_nome, pos,
+                                          unico=restantes.count(novo_nome.lower()) == 1)
     meta["updated_at"] = datetime.now().isoformat(timespec="seconds")
     _write_kmz_layer_meta(meta_path, meta)
 
@@ -2014,6 +2031,54 @@ def _exige_admin_para_excluir() -> None:
         raise permissions.erro_exige_admin()
 
 
+def _trocar_nome_do_ponto_no_meta(meta: dict, antigo: str, novo: str, pos: Any, unico: bool) -> None:
+    """O ponto mudou de nome no KMZ: caixa e CTO daquele lugar, cabos que
+    terminam na CTO (guardam so o nome) e o motivo do ponto acompanham."""
+    a = str(antigo or "").strip().lower()
+    perto = lambda c: (pos is None or c.get("lat") is None
+                       or (abs(float(c["lat"]) - pos[0]) < 3e-5 and abs(float(c["lng"]) - pos[1]) < 3e-5))
+    for chave in ("caixas", "ctos"):
+        for c in (meta.get(chave) or {}).values():
+            if isinstance(c, dict) and str(c.get("ponto") or "").strip().lower() == a and perto(c):
+                c["ponto"] = novo
+    if unico:  # cabo da CTO nao tem posicao: so com o nome unico na camada
+        for cb in (meta.get("cabos") or {}).values():
+            if isinstance(cb, dict) and isinstance(cb.get("cto"), dict) and str(cb["cto"].get("ponto") or "").strip().lower() == a:
+                cb["cto"]["ponto"] = novo
+        motivos = meta.get("motivos") if isinstance(meta.get("motivos"), dict) else {}
+        if a in motivos:
+            motivos[novo.lower()] = {**motivos.pop(a), "nome": novo}
+
+
+def _seguir_nome_no_ponto(layer_id: str, meta: dict, antigo: str, novo: str, pos: Any) -> str:
+    """Renomeia o ponto do KMZ para o nome da caixa/CTO. Devolve aviso (texto)
+    quando nao deu: outro ponto ja tem esse nome, ou o nome repete sem posicao."""
+    from app.services.kmz_ops import editar_ponto_no_kmz, kmz_to_geojson
+
+    kmz_path, geojson_path, _ = _kmz_layer_paths(layer_id)
+    try:
+        feats = json.loads(geojson_path.read_text(encoding="utf-8")).get("features") or []
+    except (OSError, ValueError):
+        feats = []
+    nomes = [str((f.get("properties") or {}).get("name") or "").strip().lower() for f in feats
+             if (f.get("geometry") or {}).get("type") == "Point"]
+    if antigo.strip().lower() not in nomes:
+        return f'O ponto "{antigo}" nao foi achado no mapa para receber o nome novo.'
+    if novo.strip().lower() in nomes:
+        return f'O ponto no mapa continua "{antigo}": ja existe outro ponto "{novo}" nesta camada. Renomeie aquele antes.'
+    repetido = nomes.count(antigo.strip().lower()) > 1
+    if repetido and pos is None:
+        return f'O ponto no mapa continua "{antigo}": esse nome se repete na camada.'
+    try:
+        editar_ponto_no_kmz(kmz_path, nome=antigo, novo_nome=novo,
+                            lat_atual=pos[0] if pos else None, lon_atual=pos[1] if pos else None)
+    except (ValueError, OSError, zipfile.BadZipFile) as exc:
+        return f'O ponto no mapa continua "{antigo}": {exc}'
+    geojson_path.write_text(json.dumps(kmz_to_geojson(kmz_path), ensure_ascii=False), encoding="utf-8")
+    _trocar_nome_do_ponto_no_meta(meta, antigo, novo, pos, unico=not repetido)
+    return ""
+
+
 def _caixa_da_camada(layer_id: str, dados: Dict[str, Any], por: str = "") -> dict[str, Any]:
     with _LOCK_CAIXAS:
         return _caixa_da_camada_sem_lock(layer_id, dados, por)
@@ -2053,6 +2118,7 @@ def _caixa_da_camada_sem_lock(layer_id: str, dados: Dict[str, Any], por: str = "
     caixas = meta.get("caixas") if isinstance(meta.get("caixas"), dict) else {}
     cabos = meta.get("cabos") if isinstance(meta.get("cabos"), dict) else {}
     cid = _texto_curto(dados.get("id"), 24)
+    aviso = ""
     inventario: Optional[tuple] = None  # (cabos, caixa, limpar) para depois de gravar o meta
     if isinstance(dados.get("mover"), dict):
         if cid not in caixas:
@@ -2166,12 +2232,20 @@ def _caixa_da_camada_sem_lock(layer_id: str, dados: Dict[str, Any], por: str = "
             if (_equipamento_da_caixa(atual), _tipo_da_caixa(atual)) != (_equipamento_da_caixa(caixas[cid]), tipo):
                 _switch_no_inventario(dela, atual, limpar=True)
             inventario = (dela, caixas[cid], False)
+        # o ponto do mapa leva o nome da caixa: senao o rotulo diz C.CFTV-02 e
+        # o ponto continua C.CFTV-01 (e "ja existe um ponto C.CFTV-01")
+        if caixas[cid]["nome"].lower() != ponto.lower():
+            meta["caixas"], meta["cabos"] = caixas, cabos
+            aviso = _seguir_nome_no_ponto(layer_id, meta, ponto, caixas[cid]["nome"],
+                                          (lat, lng) if lat is not None else None)
     meta["caixas"], meta["cabos"] = caixas, cabos
     meta["updated_at"] = datetime.now().isoformat(timespec="seconds")
     _write_kmz_layer_meta(meta_path, meta)
     if inventario:
         _switch_no_inventario(*inventario)
-    return {"caixas": caixas, "cabos": cabos}
+    if not aviso and not dados.get("excluir") and caixas.get(cid, {}).get("ponto") != ponto:
+        _apagar_geradas_do_mapa(layer_id)
+    return {"caixas": caixas, "cabos": cabos, "ctos": meta.get("ctos") or {}, "aviso": aviso}
 
 
 # --------------------------------------------------------------------------- CTO
@@ -2195,6 +2269,7 @@ def _cto_da_camada_sem_lock(layer_id: str, dados: Dict[str, Any], por: str = "")
     ctos = meta.get("ctos") if isinstance(meta.get("ctos"), dict) else {}
     cabos = meta.get("cabos") if isinstance(meta.get("cabos"), dict) else {}
     tid = _texto_curto(dados.get("id"), 24)
+    aviso = ""
     if dados.get("excluir"):
         if tid not in ctos:
             raise HTTPException(404, "CTO nao encontrada.")
@@ -2274,10 +2349,16 @@ def _cto_da_camada_sem_lock(layer_id: str, dados: Dict[str, Any], por: str = "")
             "criado_em": (atual or {}).get("criado_em") or agora, "criado_por": (atual or {}).get("criado_por") or por,
             "atualizado_em": agora, "atualizado_por": por,
         }
+        if ctos[tid]["nome"].lower() != ponto.lower():
+            meta["ctos"], meta["cabos"] = ctos, cabos
+            aviso = _seguir_nome_no_ponto(layer_id, meta, ponto, ctos[tid]["nome"],
+                                          (lat, lng) if lat is not None else None)
+            if not aviso:
+                _apagar_geradas_do_mapa(layer_id)
     meta["ctos"] = ctos
     meta["updated_at"] = datetime.now().isoformat(timespec="seconds")
     _write_kmz_layer_meta(meta_path, meta)
-    return {"ctos": ctos, "caixas": meta.get("caixas") or {}, "cabos": cabos}
+    return {"ctos": ctos, "caixas": meta.get("caixas") or {}, "cabos": meta.get("cabos") or {}, "aviso": aviso}
 
 
 def _caminho_do_cabo(dados: Dict[str, Any]) -> list:
