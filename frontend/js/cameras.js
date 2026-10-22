@@ -1731,11 +1731,21 @@ async function loadMapLayers() {
       menu.hidden = !abrir;
       if (!abrir) return;
       // O card tem overflow:hidden e cortava o menu. Com position:fixed ele
-      // escapa de qualquer recorte; a posicao vem do botao.
-      const r = menuBtn.getBoundingClientRect();
-      menu.style.top = `${Math.round(r.bottom + 4)}px`;
-      menu.style.left = `${Math.round(Math.max(8, r.right - 220))}px`;
+      // escapa de qualquer recorte; a posicao vem do botao. Vai para o body:
+      // dentro do wrap (z-index 2) os botoes dos cards de baixo ficavam por cima.
+      document.querySelectorAll('body > .map-layer-menu').forEach(m => { if (m !== menu) m.remove(); });
+      if (menu.parentElement !== document.body) document.body.appendChild(menu);
       lucide.createIcons();
+      const r = menuBtn.getBoundingClientRect();
+      const alturaTela = window.innerHeight;
+      menu.style.maxHeight = `${alturaTela - 16}px`;
+      menu.style.overflowY = 'auto';
+      const h = menu.offsetHeight;
+      // Na ultima camada o menu passava do fim da tela: abre para cima se nao cabe.
+      let topo = r.bottom + 4;
+      if (topo + h > alturaTela - 8) topo = r.top - 4 - h >= 8 ? r.top - 4 - h : Math.max(8, alturaTela - 8 - h);
+      menu.style.top = `${Math.round(topo)}px`;
+      menu.style.left = `${Math.round(Math.max(8, r.right - 220))}px`;
     };
 
     menuWrap.appendChild(menuBtn);
@@ -3909,13 +3919,14 @@ async function runInvOltReport(button) {
 
 // Clique em qualquer outro lugar fecha o menu de camada aberto.
 document.addEventListener('click', function fecharMenusDeCamada(ev) {
-  if (ev.target.closest?.('.map-layer-menu-wrap')) return;
+  if (ev.target.closest?.('.map-layer-menu-wrap, .map-layer-menu')) return;
   document.querySelectorAll('.map-layer-menu').forEach(m => { m.hidden = true; });
 });
 
 // Com position:fixed o menu nao acompanha a rolagem da lista: ficaria solto
-// na tela, longe da camada que o abriu.
-document.addEventListener('scroll', () => {
+// na tela, longe da camada que o abriu. Rolar dentro do proprio menu nao fecha.
+document.addEventListener('scroll', (ev) => {
+  if (ev.target?.closest?.('.map-layer-menu')) return;
   document.querySelectorAll('.map-layer-menu').forEach(m => { m.hidden = true; });
 }, true);
 
