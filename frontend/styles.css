@@ -10031,6 +10031,20 @@ body.shell-owner .nav-item.active { box-shadow: inset 3px 0 #c9962c; }
 .alert-quick-chip { height: 30px; padding: 0 12px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface); color: var(--text); font-size: 12px; font-weight: 600; }
 .alert-quick-chip:hover { border-color: var(--primary); color: var(--primary); }
 .alert-quick-chip:disabled { opacity: .5; }
+
+/* Prontidao das pessoas: quem consegue pedir ajuda agora. */
+.alert-readiness { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; margin-bottom: 14px; padding: 16px 18px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
+.alert-ready-ring { --pct: 0; width: 76px; height: 76px; border-radius: 50%; flex: 0 0 auto; display: grid; place-items: center; grid-auto-flow: column; align-content: center; background: radial-gradient(closest-side, var(--surface) 76%, transparent 77%), conic-gradient(var(--primary) calc(var(--pct) * 1%), var(--border) 0); }
+.alert-ready-ring b { font-size: 20px; font-weight: 800; }
+.alert-ready-ring small { font-size: 12px; color: var(--muted); align-self: end; padding-bottom: 3px; }
+.alert-ready-text { flex: 1 1 360px; min-width: 0; }
+.alert-ready-text strong { font-size: 16px; }
+.alert-ready-text p { margin: 4px 0 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
+.alert-ready-pills { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.alert-ready-pills:first-child { margin-top: 0; }
+.alert-ready-info { display: block; margin-top: 4px; font-size: 11px; color: var(--muted); }
+.alert-ready-filter { margin-left: auto; white-space: nowrap; }
+.alert-members-table tr.alert-row-pendente td:first-child { box-shadow: inset 3px 0 0 var(--danger); }
 .alert-row-actions { display: flex; gap: 6px; justify-content: flex-end; white-space: nowrap; }
 .alert-inline-icon { width: 13px; height: 13px; vertical-align: -2px; color: var(--muted); }
 .alert-member-modal { width: min(620px, 100%); }

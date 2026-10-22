@@ -21,6 +21,8 @@
   const FLUSH_MS = 5000;
   const STATUS_POLL_MS = 5000;
   const RETRY_MS = 3000;
+  const APP_VERSION = '2';
+  const CHECKIN_MIN_MS = 10 * 60 * 1000; // no maximo um aviso a cada 10 min
 
   const store = {
     get(k) { try { return localStorage.getItem('alerta_' + k) || ''; } catch { return ''; } },
@@ -125,6 +127,7 @@
     try {
       const me = await api('/me');
       applyMember(me.member);
+      checkin();
       if (!me.member.pins_configured) { openPins(false); return; }
       if (me.incident) {
         resumeIncident(me.incident);
@@ -365,8 +368,30 @@
   }
 
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible' && state.incidentId) { requestWakeLock(); flushPositions(); }
+    if (document.visibilityState !== 'visible') return;
+    if (state.incidentId) { requestWakeLock(); flushPositions(); return; }
+    checkin();
   });
+
+  // Prontidao: diz a central se a localizacao esta liberada e a bateria, para
+  // ela achar o celular com problema ANTES de alguem precisar. Nenhuma posicao
+  // sai daqui -- so o estado da permissao.
+  let lastCheckin = 0;
+  async function gpsPermission() {
+    try {
+      if (!navigator.permissions?.query) return '';
+      const st = await navigator.permissions.query({ name: 'geolocation' });
+      return st.state || '';
+    } catch { return ''; }
+  }
+  async function checkin() {
+    if (!state.token || Date.now() - lastCheckin < CHECKIN_MIN_MS) return;
+    lastCheckin = Date.now();
+    await readBattery();
+    try {
+      await api('/checkin', { method: 'POST', body: { gps_permission: await gpsPermission(), battery: state.battery, app_version: APP_VERSION } });
+    } catch { lastCheckin = 0; }
+  }
 
   // ------------------------------------------------------------------ cancelar (teclado)
 

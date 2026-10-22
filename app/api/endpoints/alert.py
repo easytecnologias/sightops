@@ -13,6 +13,7 @@ from app.services.alert_store import (
     AppAuthError,
     activate_app,
     add_incident_note,
+    app_checkin,
     app_status,
     cancel_incident,
     create_activation_code,
@@ -98,7 +99,9 @@ class AlertTransitionRequest(BaseModel):
 @router.get("/members")
 def api_alert_members(search: str = Query("")) -> Dict[str, Any]:
     members = list_members(search)
-    return {"ok": True, "count": len(members), "members": members, "meus_sites": permissions.sites_da_sessao()}
+    prontas = sum(1 for m in members if m["prontidao"]["pronta"])
+    return {"ok": True, "count": len(members), "members": members, "meus_sites": permissions.sites_da_sessao(),
+            "prontidao": {"total": len(members), "prontas": prontas}}
 
 
 @router.post("/members")
@@ -247,6 +250,12 @@ class AppPosition(BaseModel):
     recorded_at: str = ""
 
 
+class AppCheckinRequest(BaseModel):
+    gps_permission: str = ""
+    battery: Optional[float] = None
+    app_version: str = ""
+
+
 class AppTriggerRequest(BaseModel):
     position: Optional[AppPosition] = None
 
@@ -318,6 +327,14 @@ def api_alert_app_pins(req: AppPinsRequest, request: Request) -> Dict[str, Any]:
             set_app_pins(ctx, req.pin, req.duress_pin, req.current_pin)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc))
+    return {"ok": True}
+
+
+@router.post("/app/checkin")
+def api_alert_app_checkin(req: AppCheckinRequest, request: Request) -> Dict[str, Any]:
+    """Prontidao: o app avisa ao abrir se o GPS esta liberado e a bateria."""
+    with _AppContext(request) as ctx:
+        app_checkin(ctx, req.gps_permission, req.battery, req.app_version)
     return {"ok": True}
 
 

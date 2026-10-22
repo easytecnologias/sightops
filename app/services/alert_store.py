@@ -263,12 +263,87 @@ def list_members(search: str = "") -> List[Dict[str, Any]]:
         rows = _rows(c, f"SELECT {_MEMBER_PUBLIC_COLS} FROM alert_members WHERE {' AND '.join(where)} ORDER BY full_name", tuple(params))
         sessions = _rows(
             c,
-            "SELECT member_id, COUNT(1) AS n FROM alert_app_sessions WHERE tenant_slug = ? AND revoked_at = '' GROUP BY member_id",
+            "SELECT member_id, platform, last_seen_at, gps_permission, battery, app_version, checkin_at "
+            "FROM alert_app_sessions WHERE tenant_slug = ? AND revoked_at = ''",
             (tenant,),
         )
-    by_member = {s["member_id"]: s["n"] for s in sessions}
+    # Por pessoa: quantos aparelhos e o que deu sinal por ultimo (e o que vale
+    # para a prontidao -- um celular velho esquecido nao derruba quem usa o novo).
+    by_member: Dict[str, Dict[str, Any]] = {}
+    for s in sessions:
+        atual = by_member.setdefault(s["member_id"], {"n": 0, "ultimo": None})
+        atual["n"] += 1
+        if atual["ultimo"] is None or str(s.get("last_seen_at") or "") > str(atual["ultimo"].get("last_seen_at") or ""):
+            atual["ultimo"] = s
     liberados = _sites_liberados()
-    return [_member_public(r, by_member.get(r["id"], 0)) for r in rows if _membro_liberado(r, liberados)]
+    out = []
+    for r in rows:
+        if not _membro_liberado(r, liberados):
+            continue
+        info = by_member.get(r["id"]) or {"n": 0, "ultimo": None}
+        m = _member_public(r, info["n"])
+        m["device"] = _device_public(info["ultimo"])
+        m["prontidao"] = prontidao_do_membro(m)
+        out.append(m)
+    return out
+
+
+# Abaixo disso de dias sem abrir o app, a central desconfia do celular: app
+# desinstalado, trocou de aparelho, sessao perdida. O app so da sinal quando abre.
+SINAL_MAX_DIAS = 7
+
+
+def _device_public(s: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    if not s:
+        return None
+    return {
+        "platform": s.get("platform") or "",
+        "last_seen_at": s.get("last_seen_at") or "",
+        "gps_permission": s.get("gps_permission") or "",
+        "battery": s.get("battery"),
+        "app_version": s.get("app_version") or "",
+        "checkin_at": s.get("checkin_at") or "",
+    }
+
+
+def prontidao_do_membro(m: Dict[str, Any], agora: Optional[datetime] = None) -> Dict[str, Any]:
+    """A pessoa consegue pedir ajuda AGORA, e a central consegue ve-la?
+
+    Cada pendencia tem um codigo (a tela decide icone/cor) e um texto curto.
+    `bloqueia`: sem isso o botao nao funciona; o resto so piora o atendimento."""
+    agora = agora or _now_dt()
+    pend: List[Dict[str, Any]] = []
+
+    def add(codigo: str, texto: str, bloqueia: bool = True) -> None:
+        pend.append({"codigo": codigo, "texto": texto, "bloqueia": bloqueia})
+
+    dev = m.get("device") or {}
+    if not m.get("active"):
+        add("inativo", "Cadastro inativo")
+    elif not m.get("app_devices"):
+        add("sem_app", "Codigo gerado, ainda nao ativou" if m.get("activation_pending") else "Nunca ativou o app")
+    else:
+        if not m.get("pins_configured"):
+            add("sem_senha", "Ativou, mas nao criou as senhas")
+        if dev.get("gps_permission") == "denied":
+            add("gps_bloqueado", "Localizacao bloqueada no celular")
+        visto = None
+        try:
+            visto = datetime.fromisoformat(str(dev.get("last_seen_at") or "").replace("Z", "+00:00"))
+        except ValueError:
+            pass
+        if visto is None:
+            add("sem_sinal", "App nunca deu sinal")
+        else:
+            dias = (agora - visto).total_seconds() / 86400
+            if dias > SINAL_MAX_DIAS:
+                add("sem_sinal", f"Nao abre o app ha {int(dias)} dias")
+        bat = dev.get("battery")
+        if isinstance(bat, (int, float)) and bat < 15:
+            add("bateria", f"Bateria em {int(bat)}% no ultimo sinal", bloqueia=False)
+    if m.get("active") and not m.get("unit_connector_id"):
+        add("sem_cameras", "Sem cameras na lotacao", bloqueia=False)
+    return {"pronta": not any(p["bloqueia"] for p in pend), "pendencias": pend}
 
 
 def save_member(payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -456,6 +531,25 @@ def app_status(ctx: Dict[str, Any]) -> Dict[str, Any]:
     with db_store._conn() as c:
         inc = _open_incident(c, ctx["tenant_slug"], member["id"])
     return {"member": _app_member_view(member), "incident": _app_incident_view(inc)}
+
+
+_GPS_PERMISSOES = ("granted", "denied", "prompt")
+
+
+def app_checkin(ctx: Dict[str, Any], gps_permission: str = "", battery: Any = None, app_version: str = "") -> None:
+    """O app avisa, ao abrir, se a localizacao esta liberada e a bateria.
+
+    Nao e posicao: nenhuma coordenada sai do celular fora de alerta."""
+    gps = str(gps_permission or "").strip().lower()
+    gps = gps if gps in _GPS_PERMISSOES else ""
+    bat = _float_or_none(battery)
+    bat_i = int(max(0, min(100, bat))) if bat is not None else None
+    with db_store._conn() as c:
+        c.execute(
+            "UPDATE alert_app_sessions SET gps_permission=?, battery=?, app_version=?, checkin_at=?, last_seen_at=? "
+            "WHERE id=? AND tenant_slug=? AND revoked_at=''",
+            (gps, bat_i, _text(app_version, 40), _now(), _now(), ctx["session_id"], ctx["tenant_slug"]),
+        )
 
 
 def set_app_pins(ctx: Dict[str, Any], pin: str, duress_pin: str, current_pin: str = "") -> None:

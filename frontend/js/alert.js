@@ -29,6 +29,7 @@ let _alertConnectors = null;
 // Sites que o usuario ve: null = todos; lista = so estes (vem do backend).
 let _alertMeusSites = null;
 let _alertMemberSite = '';
+let _alertSoPendencia = false;
 
 const ALERT_REFRESH_MS = 3000;
 const ALERT_SUMMARY_MS = 10000;
@@ -1155,17 +1156,19 @@ async function alertLoadMembers() {
   }
   alertRenderScope('alertScopeMembers', _alertMeusSites);
   alertRenderMemberSites();
-  const visiveis = _alertMemberSite ? _alertMembers.filter((m) => (m.site || '') === _alertMemberSite) : _alertMembers;
+  const doSite = _alertMemberSite ? _alertMembers.filter((m) => (m.site || '') === _alertMemberSite) : _alertMembers;
+  alertRenderReadiness(doSite);
+  // Pendencia primeiro: e o que a central precisa resolver.
+  const visiveis = (_alertSoPendencia ? doSite.filter((m) => !alertPronta(m)) : doSite)
+    .slice().sort((a, b) => Number(alertPronta(a)) - Number(alertPronta(b)));
   if (!visiveis.length) {
-    body.innerHTML = `<tr class="empty-row"><td colspan="8">${q || _alertMemberSite ? 'Ninguem encontrado.' : 'Nenhuma pessoa cadastrada. Clique em "Nova pessoa".'}</td></tr>`;
+    body.innerHTML = `<tr class="empty-row"><td colspan="8">${_alertSoPendencia ? 'Ninguem com pendencia. Tudo pronto.' : (q || _alertMemberSite ? 'Ninguem encontrado.' : 'Nenhuma pessoa cadastrada. Clique em "Nova pessoa".')}</td></tr>`;
     return;
   }
   body.innerHTML = visiveis.map((m) => {
-    const app = m.app_devices
-      ? `<span class="pill success">${m.app_devices} aparelho${m.app_devices > 1 ? 's' : ''}</span>${m.pins_configured ? '' : ' <span class="pill amber">sem senha</span>'}`
-      : (m.activation_pending ? '<span class="pill amber">codigo gerado</span>' : '<span class="pill neutral">nao ativado</span>');
+    const app = alertReadinessCell(m);
     return `
-      <tr>
+      <tr class="${alertPronta(m) ? '' : 'alert-row-pendente'}">
         <td><strong>${esc(m.full_name)}</strong></td>
         <td class="monospace">${esc(alertCpf(m.document_id))}</td>
         <td>${esc(m.role_title || '-')}</td>
@@ -1205,6 +1208,58 @@ function alertRenderMemberSites() {
       alertLoadMembers();
     });
   }
+}
+
+// Prontidao (vem do backend): a pessoa consegue pedir ajuda agora?
+function alertPronta(m) {
+  return m?.prontidao ? !!m.prontidao.pronta : true;
+}
+
+function alertReadinessCell(m) {
+  const dev = m.device || {};
+  const pend = m.prontidao?.pendencias || [];
+  const pills = pend.map((p) => `<span class="pill ${p.bloqueia ? 'danger' : 'amber'}">${esc(p.texto)}</span>`).join(' ');
+  const info = [];
+  if (dev.last_seen_at) {
+    const ago = alertAgo(dev.last_seen_at);
+    info.push(ago.includes('/') ? `ultimo sinal em ${ago}` : `sinal ha ${ago}`);
+  }
+  if (dev.gps_permission === 'granted') info.push('GPS liberado');
+  if (dev.battery != null) info.push(`bateria ${dev.battery}%`);
+  if (m.app_devices > 1) info.push(`${m.app_devices} aparelhos`);
+  const linha = info.length ? `<small class="alert-ready-info">${esc(info.join(' · '))}</small>` : '';
+  if (alertPronta(m)) return `<div class="alert-ready-pills"><span class="pill success">pronta</span>${pills}</div>${linha}`;
+  return `<div class="alert-ready-pills">${pills}</div>${linha}`;
+}
+
+function alertRenderReadiness(lista) {
+  const box = document.getElementById('alertReadiness');
+  if (!box) return;
+  const ativos = lista.filter((m) => m.active);
+  if (!ativos.length) { box.hidden = true; box.innerHTML = ''; return; }
+  const prontas = ativos.filter(alertPronta).length;
+  const pct = Math.round((prontas / ativos.length) * 100);
+  const conta = {};
+  ativos.forEach((m) => (m.prontidao?.pendencias || []).forEach((p) => { conta[p.codigo] = (conta[p.codigo] || 0) + 1; }));
+  const ROT = {
+    sem_app: 'nao ativaram o app', sem_senha: 'sem senhas', gps_bloqueado: 'com GPS bloqueado',
+    sem_sinal: 'sem sinal ha mais de 7 dias', bateria: 'com bateria baixa', sem_cameras: 'sem cameras na lotacao',
+  };
+  const resumo = Object.keys(ROT).filter((k) => conta[k])
+    .map((k) => `<span class="pill ${k === 'bateria' || k === 'sem_cameras' ? 'amber' : 'danger'}">${conta[k]} ${ROT[k]}</span>`).join(' ');
+  box.hidden = false;
+  box.innerHTML = `
+    <div class="alert-ready-ring" style="--pct:${pct}"><b>${prontas}</b><small>/${ativos.length}</small></div>
+    <div class="alert-ready-text">
+      <strong>${prontas === ativos.length ? 'Todas as pessoas estao prontas para pedir ajuda' : `${prontas} de ${ativos.length} prontas para pedir ajuda`}</strong>
+      <p>Pronta = app ativado, senhas criadas, localizacao liberada e app aberto nos ultimos 7 dias. O celular so da sinal quando a pessoa abre o app.</p>
+      ${resumo ? `<div class="alert-ready-pills">${resumo}</div>` : ''}
+    </div>
+    <label class="alert-check alert-ready-filter"><input type="checkbox" id="alertSoPendencia" ${_alertSoPendencia ? 'checked' : ''}> So com pendencia</label>`;
+  box.querySelector('#alertSoPendencia')?.addEventListener('change', (ev) => {
+    _alertSoPendencia = ev.target.checked;
+    alertLoadMembers();
+  });
 }
 
 async function alertFillConnectorSelect(selected) {
