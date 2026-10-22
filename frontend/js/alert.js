@@ -1553,6 +1553,7 @@ async function loadAlertMembers() {
     });
     document.getElementById('alertMembersBody')?.addEventListener('click', alertMembersClick);
     document.getElementById('alertAtivacao')?.addEventListener('click', alertAtivacaoClick);
+    document.getElementById('alertSoPendencia')?.addEventListener('change', (ev) => { _alertSoPendencia = ev.target.checked; alertLoadMembers(); });
     document.getElementById('btnAlertCoordCams')?.addEventListener('click', () => {
       const pt = _alertEditPonto;
       if (!pt) return;
@@ -1815,32 +1816,31 @@ function alertReadinessCell(m) {
 
 function alertRenderReadiness(lista) {
   const box = document.getElementById('alertReadiness');
+  const pend = document.getElementById('alertPendencias');
   if (!box) return;
   const ativos = lista.filter((m) => m.active);
-  if (!ativos.length) { box.hidden = true; box.innerHTML = ''; return; }
+  if (!ativos.length) { box.hidden = true; if (pend) pend.hidden = true; return; }
   const prontas = ativos.filter(alertPronta).length;
   const pct = Math.round((prontas / ativos.length) * 100);
+  box.hidden = false;
+  box.innerHTML = `
+    <span class="lbl">Prontas para pedir ajuda</span>
+    <div class="alert-ppl-ring-row">
+      <div class="alert-ready-ring" style="--pct:${pct}"><span><b>${prontas}</b><small>/${ativos.length}</small></span></div>
+      <small>${prontas === ativos.length ? 'Todas prontas.' : `${ativos.length - prontas} com pendencia.`} Pronta = app ativado, senhas, localizacao liberada e app aberto nos ultimos 7 dias.</small>
+    </div>`;
+  if (!pend) return;
   const conta = {};
   ativos.forEach((m) => (m.prontidao?.pendencias || []).forEach((p) => { conta[p.codigo] = (conta[p.codigo] || 0) + 1; }));
   const ROT = {
-    sem_app: 'nao ativaram o app', sem_senha: 'sem senhas', gps_bloqueado: 'com GPS bloqueado',
-    sem_sinal: 'sem sinal ha mais de 7 dias', bateria: 'com bateria baixa', sem_cameras: 'sem cameras na lotacao',
+    sem_app: ['nao ativaram o app', 'danger'], sem_senha: ['sem senhas', 'danger'], gps_bloqueado: ['com GPS bloqueado', 'danger'],
+    sem_sinal: ['sem sinal ha mais de 7 dias', 'danger'], bateria: ['com bateria baixa', 'amber'], sem_cameras: ['sem cameras na lotacao', 'amber'],
   };
-  const resumo = Object.keys(ROT).filter((k) => conta[k])
-    .map((k) => `<span class="pill ${k === 'bateria' || k === 'sem_cameras' ? 'amber' : 'danger'}">${conta[k]} ${ROT[k]}</span>`).join(' ');
-  box.hidden = false;
-  box.innerHTML = `
-    <div class="alert-ready-ring" style="--pct:${pct}"><b>${prontas}</b><small>/${ativos.length}</small></div>
-    <div class="alert-ready-text">
-      <strong>${prontas === ativos.length ? 'Todas as pessoas estao prontas para pedir ajuda' : `${prontas} de ${ativos.length} prontas para pedir ajuda`}</strong>
-      <p>Pronta = app ativado, senhas criadas, localizacao liberada e app aberto nos ultimos 7 dias. O celular so da sinal quando a pessoa abre o app.</p>
-      ${resumo ? `<div class="alert-ready-pills">${resumo}</div>` : ''}
-    </div>
-    <label class="alert-check alert-ready-filter"><input type="checkbox" id="alertSoPendencia" ${_alertSoPendencia ? 'checked' : ''}> So com pendencia</label>`;
-  box.querySelector('#alertSoPendencia')?.addEventListener('change', (ev) => {
-    _alertSoPendencia = ev.target.checked;
-    alertLoadMembers();
-  });
+  const itens = Object.keys(ROT).filter((k) => conta[k]);
+  pend.hidden = false;
+  pend.innerHTML = `<span class="lbl">Pendencias</span>${itens.length
+    ? `<b>${itens.reduce((n, k) => n + conta[k], 0)}</b><div class="alert-ready-pills">${itens.map((k) => `<span class="pill ${ROT[k][1]}">${conta[k]} ${ROT[k][0]}</span>`).join('')}</div>`
+    : '<b class="ok">0</b><small>Nenhuma pendencia: todos os celulares conseguem pedir ajuda.</small>'}`;
 }
 
 async function alertFillConnectorSelect(selected) {

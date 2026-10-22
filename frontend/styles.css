@@ -10208,15 +10208,16 @@ button.alert-chip { cursor: pointer; }
 #viewAlertLive:fullscreen .alert-live-map { height: calc(100vh - 380px); min-height: 360px; }
 
 /* ===== Pessoas e aparelhos ===== */
-.alert-ppl-top { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr); gap: 14px; margin-bottom: 14px; }
-.alert-ppl-top .alert-readiness { margin-bottom: 0; }
-.alert-ppl-kpi { display: flex; flex-direction: column; gap: 4px; padding: 16px 18px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
+.alert-ppl-top { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin-bottom: 16px; align-items: stretch; }
+.alert-ppl-kpi { display: flex; flex-direction: column; gap: 6px; min-height: 132px; padding: 16px 18px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); box-sizing: border-box; }
+.alert-ppl-kpi b.ok { color: var(--primary); }
+.alert-ppl-kpi .alert-ready-pills { margin-top: 2px; }
 .alert-ppl-kpi .lbl, .alert-ativacao .lbl { font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
-.alert-ppl-kpi b { font-size: 26px; font-weight: 800; }
+.alert-ppl-kpi > b { font-size: 28px; line-height: 1.1; font-weight: 800; }
 .alert-ppl-kpi b em { font-style: normal; font-size: 14px; color: var(--muted); font-weight: 600; }
 .alert-ppl-kpi small { font-size: 12px; color: var(--muted); line-height: 1.5; }
 .alert-ppl-kpi .warn { color: var(--amber); font-weight: 600; }
-@media (max-width: 1100px) { .alert-ppl-top { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } .alert-ppl-top .alert-readiness { grid-column: 1 / -1; } }
+@media (max-width: 1100px) { .alert-ppl-top { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 640px) { .alert-ppl-top { grid-template-columns: minmax(0, 1fr); } }
 .alert-ppl-grid { display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-start; }
 .alert-ppl-table { flex: 999 1 640px; min-width: 0; overflow: hidden; }
@@ -10239,6 +10240,8 @@ button.alert-chip { cursor: pointer; }
 .alert-sinal.warn { color: var(--amber); }
 .alert-sinal.off { color: var(--muted); font-weight: 500; }
 .alert-row-actions .primary-action, .alert-row-actions .secondary-action { height: 32px; padding: 0 10px; font-size: 12px; white-space: nowrap; }
+.alert-members-table .alert-row-actions { justify-content: flex-end; }
+.alert-members-table th:last-child { text-align: right; }
 
 /* Painel de ativacao (QR) */
 .alert-ativacao { flex: 1 1 320px; max-width: 360px; padding: 18px; display: flex; flex-direction: column; gap: 14px; position: sticky; top: 76px; }
@@ -10258,6 +10261,17 @@ button.alert-chip { cursor: pointer; }
 .alert-ativ-steps ol { margin: 8px 0 0; padding-left: 18px; font-size: 13px; line-height: 1.7; }
 @media (max-width: 1000px) { .alert-ativacao { position: static; max-width: none; } }
 .alert-coord-help { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
+
+/* Anel de prontidao no cartao + barra acima da tabela */
+.alert-ppl-ring-row { display: flex; align-items: center; gap: 14px; }
+.alert-ppl-ring-row > small { font-size: 12px; color: var(--muted); line-height: 1.5; }
+.alert-ppl-kpi .alert-ready-ring { width: 72px; height: 72px; display: grid; place-items: center; }
+.alert-ppl-kpi .alert-ready-ring > span { display: inline-flex; align-items: baseline; gap: 1px; }
+.alert-ppl-kpi .alert-ready-ring b { font-size: 22px; font-weight: 800; }
+.alert-ppl-kpi .alert-ready-ring small { font-size: 12px; color: var(--muted); padding: 0; }
+.alert-ppl-toolbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; min-height: 34px; }
+.alert-ppl-toolbar .alert-site-tabs { margin-bottom: 0; }
+.alert-ppl-filtro { margin-left: auto; white-space: nowrap; }
 .alert-row-actions { display: flex; gap: 6px; justify-content: flex-end; white-space: nowrap; }
 .alert-inline-icon { width: 13px; height: 13px; vertical-align: -2px; color: var(--muted); }
 .alert-member-modal { width: min(620px, 100%); }
