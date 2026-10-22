@@ -32,6 +32,8 @@ let _alertMemberSite = '';
 
 const ALERT_REFRESH_MS = 3000;
 const ALERT_SUMMARY_MS = 10000;
+const ALERT_ESCALATION_S = 60; // igual a ESCALATION_AFTER_S em alert_store.py
+let _alertTickTimer = null;
 
 const ALERT_STATUS = {
   new: { label: 'sem atendimento', pill: 'danger' },
@@ -80,6 +82,33 @@ function alertDate(v) {
 function alertClock(v) {
   const d = alertDate(v);
   return d ? d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '-';
+}
+
+// Cronometro mm:ss (h:mm:ss passando de 1 h): quanto tempo a pessoa espera.
+function alertTimer(v, ate) {
+  const d = alertDate(v);
+  if (!d) return '-';
+  const fim = alertDate(ate)?.getTime() ?? Date.now();
+  const s = Math.max(0, Math.floor((fim - d.getTime()) / 1000));
+  const h = Math.floor(s / 3600);
+  const mm = String(Math.floor((s % 3600) / 60)).padStart(h ? 2 : 1, '0');
+  const ss = String(s % 60).padStart(2, '0');
+  return h ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
+}
+
+// Atualiza todo [data-alert-tick] a cada segundo, so com a tela visivel.
+function alertTickStart() {
+  if (_alertTickTimer) return;
+  _alertTickTimer = setInterval(() => {
+    if (!alertLiveVisible()) { clearInterval(_alertTickTimer); _alertTickTimer = null; return; }
+    document.querySelectorAll('#viewAlertLive [data-alert-tick]').forEach((el) => {
+      el.textContent = alertTimer(el.dataset.alertTick);
+    });
+    document.querySelectorAll('#viewAlertLive [data-alert-escala]').forEach((el) => {
+      const falta = ALERT_ESCALATION_S - Math.floor((Date.now() - (alertDate(el.dataset.alertEscala)?.getTime() || 0)) / 1000);
+      el.textContent = falta > 0 ? `Telegram do site avisa em ${alertTimer(new Date(Date.now() - falta * 1000).toISOString())}` : 'Aviso enviado ao Telegram do site';
+    });
+  }, 1000);
 }
 
 function alertAgo(v) {
@@ -569,6 +598,24 @@ function alertBind() {
     if (card) alertSelect(card.dataset.alertId, true);
   });
   document.getElementById('alertLiveDetail')?.addEventListener('click', alertDetailClick);
+  document.getElementById('alertBanner')?.addEventListener('click', async (ev) => {
+    const ack = ev.target.closest('[data-banner-ack]');
+    if (ack) {
+      ack.disabled = true;
+      alertSelect(ack.dataset.bannerAck, true);
+      await alertAction('acknowledge', '', ack.dataset.bannerAck);
+      return;
+    }
+    const ver = ev.target.closest('[data-banner-ver]');
+    if (ver) alertSelect(ver.dataset.bannerVer, true);
+  });
+  document.getElementById('alertCloseQuick')?.addEventListener('click', (ev) => {
+    const b = ev.target.closest('[data-close-text]');
+    if (!b) return;
+    const ta = document.getElementById('alertCloseNote');
+    ta.value = ta.value.trim() ? `${ta.value.trim()} ${b.dataset.closeText}` : b.dataset.closeText;
+    ta.focus();
+  });
   document.getElementById('btnAlertCloseConfirm')?.addEventListener('click', alertConfirmClose);
   alertBindModalClose();
 }
@@ -595,6 +642,7 @@ async function loadAlertLive() {
   setTimeout(alertRenderSoundUnlock, 300);
   setTimeout(() => _alertMap?.invalidateSize(), 150);
   await alertRefresh(true);
+  alertTickStart();
   if (!_alertTimer) {
     _alertTimer = setInterval(() => {
       if (!alertLiveVisible()) { clearInterval(_alertTimer); _alertTimer = null; return; }
@@ -623,6 +671,7 @@ async function alertRefresh(force) {
       _alertSelectedId = (incidents.find(alertOpen) || {}).id || '';
     }
     alertRenderKpis();
+    alertRenderBanner();
     alertRenderList();
     alertRenderMarkers();
     alertSetIncidentsForSound(incidents);
@@ -642,6 +691,73 @@ function alertRenderKpis() {
   setText('alertKpiDuress', open.filter((i) => i.kind === 'duress').length);
   setText('alertKpiClosed', _alertIncidents.filter((i) => !alertOpen(i)).length);
   setText('alertKpiClosedSub', _alertScope === 'live' ? 'ultimos 30 minutos' : 'no historico carregado');
+}
+
+// Faixa no topo: o alerta sem atendimento mais antigo, com cronometro e Assumir.
+// So no ao vivo -- no historico ela atrapalharia a leitura.
+function alertRenderBanner() {
+  const box = document.getElementById('alertBanner');
+  if (!box) return;
+  const novos = _alertScope === 'live'
+    ? _alertIncidents.filter((i) => i.status === 'new').sort((a, b) => String(a.opened_at).localeCompare(String(b.opened_at)))
+    : [];
+  if (!novos.length) { box.hidden = true; box.innerHTML = ''; return; }
+  const inc = novos[0];
+  const m = inc.member || {};
+  const p = alertPoint(inc);
+  const onde = [m.role_title, inc.site, m.unit_name].filter(Boolean).join(' · ');
+  const gps = !p ? 'sem localizacao ainda' : (p.gps ? `GPS ~${Math.round(inc.last_accuracy || 0)} m` : 'sem GPS, usando a lotacao');
+  const escala = inc.escalated_at
+    ? '<span>Aviso enviado ao Telegram do site</span>'
+    : `<span data-alert-escala="${esc(inc.opened_at)}"></span>`;
+  box.hidden = false;
+  box.classList.toggle('is-duress', inc.kind === 'duress');
+  box.innerHTML = `
+    <div class="alert-banner-icon"><i data-lucide="siren"></i></div>
+    <div class="alert-banner-text">
+      <small>${inc.kind === 'duress' ? 'COACAO · NINGUEM ASSUMIU' : 'PEDIDO DE AJUDA · NINGUEM ASSUMIU'}</small>
+      <strong>${esc(m.full_name || '')}${onde ? ` <span>— ${esc(onde)}</span>` : ''}</strong>
+      <p>${esc(gps)} · ${escala}${novos.length > 1 ? ` · <b>+${novos.length - 1} outro${novos.length > 2 ? 's' : ''} sem atendimento</b>` : ''}</p>
+    </div>
+    <div class="alert-banner-timer" data-alert-tick="${esc(inc.opened_at)}">${esc(alertTimer(inc.opened_at))}</div>
+    <div class="alert-banner-actions">
+      <button type="button" class="alert-banner-ack" data-banner-ack="${esc(inc.id)}"><i data-lucide="hand"></i> Assumir agora</button>
+      ${inc.id !== _alertSelectedId ? `<button type="button" class="alert-banner-ver" data-banner-ver="${esc(inc.id)}">Ver</button>` : ''}
+    </div>`;
+  // Preenche o texto do Telegram ja, sem esperar o primeiro tique.
+  box.querySelectorAll('[data-alert-escala]').forEach((el) => {
+    const falta = ALERT_ESCALATION_S - Math.floor((Date.now() - (alertDate(el.dataset.alertEscala)?.getTime() || 0)) / 1000);
+    el.textContent = falta > 0 ? `Telegram do site avisa em ${alertTimer(new Date(Date.now() - falta * 1000).toISOString())}` : 'Aviso enviado ao Telegram do site';
+  });
+  if (window.lucide) lucide.createIcons();
+}
+
+// Etapas do atendimento com o tempo de cada uma desde o disparo.
+function alertStepsHtml(inc) {
+  const desde = (v) => (v ? `+${alertTimer(inc.opened_at, v)}` : '');
+  const cancelado = inc.status === 'cancelled';
+  const passos = [
+    { t: 'Disparo', at: inc.opened_at, quem: '' },
+    { t: 'Assumido', at: inc.acknowledged_at, quem: inc.acknowledged_by },
+    { t: 'Equipe enviada', at: inc.dispatched_at, quem: inc.dispatched_by },
+    cancelado
+      ? { t: 'Cancelado pela pessoa', at: inc.closed_at || inc.updated_at, quem: '' }
+      : { t: 'Encerrado', at: inc.closed_at, quem: inc.closed_by },
+  ];
+  const atual = passos.findIndex((x) => !x.at);
+  return `<ol class="alert-steps">${passos.map((x, i) => {
+    const cls = x.at ? 'done' : (i === atual && alertOpen(inc) ? 'current' : '');
+    const tempo = i === 0 ? alertClock(x.at) : (x.at ? `${alertClock(x.at)} <em>${esc(desde(x.at))}</em>` : (cls === 'current' ? 'aguardando' : '—'));
+    return `<li class="${cls}"><span class="alert-step-dot">${x.at ? '<i data-lucide="check"></i>' : i + 1}</span>
+      <div><b>${esc(x.t)}</b>${x.quem ? `<small>${esc(x.quem)}</small>` : ''}</div><span class="alert-step-time">${tempo}</span></li>`;
+  }).join('')}</ol>`;
+}
+
+const ALERT_QUICK_NOTES = ['Viatura chegou ao local', 'Pessoa segura', 'Contato com a direcao', 'Possivel falso disparo'];
+
+function alertQuickNotesHtml() {
+  return `<div class="alert-quick"><span>Registrar rapido:</span>${ALERT_QUICK_NOTES.map((t) =>
+    `<button type="button" class="alert-quick-chip" data-alert-quick="${esc(t)}">${esc(t)}</button>`).join('')}</div>`;
 }
 
 function alertRenderList() {
@@ -666,7 +782,9 @@ function alertRenderList() {
       <button type="button" class="${cls}" data-alert-id="${esc(inc.id)}">
         <div class="alert-card-top">
           <strong>${esc(m.full_name)}</strong>
-          <span class="alert-card-age">${esc(alertAgo(inc.opened_at))}</span>
+          ${alertOpen(inc)
+            ? `<span class="alert-card-age is-live${inc.status === 'new' ? ' is-new' : ''}" data-alert-tick="${esc(inc.opened_at)}">${esc(alertTimer(inc.opened_at))}</span>`
+            : `<span class="alert-card-age">${esc(alertAgo(inc.opened_at))}</span>`}
         </div>
         <div class="alert-card-meta">${alertSiteTag(inc.site)}${esc([m.role_title, m.unit_name].filter(Boolean).join(' · ') || (inc.site ? '' : 'sem lotacao'))}</div>
         <div class="alert-card-pills">${alertKindPill(inc)} ${alertStatusPill(inc)}${alertPoint(inc)?.gps === false ? ' <span class="pill neutral">sem GPS</span>' : ''}</div>
@@ -784,9 +902,14 @@ function alertRenderDetail() {
         <h2>${esc(m.full_name)}</h2>
         <p>${alertSiteTag(inc.site)}${esc([m.role_title, m.unit_name].filter(Boolean).join(' · ') || (inc.site ? '' : 'sem lotacao cadastrada'))}</p>
       </div>
-      <div class="alert-detail-actions">${actions}</div>
+      <div class="alert-detail-side">
+        ${open ? `<div class="alert-detail-timer"><b data-alert-tick="${esc(inc.opened_at)}">${esc(alertTimer(inc.opened_at))}</b><small>desde o disparo</small></div>` : ''}
+        <div class="alert-detail-actions">${actions}</div>
+      </div>
     </div>
     ${duressBanner}
+    ${alertStepsHtml(inc)}
+    ${open ? alertQuickNotesHtml() : ''}
     <div class="alert-detail-grid">
       <div class="alert-facts">
         <span><small>Disparo</small><b>${esc(alertClock(inc.opened_at))} (ha ${esc(alertAgo(inc.opened_at))})</b></span>
@@ -915,6 +1038,13 @@ async function alertLoadNearby() {
 async function alertDetailClick(ev) {
   const cam = ev.target.closest('[data-alert-cam]');
   if (cam) { alertOpenCamera(cam.dataset); return; }
+  const quick = ev.target.closest('[data-alert-quick]');
+  if (quick && _alertDetail) {
+    quick.disabled = true;
+    if (await alertAction('note', quick.dataset.alertQuick)) showToast('Registrado na linha do tempo.');
+    quick.disabled = false;
+    return;
+  }
   const act = ev.target.closest('[data-alert-act]')?.dataset.alertAct;
   if (!act || !_alertDetail) return;
   if (act === 'close') {
@@ -931,9 +1061,10 @@ async function alertDetailClick(ev) {
   await alertAction(act, note);
 }
 
-async function alertAction(action, note) {
+async function alertAction(action, note, id = _alertDetail?.id) {
+  if (!id) return false;
   try {
-    await alertApiJson(`/api/alert/incidents/${encodeURIComponent(_alertDetail.id)}/${action}`, {
+    await alertApiJson(`/api/alert/incidents/${encodeURIComponent(id)}/${action}`, {
       method: 'POST', body: JSON.stringify({ note }),
     });
     await alertRefresh(true);

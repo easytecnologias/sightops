@@ -9982,6 +9982,55 @@ body.shell-owner .nav-item.active { box-shadow: inset 3px 0 #c9962c; }
 .alert-site-tab span { color: var(--muted); font-weight: 500; }
 .alert-site-tab.active { background: var(--text); border-color: var(--text); color: #fff; }
 .alert-site-tab.active span { color: #c9d3d8; }
+
+/* Faixa do alerta sem atendimento: impossivel nao ver. */
+.alert-banner { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-bottom: 16px; padding: 14px 18px; border-radius: 12px; background: var(--danger); color: #fff; animation: alert-banner-pulse 1.4s ease-in-out infinite; }
+.alert-banner.is-duress { background: var(--text); box-shadow: inset 0 0 0 3px var(--danger); }
+@keyframes alert-banner-pulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(201,42,42,.45); } 50% { box-shadow: 0 0 0 10px rgba(201,42,42,0); } }
+.alert-banner-icon { width: 44px; height: 44px; border-radius: 50%; background: rgba(255,255,255,.16); display: grid; place-items: center; flex: 0 0 auto; }
+.alert-banner-icon svg { width: 22px; height: 22px; }
+.alert-banner-text { flex: 1 1 320px; min-width: 0; }
+.alert-banner-text small { display: block; font-size: 11px; font-weight: 700; letter-spacing: .08em; opacity: .85; }
+.alert-banner-text strong { display: block; font-size: 18px; margin-top: 2px; }
+.alert-banner-text strong span { font-weight: 500; opacity: .9; font-size: 15px; }
+.alert-banner-text p { margin: 3px 0 0; font-size: 13px; opacity: .92; }
+.alert-banner-timer { font: 700 34px/1 ui-monospace, "JetBrains Mono", Consolas, monospace; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+.alert-banner-actions { display: flex; gap: 8px; }
+.alert-banner-ack { display: inline-flex; align-items: center; gap: 8px; height: 48px; padding: 0 22px; border: 0; border-radius: 10px; background: #fff; color: var(--danger); font-size: 15px; font-weight: 700; }
+.alert-banner-ack svg { width: 18px; height: 18px; }
+.alert-banner-ack:disabled { opacity: .6; }
+.alert-banner-ver { height: 48px; padding: 0 16px; border: 1px solid rgba(255,255,255,.55); border-radius: 10px; background: transparent; color: #fff; font-weight: 600; }
+
+/* Cronometro nos cards abertos e no detalhe. */
+.alert-card-age.is-live { font: 700 13px ui-monospace, "JetBrains Mono", Consolas, monospace; color: var(--text); font-variant-numeric: tabular-nums; }
+.alert-card-age.is-new { color: var(--danger); }
+.alert-detail-side { display: flex; align-items: flex-start; gap: 16px; flex-wrap: wrap; justify-content: flex-end; }
+.alert-detail-timer { text-align: right; }
+.alert-detail-timer b { display: block; font: 700 28px/1 ui-monospace, "JetBrains Mono", Consolas, monospace; font-variant-numeric: tabular-nums; }
+.alert-detail-timer small { font-size: 11px; color: var(--muted); }
+
+/* Etapas do atendimento. */
+.alert-steps { list-style: none; margin: 14px 18px 0; padding: 12px 14px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-soft); }
+.alert-steps li { display: flex; align-items: center; gap: 10px; min-width: 0; color: var(--muted); }
+.alert-steps li > div { flex: 1; min-width: 0; }
+.alert-steps li b { display: block; font-size: 13px; }
+.alert-steps li small { display: block; font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.alert-step-dot { width: 24px; height: 24px; border-radius: 50%; border: 2px solid var(--border); display: grid; place-items: center; font-size: 12px; font-weight: 700; flex: 0 0 auto; background: var(--surface); }
+.alert-step-dot svg { width: 14px; height: 14px; }
+.alert-step-time { font-size: 12px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.alert-step-time em { font-style: normal; color: var(--primary); font-weight: 600; }
+.alert-steps li.done { color: var(--text); }
+.alert-steps li.done .alert-step-dot { border-color: var(--primary); background: var(--primary); color: #fff; }
+.alert-steps li.current { color: var(--amber); }
+.alert-steps li.current .alert-step-dot { border-color: var(--amber); background: var(--amber); color: #fff; }
+@media (max-width: 900px) { .alert-steps { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+/* Atalhos de observacao e de encerramento. */
+.alert-quick { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: 12px 18px 0; font-size: 12px; color: var(--muted); }
+.modal .alert-quick { margin: 0 0 12px; }
+.alert-quick-chip { height: 30px; padding: 0 12px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface); color: var(--text); font-size: 12px; font-weight: 600; }
+.alert-quick-chip:hover { border-color: var(--primary); color: var(--primary); }
+.alert-quick-chip:disabled { opacity: .5; }
 .alert-row-actions { display: flex; gap: 6px; justify-content: flex-end; white-space: nowrap; }
 .alert-inline-icon { width: 13px; height: 13px; vertical-align: -2px; color: var(--muted); }
 .alert-member-modal { width: min(620px, 100%); }
