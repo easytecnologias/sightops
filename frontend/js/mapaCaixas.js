@@ -141,6 +141,31 @@ function cxMarcador(id, def, f, lat, lng) {
   return marker;
 }
 
+// Status do cabo de fibra (caixa -> CTO): a ONU marcada na porta da CTO onde
+// ele chega; sem ONU marcada, as cameras da caixa (uma no ar ja prova que a
+// fibra chega; todas fora = fibra fora). A lista de ONUs vem do monitoramento
+// e e carregada uma vez; quando chega, o mapa redesenha com o status.
+let _cxFibraPedida = false;
+function cxEstadoFibra(id, def, cabo) {
+  const cto = ctDoPonto(def, cabo.cto?.ponto, null)
+    || Object.values(def?.ctos || {}).find(c => String(c.ponto || '').trim().toLowerCase() === String(cabo.cto?.ponto || '').trim().toLowerCase());
+  const chave = cto?.portas_info?.[String(cabo.cto?.porta || '')]?.onu_key || cto?.portas_info?.[cabo.cto?.porta]?.onu_key;
+  if (chave) {
+    const lista = _ct.cache.onu?.lista;
+    if (!lista) {
+      if (!_cxFibraPedida) { _cxFibraPedida = true; ctEntidades('onu').then(() => cxRedesenhar(id, def)).catch(() => {}); }
+    } else {
+      const st = ctEstadoOnu(lista.find(e => e.entity_key === chave));
+      if (st !== 'sem') return st;
+    }
+  }
+  const cams = Object.values(def?.cabos || {}).filter(c => c.caixa === cabo.caixa && !c.cto && c.camera?.ip)
+    .map(c => cxEstadoCamera(cxCameraDoCabo(def, c)));
+  if (cams.includes('on')) return 'on';
+  if (cams.length && cams.every(x => x === 'off')) return 'off';
+  return 'sem';
+}
+
 function cxDesenharCabos(id, def, group) {
   const ocultos = typeof mapOcultosDaCamada === 'function' ? mapOcultosDaCamada(id) : new Set();
   if (ocultos.has('cabos')) return;
@@ -150,9 +175,12 @@ function cxDesenharCabos(id, def, group) {
   const lista = Object.values(def?.cabos || {})
     .filter(cabo => !(ocultos.has(`cabo:${cabo.id}`) || filhos.cabos.has(cabo.id)))
     .filter(cabo => Array.isArray(cabo.caminho) && cabo.caminho.length >= 2)
-    .map(cabo => ({ cabo, fora: !cabo.cto && cxEstadoCamera(cxCameraDoCabo(def, cabo)) === 'off' }))
+    .map(cabo => {
+      const st = cabo.cto ? cxEstadoFibra(id, def, cabo) : cxEstadoCamera(cxCameraDoCabo(def, cabo));
+      return { cabo, fora: st === 'off', noAr: st === 'on' };
+    })
     .sort((a, b) => Number(a.fora) - Number(b.fora));
-  lista.forEach(({ cabo, fora }) => {
+  lista.forEach(({ cabo, fora, noAr }) => {
     const t = CX_CABOS[cabo.tipo] || CX_CABOS.outro;
     if (fora) {
       const halo = L.polyline(cabo.caminho, { color: '#c92a2a', weight: 12, opacity: 0.35, className: 'cx-cabo-off-halo', interactive: false });
@@ -161,7 +189,8 @@ function cxDesenharCabos(id, def, group) {
     }
     const linha = L.polyline(cabo.caminho, {
       color: fora ? '#c92a2a' : t.cor, weight: fora ? 5 : 4, opacity: 0.95, dashArray: fora ? null : (t.tracejado || null),
-      className: fora ? 'cx-cabo-off' : '',
+      // no ar: pulsa leve na cor do cabo (sinal de vivo); fora do ar: vermelho forte
+      className: fora ? 'cx-cabo-off' : (noAr ? 'cx-cabo-on' : ''),
     });
     if (fora) linha.on('add', () => linha.bringToFront());
     const caixa = def.caixas?.[cabo.caixa];

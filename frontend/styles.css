@@ -13300,7 +13300,10 @@ button.map-layer-stat.parcial .map-layer-stat-dot { box-shadow: 0 0 0 2px var(--
 .cx-cabo-off-halo { animation: cx-cabo-halo 1.2s ease-in-out infinite; pointer-events: none; }
 @keyframes cx-cabo-pulso { 0%, 100% { stroke-opacity: 1; } 50% { stroke-opacity: .45; } }
 @keyframes cx-cabo-halo { 0%, 100% { stroke-opacity: .15; stroke-width: 8px; } 50% { stroke-opacity: .5; stroke-width: 16px; } }
-@media (prefers-reduced-motion: reduce) { .leaflet-interactive.cx-cabo-off, .cx-cabo-off-halo { animation: none; } }
+/* Cabo de camera no ar: pulso leve e lento, para nao roubar o destaque do vermelho. */
+.leaflet-interactive.cx-cabo-on { animation: cx-cabo-vivo 2.6s ease-in-out infinite; }
+@keyframes cx-cabo-vivo { 0%, 100% { stroke-opacity: .95; stroke-width: 4px; } 50% { stroke-opacity: .55; stroke-width: 6px; } }
+@media (prefers-reduced-motion: reduce) { .leaflet-interactive.cx-cabo-off, .cx-cabo-off-halo, .leaflet-interactive.cx-cabo-on { animation: none; } }
 .ct-sinal.ct-ok { color: var(--primary); }
 .ct-sinal.ct-atencao { color: var(--amber, #d97706); }
 .ct-sinal.ct-ruim { color: var(--danger); }
