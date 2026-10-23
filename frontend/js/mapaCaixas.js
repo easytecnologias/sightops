@@ -868,7 +868,7 @@ function ctMarcador(id, def, f, lat, lng) {
   const dica = cto ? `CTO${cto.splitter ? ` ${cto.splitter}` : ''}: ${livres} porta(s) livre(s)` : 'CTO sem cadastro: clique para informar splitter, origem e portas';
   const icon = L.divIcon({
     className: '',
-    html: `<div class="ct-pino${cto ? '' : ' ct-pino-novo'}${cto && !livres ? ' ct-pino-cheia' : ''}" title="${esc(dica)}"><b>CTO</b><span>${esc(cto?.nome || nome)}${conta}</span></div>`,
+    html: `<div class="ct-pino${cto ? '' : ' ct-pino-novo'}${cto && !livres ? ' ct-pino-cheia' : ''}" title="${esc(dica)}"><b${cdRamoDaCto(def, cto) && livres ? ` style="background:${cdRamoDaCto(def, cto).hex};color:${cdRamoDaCto(def, cto).texto}"` : ''}>CTO</b><span>${esc(cto?.nome || nome)}${conta}</span></div>`,
     iconSize: [40, 22], iconAnchor: [20, 11],
   });
   const marker = L.marker([lat, lng], { icon, zIndexOffset: 400 });
@@ -1135,8 +1135,12 @@ const CD_FIBRAS = [1, 2, 4, 6, 12, 24, 36, 48, 72, 96, 144];
 const CD_CORES = [['verde', '#2f9e44'], ['amarela', '#fab005'], ['branca', '#f8f9fa'], ['azul', '#1c7ed6'],
   ['vermelha', '#e03131'], ['violeta', '#7048e8'], ['marrom', '#8d5524'], ['rosa', '#f783ac'],
   ['preta', '#212529'], ['cinza', '#868e96'], ['laranja', '#fd7e14'], ['aqua', '#3bc9db']];
-const CD_TRONCO = { cor: '#7950f2', peso: 6 };
-const CD_DIST = { cor: '#9775fa', peso: 4, tracejado: '12 6' };
+// Backbone (tronco) em preto; cada ramo na COR DA FIBRA do tronco que o
+// alimenta (verde e verde, azul e azul): batendo o olho da para ler a rede.
+const CD_TRONCO = { cor: '#111418', peso: 7, contorno: '#ffffff' };
+const CD_DIST = { cor: '#9775fa', peso: 5 };
+// cores claras precisam de contorno escuro no satelite; escuras, de contorno claro
+const CD_CLARAS = new Set(['branca', 'amarela', 'aqua', 'cinza', 'rosa', 'laranja']);
 
 function cdCor(n) {
   const i = (Math.max(1, Number(n)) - 1) % 12;
@@ -1159,6 +1163,29 @@ function cdDoPonto(def, nome, latlng) {
 }
 function cdFibrasDaCdo(def, cdo) {
   return Object.values(def?.fibras || {}).filter(f => f.tipo === 'distribuicao' && f.de?.cdo === cdo?.id);
+}
+// cor pelo nome ("CDO - VERDE - 02", "LILAS" = violeta): caixa de derivacao
+// nao tem tronco proprio, mas e do ramo do nome
+const CD_SINON = { amarelo: 'amarela', vermelho: 'vermelha', lilas: 'violeta', 'lilás': 'violeta', branco: 'branca', marron: 'marrom', roxo: 'violeta' };
+function cdFibraDoNome(nome) {
+  for (const w of String(nome || '').toLowerCase().match(/[a-zçãáéíóúâêô]+/g) || []) {
+    const i = CD_CORES.findIndex(([n]) => n === (CD_SINON[w] || w));
+    if (i >= 0) return i + 1;
+  }
+  return null;
+}
+function cdRamo(def, cdo) {
+  const tr = cdo ? cdTroncoDaCdo(def, cdo) : null;
+  // a CDO do backbone (nenhuma fibra de tronco chega nela pelo cadastro) e preta, como o tronco
+  if (!tr && /principal|backbone/i.test(String(cdo?.nome || cdo?.ponto || ''))) return { hex: '#111418', nome: 'preta', contorno: 'rgba(255,255,255,.85)', texto: '#ffffff' };
+  const n = tr ? tr.fibra : cdFibraDoNome(cdo?.nome || cdo?.ponto);
+  if (!n) return null;
+  const c = cdCor(n);
+  const claro = CD_CLARAS.has(c.nome);
+  return { hex: c.hex, nome: c.nome, contorno: claro ? 'rgba(17,20,24,.75)' : 'rgba(255,255,255,.85)', texto: claro ? '#111418' : '#ffffff' };
+}
+function cdRamoDaCto(def, cto) {
+  return cto?.cdo ? cdRamo(def, def.cdos?.[cto.cdo.id]) : null;
 }
 function cdTroncoDaCdo(def, cdo) {
   return Object.values(def?.fibras || {}).find(f => f.tipo === 'tronco' && f.para?.cdo === cdo?.id) || null;
@@ -1193,7 +1220,11 @@ function cdDesenharFibras(id, def, group) {
     .map(fb => { const st = cdEstadoFibra(id, def, fb); return { fb, fora: st === 'off', noAr: st === 'on' }; })
     .sort((a, b) => Number(a.fora) - Number(b.fora));
   lista.forEach(({ fb, fora, noAr }) => {
-    const t = fb.tipo === 'tronco' ? CD_TRONCO : CD_DIST;
+    const base = fb.tipo === 'tronco' ? CD_TRONCO : CD_DIST;
+    const ramo = fb.tipo === 'tronco' ? null : cdRamo(def, def.cdos?.[fb.de?.cdo]);
+    const t = { ...base, cor: ramo?.hex || base.cor, contorno: ramo?.contorno || base.contorno || 'rgba(17,20,24,.6)' };
+    // contorno por baixo: a branca e a amarela nao somem no satelite, o preto tambem nao
+    group.addLayer(L.polyline(fb.caminho, { color: t.contorno, weight: t.peso + 3, opacity: 0.9, interactive: false }));
     if (fora) {
       const halo = L.polyline(fb.caminho, { color: '#c92a2a', weight: t.peso + 8, opacity: 0.35, className: 'cx-cabo-off-halo', interactive: false });
       halo.on('add', () => halo.bringToFront());
@@ -1224,7 +1255,7 @@ function cdMarcador(id, def, f, lat, lng) {
   const dica = cdo ? `CDO${cdo.splitter ? ` ${cdo.splitter}` : ''}: ${cdo.portas - usadas} porta(s) livre(s)` : 'CDO sem cadastro: clique para informar splitter, entrada e portas';
   const icon = L.divIcon({
     className: '',
-    html: `<div class="cd-pino${cdo ? '' : ' cd-pino-novo'}${cdo && usadas >= cdo.portas ? ' cd-pino-cheia' : ''}" title="${esc(dica)}"><b>CDO</b><span>${esc(cdo?.nome || nome)}${conta}</span></div>`,
+    html: `<div class="cd-pino${cdo ? '' : ' cd-pino-novo'}${cdo && usadas >= cdo.portas ? ' cd-pino-cheia' : ''}" title="${esc(dica)}"><b${cdRamo(def, cdo) ? ` style="background:${cdRamo(def, cdo).hex};color:${cdRamo(def, cdo).texto}"` : ''}>CDO</b><span>${esc(cdo?.nome || nome)}${conta}</span></div>`,
     iconSize: [40, 22], iconAnchor: [20, 11],
   });
   const marker = L.marker([lat, lng], { icon, zIndexOffset: 450 });
