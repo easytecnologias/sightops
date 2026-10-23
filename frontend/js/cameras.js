@@ -540,7 +540,8 @@ const _mapLegendaAberta = {};
 // Filtro "Tipos" da barra do mapa: caixinha por tipo de elemento, vale para
 // todas as camadas (fica lembrado neste navegador). Usa as mesmas categorias
 // da legenda (caixa cadastrada conta como caixa) e esconde tambem os cabos.
-const MAP_TIPOS = [['cameras', 'Câmeras'], ['box', 'Caixas CFTV'], ['cabos', 'Cabos das câmeras'], ['cto', 'CTO'],
+const MAP_TIPOS = [['cameras', 'Câmeras'], ['box', 'Caixas CFTV'], ['cabos', 'Cabos de rede (caixa → câmera)'],
+  ['drop', 'Fibra drop (CTO → caixa)'], ['cto', 'CTO'],
   ['cdo', 'CDO / CEO'], ['fibras', 'Cabos de fibra (CDO → CTO)'], ['fiber', 'Linhas de fibra do KMZ'], ['pole', 'Postes'], ['outros', 'Outros']];
 let _mapTiposOcultos = null;
 function mapTiposOcultos() {

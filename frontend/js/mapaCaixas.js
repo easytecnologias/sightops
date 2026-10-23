@@ -172,12 +172,13 @@ function cxDesenharCabos(id, def, group) {
   if (ocultos.has('cabos')) return;
   const tipos = typeof mapTiposOcultos === 'function' ? mapTiposOcultos() : new Set();
   if (!tipos.has('fibras')) cdDesenharFibras(id, def, group);
-  if (tipos.has('cabos')) return;
   const filhos = typeof mapFilhosOcultos === 'function' ? mapFilhosOcultos(def) : { cabos: new Set() };
   // Cabo de camera fora do ar: desenhado por ULTIMO (fica por cima de outro
   // cabo no mesmo caminho) e com um halo vermelho pulsando por baixo.
   const lista = Object.values(def?.cabos || {})
     .filter(cabo => !(ocultos.has(`cabo:${cabo.id}`) || filhos.cabos.has(cabo.id)))
+    // filtro de tipos: drop (fibra CTO -> caixa) e cabo de rede (caixa -> camera) sao coisas diferentes
+    .filter(cabo => !tipos.has(cabo.cto || cabo.tipo === 'drop' ? 'drop' : 'cabos'))
     .filter(cabo => Array.isArray(cabo.caminho) && cabo.caminho.length >= 2)
     .map(cabo => {
       const st = cabo.cto ? cxEstadoFibra(id, def, cabo) : cxEstadoCamera(cxCameraDoCabo(def, cabo));
