@@ -13282,6 +13282,22 @@ button.map-layer-stat.parcial .map-layer-stat-dot { box-shadow: 0 0 0 2px var(--
 .ct-pino span { background: #fff; color: #172026; font: 700 11px Inter, Arial, sans-serif; padding: 2px 7px; border-radius: 6px; white-space: nowrap; box-shadow: 0 1px 4px rgba(0,0,0,.3); }
 .ct-pino-novo b { border-style: dashed; }
 .ct-pino-cheia b { background: var(--danger); }
+/* CDO: splitter primario (mae das CTOs) */
+.cd-pino { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
+.cd-pino b { background: #7950f2; color: #fff; border: 2px solid #fff; border-radius: 6px; padding: 2px 5px; font: 700 10px Inter, Arial, sans-serif; box-shadow: 0 2px 8px rgba(0,0,0,.4); }
+.cd-pino span { background: #fff; color: #172026; font: 700 11px Inter, Arial, sans-serif; padding: 2px 7px; border-radius: 6px; white-space: nowrap; box-shadow: 0 1px 4px rgba(0,0,0,.3); }
+.cd-pino-novo b { border-style: dashed; }
+.cd-pino-cheia b { background: var(--danger); }
+.cd-tag { display: inline-grid; place-items: center; height: 22px; padding: 0 7px; border-radius: 6px; background: #7950f2; color: #fff; font: 700 10px Inter, Arial, sans-serif; flex: 0 0 auto; }
+.cd-tag-tronco { background: #5f3dc4; }
+.cd-herda { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 8px; background: var(--surface-soft); border: 1px solid var(--border); margin-bottom: 10px; }
+.cd-herda > div { flex: 1; min-width: 0; }
+.cd-herda small { display: block; color: var(--muted); font-size: 12px; margin-top: 2px; }
+.cd-fio { display: inline-block; width: 12px; height: 12px; border-radius: 50%; margin: 0 4px -2px 0; box-shadow: inset 0 0 0 1px rgba(0,0,0,.35); }
+.cd-fio-g { width: 18px; height: 18px; margin-bottom: -4px; }
+.cd-fibra-amostra { padding: 8px 10px; border-radius: 8px; background: var(--surface-soft); font-size: 13px; }
+/* Zoom afastado: so os icones (os nomes se sobrepoem com a rede toda ligada) */
+.map-rotulos-longe .cx-pino-rot, .map-rotulos-longe .ct-pino span, .map-rotulos-longe .cd-pino span { display: none; }
 .cx-porta.cx-p-cx { background: #1971c2; color: #fff; }
 .ct-legenda { display: flex; flex-wrap: wrap; gap: 12px; margin: -2px 0 8px; font-size: 11px; color: var(--muted); }
 .ct-legenda span { display: inline-flex; align-items: center; gap: 5px; }

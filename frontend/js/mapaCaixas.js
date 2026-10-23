@@ -168,7 +168,9 @@ function cxEstadoFibra(id, def, cabo) {
 
 function cxDesenharCabos(id, def, group) {
   const ocultos = typeof mapOcultosDaCamada === 'function' ? mapOcultosDaCamada(id) : new Set();
+  cdLigarRotulosPorZoom();
   if (ocultos.has('cabos')) return;
+  cdDesenharFibras(id, def, group);
   const filhos = typeof mapFilhosOcultos === 'function' ? mapFilhosOcultos(def) : { cabos: new Set() };
   // Cabo de camera fora do ar: desenhado por ULTIMO (fica por cima de outro
   // cabo no mesmo caminho) e com um halo vermelho pulsando por baixo.
@@ -214,6 +216,7 @@ function cxCliqueNoPonto(def, f, cam, latlng, marker) {
   const chave = `${mapFeatureName(f)}|${latlng[0]},${latlng[1]}`;
   const duplo = d.ultimoClique?.chave === chave && agora - d.ultimoClique.t < 500;
   d.ultimoClique = { chave, t: agora };
+  if (d.fibra) return cdCliqueNoPonto(d, def, f, cam, latlng, duplo);
   if (!duplo) {
     const ult = d.pontos[d.pontos.length - 1];
     if (!cxPerto(ult, latlng)) { d.pontos.push(latlng); cxAtualizarDesenho(); }
@@ -411,6 +414,8 @@ async function cxGravar(def, corpo) {
   def.caixas = data.caixas || {};
   def.cabos = data.cabos || {};
   if (data.ctos) def.ctos = data.ctos;
+  if (data.cdos) def.cdos = data.cdos;
+  if (data.fibras) def.fibras = data.fibras;
   return data;
 }
 
@@ -1002,6 +1007,12 @@ async function ctAbrirPainel(id, def, nomePonto, latlng) {
     .filter(x => x.geometry?.type === 'Point' && /\b(cto|cdo)\b|^(cto|cdo)|emenda/i.test(mapFeatureName(x)) && mapFeatureName(x) !== nomePonto)
     .map(x => mapFeatureName(x)))];
   const oltSalvaFora = cto?.olt_key && !olts.some(o => o.entity_key === cto.olt_key);
+  const mae = cto?.cdo ? def.cdos?.[cto.cdo.id] : null;
+  const origemCdo = mae ? `<section class="cx-bloco"><h3>Origem <small>vem da CDO</small></h3>
+      <div class="cd-herda"><span class="cd-tag">CDO</span><div><strong>${esc(mae.nome || mae.ponto)}</strong> · porta ${esc(cto.cdo.porta || '?')}
+        <small>${esc(mae.olt_nome || 'OLT não informada')}${mae.pon ? ` · PON ${esc(mae.pon)}` : ''} — muda na CDO, não aqui</small></div>
+        <button type="button" class="ghost-action" data-ct="abrir-cdo">Abrir CDO</button></div>
+      <input type="hidden" id="ctOlt" value="${esc(cto.olt_key || '')}"><input type="hidden" id="ctPon" value="${esc(cto.pon || '')}"><input type="hidden" id="ctVemDe" value="${esc(cto.vem_de || '')}"></section>` : '';
   const corpo = `
     ${cto ? '' : '<div class="so-note"><i data-lucide="info"></i><span>Cadastre a CTO para guardar splitter, origem e o que está em cada porta. As caixas já ligadas a ela por cabo drop entram sozinhas nas portas.</span></div>'}
     <div class="form-row">
@@ -1014,12 +1025,12 @@ async function ctAbrirPainel(id, def, nomePonto, latlng) {
         <div class="form-group" style="margin:0"><label for="ctNivel">Nível</label><select id="ctNivel"><option value="">—</option>${Object.entries(CT_NIVEIS).map(([k, v]) => `<option value="${k}" ${cto?.nivel === k ? 'selected' : ''}>${v}</option>`).join('')}</select></div>
         <div class="form-group" style="margin:0"><label for="ctPortas">Portas</label><input id="ctPortas" type="number" min="1" max="64" value="${portas}"></div>
       </div></section>
-    <section class="cx-bloco"><h3>Origem <small>de onde vem o sinal</small></h3>
+    ${origemCdo || `<section class="cx-bloco"><h3>Origem <small>de onde vem o sinal</small></h3>
       <div class="cx-sw-linha">
         <div class="form-group" style="margin:0"><label for="ctOlt">OLT</label><select id="ctOlt"><option value="">—</option>${olts.map(o => `<option value="${esc(o.entity_key)}" ${cto?.olt_key === o.entity_key ? 'selected' : ''}>${esc(o.display_name || o.entity_id)}${o.site ? ` · ${esc(o.site)}` : ''}</option>`).join('')}${oltSalvaFora ? `<option value="${esc(cto.olt_key)}" selected>${esc(cto.olt_nome || cto.olt_key)}</option>` : ''}</select></div>
         <div class="form-group" style="margin:0"><label for="ctPon">PON</label><input id="ctPon" maxlength="20" value="${esc(cto?.pon || '')}" placeholder="ex.: 0/3"></div>
         <div class="form-group" style="margin:0"><label for="ctVemDe">Vem de (CDO/CTO)</label><input id="ctVemDe" maxlength="160" list="ctVemDeLista" value="${esc(cto?.vem_de || '')}" placeholder="ex.: CDO-01"><datalist id="ctVemDeLista">${pontosRede.map(n => `<option value="${esc(n)}">`).join('')}</datalist></div>
-      </div></section>
+      </div><p class="text-muted" style="margin:8px 0 0;font-size:12px">Ligada a uma CDO (cabo de distribuição), a CTO passa a herdar a OLT e a PON dela.</p></section>`}
     <section><h3>Portas <small>${usadas} de ${portas} em uso</small></h3>
       <div class="cx-portas">${grade}</div>
       <div class="ct-legenda"><span><i class="cx-p-livre"></i>livre</span><span><i class="cx-p-cx"></i>caixa / ONU</span><span><i class="cx-p-on"></i>ONU no ar</span><span><i class="cx-p-off"></i>ONU fora do ar</span></div>
@@ -1075,6 +1086,11 @@ async function ctAcao(acao) {
     cxRedesenhar(p.id, p.def);
     return;
   }
+  if (acao === 'abrir-cdo') {
+    const mae = p.cto?.cdo ? p.def.cdos?.[p.cto.cdo.id] : null;
+    if (mae) cdAbrirPainel(p.id, p.def, mae.ponto, cdPos(p.def, mae)).catch(e => showToast(e?.message || 'Falha ao abrir a CDO.', true));
+    return;
+  }
   if (acao !== 'salvar') return;
   const v = idc => p.el.querySelector(`#${idc}`)?.value ?? '';
   const portas_info = {};
@@ -1105,4 +1121,396 @@ async function ctAcao(acao) {
   showToast(p.cto ? 'CTO salva.' : 'CTO cadastrada.');
   cxRedesenhar(p.id, p.def);
   ctAbrirPainel(p.id, p.def, p.nomePonto, p.latlng);
+}
+
+
+// ------------------------------------------------------------------ CDO
+// CDO = caixa de emenda com o splitter PRIMARIO: filha da OLT (cabo tronco,
+// cada fibra com a sua cor) e mae das CTOs (cabo de distribuicao, uma CTO por
+// porta). Ligar a CTO numa CDO faz a CTO herdar OLT/PON (o backend cuida).
+// Os cabos da rede ficam em def.fibras, ligados pelo ID da CDO/CTO.
+
+const CD_SPLITTERS = ['1:2', '1:4', '1:8', '1:16', '1:32', '1:64'];
+const CD_FIBRAS = [1, 2, 4, 6, 12, 24, 36, 48, 72, 96, 144];
+const CD_CORES = [['verde', '#2f9e44'], ['amarela', '#fab005'], ['branca', '#f8f9fa'], ['azul', '#1c7ed6'],
+  ['vermelha', '#e03131'], ['violeta', '#7048e8'], ['marrom', '#8d5524'], ['rosa', '#f783ac'],
+  ['preta', '#212529'], ['cinza', '#868e96'], ['laranja', '#fd7e14'], ['aqua', '#3bc9db']];
+const CD_TRONCO = { cor: '#7950f2', peso: 6 };
+const CD_DIST = { cor: '#9775fa', peso: 4, tracejado: '12 6' };
+
+function cdCor(n) {
+  const i = (Math.max(1, Number(n)) - 1) % 12;
+  const tubo = Math.floor((Math.max(1, Number(n)) - 1) / 12) + 1;
+  return { nome: CD_CORES[i][0], hex: CD_CORES[i][1], tubo, tuboNome: CD_CORES[(tubo - 1) % 12][0], tuboHex: CD_CORES[(tubo - 1) % 12][1] };
+}
+function cdRotuloFibra(n, total) {
+  const c = cdCor(n);
+  return `Fibra ${n} · ${c.nome}${total > 12 ? ` (tubo ${c.tubo} ${c.tuboNome})` : ''}`;
+}
+function cdPos(def, cdo) {
+  if (cdo?.lat != null) return [Number(cdo.lat), Number(cdo.lng)];
+  return cxLatLngDoPonto(def, cdo?.ponto);
+}
+function cdDoPonto(def, nome, latlng) {
+  const chave = String(nome || '').trim().toLowerCase();
+  const doNome = Object.values(def?.cdos || {}).filter(c => String(c.ponto || '').trim().toLowerCase() === chave);
+  if (!latlng) return doNome.length === 1 ? doNome[0] : null;
+  return doNome.find(c => cxPerto(cdPos(def, c), latlng)) || null;
+}
+function cdFibrasDaCdo(def, cdo) {
+  return Object.values(def?.fibras || {}).filter(f => f.tipo === 'distribuicao' && f.de?.cdo === cdo?.id);
+}
+function cdTroncoDaCdo(def, cdo) {
+  return Object.values(def?.fibras || {}).find(f => f.tipo === 'tronco' && f.para?.cdo === cdo?.id) || null;
+}
+
+// Status de uma CTO: ONUs das portas + cabos das caixas ligadas nela.
+function cdEstadoCto(id, def, cto) {
+  if (!cto) return 'sem';
+  const est = [];
+  const lista = _ct.cache.onu?.lista;
+  Object.values(cto.portas_info || {}).forEach(pi => {
+    if (!pi?.onu_key) return;
+    if (!lista) { if (!_cxFibraPedida) { _cxFibraPedida = true; ctEntidades('onu').then(() => cxRedesenhar(id, def)).catch(() => {}); } return; }
+    est.push(ctEstadoOnu(lista.find(e => e.entity_key === pi.onu_key)));
+  });
+  ctCabosDaCto(def, cto).forEach(c => est.push(cxEstadoFibra(id, def, c)));
+  if (est.includes('on')) return 'on';
+  if (est.length && est.every(x => x === 'off')) return 'off';
+  return 'sem';
+}
+function cdEstadoFibra(id, def, fb) {
+  if (fb.tipo === 'distribuicao') return cdEstadoCto(id, def, def.ctos?.[fb.para?.cto]);
+  const cdo = def.cdos?.[fb.para?.cdo];
+  const est = cdFibrasDaCdo(def, cdo).map(f => cdEstadoCto(id, def, def.ctos?.[f.para?.cto]));
+  if (est.includes('on')) return 'on';
+  if (est.length && est.every(x => x === 'off')) return 'off';
+  return 'sem';
+}
+
+function cdDesenharFibras(id, def, group) {
+  const lista = Object.values(def?.fibras || {}).filter(f => Array.isArray(f.caminho) && f.caminho.length >= 2)
+    .map(fb => { const st = cdEstadoFibra(id, def, fb); return { fb, fora: st === 'off', noAr: st === 'on' }; })
+    .sort((a, b) => Number(a.fora) - Number(b.fora));
+  lista.forEach(({ fb, fora, noAr }) => {
+    const t = fb.tipo === 'tronco' ? CD_TRONCO : CD_DIST;
+    if (fora) {
+      const halo = L.polyline(fb.caminho, { color: '#c92a2a', weight: t.peso + 8, opacity: 0.35, className: 'cx-cabo-off-halo', interactive: false });
+      halo.on('add', () => halo.bringToFront());
+      group.addLayer(halo);
+    } else if (noAr) {
+      group.addLayer(L.polyline(fb.caminho, { color: t.cor, weight: t.peso + 6, opacity: 0.25, className: 'cx-cabo-on-halo', interactive: false }));
+    }
+    const linha = L.polyline(fb.caminho, { color: fora ? '#c92a2a' : t.cor, weight: t.peso, opacity: 0.95,
+      dashArray: fora ? null : (t.tracejado || null), className: fora ? 'cx-cabo-off' : (noAr ? 'cx-cabo-on' : '') });
+    if (fora) linha.on('add', () => linha.bringToFront());
+    const cdo = def.cdos?.[fb.de?.cdo || fb.para?.cdo];
+    const cto = def.ctos?.[fb.para?.cto];
+    const c = cdCor(fb.fibra);
+    const dest = fb.tipo === 'tronco'
+      ? `${esc(fb.de?.olt_nome || 'OLT')}${fb.de?.pon ? ` PON ${esc(fb.de.pon)}` : ''} → ${esc(cdo?.nome || 'CDO')}`
+      : `${esc(cdo?.nome || 'CDO')} porta ${esc(fb.de?.porta || '?')} → ${esc(cto?.nome || 'CTO')}`;
+    linha.bindTooltip(`${fb.tipo === 'tronco' ? 'Tronco' : 'Distribuição'} ${fb.fibras} FO · fibra ${fb.fibra} <span class="cd-fio" style="background:${c.hex}"></span>${esc(c.nome)} · ${cxFmtMetros(fb.metros || 0)}<br>${dest}${fora ? ' · <b>fora do ar</b>' : ''}`, { sticky: true });
+    linha.on('click', () => { if (!_cx.desenho && !_cx.edicao && cdo) cdAbrirPainel(id, def, cdo.ponto, cdPos(def, cdo)).catch(() => {}); });
+    group.addLayer(linha);
+  });
+}
+
+function cdMarcador(id, def, f, lat, lng) {
+  const nome = mapFeatureName(f);
+  const cdo = cdDoPonto(def, nome, [lat, lng]);
+  const usadas = cdo ? cdFibrasDaCdo(def, cdo).length : 0;
+  const conta = cdo ? ` · ${usadas}/${cdo.portas}` : '';
+  const dica = cdo ? `CDO${cdo.splitter ? ` ${cdo.splitter}` : ''}: ${cdo.portas - usadas} porta(s) livre(s)` : 'CDO sem cadastro: clique para informar splitter, entrada e portas';
+  const icon = L.divIcon({
+    className: '',
+    html: `<div class="cd-pino${cdo ? '' : ' cd-pino-novo'}${cdo && usadas >= cdo.portas ? ' cd-pino-cheia' : ''}" title="${esc(dica)}"><b>CDO</b><span>${esc(cdo?.nome || nome)}${conta}</span></div>`,
+    iconSize: [40, 22], iconAnchor: [20, 11],
+  });
+  const marker = L.marker([lat, lng], { icon, zIndexOffset: 450 });
+  marker.on('click', () => {
+    if (_cx.desenho) { cxCliqueNoPonto(def, f, null, [lat, lng], marker); return; }
+    if (_cx.edicao) return;
+    cdAbrirPainel(id, def, nome, [lat, lng]).catch(e => showToast(e?.message || 'Falha ao abrir a CDO.', true));
+  });
+  return marker;
+}
+
+async function cdAbrirPainel(id, def, nomePonto, latlng) {
+  if (!def?.updateUrl || def.source !== 'imported') { showToast('CDO só em camadas importadas (KMZ).', true); return; }
+  latlng = latlng || cxLatLngDoPonto(def, nomePonto);
+  const cdo = cdDoPonto(def, nomePonto, latlng);
+  const olts = await ctEntidades('olt');
+  const portas = Number(cdo?.portas || 8);
+  const tronco = cdo ? cdTroncoDaCdo(def, cdo) : null;
+  const porPorta = {};
+  if (cdo) cdFibrasDaCdo(def, cdo).forEach(f => { porPorta[Number(f.de?.porta)] = f; });
+  const grade = Array.from({ length: portas }, (_, i) => {
+    const n = i + 1;
+    const f = porPorta[n];
+    const cto = f ? def.ctos?.[f.para?.cto] : null;
+    const st = cto ? cdEstadoCto(id, def, cto) : '';
+    const cls = !f ? 'cx-p-livre' : st === 'on' ? 'cx-p-on' : st === 'off' ? 'cx-p-off' : 'cx-p-cx';
+    return `<span class="cx-porta ${cls}" title="Porta ${n}: ${esc(cto ? cto.nome : 'livre')}">${n}</span>`;
+  }).join('');
+  const linhas = Array.from({ length: portas }, (_, i) => {
+    const n = i + 1;
+    const f = porPorta[n];
+    const cto = f ? def.ctos?.[f.para?.cto] : null;
+    const c = f ? cdCor(f.fibra) : null;
+    return `<tr><td>${n}</td><td>${cto ? `<strong>${esc(cto.nome)}</strong>${cto.splitter ? ` <small>${esc(cto.splitter)}</small>` : ''}` : '<span class="text-muted">livre</span>'}</td>
+      <td>${f ? `<span class="cd-fio" style="background:${c.hex}"></span>${esc(cdRotuloFibra(f.fibra, f.fibras))} <small>${f.fibras} FO</small>` : ''}</td>
+      <td>${f ? cxFmtMetros(f.metros || 0) : ''}</td>
+      <td>${f ? `<button type="button" class="ghost-action cx-ico" data-cd="tirar" data-fibra="${esc(f.id)}" title="Tirar o cabo desta porta" aria-label="Tirar o cabo da porta ${n}"><i data-lucide="unlink"></i></button>` : ''}</td></tr>`;
+  }).join('');
+  const oltSalvaFora = cdo?.olt_key && !olts.some(o => o.entity_key === cdo.olt_key);
+  const trC = tronco ? cdCor(tronco.fibra) : null;
+  const corpo = `
+    ${cdo ? '' : '<div class="so-note"><i data-lucide="info"></i><span>Cadastre a CDO (splitter primário). Depois ligue o cabo tronco da OLT e um cabo de distribuição para cada CTO: as CTOs passam a herdar a OLT e a PON dela.</span></div>'}
+    <div class="form-row">
+      <div class="form-group" style="margin:0"><label for="cdNome">Nome</label><input id="cdNome" maxlength="80" value="${esc(cdo?.nome || nomePonto)}"></div>
+      <div class="form-group" style="margin:0"><label for="cdModelo">Modelo</label><input id="cdModelo" maxlength="80" value="${esc(cdo?.modelo || '')}" placeholder="ex.: CEO 24 fusões"></div>
+    </div>
+    <section class="cx-bloco"><h3>Splitter primário <small>balanceado</small></h3>
+      <div class="cx-sw-linha">
+        <div class="form-group" style="margin:0"><label for="cdSplitter">Divisão</label><select id="cdSplitter">${CD_SPLITTERS.map(x => `<option value="${x}" ${(cdo?.splitter || '1:8') === x ? 'selected' : ''}>${x}</option>`).join('')}</select></div>
+        <div class="form-group" style="margin:0"><label for="cdPortas">Portas</label><input id="cdPortas" type="number" min="1" max="64" value="${portas}"></div>
+        <div class="form-group" style="margin:0"><label for="cdBandejas">Bandejas de emenda</label><input id="cdBandejas" type="number" min="0" max="48" value="${Number(cdo?.bandejas || 0)}"></div>
+      </div></section>
+    <section class="cx-bloco"><h3>Entrada <small>de qual OLT/PON vem</small></h3>
+      ${tronco ? `<div class="cd-herda"><span class="cd-tag cd-tag-tronco">TRONCO</span><div><strong>${esc(tronco.de?.olt_nome || 'OLT')}${tronco.de?.pon ? ` · PON ${esc(tronco.de.pon)}` : ''}</strong>
+          <small><span class="cd-fio" style="background:${trC.hex}"></span>${esc(cdRotuloFibra(tronco.fibra, tronco.fibras))} de ${tronco.fibras} FO · ${cxFmtMetros(tronco.metros || 0)}</small></div>
+          <button type="button" class="ghost-action cx-ico" data-cd="tirar" data-fibra="${esc(tronco.id)}" title="Tirar o cabo tronco" aria-label="Tirar o cabo tronco"><i data-lucide="unlink"></i></button></div>` : ''}
+      <div class="cx-sw-linha">
+        <div class="form-group" style="margin:0"><label for="cdOlt">OLT</label><select id="cdOlt"><option value="">—</option>${olts.map(o => `<option value="${esc(o.entity_key)}" ${cdo?.olt_key === o.entity_key ? 'selected' : ''}>${esc(o.display_name || o.entity_id)}${o.site ? ` · ${esc(o.site)}` : ''}</option>`).join('')}${oltSalvaFora ? `<option value="${esc(cdo.olt_key)}" selected>${esc(cdo.olt_nome || cdo.olt_key)}</option>` : ''}</select></div>
+        <div class="form-group" style="margin:0"><label for="cdPon">PON</label><input id="cdPon" maxlength="20" value="${esc(cdo?.pon || '')}" placeholder="ex.: 5"></div>
+      </div>
+      ${cdo && !tronco ? '<button type="button" class="secondary-action" data-cd="tronco" style="margin-top:10px"><i data-lucide="spline"></i> Desenhar cabo tronco (OLT → CDO)</button>' : ''}
+    </section>
+    <section><h3>Portas <small>${Object.keys(porPorta).length} de ${portas} com CTO</small></h3>
+      <div class="cx-portas">${grade}</div>
+      <table class="cx-tabela"><thead><tr><th>Porta</th><th>CTO</th><th>Fibra</th><th>Metros</th><th></th></tr></thead><tbody>${linhas}</tbody></table>
+      ${cdo ? `<button type="button" class="primary-action" data-cd="ligar-cto" style="margin-top:10px" ${Object.keys(porPorta).length >= portas ? 'disabled' : ''}><i data-lucide="spline"></i> Ligar uma CTO (cabo de distribuição)</button>` : ''}
+    </section>
+    <div class="form-group" style="margin:0"><label for="cdObs">Observação</label><input id="cdObs" maxlength="300" value="${esc(cdo?.obs || '')}" placeholder="ex.: no poste 12, em frente à praça"></div>
+    <p id="cxErro" class="login-error" hidden></p>`;
+  const rodape = `${cdo ? '<button type="button" class="ghost-action cx-perigo cx-ico" data-cd="excluir" title="Excluir cadastro da CDO" aria-label="Excluir cadastro da CDO"><i data-lucide="trash-2"></i></button>' : ''}
+    <span style="flex:1"></span>
+    <button type="button" class="primary-action" data-cd="salvar"><i data-lucide="save"></i> ${cdo ? 'Salvar' : 'Cadastrar CDO'}</button>`;
+  const el = cxPainelBase(cdo?.nome || nomePonto || 'CDO', corpo, rodape, `CDO${cdo?.splitter ? ` ${cdo.splitter}` : ''} · splitter primário`);
+  el.classList.add('ct-painel');
+  el.querySelector('#cdSplitter')?.addEventListener('change', ev => {
+    const n = Number(String(ev.target.value).split(':')[1] || 0);
+    if (n) el.querySelector('#cdPortas').value = n;
+  });
+  el.addEventListener('click', ev => {
+    const b = ev.target.closest('[data-cd]');
+    if (b) cdAcao(b.dataset.cd, b.dataset.fibra).catch(e => showToast(e?.message || 'Falha na ação.', true));
+  });
+  _cx.painel = { el, id, def, cdo, nomePonto, latlng, tipo: 'cdo' };
+}
+
+async function cdAcao(acao, fibraId) {
+  const p = _cx.painel;
+  if (!p?.el) return;
+  const er = p.el.querySelector('#cxErro');
+  const falha = e => { if (er) { er.textContent = e.message; er.hidden = false; } };
+  if (acao === 'excluir') {
+    if (!(await showConfirm({ title: 'Excluir CDO', msg: `Apagar o cadastro da CDO "${p.cdo.nome}"? Os cabos tronco e de distribuição dela saem do mapa; as CTOs ficam com a última OLT/PON.`, label: 'Excluir' }))) return;
+    try { await cxGravar(p.def, { cdo: { id: p.cdo.id, excluir: true } }); } catch (e) { falha(e); return; }
+    showToast('Cadastro da CDO excluído.');
+    cxFecharPainel(); cxRedesenhar(p.id, p.def);
+    return;
+  }
+  if (acao === 'tirar') {
+    const fb = p.def.fibras?.[fibraId];
+    if (!fb || !(await showConfirm({ title: 'Tirar cabo', msg: fb.tipo === 'tronco' ? 'Tirar o cabo tronco desta CDO?' : `Tirar o cabo até a CTO ${p.def.ctos?.[fb.para?.cto]?.nome || ''}? A CTO fica com a última OLT/PON, sem vínculo com a CDO.`, label: 'Tirar' }))) return;
+    try { await cxGravar(p.def, { fibra: { id: fibraId, excluir: true } }); } catch (e) { falha(e); return; }
+    cxRedesenhar(p.id, p.def);
+    await cdAbrirPainel(p.id, p.def, p.nomePonto, p.latlng);
+    return;
+  }
+  if (acao === 'ligar-cto' || acao === 'tronco') { cdIniciarDesenho(acao === 'tronco' ? 'tronco' : 'distribuicao'); return; }
+  if (acao !== 'salvar') return;
+  const v = idc => p.el.querySelector(`#${idc}`)?.value ?? '';
+  const olt = p.el.querySelector('#cdOlt');
+  try {
+    await cxGravar(p.def, { cdo: {
+      id: p.cdo?.id || '', ponto: p.nomePonto, lat: p.latlng?.[0], lng: p.latlng?.[1],
+      nome: v('cdNome').trim(), modelo: v('cdModelo').trim(), splitter: v('cdSplitter'), portas: Number(v('cdPortas') || 0),
+      bandejas: Number(v('cdBandejas') || 0), olt_key: olt?.value || '',
+      olt_nome: olt?.value ? (olt.options[olt.selectedIndex]?.textContent || '').split(' · ')[0] : '',
+      pon: v('cdPon').trim(), obs: v('cdObs').trim(),
+    } });
+  } catch (e) { falha(e); return; }
+  showToast(p.cdo ? 'CDO salva. As CTOs ligadas nela foram atualizadas.' : 'CDO cadastrada.');
+  cxRedesenhar(p.id, p.def);
+  const nova = cdDoPonto(p.def, p.nomePonto, p.latlng) || Object.values(p.def.cdos || {}).find(c => c.nome === v('cdNome').trim());
+  await cdAbrirPainel(p.id, p.def, nova?.ponto || p.nomePonto, p.latlng);
+}
+
+// Desenho do cabo da rede: distribuicao sai da CDO e termina com dois cliques
+// numa CTO; tronco sai da CDO e termina com "Terminar aqui" onde fica a OLT.
+function cdIniciarDesenho(tipo) {
+  const p = _cx.painel;
+  if (!p?.cdo || !p.latlng || _cx.edicao) return;
+  if (typeof mapEditIsActive === 'function' && Object.keys(_mapLayerGroups || {}).some(k => mapEditIsActive(k))) {
+    showToast('Saia do modo de edição de pontos antes de ligar um cabo.', true);
+    return;
+  }
+  p.el.hidden = true;
+  const t = tipo === 'tronco' ? CD_TRONCO : CD_DIST;
+  const linha = L.polyline([p.latlng], { color: t.cor, weight: t.peso, dashArray: '10 8' }).addTo(_map);
+  const fantasma = L.polyline([], { color: t.cor, weight: 2, dashArray: '4 6', opacity: 0.7 }).addTo(_map);
+  const barra = document.createElement('div');
+  barra.className = 'cx-barra';
+  barra.innerHTML = `<span class="cx-barra-dot" style="background:${t.cor}"></span><strong>${tipo === 'tronco' ? `Cabo tronco: da ${esc(p.cdo.nome)} até a OLT` : `Distribuição: da ${esc(p.cdo.nome)} até uma CTO`}</strong>
+    <span class="cx-barra-txt">Clique no mapa ou num ponto para fazer curva. ${tipo === 'tronco' ? '<b>Termine onde fica a OLT</b> (ou o último ponto que você conhece).' : '<b>Dois cliques na CTO</b> terminam o cabo.'}</span>
+    <span class="cx-barra-m" id="cxBarraM">0 m</span>
+    ${tipo === 'tronco' ? '<button type="button" data-cxb="terminar">Terminar aqui</button>' : ''}
+    <button type="button" data-cxb="desfazer">Desfazer ponto</button><button type="button" data-cxb="cancelar">Cancelar</button>`;
+  cxAnexar(barra);
+  barra.addEventListener('click', ev => {
+    const b = ev.target.closest('[data-cxb]');
+    if (!b) return;
+    if (b.dataset.cxb === 'cancelar') cxCancelarDesenho();
+    if (b.dataset.cxb === 'desfazer' && _cx.desenho.pontos.length > 1) { _cx.desenho.pontos.pop(); cxAtualizarDesenho(); }
+    if (b.dataset.cxb === 'terminar') {
+      if (_cx.desenho.pontos.length < 2) { showToast('Clique no mapa pelo menos uma vez antes de terminar.', true); return; }
+      cdTerminarDesenho(null);
+    }
+  });
+  const aoClicar = e => { _cx.desenho.pontos.push([e.latlng.lat, e.latlng.lng]); cxAtualizarDesenho(); };
+  const aoMover = e => {
+    const ult = _cx.desenho.pontos[_cx.desenho.pontos.length - 1];
+    fantasma.setLatLngs([ult, [e.latlng.lat, e.latlng.lng]]);
+  };
+  _map.on('click', aoClicar);
+  _map.on('mousemove', aoMover);
+  _map.getContainer().classList.add('cx-desenhando');
+  const zoomDuplo = _map.doubleClickZoom.enabled();
+  _map.doubleClickZoom.disable();
+  _cx.desenho = { fibra: tipo, alvo: tipo, def: p.def, id: p.id, cdo: p.cdo, pontos: [p.latlng], linha, fantasma, barra, aoClicar, aoMover, zoomDuplo };
+}
+
+function cdCliqueNoPonto(d, def, f, cam, latlng, duplo) {
+  if (!duplo) {
+    const ult = d.pontos[d.pontos.length - 1];
+    if (!cxPerto(ult, latlng)) { d.pontos.push(latlng); cxAtualizarDesenho(); }
+    return true;
+  }
+  if (d.fibra !== 'distribuicao') return true;   // tronco termina pelo botao
+  if (d.def?.id !== def?.id) { showToast('A CTO precisa estar na mesma camada da CDO.', true); return true; }
+  if (mapFeatureType(f, cam) !== 'cto') { showToast('Dois cliques numa CTO terminam o cabo. Aqui ficou só uma curva.', true); return true; }
+  const cto = ctDoPonto(def, mapFeatureName(f), latlng);
+  if (!cto) { showToast('Cadastre esta CTO antes (clique nela fora do desenho).', true); return true; }
+  if (cto.cdo) { showToast(`Esta CTO já vem da CDO ${def.cdos?.[cto.cdo.id]?.nome || ''}.`, true); return true; }
+  if (!cxPerto(d.pontos[d.pontos.length - 1], latlng)) d.pontos.push(latlng);
+  cdTerminarDesenho(cto);
+  return true;
+}
+
+function cdTerminarDesenho(cto) {
+  const d = _cx.desenho;
+  const metros = cxMetros(d.pontos);
+  d.cto = cto;
+  d.barra.hidden = true;
+  _map.off('click', d.aoClicar);
+  _map.off('mousemove', d.aoMover);
+  _map.getContainer().classList.remove('cx-desenhando');
+  d.fantasma.setLatLngs([]);
+  d.linha.setLatLngs(d.pontos);
+  d.linha.setStyle({ dashArray: null });
+  const tronco = d.fibra === 'tronco';
+  const usadas = new Set(cdFibrasDaCdo(d.def, d.cdo).map(f => Number(f.de?.porta)));
+  const livres = Array.from({ length: Number(d.cdo.portas || 0) }, (_, i) => i + 1).filter(n => !usadas.has(n));
+  const padraoFo = tronco ? 24 : 12;
+  const opcoesFibra = total => Array.from({ length: total }, (_, i) => i + 1)
+    .map(n => `<option value="${n}" ${n === 1 ? 'selected' : ''}>${esc(cdRotuloFibra(n, total))}</option>`).join('');
+  const olts = _ct.cache.olt?.lista || [];
+  const corpo = `
+    <p style="margin:0">${tronco ? `<strong>OLT</strong> → <strong>${esc(d.cdo.nome)}</strong>` : `<strong>${esc(d.cdo.nome)}</strong> → <strong>${esc(cto.nome)}</strong>`}</p>
+    <div class="form-row">
+      ${tronco
+        ? `<div class="form-group" style="margin:0"><label for="cdfOlt">OLT</label><select id="cdfOlt"><option value="">—</option>${olts.map(o => `<option value="${esc(o.entity_key)}" ${d.cdo.olt_key === o.entity_key ? 'selected' : ''}>${esc(o.display_name || o.entity_id)}</option>`).join('')}</select></div>
+           <div class="form-group" style="margin:0"><label for="cdfPon">PON</label><input id="cdfPon" maxlength="20" value="${esc(d.cdo.pon || '')}" placeholder="ex.: 5"></div>`
+        : `<div class="form-group" style="margin:0"><label for="cdfPorta">Porta da CDO</label><select id="cdfPorta">${livres.map((n, i) => `<option value="${n}" ${i === 0 ? 'selected' : ''}>Porta ${n} (livre)</option>`).join('')}</select></div>`}
+    </div>
+    <div class="form-row">
+      <div class="form-group" style="margin:0"><label for="cdfTotal">Fibras do cabo</label><select id="cdfTotal">${CD_FIBRAS.map(n => `<option value="${n}" ${n === padraoFo ? 'selected' : ''}>${n} FO</option>`).join('')}</select></div>
+      <div class="form-group" style="margin:0"><label for="cdfFibra">Fibra usada</label><select id="cdfFibra">${opcoesFibra(padraoFo)}</select></div>
+    </div>
+    <div class="cd-fibra-amostra" id="cdfAmostra"></div>
+    <div class="form-row">
+      <div class="form-group" style="margin:0"><label for="cdfFolga">Folga (%)</label><input id="cdfFolga" type="number" min="0" max="100" value="10"></div>
+      <div class="form-group" style="margin:0"><label for="cdfObs">Observação</label><input id="cdfObs" maxlength="200" placeholder="ex.: reserva técnica no poste 4"></div>
+    </div>
+    <div class="cx-conta" id="cxConta"></div>
+    <p id="cxErro" class="login-error" hidden></p>`;
+  const el = cxPainelBase(tronco ? 'Cabo tronco' : 'Cabo de distribuição', corpo, '<span style="flex:1"></span><button type="button" class="secondary-action" data-cdf="cancelar">Cancelar</button><button type="button" class="primary-action" data-cdf="salvar"><i data-lucide="save"></i> Salvar cabo</button>', 'Rede óptica');
+  _cx.painel = { el, id: d.id, def: d.def, cdo: d.cdo, nomePonto: d.cdo.ponto, latlng: d.pontos[0], tipo: 'cdo-fibra' };
+  const amostra = () => {
+    const total = Number(el.querySelector('#cdfTotal').value);
+    const n = Number(el.querySelector('#cdfFibra').value || 1);
+    const c = cdCor(n);
+    el.querySelector('#cdfAmostra').innerHTML = `<span class="cd-fio cd-fio-g" style="background:${c.hex}"></span> Fibra ${n} <b>${esc(c.nome)}</b>${total > 12 ? ` · tubo ${c.tubo} <span class="cd-fio" style="background:${c.tuboHex}"></span>${esc(c.tuboNome)}` : ''}`;
+    const folga = Number(el.querySelector('#cdfFolga').value || 0);
+    el.querySelector('#cxConta').innerHTML = `<div><span>Traçado</span><strong>${cxFmtMetros(metros)}</strong></div><div><span>Com ${folga}% de folga</span><strong>${cxFmtMetros(metros * (1 + folga / 100))}</strong></div>`;
+  };
+  el.querySelector('#cdfTotal').addEventListener('change', ev => {
+    const total = Number(ev.target.value);
+    const atual = Math.min(Number(el.querySelector('#cdfFibra').value || 1), total);
+    el.querySelector('#cdfFibra').innerHTML = opcoesFibra(total);
+    el.querySelector('#cdfFibra').value = String(atual);
+    amostra();
+  });
+  el.addEventListener('change', amostra);
+  el.addEventListener('input', amostra);
+  el.addEventListener('click', ev => {
+    const b = ev.target.closest('[data-cdf]');
+    if (!b) return;
+    if (b.dataset.cdf === 'cancelar') { const c = d.cdo; cxLimparDesenho(); cdAbrirPainel(d.id, d.def, c.ponto, cdPos(d.def, c)).catch(() => {}); }
+    if (b.dataset.cdf === 'salvar') cdSalvarFibra().catch(e => showToast(e?.message || 'Falha ao salvar.', true));
+  });
+  amostra();
+}
+
+async function cdSalvarFibra() {
+  const d = _cx.desenho;
+  const p = _cx.painel;
+  if (!d || !p) return;
+  const v = idc => p.el.querySelector(`#${idc}`)?.value ?? '';
+  const tronco = d.fibra === 'tronco';
+  const olt = p.el.querySelector('#cdfOlt');
+  const corpo = {
+    tipo: d.fibra, fibras: Number(v('cdfTotal')), fibra: Number(v('cdfFibra')), folga_pct: Number(v('cdfFolga') || 0), obs: v('cdfObs').trim(),
+    // tronco e gravado da OLT para a CDO (foi desenhado da CDO para fora)
+    caminho: tronco ? d.pontos.slice().reverse() : d.pontos,
+    ...(tronco
+      ? { de: { olt_key: olt?.value || '', olt_nome: olt?.value ? (olt.options[olt.selectedIndex]?.textContent || '') : '', pon: v('cdfPon').trim() }, para: { cdo: d.cdo.id } }
+      : { de: { cdo: d.cdo.id, porta: Number(v('cdfPorta') || 0) }, para: { cto: d.cto.id } }),
+  };
+  try {
+    await cxGravar(d.def, { fibra: corpo });
+  } catch (e) {
+    const er = p.el.querySelector('#cxErro');
+    if (er) { er.textContent = e.message; er.hidden = false; }
+    return;
+  }
+  const { id, def, cdo, cto } = d;
+  cxLimparDesenho();
+  showToast(tronco ? 'Cabo tronco salvo. A OLT/PON da CDO desce para as CTOs dela.' : `CTO ${cto.nome} ligada à ${cdo.nome}: agora ela herda a OLT e a PON da CDO.`);
+  cxRedesenhar(id, def);
+  await cdAbrirPainel(id, def, cdo.ponto, cdPos(def, def.cdos?.[cdo.id] || cdo));
+}
+
+// Rotulos de caixa/CTO/CDO somem com o zoom afastado (so os icones) e voltam
+// ao aproximar: com a rede toda ligada os nomes se sobrepoem.
+const CD_ZOOM_ROTULOS = 17;
+function cdLigarRotulosPorZoom() {
+  if (!_map || _map._cdRotulos) return;
+  _map._cdRotulos = true;
+  const aplicar = () => _map.getContainer().classList.toggle('map-rotulos-longe', _map.getZoom() < CD_ZOOM_ROTULOS);
+  _map.on('zoomend', aplicar);
+  aplicar();
 }

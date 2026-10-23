@@ -1459,6 +1459,8 @@ async function loadMapLayers() {
     caixas: layer.caixas || {},
     cabos: layer.cabos || {},
     ctos: layer.ctos || {},
+    cdos: layer.cdos || {},
+    fibras: layer.fibras || {},
     motivos: layer.motivos || {},
   }));
   const importedSignatures = new Set(importedLayers.map(layer => mapLayerSignature(layer.features)).filter(Boolean));
@@ -1861,8 +1863,10 @@ function renderMapLayerGroup(id, def, skipFit = false) {
 
       // CTO: marcador e painel proprios (mapaCaixas.js) com splitter, origem
       // e portas. No modo de edicao de pontos fica o marcador comum (arrastar).
-      if (!cam && pointType === 'cto' && !editing && def?.source === 'imported' && typeof ctMarcador === 'function') {
-        const mk = ctMarcador(id, def, f, +lat, +lng);
+      if (!cam && (pointType === 'cto' || pointType === 'cdo') && !editing && def?.source === 'imported'
+        && typeof ctMarcador === 'function' && typeof cdMarcador === 'function') {
+        // CDO (splitter primario, mae das CTOs): marcador e painel proprios
+        const mk = pointType === 'cdo' ? cdMarcador(id, def, f, +lat, +lng) : ctMarcador(id, def, f, +lat, +lng);
         state.markers[mapFeatureKey(f, cam)] = mk;
         state.group.addLayer(mk);
         bounds.push([+lat, +lng]);

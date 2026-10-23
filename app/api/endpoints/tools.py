@@ -304,6 +304,8 @@ def _list_kmz_import_layers(include_features: bool = True) -> list[dict[str, Any
             "caixas": meta.get("caixas") if isinstance(meta.get("caixas"), dict) else {},
             "cabos": meta.get("cabos") if isinstance(meta.get("cabos"), dict) else {},
             "ctos": meta.get("ctos") if isinstance(meta.get("ctos"), dict) else {},
+            "cdos": meta.get("cdos") if isinstance(meta.get("cdos"), dict) else {},
+            "fibras": meta.get("fibras") if isinstance(meta.get("fibras"), dict) else {},
             "motivos": meta.get("motivos") if isinstance(meta.get("motivos"), dict) else {},
             **({"features": features, "type": geojson.get("type") or "FeatureCollection"} if include_features else {}),
         })
@@ -1813,13 +1815,16 @@ def _arrastar_ponto_no_meta(meta: dict, nome: str, de: tuple, para: tuple) -> in
     em_cima = lambda pt, ref: pt is not None and abs(float(pt[0]) - ref[0]) < _CURVA_TOL and abs(float(pt[1]) - ref[1]) < _CURVA_TOL
     novo = [round(para[0], 7), round(para[1], 7)]
     ids_caixa = set()
-    for grupo in ("caixas", "ctos"):
+    movidos: Dict[str, set] = {"ctos": set(), "cdos": set()}
+    for grupo in ("caixas", "ctos", "cdos"):
         for c in (meta.get(grupo) or {}).values():
             if (c.get("ponto") or "").strip().lower() == alvo and c.get("lat") is not None \
                     and perto((c["lat"], c["lng"]), de):
                 c["lat"], c["lng"] = novo
                 if grupo == "caixas":
                     ids_caixa.add(c.get("id"))
+                else:
+                    movidos[grupo].add(c.get("id"))
     mudou = 0
     for cb in (meta.get("cabos") or {}).values():
         cam = cb.get("caminho") if isinstance(cb, dict) else None
@@ -1843,6 +1848,26 @@ def _arrastar_ponto_no_meta(meta: dict, nome: str, de: tuple, para: tuple) -> in
         if trocou:
             cb["metros"] = _metros_do_caminho(cam)
             cb["metros_com_folga"] = round(cb["metros"] * (1 + int(cb.get("folga_pct") or 0) / 100), 1)
+            mudou += 1
+    # fibras da rede (tronco OLT->CDO, distribuicao CDO->CTO): pontas pelo id
+    # da CDO/CTO; qualquer vertice em cima do ponto tambem vai junto
+    for fb in (meta.get("fibras") or {}).values():
+        cam = fb.get("caminho") if isinstance(fb, dict) else None
+        if not cam or len(cam) < 2:
+            continue
+        trocou = False
+        ini = (fb.get("de") or {}).get("cdo")
+        fim = (fb.get("para") or {}).get("cto") or (fb.get("para") or {}).get("cdo")
+        if ini and ini in movidos["cdos"] and perto(cam[0], de):
+            cam[0] = list(novo); trocou = True
+        if fim and (fim in movidos["ctos"] or fim in movidos["cdos"]) and perto(cam[-1], de):
+            cam[-1] = list(novo); trocou = True
+        for i in range(len(cam)):
+            if em_cima(cam[i], de):
+                cam[i] = list(novo); trocou = True
+        if trocou:
+            fb["metros"] = _metros_do_caminho(cam)
+            fb["metros_com_folga"] = round(fb["metros"] * (1 + int(fb.get("folga_pct") or 0) / 100), 1)
             mudou += 1
     return mudou
 
@@ -1903,6 +1928,12 @@ async def api_kmz_import_layer_update(layer_id: str, payload: Dict[str, Any], re
     if isinstance(payload.get("cto"), dict):
         u = getattr(request.state, "current_user", None) or {}
         return {"ok": True, **_cto_da_camada(layer_id, payload["cto"], str(u.get("username") or "") if isinstance(u, dict) else "")}
+    if isinstance(payload.get("cdo"), dict):
+        u = getattr(request.state, "current_user", None) or {}
+        return {"ok": True, **_cdo_da_camada(layer_id, payload["cdo"], str(u.get("username") or "") if isinstance(u, dict) else "")}
+    if isinstance(payload.get("fibra"), dict):
+        u = getattr(request.state, "current_user", None) or {}
+        return {"ok": True, **_fibra_da_camada(layer_id, payload["fibra"], str(u.get("username") or "") if isinstance(u, dict) else "")}
     layer = _rename_kmz_layer(layer_id, str(payload.get("label") or ""))
     return {"ok": True, "layer": layer}
 
@@ -2099,7 +2130,7 @@ def _trocar_nome_do_ponto_no_meta(meta: dict, antigo: str, novo: str, pos: Any, 
     a = str(antigo or "").strip().lower()
     perto = lambda c: (pos is None or c.get("lat") is None
                        or (abs(float(c["lat"]) - pos[0]) < 3e-5 and abs(float(c["lng"]) - pos[1]) < 3e-5))
-    for chave in ("caixas", "ctos"):
+    for chave in ("caixas", "ctos", "cdos"):
         for c in (meta.get(chave) or {}).values():
             if isinstance(c, dict) and str(c.get("ponto") or "").strip().lower() == a and perto(c):
                 c["ponto"] = novo
@@ -2382,6 +2413,9 @@ def _cto_da_camada_sem_lock(layer_id: str, dados: Dict[str, Any], por: str = "")
             raise HTTPException(404, "CTO nao encontrada.")
         _exige_admin_para_excluir()
         ctos.pop(tid, None)  # o ponto e os cabos das caixas continuam no mapa
+        # a fibra de distribuicao ate ela sai junto (nao fica cabo sem destino)
+        if isinstance(meta.get("fibras"), dict):
+            meta["fibras"] = {k: v for k, v in meta["fibras"].items() if (v or {}).get("para", {}).get("cto") != tid}
     else:
         ponto = _texto_curto(dados.get("ponto"), 160)
         if not ponto:
@@ -2463,9 +2497,240 @@ def _cto_da_camada_sem_lock(layer_id: str, dados: Dict[str, Any], por: str = "")
             if not aviso:
                 _apagar_geradas_do_mapa(layer_id)
     meta["ctos"] = ctos
+    _herdar_da_cdo(meta)
     meta["updated_at"] = datetime.now().isoformat(timespec="seconds")
     _write_kmz_layer_meta(meta_path, meta)
-    return {"ctos": ctos, "caixas": meta.get("caixas") or {}, "cabos": meta.get("cabos") or {}, "aviso": aviso}
+    return {**_rede_da_camada(meta), "aviso": aviso}
+
+
+# --------------------------------------------------------------------------- CDO
+# A CDO (caixa de emenda com o splitter PRIMARIO) e filha da OLT e mae das
+# CTOs: OLT/PON -> cabo tronco -> CDO (splitter balanceado) -> cabo de
+# distribuicao -> CTO (splitter secundario) -> caixa CFTV -> cameras.
+# Ponto da camada (pelo nome E posicao, como CTO e caixa). Os cabos da rede
+# optica ficam em meta["fibras"], separados dos cabos das caixas, e ligam pelo
+# ID (renomear nao solta). Ligar a CTO numa CDO faz a CTO herdar OLT, PON e
+# "vem de" -- CTO sem CDO continua como era (direto na OLT).
+
+_SPLITTERS_CDO = ("", "1:2", "1:4", "1:8", "1:16", "1:32", "1:64")
+_FIBRAS_POR_CABO = (1, 2, 4, 6, 12, 24, 36, 48, 72, 96, 144)
+# Codigo de cores de fibra (ABNT NBR 14160 / EIA-598): a 13a fibra repete a
+# cor no 2o tubo; o tubo tambem segue a sequencia.
+_CORES_FIBRA = ("verde", "amarela", "branca", "azul", "vermelha", "violeta",
+                "marrom", "rosa", "preta", "cinza", "laranja", "aqua")
+_TIPOS_FIBRA = ("tronco", "distribuicao")
+
+
+def cor_da_fibra(n: int) -> dict:
+    n = max(1, int(n))
+    tubo = (n - 1) // 12 + 1
+    return {"fibra": n, "cor": _CORES_FIBRA[(n - 1) % 12], "tubo": tubo, "tubo_cor": _CORES_FIBRA[(tubo - 1) % 12]}
+
+
+def _rede_da_camada(meta: dict) -> dict:
+    return {k: (meta.get(k) if isinstance(meta.get(k), dict) else {})
+            for k in ("caixas", "cabos", "ctos", "cdos", "fibras")}
+
+
+def _herdar_da_cdo(meta: dict) -> None:
+    """CTO ligada a uma CDO (fibra de distribuicao) herda OLT, PON e "vem de".
+    CTO que perdeu a fibra fica com o ultimo valor e sem o vinculo."""
+    ctos = meta.get("ctos") if isinstance(meta.get("ctos"), dict) else {}
+    cdos = meta.get("cdos") if isinstance(meta.get("cdos"), dict) else {}
+    ligadas = set()
+    for fid, fb in (meta.get("fibras") or {}).items():
+        if not isinstance(fb, dict) or fb.get("tipo") != "distribuicao":
+            continue
+        cto = ctos.get((fb.get("para") or {}).get("cto"))
+        cdo = cdos.get((fb.get("de") or {}).get("cdo"))
+        if not cto or not cdo:
+            continue
+        ligadas.add(cto["id"])
+        cto["cdo"] = {"id": cdo["id"], "porta": (fb.get("de") or {}).get("porta"), "fibra_id": fid}
+        cto["olt_key"], cto["olt_nome"], cto["pon"] = cdo.get("olt_key", ""), cdo.get("olt_nome", ""), cdo.get("pon", "")
+        cto["vem_de"] = cdo.get("nome") or cdo.get("ponto") or ""
+    for cto in ctos.values():
+        if isinstance(cto, dict) and cto.get("cdo") and cto.get("id") not in ligadas:
+            cto.pop("cdo", None)
+
+
+def _cdo_da_camada(layer_id: str, dados: Dict[str, Any], por: str = "") -> dict[str, Any]:
+    with _LOCK_CAIXAS:
+        return _cdo_da_camada_sem_lock(layer_id, dados, por)
+
+
+def _cdo_da_camada_sem_lock(layer_id: str, dados: Dict[str, Any], por: str = "") -> dict[str, Any]:
+    meta, meta_path = _meta_da_camada_ou_404(layer_id)
+    cdos = meta.get("cdos") if isinstance(meta.get("cdos"), dict) else {}
+    fibras = meta.get("fibras") if isinstance(meta.get("fibras"), dict) else {}
+    did = _texto_curto(dados.get("id"), 24)
+    aviso = ""
+    if dados.get("excluir"):
+        if did not in cdos:
+            raise HTTPException(404, "CDO nao encontrada.")
+        _exige_admin_para_excluir()
+        cdos.pop(did, None)
+        # as fibras dela saem junto; as CTOs ficam com a ultima OLT/PON
+        fibras = {k: v for k, v in fibras.items()
+                  if (v or {}).get("de", {}).get("cdo") != did and (v or {}).get("para", {}).get("cdo") != did}
+    else:
+        ponto = _texto_curto(dados.get("ponto"), 160)
+        if not ponto:
+            raise HTTPException(400, "Informe o ponto do mapa que e a CDO.")
+        atual = cdos.get(did) if did else None
+        if did and not atual:
+            raise HTTPException(404, "CDO nao encontrada.")
+        try:
+            lat = float(dados["lat"]) if dados.get("lat") not in (None, "") else None
+            lng = float(dados["lng"]) if dados.get("lng") not in (None, "") else None
+        except (TypeError, ValueError):
+            raise HTTPException(400, "Posicao da CDO invalida.")
+        if lat is None or lng is None:
+            lat, lng = (atual or {}).get("lat"), (atual or {}).get("lng")
+        elif not (-90 <= lat <= 90 and -180 <= lng <= 180):
+            raise HTTPException(400, "Posicao da CDO fora do mapa.")
+        if lat is not None and any(c.get("id") != did and c.get("lat") is not None
+                                   and abs(float(c["lat"]) - lat) < 3e-5 and abs(float(c["lng"]) - lng) < 3e-5
+                                   for c in cdos.values()):
+            raise HTTPException(400, "Ja existe uma CDO neste lugar do mapa.")
+        if not atual and len(cdos) >= 500:
+            raise HTTPException(400, "Limite de CDOs na camada.")
+        splitter = _texto_curto(dados.get("splitter"), 5)
+        if splitter not in _SPLITTERS_CDO:
+            raise HTTPException(400, "Splitter invalido (balanceado: 1:2 a 1:64).")
+        try:
+            padrao = int(splitter.split(":")[1]) if splitter else 8
+            portas = int(dados.get("portas") if dados.get("portas") not in (None, "") else padrao)
+            bandejas = int(dados.get("bandejas") or 0)
+        except (TypeError, ValueError):
+            raise HTTPException(400, "Numero de portas ou bandejas invalido.")
+        if not 1 <= portas <= 64:
+            raise HTTPException(400, "A CDO tem de 1 a 64 portas.")
+        if not 0 <= bandejas <= 48:
+            raise HTTPException(400, "Bandejas: de 0 a 48.")
+        em_uso = [int((v.get("de") or {}).get("porta") or 0) for v in fibras.values()
+                  if isinstance(v, dict) and (v.get("de") or {}).get("cdo") == did]
+        if did and em_uso and max(em_uso) > portas:
+            raise HTTPException(400, f"A porta {max(em_uso)} tem CTO ligada: a CDO nao pode ter menos portas.")
+        agora = datetime.now().isoformat(timespec="seconds")
+        did = did or f"cd{uuid.uuid4().hex[:10]}"
+        cdos[did] = {
+            "id": did, "ponto": ponto, "nome": _texto_curto(dados.get("nome"), 80) or ponto,
+            "lat": round(lat, 7) if lat is not None else None, "lng": round(lng, 7) if lng is not None else None,
+            "modelo": _texto_curto(dados.get("modelo"), 80), "splitter": splitter, "portas": portas,
+            "bandejas": bandejas,
+            "olt_key": _texto_curto(dados.get("olt_key"), 200), "olt_nome": _texto_curto(dados.get("olt_nome"), 80),
+            "pon": _texto_curto(dados.get("pon"), 20), "obs": _texto_curto(dados.get("obs"), 300),
+            "criado_em": (atual or {}).get("criado_em") or agora, "criado_por": (atual or {}).get("criado_por") or por,
+            "atualizado_em": agora, "atualizado_por": por,
+        }
+        if cdos[did]["nome"].lower() != ponto.lower():
+            meta["cdos"], meta["fibras"] = cdos, fibras
+            aviso = _seguir_nome_no_ponto(layer_id, meta, ponto, cdos[did]["nome"],
+                                          (lat, lng) if lat is not None else None)
+            if not aviso:
+                _apagar_geradas_do_mapa(layer_id)
+    meta["cdos"], meta["fibras"] = cdos, fibras
+    _herdar_da_cdo(meta)  # OLT/PON da CDO desce para as CTOs filhas
+    meta["updated_at"] = datetime.now().isoformat(timespec="seconds")
+    _write_kmz_layer_meta(meta_path, meta)
+    return {**_rede_da_camada(meta), "aviso": aviso}
+
+
+def _fibra_da_camada(layer_id: str, dados: Dict[str, Any], por: str = "") -> dict[str, Any]:
+    with _LOCK_CAIXAS:
+        return _fibra_da_camada_sem_lock(layer_id, dados, por)
+
+
+def _fibra_da_camada_sem_lock(layer_id: str, dados: Dict[str, Any], por: str = "") -> dict[str, Any]:
+    """Cabo da rede optica. tronco: OLT/PON -> CDO. distribuicao: porta da CDO -> CTO."""
+    meta, meta_path = _meta_da_camada_ou_404(layer_id)
+    cdos = meta.get("cdos") if isinstance(meta.get("cdos"), dict) else {}
+    ctos = meta.get("ctos") if isinstance(meta.get("ctos"), dict) else {}
+    fibras = meta.get("fibras") if isinstance(meta.get("fibras"), dict) else {}
+    fid = _texto_curto(dados.get("id"), 24)
+    if dados.get("excluir"):
+        if fid not in fibras:
+            raise HTTPException(404, "Cabo nao encontrado.")
+        _exige_admin_para_excluir()
+        fibras.pop(fid, None)
+    else:
+        atual = fibras.get(fid) if fid else None
+        if fid and not atual:
+            raise HTTPException(404, "Cabo nao encontrado.")
+        tipo = _texto_curto(dados.get("tipo"), 14)
+        if tipo not in _TIPOS_FIBRA:
+            raise HTTPException(400, "Tipo de cabo invalido (tronco ou distribuicao).")
+        try:
+            n_fibras = int(dados.get("fibras") or 12)
+            fibra = int(dados.get("fibra") or 1)
+            folga = max(0, min(int(dados.get("folga_pct") or 0), 100))
+        except (TypeError, ValueError):
+            raise HTTPException(400, "Fibras invalidas.")
+        if n_fibras not in _FIBRAS_POR_CABO:
+            raise HTTPException(400, "Numero de fibras do cabo invalido.")
+        if not 1 <= fibra <= n_fibras:
+            raise HTTPException(400, f"A fibra usada vai de 1 a {n_fibras}.")
+        caminho = _caminho_do_cabo(dados)
+        de_raw = dados.get("de") if isinstance(dados.get("de"), dict) else {}
+        para_raw = dados.get("para") if isinstance(dados.get("para"), dict) else {}
+        if tipo == "distribuicao":
+            cdo = cdos.get(_texto_curto(de_raw.get("cdo"), 24))
+            cto = ctos.get(_texto_curto(para_raw.get("cto"), 24))
+            if not cdo:
+                raise HTTPException(400, "CDO de origem nao encontrada (cadastre a CDO antes).")
+            if not cto:
+                raise HTTPException(400, "CTO de destino nao encontrada (cadastre a CTO antes).")
+            try:
+                porta = int(de_raw.get("porta") or 0)
+            except (TypeError, ValueError):
+                porta = 0
+            if not 1 <= porta <= int(cdo.get("portas") or 0):
+                raise HTTPException(400, f"Escolha a porta da CDO (1 a {cdo.get('portas')}).")
+            for k, v in fibras.items():
+                if k == fid or not isinstance(v, dict) or v.get("tipo") != "distribuicao":
+                    continue
+                if (v.get("de") or {}).get("cdo") == cdo["id"] and int((v.get("de") or {}).get("porta") or 0) == porta:
+                    raise HTTPException(400, f"A porta {porta} da CDO ja atende outra CTO.")
+                if (v.get("para") or {}).get("cto") == cto["id"]:
+                    raise HTTPException(400, "Esta CTO ja esta ligada a uma CDO. Tire aquele cabo antes.")
+            de, para = {"cdo": cdo["id"], "porta": porta}, {"cto": cto["id"]}
+        else:
+            cdo = cdos.get(_texto_curto(para_raw.get("cdo"), 24))
+            if not cdo:
+                raise HTTPException(400, "CDO de destino nao encontrada (cadastre a CDO antes).")
+            for k, v in fibras.items():
+                if k != fid and isinstance(v, dict) and v.get("tipo") == "tronco" and (v.get("para") or {}).get("cdo") == cdo["id"]:
+                    raise HTTPException(400, "Esta CDO ja tem cabo tronco. Edite aquele.")
+            de = {"olt_key": _texto_curto(de_raw.get("olt_key"), 200), "olt_nome": _texto_curto(de_raw.get("olt_nome"), 80),
+                  "pon": _texto_curto(de_raw.get("pon"), 20)}
+            para = {"cdo": cdo["id"]}
+            # o tronco diz de qual OLT/PON vem a CDO (e dai as CTOs dela)
+            if de["olt_key"] or de["pon"]:
+                cdo["olt_key"], cdo["olt_nome"], cdo["pon"] = de["olt_key"], de["olt_nome"], de["pon"]
+        if not atual and len(fibras) >= 2000:
+            raise HTTPException(400, "Limite de cabos de fibra na camada.")
+        # religar um cabo existente em outra CDO/CTO/porta = excluir + criar:
+        # mesma regra do cabo de camera (so admin)
+        if atual and (atual.get("tipo") != tipo or atual.get("de", {}).get("cdo") != de.get("cdo")
+                      or atual.get("de", {}).get("porta") != de.get("porta") or atual.get("para") != para):
+            _exige_admin_para_excluir()
+        agora = datetime.now().isoformat(timespec="seconds")
+        metros = _metros_do_caminho(caminho)
+        fid = fid or f"fb{uuid.uuid4().hex[:10]}"
+        fibras[fid] = {
+            "id": fid, "tipo": tipo, "de": de, "para": para, "caminho": caminho,
+            "fibras": n_fibras, "fibra": fibra, **{k: v for k, v in cor_da_fibra(fibra).items() if k != "fibra"},
+            "metros": metros, "folga_pct": folga, "metros_com_folga": round(metros * (1 + folga / 100), 1),
+            "obs": _texto_curto(dados.get("obs"), 200),
+            "criado_em": (atual or {}).get("criado_em") or agora, "criado_por": (atual or {}).get("criado_por") or por,
+            "atualizado_em": agora, "atualizado_por": por,
+        }
+    meta["cdos"], meta["fibras"] = cdos, fibras
+    _herdar_da_cdo(meta)
+    meta["updated_at"] = datetime.now().isoformat(timespec="seconds")
+    _write_kmz_layer_meta(meta_path, meta)
+    return _rede_da_camada(meta)
 
 
 def _caminho_do_cabo(dados: Dict[str, Any]) -> list:
