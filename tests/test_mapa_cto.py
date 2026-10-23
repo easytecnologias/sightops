@@ -109,10 +109,30 @@ def test_renomear_caixa_renomeia_o_ponto(camada_kmz):
     r = tools._caixa_da_camada("c1", {"id": cx2["id"], "ponto": "C.CFTV-02", "nome": "C.CFTV-03", "tipo": "passagem"})
     assert r["aviso"] == "" and r["caixas"][cx2["id"]]["ponto"] == "C.CFTV-03"
     assert _nomes(camada_kmz) == ["C.CFTV-01", "C.CFTV-03", "CTO-07"]
-    # nome de outro ponto: nao renomeia, avisa, e a caixa salva assim mesmo
-    r = tools._caixa_da_camada("c1", {"id": cx2["id"], "ponto": "C.CFTV-03", "nome": "C.CFTV-01", "tipo": "passagem"})
-    assert "ja existe outro ponto" in r["aviso"] and r["caixas"][cx2["id"]]["ponto"] == "C.CFTV-03"
-    assert r["caixas"][cx2["id"]]["nome"] == "C.CFTV-01" and _nomes(camada_kmz) == ["C.CFTV-01", "C.CFTV-03", "CTO-07"]
+    # nome de outro ponto: recusa SEM gravar (gravar "assim mesmo" deixava a
+    # caixa com um nome que o mapa nao tem naquele lugar -- ela sumia da tela)
+    with pytest.raises(HTTPException) as e:
+        tools._caixa_da_camada("c1", {"id": cx2["id"], "ponto": "C.CFTV-03", "nome": "C.CFTV-01", "tipo": "passagem"})
+    assert e.value.status_code == 400 and "Ja existe outro ponto" in e.value.detail
+    meta = json.loads((camada_kmz / "c1.meta.json").read_text(encoding="utf-8"))
+    assert meta["caixas"][cx2["id"]]["nome"] == "C.CFTV-03" and meta["caixas"][cx2["id"]]["ponto"] == "C.CFTV-03"
+    assert _nomes(camada_kmz) == ["C.CFTV-01", "C.CFTV-03", "CTO-07"]
+
+
+def test_caixa_nao_aponta_para_ponto_de_outro_lugar_nem_fica_em_cima_de_outra(camada_kmz):
+    """O caso da C.CFTV-16 (22/10): a caixa passou a dizer que era um ponto de
+    ~100 m dali e sumiu; depois uma caixa nova nasceu em cima dela."""
+    r = tools._caixa_da_camada("c1", {"ponto": "C.CFTV-02", "nome": "C.CFTV-02", "tipo": "passagem", "lat": -10.001, "lng": -36.001})
+    cx2 = next(iter(r["caixas"].values()))
+    with pytest.raises(HTTPException) as e:   # C.CFTV-01 existe, mas em outro lugar
+        tools._caixa_da_camada("c1", {"id": cx2["id"], "ponto": "C.CFTV-01", "nome": "C.CFTV-01", "tipo": "passagem",
+                                      "lat": -10.001, "lng": -36.001})
+    assert "nao esta neste lugar" in e.value.detail
+    with pytest.raises(HTTPException) as e:   # caixa nova no mesmo lugar de outra
+        tools._caixa_da_camada("c1", {"ponto": "C.CFTV-15", "nome": "C.CFTV-15", "tipo": "passagem", "lat": -10.001, "lng": -36.001})
+    assert "Ja existe a caixa" in e.value.detail
+    meta = json.loads((camada_kmz / "c1.meta.json").read_text(encoding="utf-8"))
+    assert list(meta["caixas"]) == [cx2["id"]] and meta["caixas"][cx2["id"]]["ponto"] == "C.CFTV-02"
 
 
 def test_renomear_cto_leva_os_cabos(camada_kmz):

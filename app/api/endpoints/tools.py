@@ -2050,6 +2050,27 @@ def _trocar_nome_do_ponto_no_meta(meta: dict, antigo: str, novo: str, pos: Any, 
             motivos[novo.lower()] = {**motivos.pop(a), "nome": novo}
 
 
+def _pontos_da_camada(layer_id: str) -> Optional[list]:
+    """[(nome em minusculas, lat, lng)] dos pontos da camada; None se o geojson
+    nao der para ler (ai nao da para conferir e a conferencia e pulada)."""
+    _kmz, geojson_path, _ = _kmz_layer_paths(layer_id)
+    try:
+        feats = json.loads(geojson_path.read_text(encoding="utf-8")).get("features") or []
+    except (OSError, ValueError):
+        return None
+    out = []
+    for f in feats:
+        g = (f or {}).get("geometry") or {}
+        if g.get("type") != "Point":
+            continue
+        try:
+            lo, la = float(g["coordinates"][0]), float(g["coordinates"][1])
+        except (KeyError, IndexError, TypeError, ValueError):
+            continue
+        out.append((str(((f.get("properties") or {}).get("name")) or "").strip().lower(), la, lo))
+    return out
+
+
 def _seguir_nome_no_ponto(layer_id: str, meta: dict, antigo: str, novo: str, pos: Any) -> str:
     """Renomeia o ponto do KMZ para o nome da caixa/CTO. Devolve aviso (texto)
     quando nao deu: outro ponto ja tem esse nome, ou o nome repete sem posicao."""
@@ -2165,6 +2186,28 @@ def _caixa_da_camada_sem_lock(layer_id: str, dados: Dict[str, Any], por: str = "
             raise HTTPException(400, "Este ponto ja e uma caixa.")
         if cid and not atual:
             raise HTTPException(404, "Caixa nao encontrada.")
+        # Duas caixas no mesmo lugar: a de baixo some da tela e os cabos dela
+        # ficam sem dono visivel (foi assim que a C.CFTV-15 "nova" escondeu a
+        # caixa de verdade, com 4 cameras).
+        em_cima = next((c for c in caixas.values() if c.get("id") != cid and lat is not None
+                        and c.get("lat") is not None and _mesmo_lugar(c)), None)
+        if em_cima:
+            raise HTTPException(400, f'Ja existe a caixa "{em_cima.get("nome") or em_cima.get("ponto")}" neste lugar do mapa. Abra aquela em vez de criar outra.')
+        # A caixa e o ponto do mapa pelo nome E pela posicao: um ponto com
+        # esse nome que fica em outro lugar nao serve (a caixa sumia da tela).
+        pontos = _pontos_da_camada(layer_id)
+        if pontos and lat is not None and not any(
+                n == ponto.strip().lower() and abs(pla - lat) < 1e-4 and abs(plo - lng) < 1e-4 for n, pla, plo in pontos):
+            raise HTTPException(400, f'O ponto "{ponto}" nao esta neste lugar do mapa. Feche o painel e abra a caixa clicando no ponto dela.')
+        # Renomear para o nome de outro ponto: recusa sem gravar nada. Gravar
+        # "assim mesmo" deixava a caixa com um nome que o mapa nao tem aqui.
+        nome_novo = _texto_curto(dados.get("nome"), 80) or ponto
+        if pontos and nome_novo.strip().lower() != ponto.strip().lower() \
+                and any(n == nome_novo.strip().lower() for n, _la, _lo in pontos):
+            dono = next((c for c in caixas.values() if c.get("id") != cid
+                         and (c.get("ponto") or "").strip().lower() == nome_novo.strip().lower()), None)
+            de_quem = f' (a caixa {dono.get("nome") or dono.get("ponto")})' if dono else ''
+            raise HTTPException(400, f'Ja existe outro ponto "{nome_novo}" nesta camada{de_quem}. Escolha outro nome ou renomeie aquele antes.')
         if not atual and len(caixas) >= 500:
             raise HTTPException(400, "Limite de caixas na camada.")
         itens = []
