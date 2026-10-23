@@ -186,6 +186,9 @@ function cxDesenharCabos(id, def, group) {
       const halo = L.polyline(cabo.caminho, { color: '#c92a2a', weight: 12, opacity: 0.35, className: 'cx-cabo-off-halo', interactive: false });
       halo.on('add', () => halo.bringToFront());
       group.addLayer(halo);
+    } else if (noAr) {
+      // halo na cor do cabo, mais fraco e lento que o vermelho
+      group.addLayer(L.polyline(cabo.caminho, { color: t.cor, weight: 10, opacity: 0.25, className: 'cx-cabo-on-halo', interactive: false }));
     }
     const linha = L.polyline(cabo.caminho, {
       color: fora ? '#c92a2a' : t.cor, weight: fora ? 5 : 4, opacity: 0.95, dashArray: fora ? null : (t.tracejado || null),
