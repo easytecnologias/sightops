@@ -1216,7 +1216,9 @@ function cdEstadoFibra(id, def, fb) {
 }
 
 function cdDesenharFibras(id, def, group) {
+  const ocultos = typeof mapOcultosDaCamada === 'function' ? mapOcultosDaCamada(id) : new Set();
   const lista = Object.values(def?.fibras || {}).filter(f => Array.isArray(f.caminho) && f.caminho.length >= 2)
+    .filter(f => !ocultos.has(cdPastaDaFibra(def, f)))
     .map(fb => { const st = cdEstadoFibra(id, def, fb); return { fb, fora: st === 'off', noAr: st === 'on' }; })
     .sort((a, b) => Number(a.fora) - Number(b.fora));
   lista.forEach(({ fb, fora, noAr }) => {
@@ -1560,4 +1562,60 @@ function cdLigarRotulosPorZoom() {
   const aplicar = () => _map.getContainer().classList.toggle('map-rotulos-longe', _map.getZoom() < CD_ZOOM_ROTULOS);
   _map.on('zoomend', aplicar);
   aplicar();
+}
+
+
+// ------------------------------------------------------------------ pastas por fibra
+// Pastas como no KMZ de campo (FIBRA VERDE, FIBRA AZUL...): juntam CDO/CEO, CTO
+// e os cabos tracados entre elas. So mostram/escondem no mapa; nao criam nem
+// mudam nada. A cor vem do nome ("CTO - VERDE - 01"); o cabo vai na pasta da
+// CDO de onde sai (ou da CTO, se a CDO nao tiver cor no nome).
+function cdPastaDoNome(nome) {
+  if (/principal|backbone/i.test(String(nome || ''))) return 'pasta:preta';
+  const n = cdFibraDoNome(nome);
+  return n ? `pasta:${cdCor(n).nome}` : null;
+}
+function cdPastaDoPonto(def, f, tipo) {
+  if (!def || (tipo !== 'cto' && tipo !== 'cdo')) return null;
+  const nome = mapFeatureName(f);
+  const c = f?.geometry?.coordinates || [];
+  const ll = [+c[1], +c[0]];
+  const item = tipo === 'cto' ? ctDoPonto(def, nome, ll) : cdDoPonto(def, nome, ll);
+  return cdPastaDoNome(item?.nome || nome);
+}
+function cdPastaDaFibra(def, fb) {
+  if (fb?.tipo === 'tronco') return 'pasta:preta';
+  const cdo = def?.cdos?.[fb?.de?.cdo];
+  const cto = def?.ctos?.[fb?.para?.cto];
+  return cdPastaDoNome(cdo?.nome || cdo?.ponto) || cdPastaDoNome(cto?.nome || cto?.ponto);
+}
+function cdPastasDaCamada(def) {
+  const pastas = {};
+  const pasta = cat => {
+    if (!pastas[cat]) {
+      const nome = cat.slice(6);
+      const i = CD_CORES.findIndex(([n]) => n === nome);
+      pastas[cat] = { cat, nome, hex: nome === 'preta' ? '#111418' : (CD_CORES[i]?.[1] || '#868e96'),
+        rotulo: nome === 'preta' ? 'BACKBONE' : `FIBRA ${nome === 'violeta' ? 'LILÁS' : nome.toUpperCase()}`, itens: [], cabos: 0 };
+    }
+    return pastas[cat];
+  };
+  (def?.features || []).forEach(f => {
+    if (f?.geometry?.type !== 'Point') return;
+    const tipo = mapFeatureType(f, null);
+    const cat = cdPastaDoPonto(def, f, tipo);
+    if (!cat) return;
+    const c = f.geometry.coordinates;
+    const ll = [+c[1], +c[0]];
+    const nome = mapFeatureName(f);
+    const item = tipo === 'cto' ? ctDoPonto(def, nome, ll) : cdDoPonto(def, nome, ll);
+    pasta(cat).itens.push({ nome: item?.nome || nome, tipo: tipo === 'cto' ? 'CTO' : (item?.tipo === 'passagem' ? 'CEO' : 'CDO'), latlng: ll });
+  });
+  Object.values(def?.fibras || {}).forEach(fb => {
+    const cat = cdPastaDaFibra(def, fb);
+    if (cat) pasta(cat).cabos += 1;
+  });
+  Object.values(pastas).forEach(p => p.itens.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR', { numeric: true })));
+  const ordem = n => (n === 'preta' ? -1 : CD_CORES.findIndex(([x]) => x === n));
+  return Object.values(pastas).sort((a, b) => ordem(a.nome) - ordem(b.nome));
 }

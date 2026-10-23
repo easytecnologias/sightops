@@ -434,6 +434,8 @@ function mapPontoOculto(def, f, cam, type, filhos = null) {
   const ocultos = mapOcultosDaCamada(def?.id);
   if (!ocultos.size) return false;
   if (ocultos.has(mapChaveItem(f)) || mapCategoriasDoPonto(def, f, cam, type).some(c => ocultos.has(c))) return true;
+  // pasta da fibra desmarcada (FIBRA VERDE...) esconde as CDOs e CTOs dela
+  if (typeof cdPastaDoPonto === 'function' && ocultos.has(cdPastaDoPonto(def, f, type))) return true;
   const fo = filhos || mapFilhosOcultos(def);
   return (!!cam?.ip && fo.ips.has(String(cam.ip))) || fo.pontos.has(mapFeatureName(f).toLowerCase());
 }
@@ -534,6 +536,55 @@ function mapAtualizarChips(def, statsEl) {
 }
 
 const _mapLegendaAberta = {};
+
+// Pastas por fibra no card da camada (como no Google Earth): marcar/desmarcar
+// mostra ou esconde CDO, CTO e cabos daquela cor. Bloco proprio, separado da
+// lista da legenda (uma nao apaga a outra).
+const _mapPastaAberta = {};
+function mapRenderPastas(def, statsEl) {
+  statsEl.querySelector('.map-pastas')?.remove();
+  if (typeof cdPastasDaCamada !== 'function') return;
+  const pastas = cdPastasDaCamada(def);
+  if (!pastas.length) return;
+  const ocultos = mapOcultosDaCamada(def.id);
+  const conta = p => {
+    const n = t => p.itens.filter(i => i.tipo === t).length;
+    return [n('CDO') && `${n('CDO')} CDO`, n('CEO') && `${n('CEO')} CEO`, n('CTO') && `${n('CTO')} CTO`,
+      p.cabos && `${p.cabos} cabo${p.cabos > 1 ? 's' : ''}`].filter(Boolean).join(' · ');
+  };
+  const el = document.createElement('div');
+  el.className = 'map-pastas';
+  el.style.cssText = 'grid-column:1/-1;width:100%;margin-top:6px;border:1px solid var(--border);border-radius:8px;background:var(--surface);overflow:hidden';
+  el.innerHTML = `<div class="map-legenda-todos" style="cursor:default"><span>Pastas por fibra <small>marque o que quer ver</small></span></div>`
+    + pastas.map(p => {
+      const aberta = _mapPastaAberta[def.id] === p.cat;
+      return `<div class="map-legenda-item">
+          <input type="checkbox" data-pasta="${esc(p.cat)}" ${ocultos.has(p.cat) ? '' : 'checked'} aria-label="Mostrar ${esc(p.rotulo)}">
+          <span class="map-layer-stat-dot" style="background:${p.hex};box-shadow:inset 0 0 0 1px rgba(0,0,0,.35)"></span>
+          <button type="button" data-pasta-abrir="${esc(p.cat)}" title="Ver o que tem nesta pasta"><span><b>${aberta ? '▾' : '▸'} ${esc(p.rotulo)}</b></span><small>${esc(conta(p))}</small></button>
+        </div>${aberta ? p.itens.map((i, k) => `<div class="map-legenda-item" style="padding-left:30px">
+          <button type="button" data-pasta-ir="${k}" title="Ir até no mapa"><span><b style="font-size:10px;color:var(--muted);margin-right:6px">${esc(i.tipo)}</b>${esc(i.nome)}</span></button></div>`).join('') : ''}`;
+    }).join('');
+  statsEl.appendChild(el);
+  el.addEventListener('click', e => {
+    e.stopPropagation();
+    const ab = e.target.closest('[data-pasta-abrir]');
+    if (ab) {
+      _mapPastaAberta[def.id] = _mapPastaAberta[def.id] === ab.dataset.pastaAbrir ? null : ab.dataset.pastaAbrir;
+      mapRenderPastas(def, statsEl);
+      return;
+    }
+    const ir = e.target.closest('[data-pasta-ir]');
+    const i = ir ? pastas.find(x => x.cat === _mapPastaAberta[def.id])?.itens[+ir.dataset.pastaIr] : null;
+    if (i?.latlng && _map) _map.setView(i.latlng, Math.max(_map.getZoom(), 18));
+  });
+  el.addEventListener('change', e => {
+    const cb = e.target.closest('[data-pasta]');
+    if (!cb) return;
+    if (cb.checked) ocultos.delete(cb.dataset.pasta); else ocultos.add(cb.dataset.pasta);
+    mapGravarOcultos(def);
+  });
+}
 
 function mapLayerStats(features, index = _mapCameraIndex, def = null) {
   return (features || []).reduce((acc, f) => {
@@ -1628,6 +1679,7 @@ async function loadMapLayers() {
     });
     mapAtualizarChips(def, statsEl);
     mapRenderListaLegenda(def, statsEl);
+    mapRenderPastas(def, statsEl);
 
     try {
       const fora = camerasForaDoMapa(def);
