@@ -1775,6 +1775,11 @@ def _editar_ponto_da_camada(layer_id: str, ponto: Dict[str, Any], generated: boo
         if pos is not None or antigo.strip().lower() not in restantes:
             _trocar_nome_do_ponto_no_meta(meta, antigo, novo_nome, pos,
                                           unico=restantes.count(novo_nome.lower()) == 1)
+    if not generated and not ponto.get("remover"):
+        de = (_coord("lat_atual"), _coord("lon_atual"))
+        para = (_coord("lat"), _coord("lon"))
+        if None not in de and None not in para and de != para:
+            _arrastar_ponto_no_meta(meta, str(ponto.get("novo_nome") or ponto.get("nome") or ""), de, para)
     meta["updated_at"] = datetime.now().isoformat(timespec="seconds")
     _write_kmz_layer_meta(meta_path, meta)
 
@@ -1783,6 +1788,52 @@ def _editar_ponto_da_camada(layer_id: str, ponto: Dict[str, Any], generated: boo
         _apagar_geradas_do_mapa(layer_id)
 
     return resultado
+
+
+# Ate onde a ponta do cabo conta como "no ponto": o cabo nasce encaixado no
+# ponto, mas o KMZ e o meta arredondam diferente.
+_PONTA_TOL = 1e-4  # ~11 m
+
+
+def _arrastar_ponto_no_meta(meta: dict, nome: str, de: tuple, para: tuple) -> int:
+    """Ponto arrastado no editor: a caixa/CTO dele e a ponta dos cabos ligados
+    nele vao junto. Sem isso a caixa perdia o ponto (sumia da tela) e o cabo
+    ficava apontando para onde o ponto estava.
+
+    A ponta e escolhida pelo vinculo (cabo da caixa = inicio; cabo ate a CTO
+    ou ate a camera = fim) e so anda se estava mesmo no lugar antigo -- uma
+    camera a 3 m da caixa nao arrasta o cabo da caixa. Devolve quantos cabos mudaram."""
+    alvo = nome.strip().lower()
+    if not alvo:
+        return 0
+    perto = lambda pt, ref: pt is not None and abs(float(pt[0]) - ref[0]) < _PONTA_TOL and abs(float(pt[1]) - ref[1]) < _PONTA_TOL
+    novo = [round(para[0], 7), round(para[1], 7)]
+    ids_caixa = set()
+    for grupo in ("caixas", "ctos"):
+        for c in (meta.get(grupo) or {}).values():
+            if (c.get("ponto") or "").strip().lower() == alvo and c.get("lat") is not None \
+                    and perto((c["lat"], c["lng"]), de):
+                c["lat"], c["lng"] = novo
+                if grupo == "caixas":
+                    ids_caixa.add(c.get("id"))
+    mudou = 0
+    for cb in (meta.get("cabos") or {}).values():
+        cam = cb.get("caminho") if isinstance(cb, dict) else None
+        if not cam or len(cam) < 2:
+            continue
+        trocou = False
+        if cb.get("caixa") in ids_caixa and perto(cam[0], de):
+            cam[0] = list(novo)
+            trocou = True
+        fim = (cb.get("cto") or {}).get("ponto") if isinstance(cb.get("cto"), dict) else (cb.get("camera") or {}).get("ponto")
+        if (fim or "").strip().lower() == alvo and perto(cam[-1], de):
+            cam[-1] = list(novo)
+            trocou = True
+        if trocou:
+            cb["metros"] = _metros_do_caminho(cam)
+            cb["metros_com_folga"] = round(cb["metros"] * (1 + int(cb.get("folga_pct") or 0) / 100), 1)
+            mudou += 1
+    return mudou
 
 
 def _remover_linhas_da_camada(layer_id: str, dados: Dict[str, Any]) -> Dict[str, Any]:

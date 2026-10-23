@@ -179,3 +179,36 @@ def test_nome_repetido_renomeia_so_o_ponto_da_caixa(tmp_path, monkeypatch):
     caixas = r["caixas"]
     assert caixas[a["id"]]["ponto"] == "C.CFTV-09"
     assert [c["ponto"] for k, c in caixas.items() if k != a["id"]] == ["Caixa - S 4P"]  # a outra nao foi junto
+
+
+def test_arrastar_ponto_leva_caixa_cto_e_pontas_dos_cabos(camada_kmz):
+    """Arrastar no editor: CTO-07, a caixa C.CFTV-01 e a camera (C.CFTV-02 faz
+    de camera aqui) -- cada cabo acompanha so pela ponta que e dele."""
+    cx = next(iter(tools._caixa_da_camada("c1", {"ponto": "C.CFTV-01", "nome": "C.CFTV-01", "tipo": "switch", "portas": 4,
+                                                 "lat": -10.0, "lng": -36.0})["caixas"].values()))
+    tools._cto_da_camada("c1", {"ponto": "CTO-07", "nome": "CTO-07", "lat": -10.002, "lng": -36.002, "splitter": "1:8"})
+    drop = [[-10.0, -36.0], [-10.001, -36.0015], [-10.002, -36.002]]
+    tools._cabo_da_camada("c1", {"caixa": cx["id"], "cto": {"ponto": "CTO-07", "porta": 1}, "tipo": "drop", "caminho": drop})
+    tools._cabo_da_camada("c1", {"caixa": cx["id"], "porta": 1, "camera": {"ponto": "C.CFTV-02", "ip": "10.0.0.9"},
+                                 "tipo": "utp5e", "caminho": [[-10.0, -36.0], [-10.001, -36.001]]})
+
+    def cabos():
+        meta = json.loads((camada_kmz / "c1.meta.json").read_text(encoding="utf-8"))
+        por = {("cto" if c.get("cto") else "cam"): c for c in meta["cabos"].values()}
+        return meta, por
+
+    tools._editar_ponto_da_camada("c1", {"nome": "CTO-07", "lat": -10.003, "lon": -36.003, "lat_atual": -10.002, "lon_atual": -36.002})
+    meta, por = cabos()
+    assert por["cto"]["caminho"][-1] == [-10.003, -36.003] and por["cto"]["caminho"][0] == [-10.0, -36.0]
+    assert next(iter(meta["ctos"].values()))["lat"] == -10.003
+    assert por["cam"]["caminho"] == [[-10.0, -36.0], [-10.001, -36.001]]          # cabo da camera nao mexeu
+
+    tools._editar_ponto_da_camada("c1", {"nome": "C.CFTV-01", "lat": -9.9995, "lon": -35.9995, "lat_atual": -10.0, "lon_atual": -36.0})
+    meta, por = cabos()
+    assert meta["caixas"][cx["id"]]["lat"] == -9.9995                              # a caixa nao perde o ponto
+    assert por["cto"]["caminho"][0] == [-9.9995, -35.9995] and por["cam"]["caminho"][0] == [-9.9995, -35.9995]
+    assert por["cto"]["caminho"][-1] == [-10.003, -36.003]
+
+    tools._editar_ponto_da_camada("c1", {"nome": "C.CFTV-02", "lat": -10.0012, "lon": -36.0012, "lat_atual": -10.001, "lon_atual": -36.001})
+    meta, por = cabos()
+    assert por["cam"]["caminho"][-1] == [-10.0012, -36.0012] and por["cam"]["metros"] > 0
