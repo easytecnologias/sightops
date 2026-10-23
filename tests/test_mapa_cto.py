@@ -212,3 +212,19 @@ def test_arrastar_ponto_leva_caixa_cto_e_pontas_dos_cabos(camada_kmz):
     tools._editar_ponto_da_camada("c1", {"nome": "C.CFTV-02", "lat": -10.0012, "lon": -36.0012, "lat_atual": -10.001, "lon_atual": -36.001})
     meta, por = cabos()
     assert por["cam"]["caminho"][-1] == [-10.0012, -36.0012] and por["cam"]["metros"] > 0
+
+
+def test_arrastar_ponto_leva_a_curva_do_cabo_que_passa_por_ele(camada_kmz):
+    """O cabo passa por cima de outra camera (C.CFTV-02, curva no meio):
+    arrastar essa camera leva a curva; uma curva a ~5 m dela nao anda."""
+    cx = next(iter(tools._caixa_da_camada("c1", {"ponto": "C.CFTV-01", "nome": "C.CFTV-01", "tipo": "switch", "portas": 4,
+                                                 "lat": -10.0, "lng": -36.0})["caixas"].values()))
+    caminho = [[-10.0, -36.0], [-10.001, -36.001], [-10.00105, -36.00105], [-10.002, -36.002]]
+    tools._cabo_da_camada("c1", {"caixa": cx["id"], "porta": 1, "camera": {"ponto": "CTO-07", "ip": "10.0.0.7"},
+                                 "tipo": "utp5e", "caminho": caminho})
+    tools._editar_ponto_da_camada("c1", {"nome": "C.CFTV-02", "lat": -10.0011, "lon": -36.0009, "lat_atual": -10.001, "lon_atual": -36.001})
+    meta = json.loads((camada_kmz / "c1.meta.json").read_text(encoding="utf-8"))
+    cam = next(iter(meta["cabos"].values()))["caminho"]
+    assert cam[1] == [-10.0011, -36.0009]                    # a curva em cima da camera foi junto
+    assert cam[2] == [-10.00105, -36.00105]                  # a curva a ~7 m nao mexeu
+    assert cam[0] == [-10.0, -36.0] and cam[-1] == [-10.002, -36.002]

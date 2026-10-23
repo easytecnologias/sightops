@@ -1793,6 +1793,9 @@ def _editar_ponto_da_camada(layer_id: str, ponto: Dict[str, Any], generated: boo
 # Ate onde a ponta do cabo conta como "no ponto": o cabo nasce encaixado no
 # ponto, mas o KMZ e o meta arredondam diferente.
 _PONTA_TOL = 1e-4  # ~11 m
+# Curva no meio do cabo: so a que esta EM CIMA do ponto (~1 m); uma curva de
+# esquina a 5 m de uma camera nao e da camera.
+_CURVA_TOL = 1e-5
 
 
 def _arrastar_ponto_no_meta(meta: dict, nome: str, de: tuple, para: tuple) -> int:
@@ -1807,6 +1810,7 @@ def _arrastar_ponto_no_meta(meta: dict, nome: str, de: tuple, para: tuple) -> in
     if not alvo:
         return 0
     perto = lambda pt, ref: pt is not None and abs(float(pt[0]) - ref[0]) < _PONTA_TOL and abs(float(pt[1]) - ref[1]) < _PONTA_TOL
+    em_cima = lambda pt, ref: pt is not None and abs(float(pt[0]) - ref[0]) < _CURVA_TOL and abs(float(pt[1]) - ref[1]) < _CURVA_TOL
     novo = [round(para[0], 7), round(para[1], 7)]
     ids_caixa = set()
     for grupo in ("caixas", "ctos"):
@@ -1829,6 +1833,13 @@ def _arrastar_ponto_no_meta(meta: dict, nome: str, de: tuple, para: tuple) -> in
         if (fim or "").strip().lower() == alvo and perto(cam[-1], de):
             cam[-1] = list(novo)
             trocou = True
+        # Curva do cabo em cima do ponto: o cabo "passa por" camera/CTO/caixa
+        # com um clique e o vertice e gravado exatamente na posicao do ponto.
+        # Arrastar o ponto leva a curva junto (so as que estavam em cima dele).
+        for i in range(1, len(cam) - 1):
+            if em_cima(cam[i], de):
+                cam[i] = list(novo)
+                trocou = True
         if trocou:
             cb["metros"] = _metros_do_caminho(cam)
             cb["metros_com_folga"] = round(cb["metros"] * (1 + int(cb.get("folga_pct") or 0) / 100), 1)
@@ -2183,6 +2194,8 @@ def _mover_caixa(layer_id: str, meta: dict, meta_path: Path, caixa: dict, dados:
         c["caminho"] = [[round(para[0], 7), round(para[1], 7)]] + cam[1:]
         c["metros"] = _metros_do_caminho(c["caminho"])
         c["metros_com_folga"] = round(c["metros"] * (1 + int(c.get("folga_pct") or 0) / 100), 1)
+    # cabos de OUTRAS caixas que passam por cima desta (curva no ponto)
+    _arrastar_ponto_no_meta({"caixas": {}, "ctos": {}, "cabos": cabos}, str(caixa.get("ponto") or ""), tuple(de), tuple(para))
 
 
 def _caixa_da_camada_sem_lock(layer_id: str, dados: Dict[str, Any], por: str = "") -> dict[str, Any]:
