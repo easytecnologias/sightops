@@ -1474,8 +1474,11 @@ function cdTerminarDesenho(cto) {
   const usadas = new Set(cdFibrasDaCdo(d.def, d.cdo).map(f => Number(f.de?.porta)));
   const livres = Array.from({ length: Number(d.cdo.portas || 0) }, (_, i) => i + 1).filter(n => !usadas.has(n));
   const padraoFo = tronco ? 24 : 12;
-  const opcoesFibra = total => Array.from({ length: total }, (_, i) => i + 1)
-    .map(n => `<option value="${n}" ${n === 1 ? 'selected' : ''}>${esc(cdRotuloFibra(n, total))}</option>`).join('');
+  // fibra ja escolhida em outro cabo desta CDO some da lista: so as livres
+  const fibrasUsadas = new Set(tronco ? [] : cdFibrasDaCdo(d.def, d.cdo).map(f => Number(f.fibra)));
+  const opcoesFibra = total => Array.from({ length: total }, (_, i) => i + 1).filter(n => !fibrasUsadas.has(n))
+    .map((n, i) => `<option value="${n}" ${i === 0 ? 'selected' : ''}>${esc(cdRotuloFibra(n, total))}</option>`).join('')
+    || '<option value="">Todas as fibras já usadas</option>';
   const olts = _ct.cache.olt?.lista || [];
   const corpo = `
     <p style="margin:0">${tronco ? `<strong>OLT</strong> → <strong>${esc(d.cdo.nome)}</strong>` : `<strong>${esc(d.cdo.nome)}</strong> → <strong>${esc(cto.nome)}</strong>`}</p>
@@ -1500,17 +1503,19 @@ function cdTerminarDesenho(cto) {
   _cx.painel = { el, id: d.id, def: d.def, cdo: d.cdo, nomePonto: d.cdo.ponto, latlng: d.pontos[0], tipo: 'cdo-fibra' };
   const amostra = () => {
     const total = Number(el.querySelector('#cdfTotal').value);
-    const n = Number(el.querySelector('#cdfFibra').value || 1);
-    const c = cdCor(n);
-    el.querySelector('#cdfAmostra').innerHTML = `<span class="cd-fio cd-fio-g" style="background:${c.hex}"></span> Fibra ${n} <b>${esc(c.nome)}</b>${total > 12 ? ` · tubo ${c.tubo} <span class="cd-fio" style="background:${c.tuboHex}"></span>${esc(c.tuboNome)}` : ''}`;
+    const n = Number(el.querySelector('#cdfFibra').value || 0);
+    const c = cdCor(n || 1);
+    el.querySelector('#cdfAmostra').innerHTML = !n ? 'Todas as fibras deste cabo já estão usadas nesta CDO: escolha um cabo com mais fibras.' : `<span class="cd-fio cd-fio-g" style="background:${c.hex}"></span> Fibra ${n} <b>${esc(c.nome)}</b>${total > 12 ? ` · tubo ${c.tubo} <span class="cd-fio" style="background:${c.tuboHex}"></span>${esc(c.tuboNome)}` : ''}`;
     const folga = Number(el.querySelector('#cdfFolga').value || 0);
     el.querySelector('#cxConta').innerHTML = `<div><span>Traçado</span><strong>${cxFmtMetros(metros)}</strong></div><div><span>Com ${folga}% de folga</span><strong>${cxFmtMetros(metros * (1 + folga / 100))}</strong></div>`;
   };
   el.querySelector('#cdfTotal').addEventListener('change', ev => {
     const total = Number(ev.target.value);
     const atual = Math.min(Number(el.querySelector('#cdfFibra').value || 1), total);
-    el.querySelector('#cdfFibra').innerHTML = opcoesFibra(total);
-    el.querySelector('#cdfFibra').value = String(atual);
+    const sel = el.querySelector('#cdfFibra');
+    sel.innerHTML = opcoesFibra(total);
+    sel.value = String(atual);
+    if (!sel.value) sel.selectedIndex = 0;
     amostra();
   });
   el.addEventListener('change', amostra);
@@ -1567,11 +1572,14 @@ function cdLigarRotulosPorZoom() {
   bt.href = '#';
   bt.setAttribute('role', 'button');
   bt.className = 'cd-bt-nomes';
-  bt.style.cssText = 'width:auto;padding:0 8px;font:600 12px/30px inherit;white-space:nowrap';
+  bt.style.cssText = 'display:flex;align-items:center;justify-content:center';
   const aplicar = () => {
     _map.getContainer().classList.toggle('map-rotulos-longe', semNomes || _map.getZoom() < CD_ZOOM_ROTULOS);
-    bt.textContent = semNomes ? 'Mostrar nomes' : 'Esconder nomes';
-    bt.title = semNomes ? 'Mostrar os nomes de caixas, CTOs e CDOs no mapa' : 'Esconder os nomes de caixas, CTOs e CDOs (limpa o mapa)';
+    // etiqueta; riscada quando os nomes estao escondidos
+    bt.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12.6 2.6A2 2 0 0 0 11.2 2H4a2 2 0 0 0-2 2v7.2a2 2 0 0 0 .6 1.4l8.7 8.7a2.4 2.4 0 0 0 3.4 0l6.6-6.6a2.4 2.4 0 0 0 0-3.4z"/><circle cx="7.5" cy="7.5" r="1.2" fill="currentColor"/>${semNomes ? '<path d="M3 21 21 3" stroke-width="2.4"/>' : ''}</svg>`;
+    bt.style.color = semNomes ? 'var(--muted, #868e96)' : '';
+    bt.title = semNomes ? 'Mostrar os nomes de caixas, CTOs e CDOs' : 'Esconder os nomes de caixas, CTOs e CDOs';
+    bt.setAttribute('aria-label', bt.title);
   };
   bt.addEventListener('click', e => {
     e.preventDefault();
