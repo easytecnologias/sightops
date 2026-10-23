@@ -1559,7 +1559,32 @@ const CD_ZOOM_ROTULOS = 17;
 function cdLigarRotulosPorZoom() {
   if (!_map || _map._cdRotulos) return;
   _map._cdRotulos = true;
-  const aplicar = () => _map.getContainer().classList.toggle('map-rotulos-longe', _map.getZoom() < CD_ZOOM_ROTULOS);
+  // botao "Nomes" abaixo do +/-: esconde os nomes de caixa, CTO e CDO em
+  // qualquer zoom (fica lembrado neste navegador)
+  let semNomes = false;
+  try { semNomes = localStorage.getItem('sightops.mapa.semNomes') === '1'; } catch {}
+  const bt = document.createElement('a');
+  bt.href = '#';
+  bt.setAttribute('role', 'button');
+  bt.className = 'cd-bt-nomes';
+  bt.style.cssText = 'width:auto;padding:0 8px;font:600 12px/30px inherit;white-space:nowrap';
+  const aplicar = () => {
+    _map.getContainer().classList.toggle('map-rotulos-longe', semNomes || _map.getZoom() < CD_ZOOM_ROTULOS);
+    bt.textContent = semNomes ? 'Mostrar nomes' : 'Esconder nomes';
+    bt.title = semNomes ? 'Mostrar os nomes de caixas, CTOs e CDOs no mapa' : 'Esconder os nomes de caixas, CTOs e CDOs (limpa o mapa)';
+  };
+  bt.addEventListener('click', e => {
+    e.preventDefault();
+    e.stopPropagation();
+    semNomes = !semNomes;
+    try { localStorage.setItem('sightops.mapa.semNomes', semNomes ? '1' : '0'); } catch {}
+    aplicar();
+  });
+  const caixa = document.createElement('div');
+  caixa.className = 'leaflet-bar leaflet-control';
+  caixa.appendChild(bt);
+  L.DomEvent.disableClickPropagation(caixa);
+  new (L.Control.extend({ onAdd: () => caixa }))({ position: 'topleft' }).addTo(_map);
   _map.on('zoomend', aplicar);
   aplicar();
 }

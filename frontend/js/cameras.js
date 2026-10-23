@@ -541,6 +541,7 @@ const _mapLegendaAberta = {};
 // mostra ou esconde CDO, CTO e cabos daquela cor. Bloco proprio, separado da
 // lista da legenda (uma nao apaga a outra).
 const _mapPastaAberta = {};
+const _mapPastasAbertas = {}; // bloco das pastas: fechado ate clicar
 function mapRenderPastas(def, statsEl) {
   statsEl.querySelector('.map-pastas')?.remove();
   if (typeof cdPastasDaCamada !== 'function') return;
@@ -555,8 +556,11 @@ function mapRenderPastas(def, statsEl) {
   const el = document.createElement('div');
   el.className = 'map-pastas';
   el.style.cssText = 'grid-column:1/-1;width:100%;margin-top:6px;border:1px solid var(--border);border-radius:8px;background:var(--surface);overflow:hidden';
-  el.innerHTML = `<div class="map-legenda-todos" style="cursor:default"><span>Pastas por fibra <small>marque o que quer ver</small></span></div>`
-    + pastas.map(p => {
+  const aberto = !!_mapPastasAbertas[def.id];
+  const nOcultas = pastas.filter(p => ocultos.has(p.cat)).length;
+  el.innerHTML = `<button type="button" class="map-legenda-todos" data-pastas-toggle style="width:100%;border:0;${aberto ? '' : 'border-bottom:0;'}font:inherit;text-align:left" title="${aberto ? 'Fechar' : 'Abrir'} as pastas">
+      <span>${aberto ? '▾' : '▸'} Pastas por fibra <small>${pastas.length} pastas${nOcultas ? ` · ${nOcultas} escondida${nOcultas > 1 ? 's' : ''}` : ''}</small></span></button>`
+    + (!aberto ? '' : pastas.map(p => {
       const aberta = _mapPastaAberta[def.id] === p.cat;
       return `<div class="map-legenda-item">
           <input type="checkbox" data-pasta="${esc(p.cat)}" ${ocultos.has(p.cat) ? '' : 'checked'} aria-label="Mostrar ${esc(p.rotulo)}">
@@ -564,10 +568,15 @@ function mapRenderPastas(def, statsEl) {
           <button type="button" data-pasta-abrir="${esc(p.cat)}" title="Ver o que tem nesta pasta"><span><b>${aberta ? '▾' : '▸'} ${esc(p.rotulo)}</b></span><small>${esc(conta(p))}</small></button>
         </div>${aberta ? p.itens.map((i, k) => `<div class="map-legenda-item" style="padding-left:30px">
           <button type="button" data-pasta-ir="${k}" title="Ir até no mapa"><span><b style="font-size:10px;color:var(--muted);margin-right:6px">${esc(i.tipo)}</b>${esc(i.nome)}</span></button></div>`).join('') : ''}`;
-    }).join('');
+    }).join(''));
   statsEl.appendChild(el);
   el.addEventListener('click', e => {
     e.stopPropagation();
+    if (e.target.closest('[data-pastas-toggle]')) {
+      _mapPastasAbertas[def.id] = !_mapPastasAbertas[def.id];
+      mapRenderPastas(def, statsEl);
+      return;
+    }
     const ab = e.target.closest('[data-pasta-abrir]');
     if (ab) {
       _mapPastaAberta[def.id] = _mapPastaAberta[def.id] === ab.dataset.pastaAbrir ? null : ab.dataset.pastaAbrir;
@@ -583,6 +592,7 @@ function mapRenderPastas(def, statsEl) {
     if (!cb) return;
     if (cb.checked) ocultos.delete(cb.dataset.pasta); else ocultos.add(cb.dataset.pasta);
     mapGravarOcultos(def);
+    mapRenderPastas(def, statsEl);
   });
 }
 
