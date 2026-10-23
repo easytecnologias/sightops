@@ -145,6 +145,9 @@ class ApiAuthMiddleware(BaseHTTPMiddleware):
             (("POST",), "/api/alert/incidents", "operator"),
             # Passos do atendimento por site: regra da central, nao do plantao.
             (("PUT",), "/api/alert/protocols", "admin"),
+            # Controle de Rotas: cadastro da frota. DELETE sobe para admin
+            # sozinho (permissions.e_exclusao).
+            (("POST", "DELETE"), "/api/rotas/", "operator"),
 
             # --- Fase 1 da correcao de autorizacao (2026-09-20) ---------------
             # Estas rotas de ESCRITA caiam no default "basta estar logado", que

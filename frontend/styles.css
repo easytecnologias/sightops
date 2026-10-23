@@ -13327,3 +13327,101 @@ button.map-layer-stat.parcial .map-layer-stat-dot { box-shadow: 0 0 0 2px var(--
 .ct-sinal.ct-ruim { color: var(--danger); }
 .cx-painel.ct-painel { width: min(580px, calc(100% - 24px)); }
 .cx-painel.ct-painel > header .eyebrow { color: #1971c2; }
+
+/* Controle de Rotas: estado vazio das telas (antes dos cadastros) */
+.rotas-vazio { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 56px 24px; text-align: center; }
+.rotas-vazio h2 { margin: 0; font-size: 18px; }
+.rotas-vazio p { margin: 0; max-width: 520px; color: var(--muted); font-size: 14px; line-height: 1.5; }
+.rotas-vazio-icone { width: 56px; height: 56px; border-radius: 50%; background: var(--primary-soft); color: var(--primary); display: flex; align-items: center; justify-content: center; }
+.rotas-vazio-icone svg { width: 26px; height: 26px; }
+.rotas-vazio .secondary-action { margin-top: 6px; }
+
+/* Controle de Rotas: frota e motoristas */
+.rotas-kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 14px; }
+.rotas-kpi { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; display: flex; flex-direction: column; gap: 4px; }
+.rotas-kpi span { font-size: 12px; font-weight: 600; color: var(--muted); }
+.rotas-kpi strong { font-size: 24px; }
+.rotas-kpi small { font-size: 13px; font-weight: 500; color: var(--muted); }
+.rotas-kpi.is-amber { background: var(--amber-soft); border-color: #f0dcae; }
+.rotas-kpi.is-amber span, .rotas-kpi.is-amber strong { color: #8f5300; }
+.rotas-kpi.is-danger { background: var(--danger-soft); border-color: #f2c4c4; }
+.rotas-kpi.is-danger span, .rotas-kpi.is-danger strong { color: var(--danger); }
+.rotas-frota-panel { padding: 0; overflow: hidden; }
+.rotas-frota-head { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; padding: 12px 14px; border-bottom: 1px solid var(--border); }
+.rotas-tabela-wrap { overflow-x: auto; }
+.rotas-tabela tbody tr[data-id] { cursor: pointer; }
+.rotas-tabela tbody tr[data-id]:hover { background: var(--surface-soft); }
+.rotas-tabela td { white-space: nowrap; vertical-align: top; }
+.rotas-tabela th.c, .rotas-tabela td.c { text-align: center; }
+.rotas-motivos { font-size: 11px; color: var(--muted); margin-top: 3px; white-space: normal; max-width: 260px; }
+.rotas-modal { width: min(720px, calc(100% - 24px)); }
+.rotas-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 12px; }
+.rotas-form-grid .rotas-campo-full { grid-column: 1 / -1; }
+.rotas-form-grid [hidden] { display: none; }
+@media (max-width: 720px) {
+  .rotas-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .rotas-form-grid { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* Controle de Rotas: rotas e alunos */
+.rotas-modal.is-larga { width: min(1080px, calc(100% - 24px)); }
+.rotas-dica { display: block; font-size: 12px; color: var(--muted); margin-top: 2px; }
+.rotas-falta { color: #8f5300; font-weight: 600; }
+.rotas-secao-acoes { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 12px 14px; }
+.rotas-secao-acoes:first-child { justify-content: flex-end; }
+.rotas-secao-acoes strong:first-child + button { margin-left: auto; }
+.rotas-passos { list-style: none; padding: 0; margin: 8px 0 0; display: flex; flex-direction: column; gap: 8px; width: min(560px, 100%); text-align: left; }
+.rotas-passos li { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); font-size: 14px; }
+.rotas-passos li > span:nth-child(2) { flex: 1 1 auto; }
+.rotas-passos li.is-feito { background: var(--primary-soft); border-color: #b6e3cf; color: var(--muted); }
+.rotas-passo-n { flex: none; width: 26px; height: 26px; border-radius: 50%; background: var(--sidebar); color: #fff; display: inline-flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; }
+.rotas-passos li.is-feito .rotas-passo-n { background: var(--primary); }
+
+.rotas-mestre { display: flex; flex-wrap: wrap; align-items: flex-start; }
+.rotas-mestre-lista { flex: 1 1 260px; max-width: 340px; display: flex; flex-direction: column; gap: 8px; padding: 14px; border-right: 1px solid var(--border); box-sizing: border-box; }
+.rotas-mestre-detalhe { flex: 999 1 520px; min-width: 0; padding: 16px 18px; display: flex; flex-direction: column; gap: 14px; }
+.rotas-card { display: flex; flex-direction: column; gap: 4px; width: 100%; padding: 11px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); text-align: left; font: inherit; color: var(--text); cursor: pointer; }
+.rotas-card:hover { background: var(--surface-soft); }
+.rotas-card.is-sel { border-color: var(--primary); background: var(--primary-soft); }
+.rotas-card-topo { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.rotas-card-info { font-size: 12px; color: var(--muted); }
+.rotas-detalhe-topo { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 10px; align-items: flex-start; }
+.rotas-detalhe-topo h2 { margin: 0; font-size: 18px; }
+.rotas-detalhe-topo p { margin: 2px 0 0; color: var(--muted); font-size: 13px; }
+.rotas-detalhe-acoes { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.rotas-motivos-lista { margin: 0; padding: 10px 14px 10px 30px; border-radius: 10px; font-size: 13px; line-height: 1.6; background: var(--amber-soft); }
+.rotas-motivos-lista.is-bloqueado { background: var(--danger-soft); }
+.rotas-info-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.rotas-info { background: var(--surface-soft); border-radius: 8px; padding: 9px 11px; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.rotas-info span { font-size: 12px; color: var(--muted); }
+.rotas-info strong { font-size: 13px; overflow-wrap: anywhere; }
+.rotas-detalhe-corpo { display: flex; flex-wrap: wrap; gap: 14px; }
+.rotas-paradas-ro { flex: 1 1 280px; display: flex; flex-direction: column; }
+.rotas-parada-ro { display: grid; grid-template-columns: 26px minmax(0, 1fr) auto auto; gap: 10px; align-items: center; padding: 8px 0; border-top: 1px solid var(--border); font-size: 13px; }
+.rotas-parada-ro small { display: block; color: var(--muted); font-size: 12px; }
+.rotas-detalhe-mapa { flex: 1 1 320px; height: 300px; border-radius: 10px; border: 1px solid var(--border); }
+.rotas-alunos-rota { display: flex; flex-direction: column; gap: 8px; }
+.rotas-paradas-titulo { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin: 6px 0 8px; }
+
+.rotas-pino { display: inline-flex; flex: none; width: 26px; height: 26px; border-radius: 50%; background: var(--sidebar); color: #fff; border: 2px solid #fff; box-shadow: 0 1px 4px rgba(0,0,0,.35); align-items: center; justify-content: center; font-size: 12px; font-weight: 700; box-sizing: border-box; }
+.rotas-pino.is-ativa { background: var(--primary); }
+.rotas-pino.is-escola { background: var(--blue); }
+
+.rotas-paradas-editor { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 12px; margin-bottom: 12px; }
+.rotas-paradas-lista { display: flex; flex-direction: column; gap: 6px; max-height: 420px; overflow-y: auto; padding-right: 4px; }
+.rotas-paradas-mapa { height: 420px; border-radius: 10px; border: 1px solid var(--border); }
+.rotas-parada-ed { display: flex; gap: 8px; align-items: flex-start; padding: 8px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
+.rotas-parada-ed.is-ativa { border-color: var(--primary); background: var(--primary-soft); }
+.rotas-parada-campos { flex: 1 1 auto; min-width: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+.rotas-parada-campos input[data-p="nome"] { grid-column: span 3; }
+.rotas-parada-campos input { width: 100%; box-sizing: border-box; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; font: 13px Inter, Arial, sans-serif; color: var(--text); background: #fff; }
+.rotas-parada-campos input[data-p="referencia"] { grid-column: 1 / -1; }
+.rotas-parada-campos input[data-p="lat"], .rotas-parada-campos input[data-p="lon"] { grid-column: span 2; }
+.rotas-parada-botoes { display: flex; flex-direction: column; gap: 2px; }
+.rotas-parada-botoes .icon-button { width: 28px; height: 28px; }
+@media (max-width: 860px) {
+  .rotas-mestre-lista { max-width: none; border-right: 0; border-bottom: 1px solid var(--border); }
+  .rotas-info-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .rotas-paradas-editor { grid-template-columns: minmax(0, 1fr); }
+  .rotas-paradas-mapa { height: 300px; }
+}

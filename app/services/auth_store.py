@@ -712,6 +712,11 @@ MODULE_CATALOG: List[Dict[str, str]] = [
     {"key": "access-control", "label": "Controle de Acesso", "section": "Controle de Acesso"},
     {"key": "alert-live", "label": "Alerta ao Vivo", "section": "Alerta"},
     {"key": "alert-members", "label": "Pessoas do Alerta", "section": "Alerta"},
+    {"key": "rotas-vivo", "label": "Rotas ao Vivo", "section": "Controle de Rotas"},
+    {"key": "rotas-viagens", "label": "Viagens", "section": "Controle de Rotas"},
+    {"key": "rotas-cadastro", "label": "Rotas e Alunos", "section": "Controle de Rotas"},
+    {"key": "rotas-frota", "label": "Frota e Motoristas", "section": "Controle de Rotas"},
+    {"key": "rotas-pnate", "label": "Prestacao de Contas PNATE", "section": "Controle de Rotas"},
 ]
 _MODULE_KEYS = {m["key"] for m in MODULE_CATALOG}
 

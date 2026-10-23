@@ -629,6 +629,11 @@ const VIEW_META = {
   'access-painel':  { title: 'Controle de Acesso', sub: 'Ao vivo, pessoas, horários, relatórios e mensagens' },
   'alert-live':     { title: 'Central ao vivo', sub: 'Pedidos de ajuda do botao de panico' },
   'alert-members':  { title: 'Pessoas e aparelhos', sub: 'Quem pode pedir ajuda e se o celular esta pronto' },
+  'rotas-vivo':     { title: 'Controle de Rotas', sub: 'Ônibus em viagem agora' },
+  'rotas-viagens':  { title: 'Controle de Rotas', sub: 'Viagens e as 6 provas do PNATE' },
+  'rotas-cadastro': { title: 'Controle de Rotas', sub: 'Rotas, paradas e alunos' },
+  'rotas-frota':    { title: 'Controle de Rotas', sub: 'Veículos, motoristas e vencimentos' },
+  'rotas-pnate':    { title: 'Controle de Rotas', sub: 'Prestação de contas do PNATE' },
   'net-operate':   { title: 'Manutencao - Rede', sub: 'Tuneis, diagnostico e teste pontual' },
   planning:        { title: 'Projetos de CFTV', sub: 'Planejamento antes da implantacao' },
   'deploy-olt':    { title: 'Implantacao - OLT', sub: 'Cadastro das OLTs usadas na operacao' },
@@ -673,6 +678,11 @@ const VIEW_ID_MAP = {
   'access-painel':   'viewAccessPainel',
   'alert-live':      'viewAlertLive',
   'alert-members':   'viewAlertMembers',
+  'rotas-vivo':      'viewRotasVivo',
+  'rotas-viagens':   'viewRotasViagens',
+  'rotas-cadastro':  'viewRotasCadastro',
+  'rotas-frota':     'viewRotasFrota',
+  'rotas-pnate':     'viewRotasPnate',
   'net-operate':    'viewNetOperate',
   planning:         'viewPlanning',
   'deploy-olt':     'viewDeployOlt',
@@ -790,6 +800,11 @@ function loadView(view) {
     case 'access-painel':  loadAccessPainel();  break;
     case 'alert-live':     loadAlertLive();     break;
     case 'alert-members':  loadAlertMembers();  break;
+    case 'rotas-vivo':     loadRotasVivo();     break;
+    case 'rotas-viagens':  loadRotasViagens();  break;
+    case 'rotas-cadastro': loadRotasCadastro(); break;
+    case 'rotas-frota':    loadRotasFrota();    break;
+    case 'rotas-pnate':    loadRotasPnate();    break;
     case 'olt':         loadOlt();          break;
     case 'switch':      loadSwitch();       break;
     case 'kmz':         loadKmz();          break;

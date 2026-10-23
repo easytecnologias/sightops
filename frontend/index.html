@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=1792600278">
+  <link rel="stylesheet" href="styles.css?v=1792600343">
   <link rel="stylesheet" href="acesso/acesso.css?v=1792600213">
 </head>
 <body>
@@ -143,6 +143,14 @@
         <div class="nav-section-label">Alerta</div>
         <button class="nav-item" data-view="alert-live"><i data-lucide="siren"></i><span>Central ao vivo</span><span class="alert-nav-badge" id="alertNavBadge" hidden>0</span></button>
         <button class="nav-item" data-view="alert-members"><i data-lucide="contact"></i><span>Pessoas e aparelhos</span></button>
+
+        <!-- Controle de Rotas (transporte escolar / PNATE) -->
+        <div class="nav-section-label">Controle de Rotas</div>
+        <button class="nav-item" data-view="rotas-vivo"><i data-lucide="radar"></i><span>Ao vivo</span></button>
+        <button class="nav-item" data-view="rotas-viagens"><i data-lucide="route"></i><span>Viagens</span></button>
+        <button class="nav-item" data-view="rotas-cadastro"><i data-lucide="map"></i><span>Rotas e alunos</span></button>
+        <button class="nav-item" data-view="rotas-frota"><i data-lucide="bus"></i><span>Frota e motoristas</span></button>
+        <button class="nav-item" data-view="rotas-pnate"><i data-lucide="file-check"></i><span>Prestação de contas</span></button>
 
         </div>
 
@@ -1843,6 +1851,114 @@
             <div class="alert-camera-stage">
               <video id="alertCameraVideo" autoplay muted playsinline></video>
               <span class="alert-camera-status" id="alertCameraStatus">Conectando...</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- --- VIEWS: CONTROLE DE ROTAS --- transporte escolar; cada viagem so conta
+           para o PNATE com as 6 provas (km, rota, alunos, veiculo, motorista, documentos). -->
+      <section class="workspace hidden" id="viewRotasVivo">
+        <div class="page-heading">
+          <div>
+            <p class="eyebrow">Controle de Rotas</p>
+            <h1>Ao vivo</h1>
+            <p>Onde cada ônibus está, quem está dirigindo e quantos alunos estão a bordo.</p>
+          </div>
+        </div>
+        <section class="panel rotas-vazio" id="rotasVivoBody"></section>
+      </section>
+
+      <section class="workspace hidden" id="viewRotasViagens">
+        <div class="page-heading">
+          <div>
+            <p class="eyebrow">Controle de Rotas</p>
+            <h1>Viagens</h1>
+            <p>Cada viagem só entra no pagamento se as 6 provas do PNATE estiverem completas.</p>
+          </div>
+        </div>
+        <section class="panel rotas-vazio" id="rotasViagensBody"></section>
+      </section>
+
+      <section class="workspace hidden" id="viewRotasCadastro">
+        <div class="page-heading">
+          <div>
+            <p class="eyebrow">Controle de Rotas</p>
+            <h1>Rotas e alunos</h1>
+            <p>A rota cadastrada é o que o GPS confere. O aluno só conta se estiver matriculado e ligado a uma parada.</p>
+          </div>
+          <div class="page-heading-actions">
+            <button class="secondary-action" type="button" data-rotas-novo="alunos"><i data-lucide="user-plus"></i> Novo aluno</button>
+            <button class="primary-action" type="button" data-rotas-novo="rotas"><i data-lucide="route"></i> Nova rota</button>
+          </div>
+        </div>
+        <div class="rotas-kpis" id="rotasCadKpis"></div>
+        <section class="panel rotas-frota-panel">
+          <div class="rotas-frota-head">
+            <nav class="inv-view-tabs" aria-label="Cadastro">
+              <button class="inv-view-tab active" type="button" data-rotas-cad-aba="rotas">Rotas</button>
+              <button class="inv-view-tab" type="button" data-rotas-cad-aba="alunos">Alunos</button>
+              <button class="inv-view-tab" type="button" data-rotas-cad-aba="escolas">Escolas</button>
+              <button class="inv-view-tab" type="button" data-rotas-cad-aba="contratos">Contratos</button>
+            </nav>
+            <label class="search-box"><i data-lucide="search"></i><input id="rotasCadBusca" type="search" placeholder="Buscar rota, aluno, escola"></label>
+          </div>
+          <div id="rotasCadastroBody"></div>
+        </section>
+      </section>
+
+      <section class="workspace hidden" id="viewRotasFrota">
+        <div class="page-heading">
+          <div>
+            <p class="eyebrow">Controle de Rotas</p>
+            <h1>Frota e motoristas</h1>
+            <p>Documento vencido bloqueia a viagem no app e reprova a viagem no PNATE. O aviso começa 30 dias antes.</p>
+          </div>
+          <div class="page-heading-actions">
+            <button class="secondary-action" type="button" data-rotas-novo="operadores"><i data-lucide="building-2"></i> Nova empresa</button>
+            <button class="secondary-action" type="button" data-rotas-novo="motoristas"><i data-lucide="id-card"></i> Novo motorista</button>
+            <button class="primary-action" type="button" data-rotas-novo="veiculos"><i data-lucide="bus"></i> Novo veículo</button>
+          </div>
+        </div>
+        <div class="rotas-kpis" id="rotasFrotaKpis"></div>
+        <section class="panel rotas-frota-panel">
+          <div class="rotas-frota-head">
+            <nav class="inv-view-tabs" aria-label="Cadastro">
+              <button class="inv-view-tab active" type="button" data-rotas-aba="veiculos">Veículos</button>
+              <button class="inv-view-tab" type="button" data-rotas-aba="motoristas">Motoristas e monitores</button>
+              <button class="inv-view-tab" type="button" data-rotas-aba="operadores">Empresas e frota própria</button>
+            </nav>
+            <label class="search-box"><i data-lucide="search"></i><input id="rotasFrotaBusca" type="search" placeholder="Buscar placa, nome, empresa"></label>
+          </div>
+          <div id="rotasFrotaBody"></div>
+        </section>
+
+      </section>
+
+      <section class="workspace hidden" id="viewRotasPnate">
+        <div class="page-heading">
+          <div>
+            <p class="eyebrow">Controle de Rotas</p>
+            <h1>Prestação de contas</h1>
+            <p>Fechamento do mês para o PNATE: só entra no valor a pagar o que tem as 6 provas.</p>
+          </div>
+        </div>
+        <section class="panel rotas-vazio" id="rotasPnateBody"></section>
+      </section>
+
+      <!-- Formulario compartilhado das telas do Controle de Rotas -->
+      <div id="modalRotasCadastro" class="modal-backdrop hidden">
+        <div class="modal rotas-modal" role="dialog" aria-labelledby="rotasModalTitulo">
+          <div class="modal-header">
+            <div><h2 id="rotasModalTitulo">Cadastro</h2><p id="rotasModalSub"></p></div>
+            <button class="icon-button" data-rotas-fechar type="button" aria-label="Fechar"><i data-lucide="x"></i></button>
+          </div>
+          <div class="modal-body">
+            <form id="rotasModalForm" autocomplete="off"></form>
+            <div class="modal-actions">
+              <button class="secondary-action danger-action" id="rotasModalExcluir" type="button" hidden><i data-lucide="trash-2"></i> Excluir</button>
+              <button class="secondary-action" data-rotas-fechar type="button"><i data-lucide="x"></i> Cancelar</button>
+              <button class="primary-action" id="rotasModalSalvar" type="button"><i data-lucide="save"></i> Salvar</button>
             </div>
           </div>
         </div>
@@ -7643,7 +7759,7 @@
        trechos do app.js original na sequencia em que estavam, entao carregar
        fora de ordem muda o comportamento. Ao adicionar um arquivo novo, entre
        antes de bootstrap.js, que e quem liga os botoes no DOMContentLoaded. -->
-  <script src="js/core.js?v=1792600255"></script>
+  <script src="js/core.js?v=1792600342"></script>
   <script src="js/licencas.js?v=1792600103"></script>
   <script src="js/configuracoes.js?v=1792600138"></script>
   <script src="js/notificacoes.js?v=1792600139"></script>
@@ -7687,6 +7803,7 @@
   <script src="js/messenger.js?v=1791000212"></script>
   <script src="https://unpkg.com/qrcode-generator@1.4.4/qrcode.js"></script>
   <script src="js/alert.js?v=1792600267"></script>
+  <script src="js/controleRotas.js?v=1792600341"></script>
   <script src="js/tr069.js?v=1791000212"></script>
   <script src="js/bootstrap.js?v=1792600207"></script>
 </body>
