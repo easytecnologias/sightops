@@ -306,6 +306,8 @@ def _list_kmz_import_layers(include_features: bool = True) -> list[dict[str, Any
             "ctos": meta.get("ctos") if isinstance(meta.get("ctos"), dict) else {},
             "cdos": meta.get("cdos") if isinstance(meta.get("cdos"), dict) else {},
             "fibras": meta.get("fibras") if isinstance(meta.get("fibras"), dict) else {},
+            # rack da rede neutra: equipamentos, portas e ligacoes (app/services/mapa_rack.py)
+            "racks": meta.get("racks") if isinstance(meta.get("racks"), dict) else {},
             "motivos": meta.get("motivos") if isinstance(meta.get("motivos"), dict) else {},
             **({"features": features, "type": geojson.get("type") or "FeatureCollection"} if include_features else {}),
         })
@@ -1815,8 +1817,8 @@ def _arrastar_ponto_no_meta(meta: dict, nome: str, de: tuple, para: tuple) -> in
     em_cima = lambda pt, ref: pt is not None and abs(float(pt[0]) - ref[0]) < _CURVA_TOL and abs(float(pt[1]) - ref[1]) < _CURVA_TOL
     novo = [round(para[0], 7), round(para[1], 7)]
     ids_caixa = set()
-    movidos: Dict[str, set] = {"ctos": set(), "cdos": set()}
-    for grupo in ("caixas", "ctos", "cdos"):
+    movidos: Dict[str, set] = {"ctos": set(), "cdos": set(), "racks": set()}
+    for grupo in ("caixas", "ctos", "cdos", "racks"):
         for c in (meta.get(grupo) or {}).values():
             if (c.get("ponto") or "").strip().lower() == alvo and c.get("lat") is not None \
                     and perto((c["lat"], c["lng"]), de):
@@ -1931,6 +1933,9 @@ async def api_kmz_import_layer_update(layer_id: str, payload: Dict[str, Any], re
     if isinstance(payload.get("cdo"), dict):
         u = getattr(request.state, "current_user", None) or {}
         return {"ok": True, **_cdo_da_camada(layer_id, payload["cdo"], str(u.get("username") or "") if isinstance(u, dict) else "")}
+    if isinstance(payload.get("rack"), dict):
+        u = getattr(request.state, "current_user", None) or {}
+        return {"ok": True, **_rack_da_camada(layer_id, payload["rack"], str(u.get("username") or "") if isinstance(u, dict) else "")}
     if isinstance(payload.get("fibra"), dict):
         u = getattr(request.state, "current_user", None) or {}
         return {"ok": True, **_fibra_da_camada(layer_id, payload["fibra"], str(u.get("username") or "") if isinstance(u, dict) else "")}
@@ -2130,7 +2135,7 @@ def _trocar_nome_do_ponto_no_meta(meta: dict, antigo: str, novo: str, pos: Any, 
     a = str(antigo or "").strip().lower()
     perto = lambda c: (pos is None or c.get("lat") is None
                        or (abs(float(c["lat"]) - pos[0]) < 3e-5 and abs(float(c["lng"]) - pos[1]) < 3e-5))
-    for chave in ("caixas", "ctos", "cdos"):
+    for chave in ("caixas", "ctos", "cdos", "racks"):
         for c in (meta.get(chave) or {}).values():
             if isinstance(c, dict) and str(c.get("ponto") or "").strip().lower() == a and perto(c):
                 c["ponto"] = novo
@@ -2532,7 +2537,7 @@ def cor_da_fibra(n: int) -> dict:
 
 def _rede_da_camada(meta: dict) -> dict:
     return {k: (meta.get(k) if isinstance(meta.get(k), dict) else {})
-            for k in ("caixas", "cabos", "ctos", "cdos", "fibras")}
+            for k in ("caixas", "cabos", "ctos", "cdos", "fibras", "racks")}
 
 
 def _herdar_da_cdo(meta: dict) -> None:
@@ -2642,6 +2647,51 @@ def _cdo_da_camada_sem_lock(layer_id: str, dados: Dict[str, Any], por: str = "")
     meta["updated_at"] = datetime.now().isoformat(timespec="seconds")
     _write_kmz_layer_meta(meta_path, meta)
     return {**_rede_da_camada(meta), "aviso": aviso}
+
+
+def _rack_da_camada(layer_id: str, dados: Dict[str, Any], por: str = "") -> dict[str, Any]:
+    with _LOCK_CAIXAS:
+        return _rack_da_camada_sem_lock(layer_id, dados, por)
+
+
+def _rack_da_camada_sem_lock(layer_id: str, dados: Dict[str, Any], por: str = "") -> dict[str, Any]:
+    """Rack da rede neutra (equipamentos, portas, ligacoes, provedores).
+    Excluir o rack, tirar equipamento ou desfazer/trocar ligacao: so admin
+    (como a fibra) -- operador monta e liga, nao desmonta."""
+    from app.services import mapa_rack
+
+    meta, meta_path = _meta_da_camada_ou_404(layer_id)
+    racks = meta.get("racks") if isinstance(meta.get("racks"), dict) else {}
+    atual = racks.get(_texto_curto(dados.get("id"), 24)) or {}
+    if dados.get("excluir"):
+        if not atual:
+            raise HTTPException(404, "Rack nao encontrado.")
+        _exige_admin_para_excluir()
+    elif atual:
+        ligs_antes = {lg.get("id"): (lg.get("a"), lg.get("b")) for lg in atual.get("ligacoes", []) if isinstance(lg, dict)}
+        ligs_novas = {str((lg or {}).get("id") or ""): ((lg or {}).get("a"), (lg or {}).get("b"))
+                      for lg in dados.get("ligacoes", []) if isinstance(lg, dict)} if "ligacoes" in dados else ligs_antes
+        eqs_novos = {str((e or {}).get("id") or "") for e in dados.get("equipamentos", []) if isinstance(e, dict)} \
+            if "equipamentos" in dados else {e.get("id") for e in atual.get("equipamentos", []) if isinstance(e, dict)}
+        desfaz = any(lid not in ligs_novas or ligs_novas[lid] != pontas for lid, pontas in ligs_antes.items())
+        tira_eq = any(e.get("id") not in eqs_novos for e in atual.get("equipamentos", []) if isinstance(e, dict))
+        if desfaz or tira_eq:
+            _exige_admin_para_excluir()
+    try:
+        rack = mapa_rack.salvar_rack(meta, dados, por)
+    except LookupError as exc:
+        raise HTTPException(404, str(exc))
+    except mapa_rack.RackErro as exc:
+        raise HTTPException(400, str(exc))
+    aviso = ""
+    if rack and rack["nome"].lower() != rack["ponto"].lower():
+        aviso = _seguir_nome_no_ponto(layer_id, meta, rack["ponto"], rack["nome"],
+                                      (rack["lat"], rack["lng"]) if rack.get("lat") is not None else None)
+        if not aviso:
+            _apagar_geradas_do_mapa(layer_id)
+    meta["updated_at"] = datetime.now().isoformat(timespec="seconds")
+    _write_kmz_layer_meta(meta_path, meta)
+    return {**_rede_da_camada(meta), "aviso": aviso, "rack_id": (rack or {}).get("id", "")}
 
 
 def _fibra_da_camada(layer_id: str, dados: Dict[str, Any], por: str = "") -> dict[str, Any]:

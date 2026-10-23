@@ -13425,3 +13425,35 @@ button.map-layer-stat.parcial .map-layer-stat-dot { box-shadow: 0 0 0 2px var(--
   .rotas-paradas-editor { grid-template-columns: minmax(0, 1fr); }
   .rotas-paradas-mapa { height: 300px; }
 }
+
+/* Mapa: rack da rede neutra (mapaRack.js) */
+.rk-pino { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
+.rk-pino b { background: var(--sidebar); color: #fff; border: 2px solid #fff; border-radius: 6px; padding: 2px 5px; font: 700 10px Inter, Arial, sans-serif; box-shadow: 0 2px 8px rgba(0,0,0,.4); }
+.rk-pino span { background: #fff; color: #172026; font: 700 11px Inter, Arial, sans-serif; padding: 2px 7px; border-radius: 6px; white-space: nowrap; box-shadow: 0 1px 4px rgba(0,0,0,.3); }
+.rk-pino-novo b { border-style: dashed; }
+.cx-painel.rk-painel { width: min(620px, calc(100% - 24px)); }
+.cx-painel.rk-painel > header .eyebrow { color: var(--sidebar-soft); }
+.rk-eq { border: 1px solid var(--border); border-radius: 10px; padding: 10px; margin-bottom: 8px; background: var(--surface); }
+.rk-eq-topo { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; font-size: 13px; }
+.rk-eq-topo small { color: var(--muted); }
+.rk-tipo { background: var(--sidebar); color: #fff; border-radius: 5px; padding: 2px 6px; font-size: 11px; font-weight: 700; }
+.rk-status { border-radius: 999px; padding: 1px 8px; font-size: 11px; font-weight: 700; }
+.rk-status.rk-on { background: var(--primary-soft); color: var(--primary); }
+.rk-status.rk-off { background: var(--danger-soft); color: var(--danger); }
+.rk-status.rk-sem { background: var(--surface-soft); color: var(--muted); }
+.rk-portas { display: grid; grid-template-columns: repeat(auto-fill, minmax(52px, 1fr)); gap: 5px; }
+.rk-porta { height: 30px; border-radius: 6px; font: 700 11px Inter, Arial, sans-serif; cursor: pointer; border: 1px solid transparent; padding: 0 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rk-porta.rk-p-livre { background: var(--surface-soft); border: 1px dashed var(--border); color: var(--muted); font-weight: 500; }
+.rk-porta.rk-p-lig { background: var(--blue-soft); color: var(--blue); }
+.rk-porta.rk-p-prov { background: var(--amber-soft); color: #8f5300; border-color: #f0dcae; }
+.rk-porta:focus-visible { outline: 2px solid var(--primary); outline-offset: 1px; }
+.rk-form { border: 1px solid var(--border); border-radius: 10px; padding: 10px; background: var(--surface-soft); display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
+.rk-form h4 { margin: 0; font-size: 13px; }
+.rk-form select, .rk-form input { min-width: 0; height: 34px; }
+.rk-ligar, .rk-prov { flex-direction: row; flex-wrap: wrap; align-items: center; }
+.rk-ponta { display: flex; gap: 4px; flex: 1 1 210px; min-width: 0; }
+.rk-ponta select { flex: 1 1 0; }
+.rk-seta { font-weight: 700; color: var(--muted); }
+.rk-prov #rkProvNome, .rk-prov #rkProvVlans { flex: 1 1 160px; }
+.rk-form-acoes { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.rk-tabela td:first-child { color: inherit; width: auto; }

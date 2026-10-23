@@ -419,6 +419,7 @@ async function cxGravar(def, corpo) {
   if (data.ctos) def.ctos = data.ctos;
   if (data.cdos) def.cdos = data.cdos;
   if (data.fibras) def.fibras = data.fibras;
+  if (data.racks) def.racks = data.racks;
   return data;
 }
 

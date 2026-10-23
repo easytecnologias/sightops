@@ -324,6 +324,8 @@ function mapFeatureType(feature, cam) {
   if (/^pt[-\s]?\d+\b|\bposte\b|\bpostes\b|\bpole\b/i.test(name)) return 'pole';
   if (/caixa\s*herm[eé]tica|caixa\s*cftv|hermetica|hermética/i.test(name)) return 'box';
   if (!cam && typeof cxPontoPareceCaixa === 'function' && geomType === 'point' && cxPontoPareceCaixa(name)) return 'box';
+  // rack da rede neutra (mapaRack.js): antes de 'camera', que pega ponto importado sem origem
+  if (!cam && geomType === 'point' && /\brack\b|data\s*center|^pop\b/i.test(name)) return 'rack';
   if (cam || (!feature?._source && geomType === 'point') || feature?._source === 'generated') return 'camera';
   if (/\bcto\b|^cto/i.test(name)) return 'cto';
   if (/\bcdo\b|^cdo|emenda|splice/i.test(name)) return 'cdo';
@@ -376,12 +378,13 @@ function mapCategoriasDoPonto(def, f, cam, type = mapFeatureType(f, cam)) {
   if (def && typeof cxCaixaDoPonto === 'function' && f?.geometry?.type === 'Point') {
     const c = f.geometry.coordinates || [];
     if (cxCaixaDoPonto(def, mapFeatureName(f), [+c[1], +c[0]])) return ['box'];
+    if (typeof rkDoPonto === 'function' && rkDoPonto(def, mapFeatureName(f), [+c[1], +c[0]])) return ['rack'];
   }
   if (type === 'camera') {
     const st = mapFeatureStatus(f, cam);
     return ['cameras', st === 'online' || st === 'offline' ? st : 'outros'];
   }
-  if (['fiber', 'pole', 'box', 'cto', 'cdo'].includes(type)) return [type];
+  if (['fiber', 'pole', 'box', 'cto', 'cdo', 'rack'].includes(type)) return [type];
   return ['outros'];
 }
 
@@ -542,7 +545,7 @@ const _mapLegendaAberta = {};
 // da legenda (caixa cadastrada conta como caixa) e esconde tambem os cabos.
 const MAP_TIPOS = [['cameras', 'Câmeras'], ['box', 'Caixas CFTV'], ['cabos', 'Cabos de rede (caixa → câmera)'],
   ['drop', 'Fibra drop (CTO → caixa)'], ['cto', 'CTO'],
-  ['cdo', 'CDO / CEO'], ['fibras', 'Cabos de fibra (CDO → CTO)'], ['fiber', 'Linhas de fibra do KMZ'], ['pole', 'Postes'], ['outros', 'Outros']];
+  ['cdo', 'CDO / CEO'], ['rack', 'Racks'], ['fibras', 'Cabos de fibra (CDO → CTO)'], ['fiber', 'Linhas de fibra do KMZ'], ['pole', 'Postes'], ['outros', 'Outros']];
 let _mapTiposOcultos = null;
 function mapTiposOcultos() {
   if (!_mapTiposOcultos) {
@@ -683,11 +686,13 @@ function mapLayerStats(features, index = _mapCameraIndex, def = null) {
       acc.cto += 1;
     } else if (type === 'cdo') {
       acc.cdo += 1;
+    } else if (type === 'rack') {
+      acc.rack += 1;
     } else {
       acc.outros += 1;
     }
     return acc;
-  }, { total: 0, cameras: 0, online: 0, offline: 0, outros: 0, fiber: 0, poles: 0, boxes: 0, cto: 0, cdo: 0 });
+  }, { total: 0, cameras: 0, online: 0, offline: 0, outros: 0, fiber: 0, poles: 0, boxes: 0, cto: 0, cdo: 0, rack: 0 });
 }
 
 function mapLayerColor(features, fallback = '#d97706') {
@@ -1586,6 +1591,7 @@ async function loadMapLayers() {
     cabos: layer.cabos || {},
     ctos: layer.ctos || {},
     cdos: layer.cdos || {},
+    racks: layer.racks || {},
     fibras: layer.fibras || {},
     motivos: layer.motivos || {},
   }));
@@ -1738,6 +1744,7 @@ async function loadMapLayers() {
       stats.poles ? chip('pole', '#64748b', stats.poles, 'postes') : '',
       stats.cto ? chip('cto', '#1971c2', stats.cto, 'CTO') : '',
       stats.cdo ? chip('cdo', '#7950f2', stats.cdo, 'CDO') : '',
+      stats.rack ? chip('rack', '#13252d', stats.rack, 'racks') : '',
     ].filter(Boolean).join('');
     statsEl.innerHTML = `
       ${chip('online', '#16a34a', stats.online, 'online')}
@@ -1982,6 +1989,17 @@ function renderMapLayerGroup(id, def, skipFit = false) {
       if (!cam && def?.source === 'imported' && typeof cxMarcador === 'function'
           && (cxCaixaDoPonto(def, mapFeatureName(f), [+lat, +lng]) || pointType === 'box')) {
         const mk = cxMarcador(id, def, f, +lat, +lng);
+        state.markers[mapFeatureKey(f, cam)] = mk;
+        state.group.addLayer(mk);
+        bounds.push([+lat, +lng]);
+        drawnCount += 1;
+        return;
+      }
+
+      // Rack da rede neutra (mapaRack.js): pelo nome ou ja cadastrado no ponto
+      if (!cam && !editing && def?.source === 'imported' && typeof rkMarcador === 'function'
+          && (pointType === 'rack' || rkDoPonto(def, mapFeatureName(f), [+lat, +lng]))) {
+        const mk = rkMarcador(id, def, f, +lat, +lng);
         state.markers[mapFeatureKey(f, cam)] = mk;
         state.group.addLayer(mk);
         bounds.push([+lat, +lng]);
