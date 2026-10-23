@@ -170,7 +170,9 @@ function cxDesenharCabos(id, def, group) {
   const ocultos = typeof mapOcultosDaCamada === 'function' ? mapOcultosDaCamada(id) : new Set();
   cdLigarRotulosPorZoom();
   if (ocultos.has('cabos')) return;
-  cdDesenharFibras(id, def, group);
+  const tipos = typeof mapTiposOcultos === 'function' ? mapTiposOcultos() : new Set();
+  if (!tipos.has('fibras')) cdDesenharFibras(id, def, group);
+  if (tipos.has('cabos')) return;
   const filhos = typeof mapFilhosOcultos === 'function' ? mapFilhosOcultos(def) : { cabos: new Set() };
   // Cabo de camera fora do ar: desenhado por ULTIMO (fica por cima de outro
   // cabo no mesmo caminho) e com um halo vermelho pulsando por baixo.

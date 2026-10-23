@@ -537,6 +537,60 @@ function mapAtualizarChips(def, statsEl) {
 
 const _mapLegendaAberta = {};
 
+// Filtro "Tipos" da barra do mapa: caixinha por tipo de elemento, vale para
+// todas as camadas (fica lembrado neste navegador). Usa as mesmas categorias
+// da legenda (caixa cadastrada conta como caixa) e esconde tambem os cabos.
+const MAP_TIPOS = [['cameras', 'Câmeras'], ['box', 'Caixas CFTV'], ['cabos', 'Cabos das câmeras'], ['cto', 'CTO'],
+  ['cdo', 'CDO / CEO'], ['fibras', 'Cabos de fibra (CDO → CTO)'], ['fiber', 'Linhas de fibra do KMZ'], ['pole', 'Postes'], ['outros', 'Outros']];
+let _mapTiposOcultos = null;
+function mapTiposOcultos() {
+  if (!_mapTiposOcultos) {
+    let v = [];
+    try { v = JSON.parse(localStorage.getItem('sightops.mapa.tiposOcultos') || '[]'); } catch {}
+    _mapTiposOcultos = new Set(Array.isArray(v) ? v : []);
+  }
+  return _mapTiposOcultos;
+}
+function mapRotuloTipos() {
+  const bt = document.getElementById('mapTiposBtn');
+  if (!bt) return;
+  const n = MAP_TIPOS.filter(([k]) => !mapTiposOcultos().has(k)).length;
+  bt.firstChild.textContent = n === MAP_TIPOS.length ? 'Todos os tipos' : n === 0 ? 'Nenhum tipo' : `${n} de ${MAP_TIPOS.length} tipos`;
+}
+function mapRenderMenuTipos() {
+  const menu = document.getElementById('mapTiposMenu');
+  if (!menu) return;
+  const ocultos = mapTiposOcultos();
+  const nVis = MAP_TIPOS.filter(([k]) => !ocultos.has(k)).length;
+  const linha = 'display:flex;align-items:center;gap:8px;padding:6px 10px;cursor:pointer;white-space:nowrap;font-size:12px';
+  menu.innerHTML = `<label style="${linha};font-weight:600;border-bottom:1px solid var(--border)"><input type="checkbox" data-tipo-todos ${nVis === MAP_TIPOS.length ? 'checked' : ''}> Todos os tipos</label>`
+    + MAP_TIPOS.map(([k, r]) => `<label style="${linha}"><input type="checkbox" data-tipo="${k}" ${ocultos.has(k) ? '' : 'checked'}> ${esc(r)}</label>`).join('');
+  menu.querySelector('[data-tipo-todos]').indeterminate = nVis > 0 && nVis < MAP_TIPOS.length;
+}
+function mapAplicarTipos() {
+  try { localStorage.setItem('sightops.mapa.tiposOcultos', JSON.stringify([...mapTiposOcultos()])); } catch {}
+  mapRotuloTipos();
+  mapRenderMenuTipos();
+  Object.entries(_mapLayerGroups || {}).forEach(([id, st]) => { if (st?.active) reRenderMapLayerGroup(id, st.def, true); });
+}
+document.addEventListener('click', e => {
+  const menu = document.getElementById('mapTiposMenu');
+  if (!menu) return;
+  if (e.target.closest('#mapTiposBtn')) {
+    menu.hidden = !menu.hidden;
+    if (!menu.hidden) mapRenderMenuTipos();
+    return;
+  }
+  if (!menu.hidden && !e.target.closest('#mapTiposMenu')) menu.hidden = true;
+});
+document.addEventListener('change', e => {
+  if (!e.target.closest?.('#mapTiposMenu')) return;
+  const ocultos = mapTiposOcultos();
+  if (e.target.matches('[data-tipo-todos]')) MAP_TIPOS.forEach(([k]) => (e.target.checked ? ocultos.delete(k) : ocultos.add(k)));
+  else if (e.target.dataset.tipo) { if (e.target.checked) ocultos.delete(e.target.dataset.tipo); else ocultos.add(e.target.dataset.tipo); }
+  mapAplicarTipos();
+});
+
 // Pastas por fibra no card da camada (como no Google Earth): marcar/desmarcar
 // mostra ou esconde CDO, CTO e cabos daquela cor. Bloco proprio, separado da
 // lista da legenda (uma nao apaga a outra).
@@ -558,8 +612,10 @@ function mapRenderPastas(def, statsEl) {
   el.style.cssText = 'grid-column:1/-1;width:100%;margin-top:6px;border:1px solid var(--border);border-radius:8px;background:var(--surface);overflow:hidden';
   const aberto = !!_mapPastasAbertas[def.id];
   const nOcultas = pastas.filter(p => ocultos.has(p.cat)).length;
-  el.innerHTML = `<button type="button" class="map-legenda-todos" data-pastas-toggle style="width:100%;border:0;${aberto ? '' : 'border-bottom:0;'}font:inherit;text-align:left" title="${aberto ? 'Fechar' : 'Abrir'} as pastas">
-      <span>${aberto ? '▾' : '▸'} Pastas por fibra <small>${pastas.length} pastas${nOcultas ? ` · ${nOcultas} escondida${nOcultas > 1 ? 's' : ''}` : ''}</small></span></button>`
+  el.innerHTML = `<div class="map-legenda-todos" style="${aberto ? '' : 'border-bottom:0;'}cursor:default">
+      <input type="checkbox" data-pastas-todas ${nOcultas ? '' : 'checked'} title="Marcar ou desmarcar todas as pastas" aria-label="Marcar ou desmarcar todas as pastas">
+      <button type="button" data-pastas-toggle style="flex:1;min-width:0;border:0;background:none;padding:0;font:inherit;color:inherit;text-align:left;cursor:pointer" title="${aberto ? 'Fechar' : 'Abrir'} as pastas">
+      <span>${aberto ? '▾' : '▸'} Pastas por fibra <small>${pastas.length} pastas${nOcultas ? ` · ${nOcultas} escondida${nOcultas > 1 ? 's' : ''}` : ''}</small></span></button></div>`
     + (!aberto ? '' : pastas.map(p => {
       const aberta = _mapPastaAberta[def.id] === p.cat;
       return `<div class="map-legenda-item">
@@ -570,6 +626,8 @@ function mapRenderPastas(def, statsEl) {
           <button type="button" data-pasta-ir="${k}" title="Ir até no mapa"><span><b style="font-size:10px;color:var(--muted);margin-right:6px">${esc(i.tipo)}</b>${esc(i.nome)}</span></button></div>`).join('') : ''}`;
     }).join(''));
   statsEl.appendChild(el);
+  const cbTodas = el.querySelector('[data-pastas-todas]');
+  cbTodas.indeterminate = nOcultas > 0 && nOcultas < pastas.length;
   el.addEventListener('click', e => {
     e.stopPropagation();
     if (e.target.closest('[data-pastas-toggle]')) {
@@ -588,6 +646,12 @@ function mapRenderPastas(def, statsEl) {
     if (i?.latlng && _map) _map.setView(i.latlng, Math.max(_map.getZoom(), 18));
   });
   el.addEventListener('change', e => {
+    if (e.target === cbTodas) {
+      pastas.forEach(p => (cbTodas.checked ? ocultos.delete(p.cat) : ocultos.add(p.cat)));
+      mapGravarOcultos(def);
+      mapRenderPastas(def, statsEl);
+      return;
+    }
     const cb = e.target.closest('[data-pasta]');
     if (!cb) return;
     if (cb.checked) ocultos.delete(cb.dataset.pasta); else ocultos.add(cb.dataset.pasta);
@@ -1855,6 +1919,8 @@ function renderMapLayerGroup(id, def, skipFit = false) {
   let drawnCount = 0;
   const editing = mapEditIsActive(id);
   const filhosOcultos = mapFilhosOcultos(def);
+  const tiposOcultos = mapTiposOcultos();
+  mapRotuloTipos();
   // Quantos pontos dividem cada nome. A exclusao no backend casa por nome
   // e remove TODOS os Placemarks que batem -- o aviso precisa dizer isso.
   const _porNome = {};
@@ -1868,11 +1934,10 @@ function renderMapLayerGroup(id, def, skipFit = false) {
       const cam = mapFindCamera(f, _mapCameraIndex);
       const pointType = mapFeatureType(f, cam);
       const statusFilter = document.getElementById('mapFilterStatus')?.value || '';
-      const typeFilter = document.getElementById('mapFilterType')?.value || '';
       const siteFilter = document.getElementById('mapFilterSite')?.value || '';
       const featureStatus = mapFeatureStatus(f, cam);
       const featureLocal = mapFeatureLocal(f, cam);
-      if (typeFilter && pointType !== typeFilter) return;
+      if (tiposOcultos.size && mapCategoriasDoPonto(def, f, cam, pointType).some(c => tiposOcultos.has(c))) return;
       if (statusFilter && (pointType !== 'camera' || featureStatus !== statusFilter)) return;
       if (siteFilter && featureLocal !== siteFilter) return;
       if (mapPontoOculto(def, f, cam, pointType, filhosOcultos)) return;

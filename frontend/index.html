@@ -3687,16 +3687,10 @@
             <option value="online">Online</option>
             <option value="offline">Offline</option>
           </select>
-          <select class="filter-select" id="mapFilterType" style="font-size:12px;padding:5px 8px">
-            <option value="">Todos os tipos</option>
-            <option value="camera">Cameras</option>
-            <option value="fiber">Fibra</option>
-            <option value="box">Caixas CFTV</option>
-            <option value="pole">Postes</option>
-            <option value="cto">CTO</option>
-            <option value="cdo">Emenda/CDO</option>
-            <option value="other">Outros</option>
-          </select>
+          <div style="position:relative">
+            <button type="button" class="filter-select" id="mapTiposBtn" style="font-size:12px;padding:5px 8px;display:flex;align-items:center;gap:6px;cursor:pointer;white-space:nowrap" aria-haspopup="true">Todos os tipos<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button>
+            <div id="mapTiposMenu" hidden style="position:absolute;top:calc(100% + 4px);left:0;z-index:1200;min-width:230px;padding:4px 0;background:var(--surface);border:1px solid var(--border);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.14)"></div>
+          </div>
           <select class="filter-select" id="mapInventoryMode" style="font-size:12px;padding:5px 8px">
             <option value="basico">Basico</option>
             <option value="olt">OLT</option>
@@ -7767,8 +7761,8 @@
   <script src="js/equipe.js?v=1792600136"></script>
   <script src="js/dashboard.js?v=1792600133"></script>
   <script src="js/liveStream.js?v=1792600184"></script>
-  <script src="js/cameras.js?v=1792600334"></script>
-  <script src="js/mapaCaixas.js?v=1792600344"></script>
+  <script src="js/cameras.js?v=1792600346"></script>
+  <script src="js/mapaCaixas.js?v=1792600345"></script>
   <script src="js/recorders.js?v=1792600182"></script>
   <script src="js/windows.js?v=1792000024"></script>
   <script src="js/snapshots.js?v=1791000212"></script>
