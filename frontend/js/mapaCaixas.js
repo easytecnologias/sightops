@@ -145,14 +145,25 @@ function cxDesenharCabos(id, def, group) {
   const ocultos = typeof mapOcultosDaCamada === 'function' ? mapOcultosDaCamada(id) : new Set();
   if (ocultos.has('cabos')) return;
   const filhos = typeof mapFilhosOcultos === 'function' ? mapFilhosOcultos(def) : { cabos: new Set() };
-  Object.values(def?.cabos || {}).forEach(cabo => {
-    if (ocultos.has(`cabo:${cabo.id}`) || filhos.cabos.has(cabo.id)) return;
-    if (!Array.isArray(cabo.caminho) || cabo.caminho.length < 2) return;
+  // Cabo de camera fora do ar: desenhado por ULTIMO (fica por cima de outro
+  // cabo no mesmo caminho) e com um halo vermelho pulsando por baixo.
+  const lista = Object.values(def?.cabos || {})
+    .filter(cabo => !(ocultos.has(`cabo:${cabo.id}`) || filhos.cabos.has(cabo.id)))
+    .filter(cabo => Array.isArray(cabo.caminho) && cabo.caminho.length >= 2)
+    .map(cabo => ({ cabo, fora: !cabo.cto && cxEstadoCamera(cxCameraDoCabo(def, cabo)) === 'off' }))
+    .sort((a, b) => Number(a.fora) - Number(b.fora));
+  lista.forEach(({ cabo, fora }) => {
     const t = CX_CABOS[cabo.tipo] || CX_CABOS.outro;
-    const fora = !cabo.cto && cxEstadoCamera(cxCameraDoCabo(def, cabo)) === 'off';
+    if (fora) {
+      const halo = L.polyline(cabo.caminho, { color: '#c92a2a', weight: 12, opacity: 0.35, className: 'cx-cabo-off-halo', interactive: false });
+      halo.on('add', () => halo.bringToFront());
+      group.addLayer(halo);
+    }
     const linha = L.polyline(cabo.caminho, {
-      color: fora ? '#c92a2a' : t.cor, weight: 4, opacity: 0.95, dashArray: t.tracejado || null,
+      color: fora ? '#c92a2a' : t.cor, weight: fora ? 5 : 4, opacity: 0.95, dashArray: fora ? null : (t.tracejado || null),
+      className: fora ? 'cx-cabo-off' : '',
     });
+    if (fora) linha.on('add', () => linha.bringToFront());
     const caixa = def.caixas?.[cabo.caixa];
     linha.bindTooltip(`${esc(t.nome)} · ${cxFmtMetros(cabo.metros || 0)}${cabo.porta ? ` · ${cxTipo(caixa) === 'onu' ? 'LAN' : 'porta '}${cabo.porta}` : ''} → ${cabo.cto ? 'CTO ' : ''}${esc(cxDestinoDoCabo(cabo))}${fora ? ' · câmera fora do ar' : ''}`, { sticky: true });
     linha.on('click', () => { if (!_cx.desenho && !_cx.edicao && caixa) cxAbrirPainel(id, def, caixa.ponto, cxPosDaCaixa(def, caixa)); });

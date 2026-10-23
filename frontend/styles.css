@@ -13295,6 +13295,12 @@ button.map-layer-stat.parcial .map-layer-stat-dot { box-shadow: 0 0 0 2px var(--
 .ct-tabela input.ct-obs { width: 100%; min-width: 70px; font-size: 12px; padding: 4px 6px; }
 .ct-sinal { font-weight: 700; white-space: nowrap; }
 .ct-auto { display: block; margin-top: 2px; font-size: 11px; color: var(--primary); }
+/* Cabo de camera fora do ar: pulsa em vermelho e fica por cima dos outros. */
+.leaflet-interactive.cx-cabo-off { animation: cx-cabo-pulso 1.2s ease-in-out infinite; }
+.cx-cabo-off-halo { animation: cx-cabo-halo 1.2s ease-in-out infinite; pointer-events: none; }
+@keyframes cx-cabo-pulso { 0%, 100% { stroke-opacity: 1; } 50% { stroke-opacity: .45; } }
+@keyframes cx-cabo-halo { 0%, 100% { stroke-opacity: .15; stroke-width: 8px; } 50% { stroke-opacity: .5; stroke-width: 16px; } }
+@media (prefers-reduced-motion: reduce) { .leaflet-interactive.cx-cabo-off, .cx-cabo-off-halo { animation: none; } }
 .ct-sinal.ct-ok { color: var(--primary); }
 .ct-sinal.ct-atencao { color: var(--amber, #d97706); }
 .ct-sinal.ct-ruim { color: var(--danger); }
