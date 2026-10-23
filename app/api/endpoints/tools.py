@@ -2513,6 +2513,9 @@ def _cto_da_camada_sem_lock(layer_id: str, dados: Dict[str, Any], por: str = "")
 # "vem de" -- CTO sem CDO continua como era (direto na OLT).
 
 _SPLITTERS_CDO = ("", "1:2", "1:4", "1:8", "1:16", "1:32", "1:64")
+# splitter: CDO de verdade (atende CTOs pelas portas). passagem: caixa de emenda
+# (CEO) so de passagem/derivacao -- sem splitter, nao atende CTO por porta.
+_TIPOS_CDO = ("splitter", "passagem")
 _FIBRAS_POR_CABO = (1, 2, 4, 6, 12, 24, 36, 48, 72, 96, 144)
 # Codigo de cores de fibra (ABNT NBR 14160 / EIA-598): a 13a fibra repete a
 # cor no 2o tubo; o tubo tambem segue a sequencia.
@@ -2595,29 +2598,33 @@ def _cdo_da_camada_sem_lock(layer_id: str, dados: Dict[str, Any], por: str = "")
             raise HTTPException(400, "Ja existe uma CDO neste lugar do mapa.")
         if not atual and len(cdos) >= 500:
             raise HTTPException(400, "Limite de CDOs na camada.")
-        splitter = _texto_curto(dados.get("splitter"), 5)
+        tipo_cdo = _texto_curto(dados.get("tipo") or (atual or {}).get("tipo") or "splitter", 10)
+        if tipo_cdo not in _TIPOS_CDO:
+            raise HTTPException(400, "Tipo de caixa invalido (splitter ou passagem).")
+        splitter = "" if tipo_cdo == "passagem" else _texto_curto(dados.get("splitter"), 5)
         if splitter not in _SPLITTERS_CDO:
             raise HTTPException(400, "Splitter invalido (balanceado: 1:2 a 1:64).")
         try:
             padrao = int(splitter.split(":")[1]) if splitter else 8
-            portas = int(dados.get("portas") if dados.get("portas") not in (None, "") else padrao)
+            portas = 0 if tipo_cdo == "passagem" else int(dados.get("portas") if dados.get("portas") not in (None, "") else padrao)
             bandejas = int(dados.get("bandejas") or 0)
         except (TypeError, ValueError):
             raise HTTPException(400, "Numero de portas ou bandejas invalido.")
-        if not 1 <= portas <= 64:
+        if tipo_cdo == "splitter" and not 1 <= portas <= 64:
             raise HTTPException(400, "A CDO tem de 1 a 64 portas.")
         if not 0 <= bandejas <= 48:
             raise HTTPException(400, "Bandejas: de 0 a 48.")
         em_uso = [int((v.get("de") or {}).get("porta") or 0) for v in fibras.values()
                   if isinstance(v, dict) and (v.get("de") or {}).get("cdo") == did]
         if did and em_uso and max(em_uso) > portas:
-            raise HTTPException(400, f"A porta {max(em_uso)} tem CTO ligada: a CDO nao pode ter menos portas.")
+            raise HTTPException(400, f"A porta {max(em_uso)} tem CTO ligada: tire os cabos de distribuicao antes"
+                                     + (" de virar caixa de passagem." if tipo_cdo == "passagem" else " de diminuir as portas."))
         agora = datetime.now().isoformat(timespec="seconds")
         did = did or f"cd{uuid.uuid4().hex[:10]}"
         cdos[did] = {
             "id": did, "ponto": ponto, "nome": _texto_curto(dados.get("nome"), 80) or ponto,
             "lat": round(lat, 7) if lat is not None else None, "lng": round(lng, 7) if lng is not None else None,
-            "modelo": _texto_curto(dados.get("modelo"), 80), "splitter": splitter, "portas": portas,
+            "modelo": _texto_curto(dados.get("modelo"), 80), "tipo": tipo_cdo, "splitter": splitter, "portas": portas,
             "bandejas": bandejas,
             "olt_key": _texto_curto(dados.get("olt_key"), 200), "olt_nome": _texto_curto(dados.get("olt_nome"), 80),
             "pon": _texto_curto(dados.get("pon"), 20), "obs": _texto_curto(dados.get("obs"), 300),
@@ -2679,6 +2686,8 @@ def _fibra_da_camada_sem_lock(layer_id: str, dados: Dict[str, Any], por: str = "
             cto = ctos.get(_texto_curto(para_raw.get("cto"), 24))
             if not cdo:
                 raise HTTPException(400, "CDO de origem nao encontrada (cadastre a CDO antes).")
+            if cdo.get("tipo") == "passagem":
+                raise HTTPException(400, "Caixa de passagem nao tem splitter: ligue a CTO na CDO com splitter (o cabo pode passar por esta caixa).")
             if not cto:
                 raise HTTPException(400, "CTO de destino nao encontrada (cadastre a CTO antes).")
             try:

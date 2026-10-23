@@ -122,3 +122,17 @@ def test_religar_cabo_existente_exige_admin(rede, monkeypatch):
     assert chamou == []
     _dist(rede, rede["cto1"], 2, id=fid)                   # mudar de porta = religar
     assert chamou == [1]
+
+
+def test_caixa_de_passagem_sem_splitter(rede, tmp_path):
+    r = tools._cdo_da_camada("c1", {"id": rede["cdo"]["id"], "ponto": "CDO-01", "tipo": "passagem", "splitter": "1:8"})
+    cdo = r["cdos"][rede["cdo"]["id"]]
+    assert (cdo["tipo"], cdo["splitter"], cdo["portas"]) == ("passagem", "", 0)
+    with pytest.raises(HTTPException) as e:        # passagem nao atende CTO por porta
+        _dist(rede, rede["cto1"], 1)
+    assert "passagem" in e.value.detail
+    # com CTO ligada, nao vira passagem sem tirar os cabos
+    tools._cdo_da_camada("c1", {"id": rede["cdo"]["id"], "ponto": "CDO-01", "tipo": "splitter", "splitter": "1:8"})
+    _dist(rede, rede["cto1"], 1)
+    with pytest.raises(HTTPException):
+        tools._cdo_da_camada("c1", {"id": rede["cdo"]["id"], "ponto": "CDO-01", "tipo": "passagem"})

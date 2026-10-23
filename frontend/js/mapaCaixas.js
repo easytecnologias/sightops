@@ -1251,11 +1251,13 @@ function cdMarcador(id, def, f, lat, lng) {
   const nome = mapFeatureName(f);
   const cdo = cdDoPonto(def, nome, [lat, lng]);
   const usadas = cdo ? cdFibrasDaCdo(def, cdo).length : 0;
-  const conta = cdo ? ` · ${usadas}/${cdo.portas}` : '';
-  const dica = cdo ? `CDO${cdo.splitter ? ` ${cdo.splitter}` : ''}: ${cdo.portas - usadas} porta(s) livre(s)` : 'CDO sem cadastro: clique para informar splitter, entrada e portas';
+  const passagem = cdo?.tipo === 'passagem';
+  const conta = cdo && !passagem ? ` · ${usadas}/${cdo.portas}` : '';
+  const dica = passagem ? 'Caixa de emenda (CEO): só passagem, sem splitter'
+    : cdo ? `CDO${cdo.splitter ? ` ${cdo.splitter}` : ''}: ${cdo.portas - usadas} porta(s) livre(s)` : 'CDO sem cadastro: clique para informar splitter, entrada e portas';
   const icon = L.divIcon({
     className: '',
-    html: `<div class="cd-pino${cdo ? '' : ' cd-pino-novo'}${cdo && usadas >= cdo.portas ? ' cd-pino-cheia' : ''}" title="${esc(dica)}"><b${cdRamo(def, cdo) ? ` style="background:${cdRamo(def, cdo).hex};color:${cdRamo(def, cdo).texto}"` : ''}>CDO</b><span>${esc(cdo?.nome || nome)}${conta}</span></div>`,
+    html: `<div class="cd-pino${cdo ? '' : ' cd-pino-novo'}${cdo && usadas >= cdo.portas ? ' cd-pino-cheia' : ''}" title="${esc(dica)}"><b${cdRamo(def, cdo) ? ` style="background:${cdRamo(def, cdo).hex};color:${cdRamo(def, cdo).texto}"` : ''}>${passagem ? 'CEO' : 'CDO'}</b><span>${esc(cdo?.nome || nome)}${conta}</span></div>`,
     iconSize: [40, 22], iconAnchor: [20, 11],
   });
   const marker = L.marker([lat, lng], { icon, zIndexOffset: 450 });
@@ -1296,19 +1298,26 @@ async function cdAbrirPainel(id, def, nomePonto, latlng) {
   }).join('');
   const oltSalvaFora = cdo?.olt_key && !olts.some(o => o.entity_key === cdo.olt_key);
   const trC = tronco ? cdCor(tronco.fibra) : null;
+  const passagem = cdo?.tipo === 'passagem';
+  const ocultaSe = cond => (cond ? ' hidden' : '');
   const corpo = `
     ${cdo ? '' : '<div class="so-note"><i data-lucide="info"></i><span>Cadastre a CDO (splitter primário). Depois ligue o cabo tronco da OLT e um cabo de distribuição para cada CTO: as CTOs passam a herdar a OLT e a PON dela.</span></div>'}
     <div class="form-row">
       <div class="form-group" style="margin:0"><label for="cdNome">Nome</label><input id="cdNome" maxlength="80" value="${esc(cdo?.nome || nomePonto)}"></div>
       <div class="form-group" style="margin:0"><label for="cdModelo">Modelo</label><input id="cdModelo" maxlength="80" value="${esc(cdo?.modelo || '')}" placeholder="ex.: CEO 24 fusões"></div>
     </div>
-    <section class="cx-bloco"><h3>Splitter primário <small>balanceado</small></h3>
+    <fieldset class="cx-tipos"><legend>Tipo da caixa</legend>
+      <label class="nt-pill"><input type="radio" name="cdTipo" value="splitter" ${passagem ? '' : 'checked'}><span>CDO com splitter</span></label>
+      <label class="nt-pill"><input type="radio" name="cdTipo" value="passagem" ${passagem ? 'checked' : ''}><span>Só passagem / emenda (CEO)</span></label>
+    </fieldset>
+    <p class="text-muted cd-so-passagem"${ocultaSe(!passagem)} style="margin:0;font-size:12px">Caixa de emenda sem splitter: os cabos só passam ou são emendados aqui. As CTOs ligam na CDO com splitter do ramo (o cabo pode passar por esta caixa).</p>
+    <section class="cx-bloco cd-com-splitter"${ocultaSe(passagem)}><h3>Splitter primário <small>balanceado</small></h3>
       <div class="cx-sw-linha">
         <div class="form-group" style="margin:0"><label for="cdSplitter">Divisão</label><select id="cdSplitter">${CD_SPLITTERS.map(x => `<option value="${x}" ${(cdo?.splitter || '1:8') === x ? 'selected' : ''}>${x}</option>`).join('')}</select></div>
         <div class="form-group" style="margin:0"><label for="cdPortas">Portas</label><input id="cdPortas" type="number" min="1" max="64" value="${portas}"></div>
         <div class="form-group" style="margin:0"><label for="cdBandejas">Bandejas de emenda</label><input id="cdBandejas" type="number" min="0" max="48" value="${Number(cdo?.bandejas || 0)}"></div>
       </div></section>
-    <section class="cx-bloco"><h3>Entrada <small>de qual OLT/PON vem</small></h3>
+    <section class="cx-bloco cd-com-splitter"${ocultaSe(passagem)}><h3>Entrada <small>de qual OLT/PON vem</small></h3>
       ${tronco ? `<div class="cd-herda"><span class="cd-tag cd-tag-tronco">TRONCO</span><div><strong>${esc(tronco.de?.olt_nome || 'OLT')}${tronco.de?.pon ? ` · PON ${esc(tronco.de.pon)}` : ''}</strong>
           <small><span class="cd-fio" style="background:${trC.hex}"></span>${esc(cdRotuloFibra(tronco.fibra, tronco.fibras))} de ${tronco.fibras} FO · ${cxFmtMetros(tronco.metros || 0)}</small></div>
           <button type="button" class="ghost-action cx-ico" data-cd="tirar" data-fibra="${esc(tronco.id)}" title="Tirar o cabo tronco" aria-label="Tirar o cabo tronco"><i data-lucide="unlink"></i></button></div>` : ''}
@@ -1318,7 +1327,7 @@ async function cdAbrirPainel(id, def, nomePonto, latlng) {
       </div>
       ${cdo && !tronco ? '<button type="button" class="secondary-action" data-cd="tronco" style="margin-top:10px"><i data-lucide="spline"></i> Desenhar cabo tronco (OLT → CDO)</button>' : ''}
     </section>
-    <section><h3>Portas <small>${Object.keys(porPorta).length} de ${portas} com CTO</small></h3>
+    <section class="cd-com-splitter"${ocultaSe(passagem)}><h3>Portas <small>${Object.keys(porPorta).length} de ${portas} com CTO</small></h3>
       <div class="cx-portas">${grade}</div>
       <table class="cx-tabela"><thead><tr><th>Porta</th><th>CTO</th><th>Fibra</th><th>Metros</th><th></th></tr></thead><tbody>${linhas}</tbody></table>
       ${cdo ? `<button type="button" class="primary-action" data-cd="ligar-cto" style="margin-top:10px" ${Object.keys(porPorta).length >= portas ? 'disabled' : ''}><i data-lucide="spline"></i> Ligar uma CTO (cabo de distribuição)</button>` : ''}
@@ -1328,7 +1337,12 @@ async function cdAbrirPainel(id, def, nomePonto, latlng) {
   const rodape = `${cdo ? '<button type="button" class="ghost-action cx-perigo cx-ico" data-cd="excluir" title="Excluir cadastro da CDO" aria-label="Excluir cadastro da CDO"><i data-lucide="trash-2"></i></button>' : ''}
     <span style="flex:1"></span>
     <button type="button" class="primary-action" data-cd="salvar"><i data-lucide="save"></i> ${cdo ? 'Salvar' : 'Cadastrar CDO'}</button>`;
-  const el = cxPainelBase(cdo?.nome || nomePonto || 'CDO', corpo, rodape, `CDO${cdo?.splitter ? ` ${cdo.splitter}` : ''} · splitter primário`);
+  const el = cxPainelBase(cdo?.nome || nomePonto || 'CDO', corpo, rodape, passagem ? 'CEO · caixa de emenda (passagem)' : `CDO${cdo?.splitter ? ` ${cdo.splitter}` : ''} · splitter primário`);
+  el.querySelectorAll('input[name="cdTipo"]').forEach(r => r.addEventListener('change', () => {
+    const so = el.querySelector('input[name="cdTipo"]:checked')?.value === 'passagem';
+    el.querySelectorAll('.cd-com-splitter').forEach(x => { x.hidden = so; });
+    el.querySelector('.cd-so-passagem').hidden = !so;
+  }));
   el.classList.add('ct-painel');
   el.querySelector('#cdSplitter')?.addEventListener('change', ev => {
     const n = Number(String(ev.target.value).split(':')[1] || 0);
@@ -1368,13 +1382,15 @@ async function cdAcao(acao, fibraId) {
   try {
     await cxGravar(p.def, { cdo: {
       id: p.cdo?.id || '', ponto: p.nomePonto, lat: p.latlng?.[0], lng: p.latlng?.[1],
+      tipo: p.el.querySelector('input[name="cdTipo"]:checked')?.value || 'splitter',
       nome: v('cdNome').trim(), modelo: v('cdModelo').trim(), splitter: v('cdSplitter'), portas: Number(v('cdPortas') || 0),
       bandejas: Number(v('cdBandejas') || 0), olt_key: olt?.value || '',
       olt_nome: olt?.value ? (olt.options[olt.selectedIndex]?.textContent || '').split(' · ')[0] : '',
       pon: v('cdPon').trim(), obs: v('cdObs').trim(),
     } });
   } catch (e) { falha(e); return; }
-  showToast(p.cdo ? 'CDO salva. As CTOs ligadas nela foram atualizadas.' : 'CDO cadastrada.');
+  const ehPassagem = p.el.querySelector('input[name="cdTipo"]:checked')?.value === 'passagem';
+  showToast(ehPassagem ? 'Caixa de passagem (CEO) salva.' : p.cdo ? 'CDO salva. As CTOs ligadas nela foram atualizadas.' : 'CDO cadastrada.');
   cxRedesenhar(p.id, p.def);
   const nova = cdDoPonto(p.def, p.nomePonto, p.latlng) || Object.values(p.def.cdos || {}).find(c => c.nome === v('cdNome').trim());
   await cdAbrirPainel(p.id, p.def, nova?.ponto || p.nomePonto, p.latlng);
