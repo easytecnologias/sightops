@@ -899,23 +899,58 @@ async function ctAbrirPainel(id, def, nomePonto, latlng) {
     const cls = st === 'livre' ? 'cx-p-livre' : st === 'cx' ? 'cx-p-cx' : `cx-p-${st}`;
     return `<span class="cx-porta ${cls}" title="Porta ${n}: ${esc(quem || 'livre')}">${n}</span>`;
   }).join('');
-  const porSite = {};
-  onus.forEach(e => { (porSite[e.site || 'Sem site'] = porSite[e.site || 'Sem site'] || []).push(e); });
-  Object.values(porSite).forEach(l => l.sort((a, b) => ctNomeOnu(a).localeCompare(ctNomeOnu(b), 'pt-BR', { numeric: true })));
-  const opcoesOnu = (sel, nomeSalvo) => '<option value="">—</option>'
-    + Object.keys(porSite).sort().map(s => `<optgroup label="${esc(s)}">${porSite[s]
-      .map(e => `<option value="${esc(e.entity_key)}" ${e.entity_key === sel ? 'selected' : ''}>${esc(ctNomeOnu(e))}</option>`).join('')}</optgroup>`).join('')
-    + (sel && !porKey[sel] ? `<option value="${esc(sel)}" selected>${esc(nomeSalvo || sel)} (fora do monitoramento)</option>` : '');
+  // Quais ONUs servem em cada porta. A camera (ou o computador/controladora)
+  // ja sabe a ONU dela: porta com caixa mostra SO as ONUs dos equipamentos da
+  // caixa (pelo serial, que e unico -- o nome "gpon 5 onu 2" repete em OLTs
+  // diferentes). Porta sem caixa: so as ONUs da OLT/PON da CTO.
+  const oltDaCto = olts.find(o => o.entity_key === cto?.olt_key);
+  const oltHost = String(oltDaCto?.det?.host || '');
+  const ponCto = String(cto?.pon || '').trim();
+  const daPonDaCto = onus.filter(e => (!oltHost || String(e.entity_key || '').includes(`|${oltHost}|`))
+    && (!ponCto || String(e.det?.pon ?? '') === ponCto));
+  const listaSemCaixa = (oltHost || ponCto) && daPonDaCto.length ? daPonDaCto : onus;
+  const onusDaCaixa = cabo => {
+    const achadas = new Map();
+    Object.values(def.cabos || {}).filter(c => c.caixa === cabo.caixa && !c.cto && c.camera?.ip).forEach(c => {
+      const eq = _mapCameraIndex?.byIp?.[String(c.camera.ip)];
+      const serial = String(eq?.onu_serial || '').trim().toUpperCase();
+      let onu = serial ? onus.find(e => String(e.det?.serial || '').trim().toUpperCase() === serial) : null;
+      if (!onu && eq?.pon !== undefined && eq?.onu_id && oltHost) {
+        onu = porKey[`onu:${eq.remote_connector_id || ''}|${oltHost}|${eq.pon}|${eq.onu_id}`];
+      }
+      if (onu) achadas.set(onu.entity_key, onu);
+    });
+    return [...achadas.values()];
+  };
+  const autoNaPorta = {};
+  const opcoesDaPorta = {};
+  for (let n = 1; n <= portas; n += 1) {
+    const cabo = caboNaPorta[n];
+    const daCaixa = cabo ? onusDaCaixa(cabo) : [];
+    opcoesDaPorta[n] = daCaixa.length ? daCaixa : listaSemCaixa;
+    if (cabo && daCaixa.length === 1 && !info[n]?.onu_key) autoNaPorta[n] = daCaixa[0].entity_key;
+  }
+  const opcoesOnu = (n, sel, nomeSalvo) => {
+    const lista = opcoesDaPorta[n];
+    const grupos = {};
+    lista.forEach(e => { (grupos[e.site || 'Sem site'] = grupos[e.site || 'Sem site'] || []).push(e); });
+    Object.values(grupos).forEach(l => l.sort((a, b) => ctNomeOnu(a).localeCompare(ctNomeOnu(b), 'pt-BR', { numeric: true })));
+    const naLista = lista.some(e => e.entity_key === sel);
+    return '<option value="">—</option>'
+      + Object.keys(grupos).sort().map(s => `<optgroup label="${esc(s)}">${grupos[s]
+        .map(e => `<option value="${esc(e.entity_key)}" ${e.entity_key === sel ? 'selected' : ''}>${esc(ctNomeOnu(e))}</option>`).join('')}</optgroup>`).join('')
+      + (sel && !naLista ? `<option value="${esc(sel)}" selected>${esc(porKey[sel] ? ctNomeOnu(porKey[sel]) : (nomeSalvo || sel))}${porKey[sel] ? '' : ' (fora do monitoramento)'}</option>` : '');
+  };
   const linhas = Array.from({ length: portas }, (_, i) => {
     const n = i + 1;
     const cabo = caboNaPorta[n];
-    const sel = info[n]?.onu_key || '';
+    const sel = info[n]?.onu_key || autoNaPorta[n] || '';
     const onu = porKey[sel];
     const st = onu ? ctEstadoOnu(onu) : '';
     const estado = st === 'off' ? ' <small class="cx-off">fora do ar</small>' : st === 'on' ? ' <small class="cx-ok">no ar</small>' : '';
     return `<tr class="${st === 'off' ? 'cx-tr-off' : ''}"><td>${n}</td>
       <td>${cabo ? `<strong>${esc(nomeCaixa(cabo))}</strong> <small>${cxFmtMetros(cabo.metros || 0)} drop</small>` : '<span class="text-muted">—</span>'}</td>
-      <td><select class="ct-onu" data-ct-onu="${n}" aria-label="ONU da porta ${n}">${opcoesOnu(sel, info[n]?.onu_nome)}</select></td>
+      <td><select class="ct-onu" data-ct-onu="${n}" aria-label="ONU da porta ${n}">${opcoesOnu(n, sel, info[n]?.onu_nome)}</select>${autoNaPorta[n] ? '<small class="ct-auto">automático: ONU da câmera da caixa</small>' : (cabo && opcoesDaPorta[n] !== listaSemCaixa ? '<small class="ct-auto">ONUs dos equipamentos da caixa</small>' : '')}</td>
       <td>${onu ? `${ctSinal(onu.det?.onu_rx)}${estado}` : ''}</td>
       <td><input class="ct-obs" data-ct-obs="${n}" maxlength="120" value="${esc(info[n]?.obs || '')}" placeholder="obs." aria-label="Observação da porta ${n}"></td></tr>`;
   }).join('');
@@ -965,6 +1000,18 @@ async function ctAbrirPainel(id, def, nomePonto, latlng) {
     const b = ev.target.closest('[data-ct]');
     if (b) ctAcao(b.dataset.ct).catch(e => showToast(e?.message || 'Falha na ação.', true));
   });
+  const esconderUsadas = () => {
+    const sels = [...el.querySelectorAll('[data-ct-onu]')];
+    const usadas = new Map(sels.filter(x => x.value).map(x => [x.value, x]));
+    sels.forEach(x => x.querySelectorAll('option[value]').forEach(o => {
+      if (!o.value) return;
+      const dono = usadas.get(o.value);
+      o.hidden = !!dono && dono !== x;
+      o.disabled = o.hidden;
+    }));
+  };
+  el.querySelectorAll('[data-ct-onu]').forEach(x => x.addEventListener('change', esconderUsadas));
+  esconderUsadas();
   _cx.painel = { el, id, def, cto, nomePonto, latlng, porKey };
 }
 

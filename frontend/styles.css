@@ -13294,6 +13294,7 @@ button.map-layer-stat.parcial .map-layer-stat-dot { box-shadow: 0 0 0 2px var(--
 .ct-tabela select.ct-onu { width: 100%; min-width: 150px; max-width: 220px; font-size: 12px; padding: 4px 6px; }
 .ct-tabela input.ct-obs { width: 100%; min-width: 70px; font-size: 12px; padding: 4px 6px; }
 .ct-sinal { font-weight: 700; white-space: nowrap; }
+.ct-auto { display: block; margin-top: 2px; font-size: 11px; color: var(--primary); }
 .ct-sinal.ct-ok { color: var(--primary); }
 .ct-sinal.ct-atencao { color: var(--amber, #d97706); }
 .ct-sinal.ct-ruim { color: var(--danger); }
