@@ -38,6 +38,9 @@ let _alertHoje = { at: 0, lista: [] };
 
 const ALERT_REFRESH_MS = 3000;
 const ALERT_SUMMARY_MS = 10000;
+const ALERT_CIRCULO_MAX_M = 100;   // acima disso nao desenha o circulo de erro do GPS
+const ALERT_CAMS_MAX = 8;          // cameras da lotacao mostradas de cara (as mais proximas)
+let _alertCamsTodas = '';          // id do alerta em que pediram "ver todas"
 const ALERT_ESCALATION_S = 60; // igual a ESCALATION_AFTER_S em alert_store.py
 let _alertTickTimer = null;
 
@@ -609,7 +612,13 @@ function alertBind() {
   document.getElementById('alertLiveDetail')?.addEventListener('click', alertDetailClick);
   document.getElementById('alertLiveCams')?.addEventListener('click', (ev) => {
     const cam = ev.target.closest('[data-alert-cam]');
-    if (cam) alertOpenCamera(cam.dataset);
+    if (cam) { alertOpenCamera(cam.dataset); return; }
+    const mais = ev.target.closest('[data-cams]')?.dataset.cams;
+    if (mais && _alertDetail) {
+      _alertCamsTodas = mais === 'todas' ? _alertDetail.id : '';
+      _alertNearbyKey = '';
+      alertLoadNearby();
+    }
   });
   document.getElementById('alertLiveDetail')?.addEventListener('keydown', (ev) => {
     if (ev.key === 'Enter' && ev.target.id === 'alertNoteInput') { ev.preventDefault(); alertEnviarNota(); }
@@ -814,7 +823,10 @@ function alertRenderMapaInfo() {
     if (p && p.gps) {
       const prec = inc.last_accuracy != null ? ` ~${Math.round(inc.last_accuracy)} m` : '';
       const quando = inc.last_position_at ? ` · atualizado ha ${esc(alertAgo(inc.last_position_at))}` : '';
-      itens.push(`<span class="alert-map-chip"><span class="alert-chip-dot"></span>GPS${prec}${quando}</span>`);
+      const ruim = inc.last_accuracy != null && inc.last_accuracy > ALERT_CIRCULO_MAX_M;
+      itens.push(ruim
+        ? `<span class="alert-map-chip is-warn">GPS impreciso${prec}${quando} — use as cameras da lotacao</span>`
+        : `<span class="alert-map-chip"><span class="alert-chip-dot"></span>GPS${prec}${quando}</span>`);
     }
     else if (p) itens.push('<span class="alert-map-chip is-warn">Sem GPS: mostrando a lotacao</span>');
     else itens.push('<span class="alert-map-chip is-warn">Sem localizacao ainda</span>');
@@ -1099,8 +1111,10 @@ function alertRenderMarkers() {
     mk.on('click', () => alertSelect(inc.id, true));
     mk.addTo(_alertMarkers);
     pts.push([p.lat, p.lon]);
-    if (p.gps && inc.last_accuracy && inc.id === _alertSelectedId) {
-      L.circle([p.lat, p.lon], { radius: Math.min(inc.last_accuracy, 500), color: '#c92a2a', weight: 1, fillOpacity: 0.08 }).addTo(_alertMarkers);
+    // Circulo de erro so quando o GPS e bom: com ~400 m ele cobre o mapa todo e
+    // nao diz nada (o chip do mapa avisa "GPS impreciso").
+    if (p.gps && inc.last_accuracy && inc.last_accuracy <= ALERT_CIRCULO_MAX_M && inc.id === _alertSelectedId) {
+      L.circle([p.lat, p.lon], { radius: inc.last_accuracy, color: '#c92a2a', weight: 1, fillOpacity: 0.08 }).addTo(_alertMarkers);
     }
   });
   if (!_alertFittedOnce && pts.length) {
@@ -1378,8 +1392,15 @@ async function alertLoadNearby() {
     const nearCams = (near.cameras || []).filter((c) => !seen.has(`${c.remote_connector_id}|${c.ip}`));
     let html = '';
     if (cid) {
-      html += `<h3>Cameras da lotacao — ${esc(alertConnectorName(cid))} <span class="alert-count">${unitCams.length}</span></h3>
-        ${unitCams.length ? alertCamerasPorSite(unitCams) : '<div class="alert-nearby-grid"><div class="alert-live-empty">Nenhuma camera cadastrada neste local.</div></div>'}`;
+      // Informacao demais atrapalha: de cara so as mais proximas da pessoa.
+      const ordenadas = unitCams.slice().sort((a, b) => (a.distance_m ?? 1e12) - (b.distance_m ?? 1e12));
+      const todas = _alertCamsTodas === _alertDetail.id;
+      const mostrar = todas ? ordenadas : ordenadas.slice(0, ALERT_CAMS_MAX);
+      const resto = ordenadas.length - mostrar.length;
+      html += `<h3>Cameras da lotacao — ${esc(alertConnectorName(cid))} <span class="alert-count">${unitCams.length}</span>${p && !todas && resto > 0 ? '<small class="alert-cams-nota">as mais proximas da pessoa</small>' : ''}</h3>
+        ${unitCams.length ? `<div class="alert-nearby-grid">${mostrar.map(alertCameraCard).join('')}</div>` : '<div class="alert-nearby-grid"><div class="alert-live-empty">Nenhuma camera cadastrada neste local.</div></div>'}
+        ${resto > 0 ? `<button type="button" class="link-action alert-cams-mais" data-cams="todas">Ver todas as ${unitCams.length} cameras do local</button>`
+          : (todas && ordenadas.length > ALERT_CAMS_MAX ? '<button type="button" class="link-action alert-cams-mais" data-cams="menos">Mostrar so as mais proximas</button>' : '')}`;
     }
     // Sem camera no raio, diz isso com todas as letras -- e informa a
     // distancia da mais proxima, que muda a decisao de quem atende.
