@@ -1184,11 +1184,39 @@ def live_summary() -> Dict[str, Any]:
     }
 
 
+_POS_MAPA_CACHE: Dict[str, Tuple[float, Dict[str, tuple]]] = {}
+_POS_MAPA_TTL_S = 30.0
+
+
+def _posicoes_do_mapa() -> Dict[str, tuple]:
+    """nome da camera (minusculo) -> (lat, lon) nas camadas do Mapa do cliente.
+
+    E a posicao que o operador ajusta no Mapa; o lat/lon do inventario envelhece
+    (Jardins I em 24/10/2026: 92 de 96 cameras a mais de 30 m do ponto do Mapa).
+    Mesma regra do relatorio de gravadores (casa pelo nome). Cache curto por tenant."""
+    tenant = _tenant()
+    agora = time.monotonic()
+    hit = _POS_MAPA_CACHE.get(tenant)
+    if hit and agora - hit[0] < _POS_MAPA_TTL_S:
+        return hit[1]
+    try:
+        from app.services.recorder_pdf_report import _coordenadas_do_mapa
+
+        mapa = _coordenadas_do_mapa()
+    except Exception:
+        logger.exception("alerta: falha lendo posicoes das camadas do Mapa")
+        mapa = {}
+    _POS_MAPA_CACHE[tenant] = (agora, mapa)
+    return mapa
+
+
 def _inventory_cameras():
     """Cameras IP do tenant nos tres inventarios (olt/switch/basic), sem
-    misturar: o modo vai junto. Dedup por (modo, inventory_key/ip)."""
+    misturar: o modo vai junto. Dedup por (modo, inventory_key/ip).
+    Com ponto no Mapa (pelo nome), lat/lon saem do Mapa, nao do inventario."""
     from app.services.inventory_json import load_inventory_json
 
+    mapa = _posicoes_do_mapa()
     seen: set = set()
     for mode in ("olt", "switch", "basic"):
         try:
@@ -1205,6 +1233,9 @@ def _inventory_cameras():
             if key in seen:
                 continue
             seen.add(key)
+            pos = mapa.get(_text(r.get("titulo") or r.get("title"), 200).strip().lower())
+            if pos:
+                r = {**r, "lat": pos[0], "lon": pos[1]}  # copia: nao mexe no inventario
             yield mode, r
 
 
