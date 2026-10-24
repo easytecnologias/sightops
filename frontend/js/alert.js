@@ -1413,7 +1413,9 @@ function alertRenderDetail() {
       ${open ? `<div class="alert-case-foot">
         ${inc.status !== 'new' && !inc.dispatched_at ? '<button class="secondary-action" data-alert-act="arrive" type="button"><i data-lucide="map-pin-check"></i> Equipe chegou</button>' : ''}
         ${inc.arrived_at ? '' : '<button class="secondary-action" data-alert-act="close" type="button"><i data-lucide="check-circle-2"></i> Encerrar</button>'}
-      </div>` : ''}
+      </div>` : `<div class="alert-case-foot">
+        <button class="primary-action" data-alert-act="inicio" type="button"><i data-lucide="map"></i> Voltar a tela inicial</button>
+      </div>`}
     </div>`;
   const notaDepois = document.getElementById('alertNoteInput');
   if (notaDepois && notaFoco) { notaDepois.focus(); notaDepois.setSelectionRange(nota.length, nota.length); }
@@ -1651,6 +1653,7 @@ async function alertDetailClick(ev) {
     return;
   }
   const act = ev.target.closest('[data-alert-act]')?.dataset.alertAct;
+  if (act === 'inicio') { alertVoltarAoInicio(); return; }
   if (!act || !_alertDetail) return;
   if (act === 'close') {
     document.getElementById('alertCloseNote').value = '';
@@ -1698,7 +1701,30 @@ async function alertAction(action, note, id = _alertDetail?.id) {
 async function alertConfirmClose() {
   const note = document.getElementById('alertCloseNote').value.trim();
   if (note.length < 3) { showToast('Descreva o que foi feito antes de encerrar.', true); return; }
-  if (await alertAction('close', note)) alertCloseModal('modalAlertClose');
+  if (await alertAction('close', note)) {
+    alertCloseModal('modalAlertClose');
+    alertVoltarAoInicio();
+  }
+}
+
+// Volta a tela ao estado inicial: o proximo alerta aberto (se houver) ou a
+// tela calma com o mapa geral. Antes o encerrado ficava selecionado e o mapa
+// preso nele ate dar F5.
+function alertVoltarAoInicio() {
+  _alertSelectedId = (_alertIncidents.find((i) => i.status === 'new') || _alertIncidents.find(alertOpen) || {}).id || '';
+  _alertDetail = null;
+  _alertTrail?.clearLayers();
+  _alertCamsAlerta?.clearLayers();
+  _alertCamsAlertaKey = '';
+  _alertRaioMapa = 0;
+  _alertLotKey = '';         // a tela calma reenquadra o mapa geral
+  _alertFittedOnce = false;  // e um proximo alerta centraliza nele
+  _alertSeguir = true;
+  _alertHoje.at = 0;         // "alertas hoje" com o status de agora (encerrado)
+  alertCarregarHoje();
+  alertRenderList();
+  alertRenderMarkers();
+  alertLoadDetail();
 }
 
 // Camera aberta no visualizador: qualidade escolhida e o canal do gravador
