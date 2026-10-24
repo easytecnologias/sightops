@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=1792803502">
+  <link rel="stylesheet" href="styles.css?v=1792803702">
   <link rel="stylesheet" href="acesso/acesso.css?v=1792600213">
 </head>
 <body>
@@ -1877,16 +1877,25 @@
       </div>
 
       <div id="modalAlertCamera" class="modal-backdrop hidden">
-        <div class="modal alert-camera-modal">
-          <div class="modal-header">
-            <div><h2 id="alertCameraTitle">Camera</h2><p id="alertCameraSub"></p></div>
-            <button class="icon-button" data-alert-close="modalAlertCamera" type="button" aria-label="Fechar"><i data-lucide="x"></i></button>
+        <div class="modal alert-camera-modal" role="dialog" aria-labelledby="alertCameraTitle">
+          <div class="modal-header alert-cam-head">
+            <div class="alert-cam-quem"><p class="alert-ficha-eyebrow" id="alertCameraSite">Camera</p><h2 id="alertCameraTitle">Camera</h2><p id="alertCameraSub"></p></div>
+            <div class="alert-cam-acoes">
+              <div class="alert-cam-qual" id="alertCameraQual" role="group" aria-label="Qualidade do video">
+                <button type="button" data-cam-qual="1" aria-pressed="true" title="Mais leve: abre rapido mesmo com link fraco">SD</button>
+                <button type="button" data-cam-qual="0" aria-pressed="false" title="Mais nitido: precisa de mais banda">HD</button>
+              </div>
+              <button class="secondary-action" id="btnAlertCamInvestigar" type="button"><i data-lucide="search"></i> Investigar gravacao</button>
+              <button class="icon-button" data-alert-close="modalAlertCamera" type="button" aria-label="Fechar"><i data-lucide="x"></i></button>
+            </div>
           </div>
           <div class="modal-body">
             <div class="alert-camera-stage">
               <video id="alertCameraVideo" autoplay muted playsinline></video>
+              <span class="alert-cam-aovivo"><i></i> AO VIVO</span>
               <span class="alert-camera-status" id="alertCameraStatus">Conectando...</span>
             </div>
+            <p class="alert-cam-nota" id="alertCameraNota" hidden></p>
           </div>
         </div>
       </div>
@@ -7832,7 +7841,7 @@
   <script src="acesso/acesso.js?v=1792600205"></script>
   <script src="js/messenger.js?v=1791000212"></script>
   <script src="https://unpkg.com/qrcode-generator@1.4.4/qrcode.js"></script>
-  <script src="js/alert.js?v=1792803601"></script>
+  <script src="js/alert.js?v=1792803701"></script>
   <script src="js/controleRotas.js?v=1792600341"></script>
   <script src="js/tr069.js?v=1791000212"></script>
   <script src="js/bootstrap.js?v=1792600207"></script>

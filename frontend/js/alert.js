@@ -650,6 +650,11 @@ function alertBind() {
     const ver = ev.target.closest('[data-banner-ver]');
     if (ver) alertSelect(ver.dataset.bannerVer, true);
   });
+  document.getElementById('alertCameraQual')?.addEventListener('click', (ev) => {
+    const b = ev.target.closest('[data-cam-qual]');
+    if (b) alertCamQualidade(b.dataset.camQual);
+  });
+  document.getElementById('btnAlertCamInvestigar')?.addEventListener('click', alertCamInvestigar);
   document.getElementById('btnAlertProtocolos')?.addEventListener('click', () => alertOpenProtocolos(''));
   document.getElementById('btnAlertFull')?.addEventListener('click', alertTelaCheia);
   document.getElementById('alertChips')?.addEventListener('click', (ev) => {
@@ -1446,7 +1451,7 @@ function alertCameraCard(c) {
   return `
       <button type="button" class="alert-cam-tile" data-alert-cam="${esc(c.ip)}" data-alert-cam-title="${esc(c.titulo || c.ip)}"
         data-alert-cam-vendor="${esc(c.fabricante)}" data-alert-cam-model="${esc(c.modelo)}"
-        data-alert-cam-connector="${esc(c.remote_connector_id || '')}" title="Abrir ao vivo">
+        data-alert-cam-connector="${esc(c.remote_connector_id || '')}" data-alert-cam-site="${esc(c.site || c.local || '')}" title="Abrir ao vivo">
         ${c.snapshot_url ? `<img src="${esc(c.snapshot_url)}" alt="" loading="lazy">` : '<i data-lucide="cctv"></i>'}
         <span class="alert-cam-live"><i data-lucide="play"></i> AO VIVO</span>
         <span class="alert-cam-cap"><b>${esc(c.titulo || c.ip)}</b>${d ? `<em>${esc(d)}</em>` : ''}</span>
@@ -1631,20 +1636,76 @@ async function alertConfirmClose() {
   if (await alertAction('close', note)) alertCloseModal('modalAlertClose');
 }
 
+// Camera aberta no visualizador: qualidade escolhida e o canal do gravador
+// que a grava (para "Investigar gravacao"; null = nenhum gravador grava).
+let _alertCamAtual = null;
+let _alertCamSub = 1;
+let _alertNvrAlvos = { at: 0, lista: null };
+
+async function alertCanalDaCamera(ip, site) {
+  if (!_alertNvrAlvos.lista || Date.now() - _alertNvrAlvos.at > 300000) {
+    try {
+      _alertNvrAlvos = { at: Date.now(), lista: (await alertApiJson('/api/ia/nvr/targets')).targets || [] };
+    } catch { return null; }
+  }
+  const mesmoIp = _alertNvrAlvos.lista.filter((t) => String(t.camera_ip || '').trim() === ip);
+  // O mesmo IP existe em sites diferentes (conectores isolados): prefere o do site da camera.
+  const s = String(site || '').trim().toUpperCase();
+  return mesmoIp.find((t) => String(t.site || '').trim().toUpperCase() === s) || mesmoIp[0] || null;
+}
+
+function alertCamQualidade(sub) {
+  _alertCamSub = Number(sub) === 0 ? 0 : 1;
+  _alertCamHandle?.setSubtype(_alertCamSub);
+  document.querySelectorAll('#alertCameraQual [data-cam-qual]').forEach((b) => b.setAttribute('aria-pressed', String(Number(b.dataset.camQual) === _alertCamSub)));
+}
+
+// Leva para a Investigacao com esta camera, de 10 min antes do disparo ate agora.
+function alertCamInvestigar() {
+  const cam = _alertCamAtual;
+  if (!cam?.canal || typeof invAbrirDoMapa !== 'function') return;
+  const t = cam.canal;
+  const disparo = alertDate(_alertDetail?.opened_at) || new Date();
+  alertCloseModal('modalAlertCamera');
+  invAbrirDoMapa({
+    chaves: [`${t.host}|${t.http_port || 80}|${t.channel}`],
+    ini: new Date(disparo.getTime() - 10 * 60e3),
+    fim: new Date(),
+    rotulo: `da camera ${cam.titulo}${_alertDetail?.member?.full_name ? ` (alerta de ${_alertDetail.member.full_name})` : ''}`,
+  });
+}
+
 function alertOpenCamera(ds) {
   const modal = document.getElementById('modalAlertCamera');
   const video = document.getElementById('alertCameraVideo');
   const status = document.getElementById('alertCameraStatus');
   if (!modal || !video || typeof mountLiveStream !== 'function') return;
-  setText('alertCameraTitle', ds.alertCamTitle || ds.alertCam);
+  const titulo = ds.alertCamTitle || ds.alertCam;
+  setText('alertCameraTitle', titulo);
   setText('alertCameraSub', ds.alertCam);
+  setText('alertCameraSite', ds.alertCamSite || 'Camera');
   status.textContent = 'Conectando...';
   status.hidden = false;
+  _alertCamAtual = { ip: ds.alertCam, titulo, canal: undefined };
+  const inv = document.getElementById('btnAlertCamInvestigar');
+  const nota = document.getElementById('alertCameraNota');
+  inv.disabled = true;
+  nota.hidden = true;
+  alertCanalDaCamera(ds.alertCam, ds.alertCamSite).then((canal) => {
+    if (_alertCamAtual?.ip !== ds.alertCam) return;
+    _alertCamAtual.canal = canal;
+    inv.disabled = !canal;
+    inv.title = canal ? 'Abre a Investigacao com esta camera, de 10 min antes do disparo ate agora' : '';
+    nota.hidden = !!canal;
+    nota.textContent = canal ? '' : 'Esta camera nao esta em nenhum canal de gravador do SightOps: da para ver ao vivo, mas nao ha gravacao para investigar.';
+  });
   modal.classList.remove('hidden');
   if (_alertCamHandle) _alertCamHandle.stop();
+  alertCamQualidade(1);
+  if (window.lucide) lucide.createIcons();
   // Senha vazia: o servidor usa a credencial ja salva desta camera/site.
   _alertCamHandle = mountLiveStream(video, {
-    ip: ds.alertCam, user: 'admin', pass: '', subtype: 1,
+    ip: ds.alertCam, user: 'admin', pass: '', subtype: _alertCamSub,
     vendor: ds.alertCamVendor || '', model: ds.alertCamModel || '', connectorId: ds.alertCamConnector || '',
     onStatus: (texto) => {
       if (texto === 'credential_required') {
