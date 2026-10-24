@@ -65,6 +65,14 @@ function alertOpen(inc) {
   return ['new', 'acknowledged', 'dispatched'].includes(inc?.status);
 }
 
+// Ordem de atendimento: sem atendimento antes de em atendimento; coacao antes
+// de panico (alguem pode estar junto da pessoa); depois o mais antigo.
+function alertPrioridade(a, b) {
+  return Number(b.status === 'new') - Number(a.status === 'new')
+    || Number(b.kind === 'duress') - Number(a.kind === 'duress')
+    || String(a.opened_at).localeCompare(String(b.opened_at));
+}
+
 // Som do alerta: cada computador da central escolhe o seu (localStorage).
 const ALERT_SOUND_DEFAULTS = {
   enabled: true,
@@ -731,12 +739,15 @@ async function alertRefresh(force) {
     _alertMeusSites = Array.isArray(data.meus_sites) ? data.meus_sites : null;
     alertRenderScope('alertScopeLive', _alertMeusSites);
     setText('alertLiveState', `atualizado ${alertClock(new Date().toISOString())}`);
-    if (fresh.length) {
-      // Alerta novo chegou: seleciona e centraliza nele.
-      _alertSelectedId = fresh[0].id;
+    const atual = incidents.find((i) => i.id === _alertSelectedId);
+    if (fresh.length && !(atual && alertOpen(atual))) {
+      // Alerta novo e ninguem sendo atendido na tela: seleciona e centraliza nele.
+      // Com um atendimento aberto no painel, NAO troca: o novo chega pela faixa,
+      // pela fila e pela sirene, e o operador decide ("Ver" / "Assumir agora").
+      _alertSelectedId = fresh.slice().sort(alertPrioridade)[0].id;
       _alertFittedOnce = false;
-    } else if (!_alertSelectedId || !incidents.some((i) => i.id === _alertSelectedId)) {
-      _alertSelectedId = (incidents.find(alertOpen) || {}).id || '';
+    } else if (!atual) {
+      _alertSelectedId = (incidents.filter(alertOpen).sort(alertPrioridade)[0] || {}).id || '';
     }
     alertRenderKpis();
     alertRenderChips();
@@ -1011,7 +1022,7 @@ function alertRenderBanner() {
   const box = document.getElementById('alertBanner');
   if (!box) return;
   const novos = _alertScope === 'live'
-    ? _alertIncidents.filter((i) => i.status === 'new').sort((a, b) => String(a.opened_at).localeCompare(String(b.opened_at)))
+    ? _alertIncidents.filter((i) => i.status === 'new').sort(alertPrioridade)
     : [];
   if (!novos.length) { box.hidden = true; box.innerHTML = ''; return; }
   const inc = novos[0];
@@ -1195,9 +1206,8 @@ function alertRenderList() {
   };
   if (_alertScope !== 'live') { box.innerHTML = _alertIncidents.map(card).join(''); return; }
   // Sem atendimento em cima, depois em atendimento, depois os encerrados de hoje.
-  const porIdade = (a, b) => String(a.opened_at).localeCompare(String(b.opened_at));
-  const novos = _alertIncidents.filter((i) => i.status === 'new').sort(porIdade);
-  const atend = _alertIncidents.filter((i) => alertOpen(i) && i.status !== 'new').sort(porIdade);
+  const novos = _alertIncidents.filter((i) => i.status === 'new').sort(alertPrioridade);
+  const atend = _alertIncidents.filter((i) => alertOpen(i) && i.status !== 'new').sort(alertPrioridade);
   const vistos = new Set(_alertIncidents.map((i) => i.id));
   const fechados = [..._alertIncidents.filter((i) => !alertOpen(i)),
     ...(_alertHoje.lista || []).filter((i) => !alertOpen(i) && !vistos.has(i.id))]
@@ -1711,7 +1721,7 @@ async function alertConfirmClose() {
 // tela calma com o mapa geral. Antes o encerrado ficava selecionado e o mapa
 // preso nele ate dar F5.
 function alertVoltarAoInicio() {
-  _alertSelectedId = (_alertIncidents.find((i) => i.status === 'new') || _alertIncidents.find(alertOpen) || {}).id || '';
+  _alertSelectedId = (_alertIncidents.filter(alertOpen).sort(alertPrioridade)[0] || {}).id || '';
   _alertDetail = null;
   _alertTrail?.clearLayers();
   _alertCamsAlerta?.clearLayers();
