@@ -273,6 +273,26 @@ def _macros_da_entidade(row: Dict[str, Any]) -> List[Dict[str, str]]:
 
 def _mensagens_telegram(entity_type: str) -> tuple[str, str]:
     """Texto de problema e de recuperacao, por tipo de equipamento."""
+    if entity_type == "link":
+        problema = "\n".join([
+            "\U0001F534 <b>LINK DE PROVEDOR COM PROBLEMA</b>",
+            "",
+            "\U0001F310 <b>Link:</b> {HOST.NAME}",
+            "",
+            "⚠️ <b>Problema:</b> {EVENT.NAME}",
+            "\U0001F6E0 <b>O que fazer:</b> veja a porta do provedor no rack (Mapa do SightOps):",
+            "link caido = fibra, SFP ou equipamento do provedor; sinal baixo = fibra degradando.",
+            "",
+            "\U0001F552 <b>Quando:</b> {EVENT.DATE} {EVENT.TIME}",
+        ])
+        recuperacao = "\n".join([
+            "✅ <b>LINK NORMALIZADO</b>",
+            "",
+            "\U0001F310 <b>Link:</b> {HOST.NAME}",
+            "\U0001F514 <b>Resolvido:</b> {EVENT.NAME}",
+            "\U0001F552 <b>Quando:</b> {EVENT.RECOVERY.DATE} {EVENT.RECOVERY.TIME}",
+        ])
+        return problema, recuperacao
     if entity_type == "olt":
         problema = "\n".join([
             "\U0001F534 <b>OLT FORA DO AR</b>",
@@ -463,6 +483,58 @@ def _garantir_gatilhos_gravador(url: str, auth: str, technical_names: Dict[str, 
         return 0
 
 
+GATILHO_LINK_CAIU = "Link do provedor caiu ({HOST.NAME})"
+GATILHO_SINAL_FIBRA = "Sinal da fibra do provedor 3 dB abaixo do normal ({HOST.NAME})"
+GATILHO_LINK_SEM_LEITURA = "Link do provedor sem leitura ha 10 min ({HOST.NAME})"
+
+
+def _garantir_gatilhos_link(url: str, auth: str, technical_names: Dict[str, Dict[str, Any]],
+                            host_ids: Dict[str, str], item_by_host_key: Dict[Any, str]) -> int:
+    """Links de provedor do rack: caiu (status 0 depois do limite de falhas do
+    perfil) e sinal da fibra baixo em relacao ao normal DO PROPRIO link -- a
+    Relunet trabalha em -16 dBm e a Super Conect em -3,6; um limite fixo
+    alarmaria um e calaria o outro. Falha aqui nao derruba o sync."""
+    alvos = {}
+    for nome, row in technical_names.items():
+        hostid = host_ids.get(nome, "")
+        if _text(row.get("entity_type")).lower() == "link" and hostid and item_by_host_key.get((hostid, "sightops.status")):
+            alvos[hostid] = nome
+    if not alvos:
+        return 0
+    try:
+        existentes = _call(url, "trigger.get", {
+            "output": ["triggerid", "description"], "selectHosts": ["hostid"], "hostids": list(alvos),
+            "filter": {"description": [GATILHO_LINK_CAIU, GATILHO_SINAL_FIBRA, GATILHO_LINK_SEM_LEITURA]}}, auth, 130) or []
+        tem = {(_text(h.get("hostid")), _text(t.get("description"))) for t in existentes for h in (t.get("hosts") or [])}
+        novos = []
+        for hostid, nome in alvos.items():
+            if (hostid, GATILHO_LINK_CAIU) not in tem:
+                # So resolve com o link DE VOLTA (1). Sem isto, link caido que
+                # passa a "sem leitura" (3) -- o provedor que caiu era o caminho
+                # ate a switch -- resolvia o alerta e mandava "LINK NORMALIZADO".
+                novos.append({"description": GATILHO_LINK_CAIU, "expression": f"last(/{nome}/sightops.status)=0",
+                              "recovery_mode": 1, "recovery_expression": f"last(/{nome}/sightops.status)=1", "priority": 4,
+                              "comments": "A porta da switch do rack onde entra este provedor esta sem link. Veja o rack no Mapa do SightOps."})
+            if (hostid, GATILHO_LINK_SEM_LEITURA) not in tem:
+                novos.append({"description": GATILHO_LINK_SEM_LEITURA,
+                              "expression": f"max(/{nome}/sightops.status,10m)=3 and min(/{nome}/sightops.status,10m)=3",
+                              "priority": 2,
+                              "comments": "O SightOps nao consegue ler a switch do rack ha 10 min (sem resposta, senha ou caminho). "
+                                          "O link pode estar no ar ou nao: confira no rack, Testar leitura."})
+            if (hostid, GATILHO_SINAL_FIBRA) not in tem and item_by_host_key.get((hostid, "sightops.sfp_rx_dbm")):
+                novos.append({"description": GATILHO_SINAL_FIBRA,
+                              "expression": f"last(/{nome}/sightops.sfp_rx_dbm)<avg(/{nome}/sightops.sfp_rx_dbm,1d)-3",
+                              "priority": 2,
+                              "comments": "Potencia optica recebida caiu mais de 3 dB em relacao a media das ultimas 24 h: "
+                                          "fibra, conector ou SFP degradando antes de o link cair."})
+        for i, lote in enumerate(_chunks(novos)):
+            _call(url, "trigger.create", lote, auth, 131 + i)
+        return len(novos)
+    except Exception as exc:
+        logger.warning("Zabbix: falha ao criar gatilhos de link: %s", exc)
+        return 0
+
+
 # Ultimo resultado do sync por cliente, para a tela dizer "sincronizado" so quando
 # o dado esta chegando de fato. Ter zabbix_hostid nao prova isso: o campo nunca e
 # limpo e sobrevive a sync quebrado (excecao, Zabbix desconfigurado, host apagado).
@@ -483,7 +555,7 @@ def ultimo_sync(tenant: str) -> Dict[str, Any]:
         return dict(_ULTIMO_SYNC.get(_text(tenant).lower()) or {})
 
 
-def sync_monitoring_to_zabbix(entity_types: tuple[str, ...] = ("olt", "onu", "camera", "nvr", "dvr", "connector", "access_device", "whatsapp", "switch", "windows", "access_point")) -> Dict[str, Any]:
+def sync_monitoring_to_zabbix(entity_types: tuple[str, ...] = ("olt", "onu", "camera", "nvr", "dvr", "connector", "access_device", "whatsapp", "switch", "windows", "access_point", "link")) -> Dict[str, Any]:
     tenant = _text(get_current_tenant_slug() or "default").lower()
     try:
         result = _sync_monitoring_to_zabbix(entity_types)
@@ -622,7 +694,9 @@ def _sync_monitoring_to_zabbix(entity_types: tuple[str, ...]) -> Dict[str, Any]:
                    # filtra por esta lista, e chave ausente nao e achada -- o sync
                    # tenta criar o item de novo a cada ciclo, o Zabbix recusa a
                    # duplicata e o sync do tenant inteiro para antes do push.
-                   "sightops.disco_c_livre_pct", "sightops.defender_tempo_real", "sightops.alertas"]
+                   "sightops.disco_c_livre_pct", "sightops.defender_tempo_real", "sightops.alertas",
+                   "sightops.link_in_bps", "sightops.link_out_bps", "sightops.link_erros",
+                   "sightops.sfp_rx_dbm", "sightops.sfp_tx_dbm"]
     items = _call(
         url, "item.get",
         {"output": ["itemid", "hostid", "key_"], "hostids": all_hostids, "filter": {"key_": wanted_keys}},
@@ -652,6 +726,11 @@ def _sync_monitoring_to_zabbix(entity_types: tuple[str, ...]) -> Dict[str, Any]:
         "sightops.canais_sem_imagem": ("SightOps - Cameras no ar sem imagem no gravador", 3, "Canais em que a camera responde na rede mas o gravador nao recebe imagem (nao esta gravando)"),
         "sightops.disco_c_livre_pct": ("SightOps - Disco C: livre (%)", 0, "Espaco livre no C: no ultimo relatorio do agente Windows"),
         "sightops.defender_tempo_real": ("SightOps - Defender em tempo real", 3, "1 = ligado, 0 = desligado (agente Windows)"),
+        "sightops.link_in_bps": ("SightOps - Link entrada", 0, "Trafego de entrada do provedor em bit/s (porta da switch do rack, entre duas leituras da API)"),
+        "sightops.link_out_bps": ("SightOps - Link saida", 0, "Trafego de saida para o provedor em bit/s (porta da switch do rack, entre duas leituras da API)"),
+        "sightops.link_erros": ("SightOps - Erros na porta do link", 3, "Erros de entrada+saida na porta do provedor desde a leitura anterior"),
+        "sightops.sfp_rx_dbm": ("SightOps - Sinal da fibra recebido", 0, "Potencia optica recebida no SFP da porta do provedor, em dBm"),
+        "sightops.sfp_tx_dbm": ("SightOps - Sinal da fibra enviado", 0, "Potencia optica enviada pelo SFP da porta do provedor, em dBm"),
         "sightops.alertas": ("SightOps - Alertas de saude", 3, "Windows: alertas do inventario (sem SSD, pouca memoria, disco cheio, Defender, BitLocker, TPM, Windows sem suporte). Gateway/AP Ruijie: alarmes ativos no equipamento + conflito de IP"),
     }
     # bit/s ja vem calculado (olt_snmp_health, entre duas leituras SNMP). A
@@ -684,8 +763,12 @@ def _sync_monitoring_to_zabbix(entity_types: tuple[str, ...]) -> Dict[str, Any]:
         "connector": ["sightops.ports_up", "sightops.ports_total", "sightops.uplink_in_bps",
                       "sightops.uplink_out_bps", "sightops.alertas"],
         "access_point": ["sightops.alertas"],
+        # Link de provedor no rack (rack_links.py). SFP sem medicao (ex.: TP-Link
+        # da Century) nao manda dBm: so cria o item quando o valor existe.
+        "link": ["sightops.link_in_bps", "sightops.link_out_bps", "sightops.link_erros",
+                 "sightops.sfp_rx_dbm", "sightops.sfp_tx_dbm"],
     }
-    so_se_presente = {"connector", "access_point"}
+    so_se_presente = {"connector", "access_point", "link"}
     create_items = []
     for technical_name, row in technical_names.items():
         hostid = host_ids.get(technical_name, "")
@@ -715,6 +798,7 @@ def _sync_monitoring_to_zabbix(entity_types: tuple[str, ...]) -> Dict[str, Any]:
         cursor += len(batch)
 
     gatilhos = _garantir_gatilhos_gravador(url, auth, technical_names, host_ids, item_by_host_key)
+    gatilhos += _garantir_gatilhos_link(url, auth, technical_names, host_ids, item_by_host_key)
 
     status_value = {"up": "1", "down": "0", "unstable": "2", "unknown": "3", "maintenance": "4"}
     push_rows = []
@@ -756,6 +840,11 @@ def _sync_monitoring_to_zabbix(entity_types: tuple[str, ...]) -> Dict[str, Any]:
             ("sightops.disco_c_livre_pct", _number(detail.get("disco_c_livre_pct")) if detail.get("checado_em") else None),
             ("sightops.defender_tempo_real", _number(detail.get("defender_tempo_real")) if detail.get("checado_em") else None),
             ("sightops.alertas", _number(detail.get("alertas")) if detail.get("checado_em") else None),
+            ("sightops.link_in_bps", _number(detail.get("link_in_bps"))),
+            ("sightops.link_out_bps", _number(detail.get("link_out_bps"))),
+            ("sightops.link_erros", _number(detail.get("link_erros"))),
+            ("sightops.sfp_rx_dbm", _number(detail.get("sfp_rx_dbm"))),
+            ("sightops.sfp_tx_dbm", _number(detail.get("sfp_tx_dbm"))),
         ):
             metric_itemid = item_by_host_key.get((hostid, key), "")
             if metric_itemid and value is not None:

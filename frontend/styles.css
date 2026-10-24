@@ -13767,6 +13767,18 @@ button.rk-chip { cursor: pointer; }
 .rkv-tabela th { text-align: left; font-size: 12px; color: var(--muted); font-weight: 600; padding: 10px 14px; border-bottom: 1px solid var(--border); white-space: nowrap; }
 .rkv-tabela td { padding: 11px 14px; border-bottom: 1px solid var(--border); white-space: nowrap; }
 .rkv-porta-tag { font-family: Consolas, monospace; font-size: 12px; background: var(--surface-soft); border: 1px solid var(--border); border-radius: 6px; padding: 1px 6px; }
+.rk-chip-rk-on { background: var(--primary-soft); border-color: #b6e3cf; color: var(--primary); }
+.rk-chip-rk-off { background: var(--danger-soft); border-color: #f2c4c4; color: var(--danger); }
+.rkv-aviso-ok { background: var(--primary-soft); border-color: #b6e3cf; }
+.rkv-aviso-ok strong { color: var(--primary); }
+.rkv-coleta { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; margin: 0; display: flex; flex-direction: column; gap: 10px; background: var(--surface-soft); }
+.rkv-coleta[hidden] { display: none; }
+.rkv-coleta legend { font-size: 13px; font-weight: 700; padding: 0 4px; }
+.rkv-coleta legend small { font-weight: 500; color: var(--muted); }
+.rkv-coleta .secondary-action { align-self: flex-start; }
+.rkv-box-erro { border-color: #f2c4c4; background: var(--danger-soft); }
+.rkv-box-erro strong { color: var(--danger); }
+.rkv-motivo { display: block; margin-top: 3px; font-size: 11.5px; color: var(--muted); white-space: normal; max-width: 260px; }
 @media (max-width: 900px) {
   .rkv-corpo { flex-direction: column; overflow-y: auto; }
   .rkv-main { overflow: visible; }

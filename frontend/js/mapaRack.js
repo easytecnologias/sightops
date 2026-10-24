@@ -126,6 +126,37 @@ function rkOpcoesEntidade(ents, tipo, atual) {
 
 const rkLigadas = (e, uso) => e.portas.filter(p => uso[rkChave(e.id, p.id)]?.lig).length;
 
+// ------------------------------------------------------------------ leitura dos links (API da switch)
+
+const RK_COM_COLETA = ['switch', 'borda'];
+const rkCamada = def => String(def?.updateUrl || '').split('/').pop();
+
+async function rkLerLinks(def, rack) {
+  try {
+    const res = await api(`/api/mapa/rack/coleta?layer_id=${encodeURIComponent(rkCamada(def))}&rack_id=${encodeURIComponent(rack.id)}`);
+    if (!res?.ok) return { links: {}, cred: {} };
+    const d = await res.json();
+    return { links: Object.fromEntries((d.links || []).map(l => [l.entity_id, l])), cred: d.credenciais || {} };
+  } catch (_) { return { links: {}, cred: {} }; }
+}
+
+function rkBps(v) {
+  if (v == null || v === '') return '—';
+  const n = Number(v);
+  if (n >= 1e9) return `${(n / 1e9).toLocaleString('pt-BR', { maximumFractionDigits: 2 })} Gbps`;
+  if (n >= 1e6) return `${(n / 1e6).toLocaleString('pt-BR', { maximumFractionDigits: 1 })} Mbps`;
+  return `${Math.round(n / 1e3).toLocaleString('pt-BR')} kbps`;
+}
+
+// estado do link: no ar / caido / sem leitura (falha da coleta nunca vira "caido")
+function rkEstadoLink(l) {
+  if (!l) return { cls: 'rk-sem', txt: 'sem leitura', dica: 'leitura automática da switch não configurada' };
+  const st = String(l.status || '');
+  if (st === 'up') return { cls: 'rk-on', txt: 'no ar', dica: '' };
+  if (st === 'down' || st === 'unstable') return { cls: 'rk-off', txt: st === 'down' ? 'caído' : 'oscilando', dica: '' };
+  return { cls: 'rk-sem', txt: 'sem leitura', dica: l.detail?.erro || '' };
+}
+
 // ------------------------------------------------------------------ resumo no mapa
 
 async function rkAbrirPainel(id, def, nomePonto, latlng) {
@@ -167,7 +198,11 @@ async function rkAbrirPainel(id, def, nomePonto, latlng) {
       <span class="rk-res-nome"><strong>${esc(e.nome)}</strong><small>${esc(e.modelo || '')}${st ? ` · <span class="${st.cls}-txt">${st.txt}</span>` : ''}</small></span>
       <span class="rk-barra" aria-hidden="true"><i style="width:${pct}%"></i></span><small class="rk-res-uso">${lig}/${e.portas.length}</small></div>`;
   }).join('') || '<p class="text-muted" style="margin:0;font-size:12.5px">Nenhum equipamento ainda.</p>';
-  const provs = (rack.provedores || []).map(pv => `<span class="rk-chip">${esc(pv.nome)}</span>`).join('');
+  const leitura = await rkLerLinks(def, rack);
+  const provs = (rack.provedores || []).map(pv => {
+    const e = rkEstadoLink(leitura.links[pv.id]);
+    return `<span class="rk-chip rk-chip-${e.cls}" title="${esc(e.txt + (e.dica ? `: ${e.dica}` : ''))}">${esc(pv.nome)}</span>`;
+  }).join('');
   const corpo = `
     <div class="rk-res-pills">
       <span class="rk-pill">${eqs.length} equipamento(s)${noAr ? ` · ${noAr} no ar` : ''}</span>
@@ -175,7 +210,7 @@ async function rkAbrirPainel(id, def, nomePonto, latlng) {
       <span class="rk-pill">${rack.provedores?.length || 0} provedor(es)</span>
     </div>
     <section><h3>O que tem dentro</h3>${linhas}</section>
-    ${provs ? `<section><h3>Provedores <small>ficam verdes ou vermelhos quando a leitura da CRS for ligada</small></h3><div class="rk-chips">${provs}</div></section>` : ''}`;
+    ${provs ? `<section><h3>Provedores <small>${Object.keys(leitura.links).length ? 'verde no ar · vermelho caído · cinza sem leitura' : 'ficam verdes ou vermelhos quando a leitura da switch for ligada'}</small></h3><div class="rk-chips">${provs}</div></section>` : ''}`;
   const el = cxPainelBase(rack.nome, corpo, '<span style="flex:1"></span><button type="button" class="primary-action" data-rk="abrir"><i data-lucide="maximize-2"></i> Abrir rack</button>', 'Rack · rede neutra');
   el.classList.add('rk-painel');
   _cx.painel = { el, id, def, nomePonto, latlng, tipo: 'rack' };
@@ -195,7 +230,7 @@ async function rkAbrirTela(id, def, rack, nomePonto, latlng, ents) {
   el.setAttribute('role', 'dialog');
   el.setAttribute('aria-modal', 'true');
   document.body.appendChild(el);
-  _rk = { el, id, def, rackId: rack.id, nomePonto, latlng, aba: 'rack', sel: null, modo: null, origem: null, cabo: 'patch', editEq: null, editProv: null, ents: ents || {} };
+  _rk = { el, id, def, rackId: rack.id, nomePonto, latlng, aba: 'rack', sel: null, modo: null, origem: null, cabo: 'patch', editEq: null, editProv: null, ents: ents || {}, links: {}, cred: {}, teste: null };
   el.addEventListener('click', ev => {
     const b = ev.target.closest('[data-rk]');
     if (b) rkAcao(b).catch(e => rkErro(e));
@@ -206,10 +241,23 @@ async function rkAbrirTela(id, def, rack, nomePonto, latlng, ents) {
   });
   document.addEventListener('keydown', rkEsc, true);
   rkRender();
-  if (!ents) { _rk.ents = await rkEntidades(); rkRender(); }
+  if (!ents) _rk.ents = await rkEntidades();
+  await rkAtualizarLinks();
+  _rk.timer = setInterval(() => { if (_rk && !_rk.modo) rkAtualizarLinks(); }, 60000);
+}
+
+async function rkAtualizarLinks() {
+  const rack = rkRack();
+  if (!_rk || !rack) return;
+  const r = await rkLerLinks(_rk.def, rack);
+  if (!_rk) return;
+  _rk.links = r.links; _rk.cred = r.cred;
+  // nao redesenha no meio de um formulario (perderia o que foi digitado)
+  if (!_rk.modo || _rk.modo === 'ligar') rkRender();
 }
 
 function rkFecharTela() {
+  if (_rk?.timer) clearInterval(_rk.timer);
   _rk?.el?.remove();
   _rk = null;
   document.removeEventListener('keydown', rkEsc, true);
@@ -301,17 +349,50 @@ function rkHtmlRack(rack, uso) {
   return banner + cards;
 }
 
+// Por que este provedor nao e lido (mesma regra de rack_links.porta_lida):
+// mede na porta de entrada se for switch/borda, senao na porta ligada a ela.
+function rkMotivoSemLeitura(rack, pv) {
+  const eqs = Object.fromEntries(rack.equipamentos.map(e => [e.id, e]));
+  const ent = eqs[pv.entrada.eq];
+  let alvo = RK_COM_COLETA.includes(ent?.tipo) ? { eq: ent, porta: pv.entrada.porta } : null;
+  if (!alvo) {
+    const u = rkUsoDasPortas(rack)[rkChave(pv.entrada.eq, pv.entrada.porta)];
+    if (!u?.lig) return `entra na ${ent?.nome || '?'} ${pv.entrada.porta}, que não está ligada numa switch`;
+    if (!RK_COM_COLETA.includes(u.eqPara?.tipo)) return `${ent?.nome} ${pv.entrada.porta} vai para ${u.eqPara?.nome}, que não é switch nem borda`;
+    alvo = { eq: u.eqPara, porta: u.para.porta };
+  }
+  if (!alvo.eq.coleta?.ativo) return `leitura automática desligada em ${alvo.eq.nome}`;
+  if (!_rk.cred[alvo.eq.id]) return `${alvo.eq.nome}: falta o admin guardar a senha de leitura`;
+  return 'aguardando a primeira leitura (até 1 minuto)';
+}
+
+function rkCelulasLink(pv) {
+  const l = _rk.links[pv.id];
+  const e = rkEstadoLink(l);
+  if (!l) e.dica = rkMotivoSemLeitura(rkRack(), pv);
+  const d = l?.detail || {};
+  const rx = d.sfp_rx_dbm;
+  const sinal = rx == null ? (l && d.lido_em ? '<span class="rkv-cinza" title="o SFP desta porta não informa a potência">sem medição</span>' : '—')
+    : `<strong>${Number(rx).toLocaleString('pt-BR', { maximumFractionDigits: 1 })} dBm</strong>${d.sfp_tx_dbm != null ? ` <small class="rkv-cinza">tx ${Number(d.sfp_tx_dbm).toLocaleString('pt-BR', { maximumFractionDigits: 1 })}</small>` : ''}`;
+  const trafego = l && (d.link_in_bps != null || d.link_out_bps != null)
+    ? `↓ ${rkBps(d.link_in_bps)} <small class="rkv-cinza">↑ ${rkBps(d.link_out_bps)}</small>` : '<span class="rkv-cinza">—</span>';
+  const banda = pv.banda_mbps ? `${pv.banda_mbps.toLocaleString('pt-BR')} Mbps${d.uso_pct != null ? ` <small class="rkv-cinza">${d.uso_pct.toLocaleString('pt-BR')}% em uso</small>` : ''}` : '—';
+  return `<td><span class="rk-status ${e.cls}" title="${esc(e.dica)}">${e.txt}</span>${!l || l.status === 'unknown' ? `<small class="rkv-motivo">${esc(e.dica)}</small>` : ''}${d.link_erros ? ` <small class="rk-off-txt">${d.link_erros} erro(s)</small>` : ''}</td><td>${trafego}</td><td>${sinal}</td><td>${banda}</td>`;
+}
+
 function rkHtmlProvedores(rack) {
   const eqs = Object.fromEntries((rack.equipamentos || []).map(e => [e.id, e]));
   const linhas = (rack.provedores || []).map(pv => `<tr>
       <td><strong>${esc(pv.nome)}</strong></td>
       <td>${esc(eqs[pv.entrada.eq]?.nome || '?')} <span class="rkv-porta-tag">${esc(rkPortaCurta(pv.entrada.porta))}</span></td>
       <td>${pv.vlans.length ? esc(pv.vlans.join(', ')) : '—'}</td>
-      <td><span class="rk-status rk-sem">sem leitura</span></td>
-      <td class="rkv-cinza">—</td><td class="rkv-cinza">—</td>
-      <td>${pv.banda_mbps ? `${pv.banda_mbps} Mbps` : '—'}</td>
+      ${rkCelulasLink(pv)}
       <td><button type="button" class="ghost-action cx-ico" data-rk="editar-prov" data-prov="${esc(pv.id)}" title="Editar provedor" aria-label="Editar ${esc(pv.nome)}"><i data-lucide="pencil"></i></button></td></tr>`).join('');
-  return `<div class="rkv-aviso"><strong>Leitura dos links ainda desligada.</strong> Quando a API só de leitura for liberada nas CRS, link, tráfego e sinal da fibra passam a atualizar sozinhos e vão para o Zabbix.</div>
+  const lidos = Object.values(_rk.links).filter(l => l.status && l.status !== 'unknown').length;
+  const aviso = lidos
+    ? `<div class="rkv-aviso rkv-aviso-ok"><strong>Leitura automática ligada.</strong> Atualiza a cada minuto e vai para o Zabbix (avisa link caído e sinal da fibra 3 dB abaixo do normal).</div>`
+    : `<div class="rkv-aviso"><strong>Leitura dos links desligada.</strong> Em cada switch (⋯ no equipamento), ligue a <strong>Leitura automática</strong> com o IP de gerência e o usuário só de leitura da API. Aí link, tráfego e sinal da fibra passam a atualizar sozinhos e vão para o Zabbix.</div>`;
+  return `${aviso}
     ${linhas ? `<div class="rkv-tabela-box"><table class="rkv-tabela"><thead><tr><th>Provedor</th><th>Entra em</th><th>VLANs</th><th>Link</th><th>Tráfego</th><th>Sinal da fibra</th><th>Banda</th><th></th></tr></thead><tbody>${linhas}</tbody></table></div>`
       : '<div class="rkv-vazio"><h3>Nenhum provedor</h3><p>Marque por qual porta entra cada provedor e as VLANs dele.</p><button type="button" class="primary-action" data-rk="novo-prov"><i data-lucide="plus"></i> Adicionar provedor</button></div>'}`;
 }
@@ -384,9 +465,34 @@ function rkHtmlFormEq(rack) {
       <input id="rkEqPortas" maxlength="4000" value="${esc(eq ? eq.portas.map(x => x.id).join(', ') : '')}" placeholder="ex.: ether1, ether2, sfp1"></div>
     <div class="form-group" style="margin:0"><label for="rkEqModeloTxt">Modelo</label><input id="rkEqModeloTxt" maxlength="60" value="${esc(eq?.modelo || '')}" placeholder="ex.: CRS317-1G-16S+"></div>
     <div class="form-group" style="margin:0"><label for="rkEqEnt">É um equipamento já monitorado?</label><select id="rkEqEnt">${rkOpcoesEntidade(_rk.ents, tipo, eq?.entidade)}</select></div>
+    ${rkHtmlColeta(eq, tipo)}
     <span style="flex:1"></span>
     <div class="rkv-acoes">${eq ? '<button type="button" class="ghost-action cx-perigo" data-rk="tirar-eq">Tirar do rack</button>' : ''}<span style="flex:1"></span>
       <button type="button" class="secondary-action" data-rk="cancelar">Cancelar</button><button type="button" class="primary-action" data-rk="salvar-eq">${eq ? 'Salvar' : 'Adicionar'}</button></div>`;
+}
+
+// Leitura automatica dos links: so switch e borda. A senha vai para o
+// servidor criptografada e nunca volta para a tela ("já guardada").
+function rkHtmlColeta(eq, tipo) {
+  const c = eq?.coleta || {};
+  const guardada = eq && _rk.cred[eq.id];
+  const conectores = (_rk.ents.connector || []);
+  const t = _rk.teste && _rk.teste.eq === eq?.id ? _rk.teste : null;
+  const resultado = !t ? '' : t.ok
+    ? `<div class="rkv-box ok"><strong>Leu ${esc(t.identidade || 'a switch')}</strong>${Object.entries(t.portas || {}).map(([p, v]) => `<span>${esc(p)}: ${v.existe ? `${v.running ? 'com link' : 'SEM link'}${v.sfp_rx_dbm != null ? ` · rx ${v.sfp_rx_dbm} dBm` : ''}` : 'porta não existe'}</span>`).join('') || '<span>Nenhum provedor marcado nesta switch ainda.</span>'}</div>`
+    : `<div class="rkv-box rkv-box-erro"><strong>Não leu</strong><span>${esc(t.erro || 'falha')}</span></div>`;
+  return `<fieldset class="rkv-coleta" ${RK_COM_COLETA.includes(tipo) ? '' : 'hidden'}>
+    <legend>Leitura automática dos links <small>API do MikroTik, só leitura</small></legend>
+    <label class="alert-check"><input type="checkbox" id="rkColAtivo" ${c.ativo ? 'checked' : ''}> Ler as portas dos provedores a cada minuto e mandar ao Zabbix</label>
+    <div class="form-group" style="margin:0"><label for="rkColIp">IP de gerência</label><input id="rkColIp" maxlength="45" value="${esc(c.ip || '')}" placeholder="ex.: 10.80.80.7"></div>
+    <div class="form-group" style="margin:0"><label for="rkColConector">Chega pelo conector</label><select id="rkColConector"><option value="">Escolha o conector...</option>${conectores.map(x => `<option value="${esc(x.entity_id)}" ${c.conector === x.entity_id ? 'selected' : ''}>${esc(x.display_name || x.entity_id)}</option>`).join('')}</select></div>
+    <small class="rkv-cinza">Só pelo túnel do conector, nunca pelo IP real. Mudou IP, porta ou conector? O admin guarda a senha de novo.</small>
+    <div class="form-group" style="margin:0"><label for="rkColUser">Usuário de leitura</label><input id="rkColUser" maxlength="64" autocomplete="off" placeholder="${guardada ? 'já guardado (preencha só para trocar)' : 'ex.: sightops'}"></div>
+    <div class="form-group" style="margin:0"><label for="rkColSenha">Senha</label><input id="rkColSenha" type="password" maxlength="128" autocomplete="new-password" placeholder="${guardada ? 'já guardada' : ''}"></div>
+    <div class="form-group" style="margin:0"><label for="rkColPorta">Porta da API</label><input id="rkColPorta" type="number" min="1" max="65535" value="${Number(c.porta || 8728)}"></div>
+    ${eq ? '<button type="button" class="secondary-action" data-rk="testar"><i data-lucide="activity"></i> Testar leitura</button>' : '<small class="rkv-cinza">Salve o equipamento para testar a leitura.</small>'}
+    ${resultado}
+  </fieldset>`;
 }
 
 function rkFormEqAjustar(origem) {
@@ -399,6 +505,8 @@ function rkFormEqAjustar(origem) {
     const ent = el.querySelector('#rkEqEnt');
     if (ent) ent.innerHTML = rkOpcoesEntidade(_rk.ents, tipo, '');
   }
+  const col = el.querySelector('.rkv-coleta');
+  if (col) col.hidden = !RK_COM_COLETA.includes(tipo);
   const modelo = el.querySelector('#rkEqModelo')?.value;
   const livre = el.querySelector('#rkEqPortasLivre');
   if (livre) livre.hidden = Boolean(modelo);
@@ -515,9 +623,34 @@ async function rkAcao(btn) {
       portas: nomes.map(n => ({ id: n, rotulo: rotulos[n.toLowerCase()] || '' })), obs: atual?.obs || '',
     };
     if (!eq.nome) { rkErro(new Error('Informe o nome do equipamento.')); return; }
+    if (RK_COM_COLETA.includes(eq.tipo)) {
+      eq.coleta = { ativo: el.querySelector('#rkColAtivo')?.checked || false, ip: v('rkColIp'), porta: Number(v('rkColPorta') || 8728), conector: v('rkColConector') };
+    } else if (atual?.coleta) eq.coleta = atual.coleta;
+    const usuario = v('rkColUser');
+    const senha = el.querySelector('#rkColSenha')?.value || '';
+    if (eq.coleta?.ativo && !atual && !(usuario && senha)) { rkErro(new Error('Para ligar a leitura informe usuário e senha de leitura.')); return; }
+    if ((usuario && !senha) || (!usuario && senha)) { rkErro(new Error('Informe usuário e senha juntos.')); return; }
     const lista = atual ? rack.equipamentos.map(e => (e.id === atual.id ? eq : e)) : [...rack.equipamentos, eq];
     await rkGravar({ equipamentos: lista }, atual ? 'Equipamento salvo.' : 'Equipamento adicionado.');
-    limpar(); rkRender();
+    if (usuario && senha) {
+      const salvo = rkRack().equipamentos.find(e => e.nome === eq.nome && e.tipo === eq.tipo && (!atual || e.id === atual.id));
+      const res = await api('/api/mapa/rack/credencial', { method: 'POST', body: JSON.stringify({ layer_id: rkCamada(_rk.def), rack_id: rkRack().id, eq_id: salvo?.id, usuario, senha }) });
+      await jsonOrReadableError(res, 'Não foi possível guardar a senha.');
+      showToast('Senha de leitura guardada.');
+    }
+    limpar(); await rkAtualizarLinks(); rkRender();
+    return;
+  }
+  if (acao === 'testar') {
+    const eqId = _rk.editEq;
+    btn.disabled = true;
+    try {
+      const res = await api('/api/mapa/rack/testar', { method: 'POST', body: JSON.stringify({ layer_id: rkCamada(_rk.def), rack_id: rack.id, eq_id: eqId }) });
+      // a leitura que falhou vem com ok=false e o motivo em "erro" (nao e erro HTTP)
+      const d = res?.ok ? await res.json() : await jsonOrReadableError(res, 'Falha ao testar.');
+      _rk.teste = { eq: eqId, ...d };
+    } catch (e) { _rk.teste = { eq: eqId, ok: false, erro: e.message }; }
+    rkRender();
     return;
   }
   if (acao === 'tirar-eq') {

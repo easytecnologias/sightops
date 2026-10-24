@@ -66,6 +66,7 @@ from app.api.endpoints import (
     access_control_router,
     alert_router,
     rotas_router,
+    mapa_rack_router,
     recorder_driver_router,
 )
 
@@ -156,6 +157,7 @@ app.include_router(planning_router)
 app.include_router(access_control_router)
 app.include_router(alert_router)
 app.include_router(rotas_router)
+app.include_router(mapa_rack_router)
 app.include_router(recorder_driver_router)
 
 # Estado compartilhado (ex.: credencial do ultimo SCAN)
@@ -663,6 +665,41 @@ async def _ruijie_poll_loop() -> None:
         await asyncio.sleep(RUIJIE_POLL_INTERVAL_S)
 
 
+RACK_LINKS_INTERVAL_S = 60
+
+
+def _coletar_links_tenant(tenant_slug: str) -> dict:
+    from app.services.rack_links import coletar_cliente
+
+    token = set_current_tenant_slug(tenant_slug)
+    try:
+        return coletar_cliente()
+    finally:
+        reset_current_tenant_slug(token)
+
+
+async def _rack_links_loop() -> None:
+    """Links dos provedores do rack: le as switches (API, so leitura) a cada
+    minuto e grava as entidades "link"; o sync do monitoramento leva ao Zabbix."""
+    await asyncio.sleep(30)
+    while True:
+        resumo: dict[str, object] = {}
+        try:
+            for tenant_slug in await asyncio.to_thread(list_monitoring_tenants):
+                r = await asyncio.to_thread(_coletar_links_tenant, tenant_slug)
+                if r.get("switches"):
+                    resumo[tenant_slug] = r
+                if r.get("falhas"):
+                    logger.warning("rack links %s: %s", tenant_slug, "; ".join(r["falhas"])[:500])
+            app.state.rack_links_last = {"ok": True, "interval_s": RACK_LINKS_INTERVAL_S, "tenants": resumo}
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            app.state.rack_links_last = {"ok": False, "error": str(exc)}
+            logger.exception("rack links loop failed")
+        await asyncio.sleep(RACK_LINKS_INTERVAL_S)
+
+
 async def _live_stream_cleanup_loop() -> None:
     from app.services.live_stream_service import reap_idle_streams
 
@@ -723,6 +760,7 @@ async def startup_events() -> None:
     app.state.access_email_task = asyncio.create_task(_access_email_loop(), name="access-email-loop")
     app.state.nvr_status_task = asyncio.create_task(_nvr_status_loop(), name="nvr-status-loop")
     app.state.ruijie_poll_task = asyncio.create_task(_ruijie_poll_loop(), name="ruijie-poll-loop")
+    app.state.rack_links_task = asyncio.create_task(_rack_links_loop(), name="rack-links-loop")
     app.state.telegram_bot_task = asyncio.create_task(_telegram_bot_loop(), name="telegram-bot-loop")
 
 
@@ -739,6 +777,7 @@ async def shutdown_events() -> None:
         "access_email_task",
         "nvr_status_task",
         "ruijie_poll_task",
+        "rack_links_task",
         "telegram_bot_task",
     ):
         task = getattr(app.state, task_name, None)

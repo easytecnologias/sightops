@@ -122,15 +122,44 @@ def _equipamentos(raw: Any) -> List[Dict[str, Any]]:
         if eid in ids:
             raise RackErro(f"{nome}: identificador repetido.")
         ids.add(eid)
-        out.append({
+        item = {
             "id": eid, "tipo": tipo, "nome": nome,
             "modelo": _txt(e.get("modelo"), 60),
             # vinculo opcional com o que o SightOps ja monitora (ex.: "olt:..." / "connector:...")
             "entidade": _txt(e.get("entidade"), 200),
             "portas": _portas(e.get("portas"), nome),
             "obs": _txt(e.get("obs"), 300),
-        })
+        }
+        if isinstance(e.get("coleta"), dict) and tipo in ("switch", "borda"):
+            item["coleta"] = _coleta(e["coleta"], nome)
+        out.append(item)
     return out
+
+
+def _coleta(raw: Dict[str, Any], nome_eq: str) -> Dict[str, Any]:
+    """Leitura automatica da switch (rack_links.py). A senha NAO fica aqui: o
+    meta vai inteiro para a tela; ela fica criptografada no json_state."""
+    import ipaddress
+
+    ip = _txt(raw.get("ip"), 45)
+    ativo = bool(raw.get("ativo")) and str(raw.get("ativo")).lower() not in ("0", "false", "nao", "não")
+    if ip:
+        try:
+            ipaddress.ip_address(ip)
+        except ValueError:
+            raise RackErro(f"{nome_eq}: IP de gerência inválido.")
+    elif ativo:
+        raise RackErro(f"{nome_eq}: informe o IP de gerência para ligar a leitura.")
+    conector = re.sub(r"[^A-Za-z0-9_-]", "", str(raw.get("conector") or ""))[:40]
+    if ativo and not conector:
+        raise RackErro(f"{nome_eq}: escolha o conector por onde a switch é alcançada.")
+    try:
+        porta = int(raw.get("porta") or 8728)
+    except (TypeError, ValueError):
+        raise RackErro(f"{nome_eq}: porta da API inválida.")
+    if not 1 <= porta <= 65535:
+        raise RackErro(f"{nome_eq}: porta da API inválida.")
+    return {"ativo": ativo, "ip": ip, "porta": porta, "conector": conector}
 
 
 def _ponta(raw: Any, eqs: Dict[str, Dict[str, Any]], rotulo: str) -> Dict[str, str]:
