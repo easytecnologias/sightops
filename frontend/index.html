@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=1792804602">
+  <link rel="stylesheet" href="styles.css?v=1792805002">
   <link rel="stylesheet" href="acesso/acesso.css?v=1792600213">
 </head>
 <body>
@@ -143,6 +143,7 @@
         <div class="nav-section-label">Alerta</div>
         <button class="nav-item" data-view="alert-live"><i data-lucide="siren"></i><span>Central ao vivo</span><span class="alert-nav-badge" id="alertNavBadge" hidden>0</span></button>
         <button class="nav-item" data-view="alert-members"><i data-lucide="contact"></i><span>Pessoas e aparelhos</span></button>
+        <button class="nav-item" data-view="alert-reports"><i data-lucide="file-text"></i><span>Relatorios</span></button>
 
         <!-- Controle de Rotas (transporte escolar / PNATE) -->
         <div class="nav-section-label">Controle de Rotas</div>
@@ -1906,6 +1907,122 @@
           </div>
         </div>
       </div>
+
+      <!-- --- VIEW: RELATORIOS DO ALERTA --- mesmo desenho dos relatorios do controle de acesso -->
+      <section class="workspace hidden" id="viewAlertReports">
+        <div class="page-heading">
+          <div>
+            <p class="eyebrow alert-eyebrow">Alerta</p>
+            <h1>Relatorios</h1>
+            <p>Pedidos de ajuda no periodo e como cada um foi atendido. Baixe em PDF para arquivar ou mandar ao cliente.</p>
+          </div>
+        </div>
+        <div class="panel access-report-filters-panel">
+          <div class="panel-header access-report-filters-head">
+            <div>
+              <h2>Relatorios</h2>
+              <p>Filtre o periodo e gere o relatorio de atendimentos.</p>
+            </div>
+            <div class="access-report-actions">
+              <button class="secondary-action" id="btnAlertRelAtualizar" type="button"><i data-lucide="refresh-cw"></i> Atualizar</button>
+              <button class="secondary-action" id="btnAlertRelCsv" type="button"><i data-lucide="file-spreadsheet"></i> CSV</button>
+              <button class="primary-action" id="btnAlertRelPdf" type="button"><i data-lucide="file-text"></i> Gerar PDF</button>
+            </div>
+          </div>
+          <div class="filters access-report-filters">
+            <label class="search-box">
+              <i data-lucide="search"></i>
+              <input id="alertRelBusca" type="search" placeholder="Buscar pessoa, CPF, operador ou relato">
+            </label>
+            <select id="alertRelPeriodo" aria-label="Periodo">
+              <option value="hoje">Hoje</option>
+              <option value="7d">Ultimos 7 dias</option>
+              <option value="30d" selected>Ultimos 30 dias</option>
+              <option value="mes">Este mes</option>
+              <option value="custom">Escolher datas</option>
+            </select>
+            <select id="alertRelTipo" aria-label="Tipo">
+              <option value="">Todos os pedidos</option>
+              <option value="panico">Panico</option>
+              <option value="coacao">Coacao</option>
+              <option value="cancelado">Cancelados pela pessoa</option>
+              <option value="aberto">Ainda abertos</option>
+            </select>
+            <select id="alertRelSite" aria-label="Site">
+              <option value="">Todos os sites</option>
+            </select>
+            <div class="access-report-range" id="alertRelDatas" hidden>
+              <label>Inicio <input id="alertRelDe" type="date"></label>
+              <label>Fim <input id="alertRelAte" type="date"></label>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel access-report-command">
+          <div class="panel-header access-report-command-head">
+            <div>
+              <h2>Atendimentos</h2>
+              <p>Quem pediu ajuda, quanto demorou para assumir e como terminou.</p>
+            </div>
+          </div>
+          <div class="access-report-document">
+            <div>
+              <p class="eyebrow">Relatorio do Alerta</p>
+              <h2>Pedidos de ajuda e atendimento</h2>
+              <span id="alertRelPeriodoTxt">Periodo: ultimos 30 dias</span>
+            </div>
+            <div class="access-report-document-metrics">
+              <span><small>Pedidos</small><strong id="alertRelPedidos">0</strong></span>
+              <span><small>Coacao</small><strong id="alertRelCoacao">0</strong></span>
+              <span><small>Media para assumir</small><strong id="alertRelMediaAssumir">-</strong></span>
+              <span><small>Site</small><strong id="alertRelSiteTxt">Todos</strong></span>
+            </div>
+          </div>
+          <div class="access-report-kpis">
+            <article class="dash-kpi-card">
+              <div class="metric-icon green"><i data-lucide="check-circle-2"></i></div>
+              <div><span>Encerrados</span><strong id="alertRelEncerrados">0</strong><small>com relato da central</small></div>
+            </article>
+            <article class="dash-kpi-card">
+              <div class="metric-icon cyan"><i data-lucide="car"></i></div>
+              <div><span>Media ate a equipe chegar</span><strong id="alertRelMediaChegada">-</strong><small>do disparo a chegada</small></div>
+            </article>
+            <article class="dash-kpi-card">
+              <div class="metric-icon amber"><i data-lucide="send"></i></div>
+              <div><span>Telegram acionado</span><strong id="alertRelEscalados">0</strong><small>ninguem assumiu a tempo</small></div>
+            </article>
+          </div>
+          <div class="access-report-intelligence">
+            <section class="access-report-attention">
+              <div class="access-report-section-head">
+                <div>
+                  <h3>Atencao</h3>
+                  <p>Atendimentos que merecem conferencia.</p>
+                </div>
+                <span class="badge badge-gray" id="alertRelAtencaoCont">0 itens</span>
+              </div>
+              <div class="access-report-attention-list" id="alertRelAtencao">
+                <p class="muted-block">Carregando...</p>
+              </div>
+            </section>
+            <section class="access-report-health">
+              <div class="access-report-section-head">
+                <div>
+                  <h3>Por site</h3>
+                  <p>Pedidos e tempo medio para assumir.</p>
+                </div>
+              </div>
+              <div class="alert-rel-sites" id="alertRelSites"></div>
+            </section>
+          </div>
+          <div class="alert-rel-tabela">
+            <table class="data-table">
+              <thead><tr><th>Data</th><th>Pessoa</th><th>Site</th><th>Tipo</th><th>Assumiu</th><th>Equipe</th><th>Duracao</th><th>Situacao / relato</th></tr></thead>
+              <tbody id="alertRelLinhas"><tr class="empty-row"><td colspan="8">Carregando.</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
 
       <!-- --- VIEWS: CONTROLE DE ROTAS --- transporte escolar; cada viagem so conta
            para o PNATE com as 6 provas (km, rota, alunos, veiculo, motorista, documentos). -->
@@ -7804,7 +7921,7 @@
        trechos do app.js original na sequencia em que estavam, entao carregar
        fora de ordem muda o comportamento. Ao adicionar um arquivo novo, entre
        antes de bootstrap.js, que e quem liga os botoes no DOMContentLoaded. -->
-  <script src="js/core.js?v=1792600342"></script>
+  <script src="js/core.js?v=1792804803"></script>
   <script src="js/licencas.js?v=1792600103"></script>
   <script src="js/configuracoes.js?v=1792600138"></script>
   <script src="js/notificacoes.js?v=1792600139"></script>
@@ -7848,7 +7965,7 @@
   <script src="acesso/acesso.js?v=1792600205"></script>
   <script src="js/messenger.js?v=1791000212"></script>
   <script src="https://unpkg.com/qrcode-generator@1.4.4/qrcode.js"></script>
-  <script src="js/alert.js?v=1792804701"></script>
+  <script src="js/alert.js?v=1792804801"></script>
   <script src="js/controleRotas.js?v=1792600341"></script>
   <script src="js/tr069.js?v=1791000212"></script>
   <script src="js/bootstrap.js?v=1792600207"></script>

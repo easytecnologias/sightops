@@ -3,8 +3,10 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional
 
 from app.core import permissions
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.responses import FileResponse
+
+from app.api.endpoints.auth import current_user
 from pydantic import BaseModel, Field
 
 import time
@@ -298,6 +300,35 @@ def api_alert_map_cameras() -> Dict[str, Any]:
     """Pontos das cameras dos locais monitorados (mapa da central, sem alerta)."""
     cams = cameras_do_mapa()
     return {"ok": True, "count": len(cams), "cameras": cams}
+
+
+@router.get("/relatorio")
+def api_alert_relatorio(de: str = Query(""), ate: str = Query(""), site: str = Query(""), tipo: str = Query(""),
+                        busca: str = Query("")) -> Dict[str, Any]:
+    """Pedidos de ajuda do periodo e como foram atendidos (tela de Relatorios)."""
+    from app.services.alert_relatorio import gerar
+
+    return gerar(de=de, ate=ate, site=site, tipo=tipo, busca=busca)
+
+
+@router.get("/relatorio/pdf")
+def api_alert_relatorio_pdf(de: str = Query(""), ate: str = Query(""), site: str = Query(""), tipo: str = Query(""),
+                            busca: str = Query(""), user: Dict[str, Any] = Depends(current_user)) -> Response:
+    """O mesmo relatorio em PDF A4 (logo do cliente, para arquivar ou mandar)."""
+    import re as _re
+    import unicodedata
+
+    from app.core.tenant_context import tenant_report_logo_path
+    from app.services.alert_relatorio import gerar
+    from app.services.alert_relatorio_pdf import gerar_pdf
+
+    r = gerar(de=de, ate=ate, site=site, tipo=tipo, busca=busca)
+    logo = tenant_report_logo_path("inventory")
+    pdf = gerar_pdf(r, usuario=str(user.get("username") or ""), logo=logo if logo.exists() else None)
+    base = unicodedata.normalize("NFKD", f"alerta {r['site'] or 'todos'} {r['de']} {r['ate']}")
+    nome = _re.sub(r"[^A-Za-z0-9]+", "-", base.encode("ascii", "ignore").decode()).strip("-").lower() or "relatorio-alerta"
+    return Response(content=pdf, media_type="application/pdf",
+                    headers={"Content-Disposition": f'attachment; filename="{nome}.pdf"', "Cache-Control": "no-store"})
 
 
 @router.get("/locais")

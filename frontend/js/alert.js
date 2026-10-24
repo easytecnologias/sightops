@@ -2557,3 +2557,173 @@ async function alertMembersClick(ev) {
     showToast(err.message || 'Falha na acao.', true);
   }
 }
+
+// ---------------------------------------------------------------- relatorios
+// Mesmo desenho dos relatorios do controle de acesso: filtros, resumo,
+// atencao, por site e a lista. O PDF sai do servidor (A4, logo do cliente).
+
+let _alertRel = null;
+let _alertRelBound = false;
+let _alertRelSeq = 0;
+
+function alertRelTempo(seg) {
+  if (seg == null) return '-';
+  const h = Math.floor(seg / 3600), m = Math.floor((seg % 3600) / 60), s = seg % 60;
+  if (h) return `${h}h${String(m).padStart(2, '0')}`;
+  return m ? `${m} min ${String(s).padStart(2, '0')} s` : `${s} s`;
+}
+
+// Periodo da tela -> de/ate (datas locais AAAA-MM-DD), como o backend espera.
+function alertRelPeriodo() {
+  const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const hoje = new Date();
+  const menos = (n) => { const d = new Date(hoje); d.setDate(d.getDate() - n); return d; };
+  const p = document.getElementById('alertRelPeriodo')?.value || '30d';
+  if (p === 'hoje') return { de: iso(hoje), ate: iso(hoje), rotulo: 'hoje' };
+  if (p === '7d') return { de: iso(menos(6)), ate: iso(hoje), rotulo: 'ultimos 7 dias' };
+  if (p === 'mes') return { de: iso(new Date(hoje.getFullYear(), hoje.getMonth(), 1)), ate: iso(hoje), rotulo: 'este mes' };
+  if (p === 'custom') {
+    const de = document.getElementById('alertRelDe').value || iso(menos(29));
+    const ate = document.getElementById('alertRelAte').value || iso(hoje);
+    const br = (v) => v.split('-').reverse().join('/');
+    return { de, ate, rotulo: de === ate ? br(de) : `${br(de)} a ${br(ate)}` };
+  }
+  return { de: iso(menos(29)), ate: iso(hoje), rotulo: 'ultimos 30 dias' };
+}
+
+function alertRelQuery() {
+  const per = alertRelPeriodo();
+  const q = new URLSearchParams({
+    de: per.de, ate: per.ate,
+    site: document.getElementById('alertRelSite')?.value || '',
+    tipo: document.getElementById('alertRelTipo')?.value || '',
+    busca: (document.getElementById('alertRelBusca')?.value || '').trim(),
+  });
+  return { q, per };
+}
+
+async function loadAlertReports() {
+  if (!_alertRelBound) {
+    _alertRelBound = true;
+    let t = null;
+    const recarregar = () => { clearTimeout(t); t = setTimeout(alertRelCarregar, 250); };
+    document.getElementById('alertRelBusca')?.addEventListener('input', recarregar);
+    ['alertRelTipo', 'alertRelSite', 'alertRelDe', 'alertRelAte'].forEach((id) => document.getElementById(id)?.addEventListener('change', alertRelCarregar));
+    document.getElementById('alertRelPeriodo')?.addEventListener('change', (ev) => {
+      document.getElementById('alertRelDatas').hidden = ev.target.value !== 'custom';
+      alertRelCarregar();
+    });
+    document.getElementById('btnAlertRelAtualizar')?.addEventListener('click', alertRelCarregar);
+    document.getElementById('btnAlertRelCsv')?.addEventListener('click', alertRelCsv);
+    document.getElementById('btnAlertRelPdf')?.addEventListener('click', alertRelPdf);
+  }
+  await alertRelCarregar();
+}
+
+async function alertRelCarregar() {
+  const { q, per } = alertRelQuery();
+  const seq = ++_alertRelSeq;
+  let r;
+  try {
+    r = await alertApiJson(`/api/alert/relatorio?${q}`);
+  } catch (err) {
+    showToast(err.message || 'Falha ao carregar o relatorio.', true);
+    return;
+  }
+  if (seq !== _alertRelSeq) return;  // chegou uma busca mais nova
+  _alertRel = r;
+  // Sites que aparecem no periodo; mantem o escolhido mesmo se sumir.
+  const sel = document.getElementById('alertRelSite');
+  if (sel) {
+    const atual = sel.value;
+    const sites = [...new Set([...(r.sites || []), ...(atual ? [atual] : [])])].sort((a, b) => a.localeCompare(b, 'pt-BR'));
+    sel.innerHTML = `<option value="">Todos os sites</option>${sites.map((s) => `<option value="${esc(s)}"${s === atual ? ' selected' : ''}>${esc(s)}</option>`).join('')}`;
+  }
+  const rs = r.resumo || {};
+  setText('alertRelPeriodoTxt', `Periodo: ${per.rotulo}`);
+  setText('alertRelPedidos', rs.pedidos || 0);
+  setText('alertRelCoacao', rs.coacao || 0);
+  setText('alertRelMediaAssumir', alertRelTempo(rs.media_assumir_s));
+  setText('alertRelSiteTxt', r.site || 'Todos');
+  setText('alertRelEncerrados', rs.encerrados || 0);
+  setText('alertRelMediaChegada', alertRelTempo(rs.media_chegada_s));
+  setText('alertRelEscalados', rs.escalados || 0);
+
+  const at = r.atencao || [];
+  setText('alertRelAtencaoCont', `${at.length} ite${at.length === 1 ? 'm' : 'ns'}`);
+  const box = document.getElementById('alertRelAtencao');
+  if (box) {
+    box.innerHTML = at.length ? at.slice(0, 8).map((a) => `
+      <article class="access-report-attention-item ${a.nivel === 'alto' ? 'red' : 'amber'}">
+        <span><i data-lucide="${a.nivel === 'alto' ? 'siren' : 'timer'}"></i></span>
+        <div><strong>${esc(a.pessoa)}</strong><small>${esc(a.quando)} · ${esc(a.texto)}</small></div>
+      </article>`).join('') + (at.length > 8 ? `<p class="muted-block">+${at.length - 8} no PDF</p>` : '')
+      : `<div class="access-report-empty-state"><i data-lucide="check-circle-2"></i><strong>Nada para conferir</strong>
+         <span>Nenhum pedido ficou aberto, demorou para ser assumido, acionou o Telegram ou foi coacao.</span></div>`;
+  }
+  const sites = document.getElementById('alertRelSites');
+  if (sites) {
+    sites.innerHTML = (r.por_site || []).length ? (r.por_site || []).map((g) => `
+      <div class="alert-rel-site"><b>${esc(g.site)}</b><span>${g.pedidos} pedido${g.pedidos === 1 ? '' : 's'}${g.coacao ? ` · <em>${g.coacao} coacao</em>` : ''}</span>
+        <small>assumir em ${esc(alertRelTempo(g.media_assumir_s))}</small></div>`).join('')
+      : '<p class="muted-block">Sem pedidos no periodo.</p>';
+  }
+  const tb = document.getElementById('alertRelLinhas');
+  if (tb) {
+    const situacao = (x) => (x.aberto ? '<span class="pill danger">aberto</span>'
+      : x.status === 'cancelled' ? '<span class="pill neutral">cancelado pela pessoa</span>' : '<span class="pill success">encerrado</span>');
+    tb.innerHTML = (r.linhas || []).length ? r.linhas.slice().reverse().map((x) => `
+      <tr>
+        <td class="mono">${esc(x.data)}<br><small>${esc(x.hora)}</small></td>
+        <td><strong>${esc(x.pessoa)}</strong>${x.cargo ? `<small class="alert-ppl-meta">${esc(x.cargo)}</small>` : ''}</td>
+        <td>${esc(x.site)}</td>
+        <td>${x.tipo === 'coacao' ? '<span class="pill alert-duress-pill">COACAO</span>' : '<span class="pill danger">panico</span>'}</td>
+        <td>${esc(alertRelTempo(x.espera_s))}${x.assumido_por ? `<small class="alert-ppl-meta">${esc(x.assumido_por)}</small>` : ''}${x.escalado ? '<small class="alert-ppl-meta warn">Telegram acionado</small>' : ''}</td>
+        <td>${esc(alertRelTempo(x.chegada_s))}</td>
+        <td>${esc(alertRelTempo(x.duracao_s))}</td>
+        <td>${situacao(x)}${x.relato ? `<small class="alert-ppl-meta">${esc(x.relato)}</small>` : ''}</td>
+      </tr>`).join('')
+      : '<tr class="empty-row"><td colspan="8">Nenhum pedido de ajuda no periodo com esses filtros.</td></tr>';
+  }
+  if (window.lucide) lucide.createIcons();
+}
+
+function alertRelCsv() {
+  const r = _alertRel;
+  if (!r || !(r.linhas || []).length) { showToast('Nada para exportar com esses filtros.', true); return; }
+  const cel = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+  const cab = ['Data', 'Hora', 'Pessoa', 'Cargo', 'Site', 'Tipo', 'Situacao', 'Assumiu (s)', 'Assumido por', 'Equipe chegou (s)', 'Duracao (s)', 'Telegram acionado', 'Relato'];
+  const linhas = r.linhas.map((x) => [x.data, x.hora, x.pessoa, x.cargo, x.site, x.tipo === 'coacao' ? 'coacao' : 'panico',
+    x.aberto ? 'aberto' : (x.status === 'cancelled' ? 'cancelado pela pessoa' : 'encerrado'),
+    x.espera_s ?? '', x.assumido_por, x.chegada_s ?? '', x.duracao_s ?? '', x.escalado ? 'sim' : 'nao', x.relato]);
+  // BOM + ; : o Excel em portugues abre direto com acento e colunas certas.
+  const csv = '﻿' + [cab, ...linhas].map((l) => l.map(cel).join(';')).join('\r\n');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+  a.download = `alerta-atendimentos-${r.de}-a-${r.ate}.csv`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
+async function alertRelPdf() {
+  const { q } = alertRelQuery();
+  const btn = document.getElementById('btnAlertRelPdf');
+  btn.disabled = true;
+  try {
+    const res = await api(`/api/alert/relatorio/pdf?${q}`);
+    if (!res || !res.ok) {
+      const det = res ? (await res.json().catch(() => ({}))).detail : '';
+      throw new Error(det || 'Falha ao gerar o PDF.');
+    }
+    const nome = (res.headers.get('Content-Disposition') || '').match(/filename="([^"]+)"/)?.[1] || 'relatorio-alerta.pdf';
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(await res.blob());
+    a.download = nome;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  } catch (err) {
+    showToast(err.message || 'Falha ao gerar o PDF.', true);
+  } finally {
+    btn.disabled = false;
+  }
+}

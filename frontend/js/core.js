@@ -629,6 +629,7 @@ const VIEW_META = {
   'access-painel':  { title: 'Controle de Acesso', sub: 'Ao vivo, pessoas, horários, relatórios e mensagens' },
   'alert-live':     { title: 'Central ao vivo', sub: 'Pedidos de ajuda do botao de panico' },
   'alert-members':  { title: 'Pessoas e aparelhos', sub: 'Quem pode pedir ajuda e se o celular esta pronto' },
+  'alert-reports':  { title: 'Relatorios do Alerta', sub: 'Pedidos de ajuda e como foram atendidos' },
   'rotas-vivo':     { title: 'Controle de Rotas', sub: 'Ônibus em viagem agora' },
   'rotas-viagens':  { title: 'Controle de Rotas', sub: 'Viagens e as 6 provas do PNATE' },
   'rotas-cadastro': { title: 'Controle de Rotas', sub: 'Rotas, paradas e alunos' },
@@ -678,6 +679,7 @@ const VIEW_ID_MAP = {
   'access-painel':   'viewAccessPainel',
   'alert-live':      'viewAlertLive',
   'alert-members':   'viewAlertMembers',
+  'alert-reports':   'viewAlertReports',
   'rotas-vivo':      'viewRotasVivo',
   'rotas-viagens':   'viewRotasViagens',
   'rotas-cadastro':  'viewRotasCadastro',
@@ -800,6 +802,7 @@ function loadView(view) {
     case 'access-painel':  loadAccessPainel();  break;
     case 'alert-live':     loadAlertLive();     break;
     case 'alert-members':  loadAlertMembers();  break;
+    case 'alert-reports':  loadAlertReports();  break;
     case 'rotas-vivo':     loadRotasVivo();     break;
     case 'rotas-viagens':  loadRotasViagens();  break;
     case 'rotas-cadastro': loadRotasCadastro(); break;

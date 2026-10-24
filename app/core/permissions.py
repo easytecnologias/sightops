@@ -70,7 +70,7 @@ MODULOS: List[Dict[str, Any]] = [
     {"key": "acesso", "label": "Controle de acesso",
      "views": ["access-live", "access-messenger", "access-control", "access-painel"],
      "prefixos": ["/api/access-control"]},
-    {"key": "alerta", "label": "Alerta de pânico", "views": ["alert-live", "alert-members"], "prefixos": ["/api/alert"]},
+    {"key": "alerta", "label": "Alerta de pânico", "views": ["alert-live", "alert-members", "alert-reports"], "prefixos": ["/api/alert"]},
     {"key": "rotas", "label": "Controle de rotas (transporte escolar)",
      "views": ["rotas-vivo", "rotas-viagens", "rotas-cadastro", "rotas-frota", "rotas-pnate"],
      "prefixos": ["/api/rotas"]},
