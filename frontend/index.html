@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=1792803402">
+  <link rel="stylesheet" href="styles.css?v=1792803502">
   <link rel="stylesheet" href="acesso/acesso.css?v=1792600213">
 </head>
 <body>
@@ -1690,7 +1690,16 @@
             <div class="modal-body alert-ficha">
               <input type="hidden" id="alertMemberId">
               <aside class="alert-ficha-lado">
-                <span class="alert-ficha-rot">No alerta, a central ve assim</span>
+                <div class="alert-ficha-foto">
+                  <div class="alert-ficha-fotobox" id="alertMemberFotoBox"><span>?</span></div>
+                  <div class="alert-ficha-fotobtns">
+                    <label class="primary-action"><i data-lucide="upload"></i> Enviar foto<input type="file" accept="image/*" id="alertMemberFotoArq" hidden></label>
+                    <label class="secondary-action"><i data-lucide="camera"></i> Tirar foto<input type="file" accept="image/*" capture="user" id="alertMemberFotoCam" hidden></label>
+                  </div>
+                  <button type="button" class="link-action alert-ficha-fototira" id="btnAlertFotoTirar" hidden>Remover foto</button>
+                  <ul class="alert-ficha-dicas"><li>Rosto de frente e bem iluminado</li><li>Sem oculos escuros, bone ou mascara</li></ul>
+                </div>
+                <span class="alert-ficha-rot">Previa: assim a central ve no alerta</span>
                 <div class="alert-ficha-previa">
                   <span class="alert-ficha-ava" id="alertMemberPrevIni">?</span>
                   <div><b id="alertMemberPrevNome">Nome da pessoa</b><small id="alertMemberPrevCargo">Cargo · lotacao</small></div>
@@ -7823,7 +7832,7 @@
   <script src="acesso/acesso.js?v=1792600205"></script>
   <script src="js/messenger.js?v=1791000212"></script>
   <script src="https://unpkg.com/qrcode-generator@1.4.4/qrcode.js"></script>
-  <script src="js/alert.js?v=1792803401"></script>
+  <script src="js/alert.js?v=1792803501"></script>
   <script src="js/controleRotas.js?v=1792600341"></script>
   <script src="js/tr069.js?v=1791000212"></script>
   <script src="js/bootstrap.js?v=1792600207"></script>

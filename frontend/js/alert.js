@@ -1111,7 +1111,7 @@ function alertRenderList() {
     return `
       <button type="button" class="${cls}" data-alert-id="${esc(inc.id)}">
         <span class="alert-card-top">
-          <span class="alert-card-quem"><span class="alert-card-ava">${esc(alertIniciais(m.full_name))}</span><strong>${esc(m.full_name)}</strong></span>
+          <span class="alert-card-quem"><span class="alert-card-ava">${alertAvatarHtml(m)}</span><strong>${esc(m.full_name)}</strong></span>
           <span class="alert-card-age is-live${inc.status === 'new' ? ' is-new' : ''}" data-alert-tick="${esc(inc.opened_at)}">${esc(alertTimer(inc.opened_at))}</span>
         </span>
         <span class="alert-card-meta">${esc([m.role_title, inc.site || m.unit_name].filter(Boolean).join(' · ') || 'sem lotacao')}</span>
@@ -1297,7 +1297,7 @@ function alertRenderDetail() {
     <div class="alert-case-head${inc.kind === 'duress' ? ' is-duress' : ''}${inc.status === 'new' ? ' is-new' : ''}${open ? '' : ' is-final'}">
       <div class="alert-case-kicker">${esc(alertKicker(inc))}</div>
       <div class="alert-case-who">
-        <span class="alert-case-avatar">${esc(alertIniciais(m.full_name))}</span>
+        <span class="alert-case-avatar">${alertAvatarHtml(m)}</span>
         <div class="alert-case-name">
           <strong>${esc(m.full_name)}</strong>
           <small>${esc([m.role_title, inc.site, m.unit_name].filter(Boolean).join(' · ') || 'sem lotacao cadastrada')}</small>
@@ -1664,6 +1664,9 @@ async function loadAlertMembers() {
     document.getElementById('alertMemberCpf')?.addEventListener('input', alertConferirCpf);
     ['alertMemberName', 'alertMemberRole', 'alertMemberUnit', 'alertMemberRaio'].forEach((id) =>
       document.getElementById(id)?.addEventListener('input', alertFichaPrevia));
+    document.getElementById('alertMemberFotoArq')?.addEventListener('change', alertEscolherFoto);
+    document.getElementById('alertMemberFotoCam')?.addEventListener('change', alertEscolherFoto);
+    document.getElementById('btnAlertFotoTirar')?.addEventListener('click', () => { _alertFotoNova = ''; alertFichaFoto(); });
     document.getElementById('alertMemberRaioAtalhos')?.addEventListener('click', (ev) => {
       const b = ev.target.closest('[data-raio]');
       if (!b) return;
@@ -1779,7 +1782,7 @@ function alertMemberRow(m) {
   return `
       <article class="alert-pcard is-${tom}${m.id === _alertAtivId ? ' is-sel' : ''}">
         <div class="alert-pcard-top">
-          <span class="alert-pcard-foto">${esc(alertIniciais(m.full_name))}<i></i></span>
+          <span class="alert-pcard-foto${m.foto_v ? ' tem-foto' : ''}">${alertAvatarHtml(m)}<i></i></span>
           <div class="alert-pcard-quem">
             <b>${esc(m.full_name)}</b>
             <small>${esc(quem || 'sem lotacao')}</small>
@@ -2021,6 +2024,8 @@ function alertOpenMember(m) {
   v('alertMemberLon', m?.unit_lon);
   v('alertMemberNotes', m?.notes);
   v('alertMemberRaio', m?.camera_radius_m || '');
+  _alertFotoNova = null;
+  _alertFotoAtual = alertFotoUrl(m);
   alertFichaPrevia();
   document.getElementById('alertMemberActive').checked = m ? !!m.active : true;
   _alertCpfDono = null;
@@ -2034,11 +2039,72 @@ function alertOpenMember(m) {
   setTimeout(() => document.getElementById('alertMemberName')?.focus(), 50);
 }
 
+// Foto da pessoa: URL com a versao (mtime) para o navegador poder guardar.
+function alertFotoUrl(m) {
+  return m?.id && m.foto_v ? `${API_BASE}/api/alert/members/${encodeURIComponent(m.id)}/foto?v=${m.foto_v}` : '';
+}
+
+// Conteudo de um avatar: a foto, ou as iniciais quando nao tem.
+function alertAvatarHtml(m) {
+  const url = alertFotoUrl(m);
+  return url ? `<img src="${esc(url)}" alt="" loading="lazy">` : esc(alertIniciais(m?.full_name));
+}
+
+// Foto no cadastro: null = nao mexeu, '' = remover, data URL = nova.
+let _alertFotoNova = null;
+let _alertFotoAtual = '';
+
+function alertFichaFoto() {
+  const url = _alertFotoNova !== null ? _alertFotoNova : _alertFotoAtual;
+  const nome = (document.getElementById('alertMemberName')?.value || '').trim();
+  const ini = esc(nome ? alertIniciais(nome) : '?');
+  const box = document.getElementById('alertMemberFotoBox');
+  if (box) {
+    box.classList.toggle('tem-foto', !!url);
+    box.innerHTML = url ? `<img src="${esc(url)}" alt="Foto da pessoa">` : `<span>${ini}</span>`;
+  }
+  const prev = document.getElementById('alertMemberPrevIni');
+  if (prev) prev.innerHTML = url ? `<img src="${esc(url)}" alt="">` : ini;
+  const tira = document.getElementById('btnAlertFotoTirar');
+  if (tira) tira.hidden = !url;
+}
+
+// Reduz no navegador antes de mandar (foto de celular tem 4-12 MB).
+function alertReduzirFoto(arq) {
+  return new Promise((ok, falha) => {
+    const url = URL.createObjectURL(arq);
+    const img = new Image();
+    img.onload = () => {
+      const k = Math.min(1, 1024 / Math.max(img.width, img.height));
+      const cv = document.createElement('canvas');
+      cv.width = Math.round(img.width * k);
+      cv.height = Math.round(img.height * k);
+      cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height);
+      URL.revokeObjectURL(url);
+      ok(cv.toDataURL('image/jpeg', 0.85));
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); falha(new Error('Nao consegui abrir essa imagem. Use JPG ou PNG.')); };
+    img.src = url;
+  });
+}
+
+async function alertEscolherFoto(ev) {
+  const arq = ev.target.files?.[0];
+  ev.target.value = '';
+  if (!arq) return;
+  try {
+    _alertFotoNova = await alertReduzirFoto(arq);
+    alertFichaFoto();
+  } catch (err) {
+    showToast(err.message, true);
+  }
+}
+
 // Previa do cadastro: o cartao como a central ve no alerta, enquanto digita.
 function alertFichaPrevia() {
   const val = (id) => (document.getElementById(id)?.value || '').trim();
   const nome = val('alertMemberName');
-  setText('alertMemberPrevIni', nome ? alertIniciais(nome) : '?');
+  alertFichaFoto();
   setText('alertMemberPrevNome', nome || 'Nome da pessoa');
   setText('alertMemberPrevCargo', [val('alertMemberRole'), val('alertMemberUnit')].filter(Boolean).join(' · ') || 'Cargo · lotacao');
   const raio = val('alertMemberRaio');
@@ -2089,9 +2155,16 @@ async function alertSaveMember() {
     camera_radius_m: g('alertMemberRaio') || null,
   };
   try {
-    await alertApiJson('/api/alert/members', { method: 'POST', body: JSON.stringify(payload) });
+    const out = await alertApiJson('/api/alert/members', { method: 'POST', body: JSON.stringify(payload) });
+    // Foto depois do cadastro: pessoa nova so tem id depois de salvar.
+    let fotoErro = '';
+    if (_alertFotoNova !== null && out.member?.id) {
+      try {
+        await alertApiJson(`/api/alert/members/${encodeURIComponent(out.member.id)}/foto`, { method: 'POST', body: JSON.stringify({ foto: _alertFotoNova }) });
+      } catch (err) { fotoErro = err.message || 'falha ao enviar'; }
+    }
     alertCloseModal('modalAlertMember');
-    showToast('Pessoa salva.');
+    showToast(fotoErro ? `Pessoa salva, mas a foto nao: ${fotoErro}` : 'Pessoa salva.', !!fotoErro);
     await alertLoadMembers();
   } catch (err) {
     showToast(err.message || 'Falha ao salvar.', true);

@@ -4,6 +4,7 @@ from typing import Any, Dict, List, Optional
 
 from app.core import permissions
 from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 import time
@@ -35,6 +36,8 @@ from app.services.alert_store import (
     resolve_app_session,
     revoke_member_devices,
     save_member,
+    salvar_foto_membro,
+    caminho_foto_membro,
     set_app_pins,
     transition_incident,
     trigger_incident,
@@ -121,6 +124,32 @@ def api_alert_save_member(req: AlertMemberRequest) -> Dict[str, Any]:
         return {"ok": True, "member": save_member(req.model_dump())}
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+
+
+class AlertFotoRequest(BaseModel):
+    foto: str = ""  # data URL da imagem; vazio remove a foto
+
+
+# POST tambem para remover: DELETE conta como exclusao (so admin) e tirar a
+# foto e trabalho de operador.
+@router.post("/members/{member_id}/foto")
+def api_alert_member_foto(member_id: str, req: AlertFotoRequest) -> Dict[str, Any]:
+    try:
+        return {"ok": True, **salvar_foto_membro(member_id, req.foto)}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.get("/members/{member_id}/foto")
+def api_alert_member_foto_get(member_id: str) -> FileResponse:
+    try:
+        path = caminho_foto_membro(member_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    if not path:
+        raise HTTPException(status_code=404, detail="Pessoa sem foto.")
+    # A tela pede com ?v=<versao>: pode guardar, a URL muda quando a foto muda.
+    return FileResponse(path, media_type="image/jpeg", headers={"Cache-Control": "private, max-age=86400"})
 
 
 @router.delete("/members/{member_id}")

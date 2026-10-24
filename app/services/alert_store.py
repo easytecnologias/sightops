@@ -34,7 +34,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from app.core.tenant_context import reset_current_tenant_slug, set_current_tenant_slug
+from app.core.tenant_context import reset_current_tenant_slug, set_current_tenant_slug, tenant_scoped_path
 from app.services import db_store
 
 logger = logging.getLogger("cam-snapshot")
@@ -172,9 +172,80 @@ def _camera_radius(value: Any) -> int:
     return n
 
 
+# --------------------------------------------------------------------------
+# foto da pessoa (a central reconhece quem pediu ajuda nas cameras)
+# --------------------------------------------------------------------------
+# Arquivo JPEG reduzido na pasta do cliente (tenant_scoped_path). Sem coluna no
+# banco: a versao da foto e o mtime do arquivo (cache-bust da tela).
+
+FOTO_MAX_BYTES = 6 * 1024 * 1024   # o que chega do navegador (antes de reduzir)
+FOTO_LADO_PX = 640
+
+
+def _foto_path(member_id: str, tenant: str = "") -> "Path":
+    limpo = re.sub(r"[^A-Za-z0-9_-]", "", str(member_id or ""))[:80]
+    if not limpo:
+        raise ValueError("Pessoa invalida.")
+    return tenant_scoped_path(f"alert_fotos/{limpo}.jpg", tenant)
+
+
+def _foto_versao(member_id: str, tenant: str = "") -> int:
+    try:
+        return int(_foto_path(member_id, tenant).stat().st_mtime)
+    except (OSError, ValueError):
+        return 0
+
+
+def salvar_foto_membro(member_id: str, data_url: str) -> Dict[str, Any]:
+    """Grava (ou remove, com `data_url` vazio) a foto da pessoa."""
+    import base64
+    import io
+
+    from PIL import Image, ImageOps
+
+    tenant = _tenant()
+    with db_store._conn() as c:
+        _exigir_membro_liberado(c, tenant, member_id)
+    path = _foto_path(member_id, tenant)
+    bruto = str(data_url or "").strip()
+    if not bruto:
+        path.unlink(missing_ok=True)
+        return {"foto_v": 0}
+    if bruto.startswith("data:"):
+        bruto = bruto.split(",", 1)[-1]
+    try:
+        dados = base64.b64decode(bruto, validate=False)
+    except ValueError:
+        raise ValueError("Foto invalida.")
+    if not dados or len(dados) > FOTO_MAX_BYTES:
+        raise ValueError("Foto grande demais (maximo 6 MB).")
+    try:
+        img = Image.open(io.BytesIO(dados))
+        img.load()
+    except Exception:
+        raise ValueError("Arquivo nao e uma imagem (use JPG ou PNG).")
+    img = ImageOps.exif_transpose(img).convert("RGB")
+    img.thumbnail((FOTO_LADO_PX, FOTO_LADO_PX))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".tmp")
+    img.save(tmp, "JPEG", quality=85, optimize=True)
+    tmp.replace(path)
+    return {"foto_v": _foto_versao(member_id, tenant)}
+
+
+def caminho_foto_membro(member_id: str) -> Optional["Path"]:
+    """Arquivo da foto, so se a pessoa e do cliente e de um site do usuario."""
+    tenant = _tenant()
+    with db_store._conn() as c:
+        _exigir_membro_liberado(c, tenant, member_id)
+    path = _foto_path(member_id, tenant)
+    return path if path.is_file() else None
+
+
 def _member_public(row: Dict[str, Any], active_sessions: int = 0) -> Dict[str, Any]:
     pending_code = bool(row.get("activation_code_hash")) and str(row.get("activation_expires_at") or "") > _now()
     return {
+        "foto_v": _foto_versao(row["id"], row.get("tenant_slug") or ""),
         "id": row["id"],
         "full_name": row.get("full_name") or "",
         "document_id": row.get("document_id") or "",
@@ -810,6 +881,7 @@ def _incident_view(inc: Dict[str, Any], member: Optional[Dict[str, Any]]) -> Dic
             "phone": m.get("phone") or "",
             "notes": m.get("notes") or "",
             "camera_radius_m": int(m.get("camera_radius_m") or 0),
+            "foto_v": _foto_versao(m["id"], inc.get("tenant_slug") or "") if m.get("id") else 0,
         },
     }
 

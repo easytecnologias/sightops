@@ -10434,6 +10434,20 @@ button.alert-chip { cursor: pointer; }
 .alert-ficha-ava { width: 52px; height: 52px; flex: none; border-radius: 14px; background: rgba(255,255,255,.18); display: grid; place-items: center; font-size: 17px; font-weight: 800; }
 .alert-ficha-previa .alert-ficha-tempo { flex: none; font: 700 18px ui-monospace, "JetBrains Mono", Consolas, monospace; }
 .alert-ficha-ajuda { margin: 0; font-size: 12px; line-height: 1.55; color: var(--muted); }
+.alert-ficha-foto { display: flex; flex-direction: column; align-items: center; gap: 12px; margin-bottom: 8px; padding: 18px; border: 1px solid var(--border); border-radius: 14px; background: var(--surface-soft); }
+.alert-ficha-fotobox { width: 200px; height: 200px; border: 2px dashed #b8c2c9; border-radius: 24px; background: var(--surface); color: var(--muted); display: grid; place-items: center; overflow: hidden; box-sizing: border-box; font-size: 48px; font-weight: 800; }
+.alert-ficha-fotobox.tem-foto { border: 1px solid var(--border); }
+.alert-ficha-fotobox img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.alert-ficha-fotobtns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; width: 100%; }
+.alert-ficha-fotobtns label { height: 42px; justify-content: center; padding: 0 10px; cursor: pointer; white-space: nowrap; }
+.alert-ficha-fototira { color: var(--danger); font-size: 12px; font-weight: 700; }
+.alert-ficha-dicas { margin: 0; padding: 0 0 0 18px; width: 100%; box-sizing: border-box; font-size: 12px; line-height: 1.7; color: #3d4a52; }
+/* Avatares com foto: a imagem preenche o circulo/quadrado do avatar */
+.alert-ficha-ava, .alert-card-ava, .alert-case-avatar, .alert-pcard-foto { overflow: hidden; }
+.alert-ficha-ava img, .alert-card-ava img, .alert-case-avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.alert-pcard-foto { overflow: visible; }
+.alert-pcard-foto img { width: 100%; height: 100%; object-fit: cover; display: block; border-radius: 14px; }
+.alert-pcard-foto.tem-foto { border: 1px solid var(--border); }
 .alert-ficha-form { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
 .alert-ficha-bloco { margin: 0; padding: 18px; border: 1px solid var(--border); border-radius: 14px; background: var(--surface-soft); display: flex; flex-direction: column; gap: 12px; min-width: 0; }
 .alert-ficha-bloco legend { float: left; width: 100%; padding: 0; display: flex; align-items: center; gap: 10px; font-size: 15px; font-weight: 800; }
@@ -10450,7 +10464,10 @@ button.alert-chip { cursor: pointer; }
 .alert-ficha-metros input { flex: 1; min-width: 0; }
 .alert-ficha-metros span { font-size: 13px; color: var(--muted); }
 .alert-ficha-raio-atalhos { display: flex; flex-wrap: wrap; gap: 6px; }
-.alert-ficha-raio-atalhos button { height: 38px; padding: 0 12px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface); color: var(--text); font-size: 13px; font-weight: 600; cursor: pointer; }
+/* Campos e botoes da ficha na MESMA altura: o botao ao lado do campo fecha a linha */
+.alert-ficha .form-group input, .alert-ficha .form-group select { height: 42px; box-sizing: border-box; }
+.alert-ficha-coord .secondary-action { height: 42px; }
+.alert-ficha-raio-atalhos button { height: 42px; padding: 0 14px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text); font-size: 13px; font-weight: 600; cursor: pointer; }
 .alert-ficha-raio-atalhos button[aria-pressed="true"] { border-color: var(--sidebar); background: var(--sidebar); color: #fff; }
 .alert-ficha-pe { justify-content: space-between; align-items: center; flex-wrap: wrap; background: var(--surface-soft); }
 .alert-ficha-pe .alert-check { margin-top: 0; }
