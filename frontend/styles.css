@@ -13916,3 +13916,15 @@ button.rk-chip { cursor: pointer; }
 .swp-det-leg i { display: inline-block; width: 14px; height: 3px; margin: 0 4px 2px 10px; vertical-align: middle; background: var(--primary); }
 .swp-det-leg i.out { background: var(--blue); }
 .swp-det .swp-spark { height: 110px; }
+
+/* Rack: linha da ligacao ao passar o mouse numa porta */
+.rkv-main { position: relative; }
+.rkv-fio { position: absolute; top: 0; left: 0; pointer-events: none; z-index: 3; overflow: visible; }
+.rkv-fio .sombra { fill: none; stroke: var(--surface); stroke-width: 7; stroke-linecap: round; opacity: .9; }
+.rkv-fio .linha { fill: none; stroke: var(--primary); stroke-width: 3; stroke-linecap: round; stroke-dasharray: 8 6; animation: rkv-fio-corre .9s linear infinite; }
+.rkv-fio circle { fill: var(--primary); stroke: var(--surface); stroke-width: 2; }
+.rkv-fio .rot rect { fill: var(--primary); }
+.rkv-fio .rot text { fill: #fff; font: 700 11px Inter, Arial, sans-serif; }
+@keyframes rkv-fio-corre { to { stroke-dashoffset: -14; } }
+@media (prefers-reduced-motion: reduce) { .rkv-fio .linha { animation: none; } }
+.rkv-p.fio { outline: 3px solid var(--primary); outline-offset: 1px; box-shadow: 0 4px 14px rgba(8,127,91,.25); position: relative; z-index: 4; }

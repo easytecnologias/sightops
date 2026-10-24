@@ -238,6 +238,17 @@ async function rkAbrirTela(id, def, rack, nomePonto, latlng, ents) {
     const b = ev.target.closest('[data-rk]');
     if (b) rkAcao(b).catch(e => rkErro(e));
   });
+  // passar o mouse numa porta ligada desenha a linha ate o outro lado
+  el.addEventListener('mouseover', ev => {
+    const b = ev.target.closest('.rkv-p[data-eq]');
+    if (b && b !== _rk?.hover) rkLinhaDaPorta(b);
+  });
+  el.addEventListener('mouseout', ev => {
+    const b = ev.target.closest('.rkv-p[data-eq]');
+    if (b && !b.contains(ev.relatedTarget)) rkLinhaLimpar();
+  });
+  el.addEventListener('focusin', ev => { const b = ev.target.closest('.rkv-p[data-eq]'); if (b) rkLinhaDaPorta(b); });
+  el.addEventListener('focusout', () => rkLinhaLimpar());
   el.addEventListener('change', ev => {
     if (['rkEqTipo', 'rkEqModelo', 'rkEqSw'].includes(ev.target.id)) rkFormEqAjustar(ev.target.id);
     if (ev.target.id === 'rkPvEq') rkPortasDoProvedor();
@@ -310,6 +321,73 @@ function rkRender() {
   lucide.createIcons();
   if (_rk.modo === 'eq') rkFormEqAjustar('');
   if (_rk.modo === 'prov') rkPortasDoProvedor(true);
+}
+
+// ------------------------------------------------------------------ linha da ligacao (mouse)
+// Segue o caminho inteiro da porta (DIO P1 -> sfp4 -> ...), como
+// mapa_rack.caminho_da_porta, e desenha uma curva entre cada par de portas.
+
+function rkLinhaLimpar() {
+  if (!_rk) return;
+  _rk.hover = null;
+  _rk.el.querySelector('.rkv-fio')?.remove();
+  _rk.el.querySelectorAll('.rkv-p.fio').forEach(x => x.classList.remove('fio'));
+}
+
+function rkLinhaDaPorta(btn) {
+  rkLinhaLimpar();
+  const rack = rkRack();
+  const main = _rk?.el.querySelector('.rkv-main');
+  if (!rack || !main || _rk.modo === 'ligar' || _rk.aba !== 'rack') return;
+  _rk.hover = btn;
+  const uso = rkUsoDasPortas(rack);
+  const achar = (eq, porta) => [...main.querySelectorAll(`.rkv-p[data-eq="${CSS.escape(eq)}"]`)]
+    .find(x => x.dataset.porta.toLowerCase() === String(porta).toLowerCase());
+  // caminho: a porta, o outro lado, e de la em diante pela mesma regra
+  const passos = [{ eq: btn.dataset.eq, porta: btn.dataset.porta }];
+  const vistos = new Set([rkChave(btn.dataset.eq, btn.dataset.porta)]);
+  for (let i = 0; i < 6; i++) {
+    const u = uso[rkChave(passos[passos.length - 1].eq, passos[passos.length - 1].porta)];
+    if (!u?.lig || vistos.has(rkChave(u.para.eq, u.para.porta))) break;
+    passos.push({ ...u.para, tipo: u.lig.tipo });
+    vistos.add(rkChave(u.para.eq, u.para.porta));
+  }
+  if (passos.length < 2) return;
+  const base = main.getBoundingClientRect();
+  const pos = (b) => {
+    const r = b.getBoundingClientRect();
+    return { x: r.left - base.left + main.scrollLeft + r.width / 2, top: r.top - base.top + main.scrollTop, bot: r.bottom - base.top + main.scrollTop };
+  };
+  let caminhos = '', rotulos = '';
+  for (let i = 1; i < passos.length; i++) {
+    const a = achar(passos[i - 1].eq, passos[i - 1].porta), b = achar(passos[i].eq, passos[i].porta);
+    if (!a || !b) continue;
+    a.classList.add('fio'); b.classList.add('fio');
+    const A = pos(a), B = pos(b);
+    let d, mx, my;
+    if (Math.abs(A.top - B.top) < 4) {
+      // mesmo equipamento (mesma fileira): arco por baixo
+      const y = A.bot + 26;
+      d = `M${A.x},${A.bot} C${A.x},${y} ${B.x},${y} ${B.x},${B.bot}`;
+      mx = (A.x + B.x) / 2; my = y - 6;
+    } else {
+      const [y1, y2] = A.top < B.top ? [A.bot, B.top] : [A.top, B.bot];
+      const meio = (y1 + y2) / 2;
+      d = `M${A.x},${y1} C${A.x},${meio} ${B.x},${meio} ${B.x},${y2}`;
+      mx = (A.x + B.x) / 2; my = meio;
+    }
+    caminhos += `<path class="sombra" d="${d}"/><path class="linha" d="${d}"/><circle cx="${A.x}" cy="${A.top < B.top || Math.abs(A.top - B.top) < 4 ? A.bot : A.top}" r="4"/><circle cx="${B.x}" cy="${A.top < B.top ? B.top : B.bot}" r="4"/>`;
+    const txt = RK_LIGACOES[passos[i].tipo] || passos[i].tipo || '';
+    if (txt) rotulos += `<g class="rot" transform="translate(${mx},${my})"><rect x="${-txt.length * 3.4 - 8}" y="-10" width="${txt.length * 6.8 + 16}" height="20" rx="10"/><text text-anchor="middle" y="4">${esc(txt)}</text></g>`;
+  }
+  if (!caminhos) return;
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('class', 'rkv-fio');
+  svg.setAttribute('aria-hidden', 'true');
+  svg.style.width = `${main.scrollWidth}px`;
+  svg.style.height = `${main.scrollHeight}px`;
+  svg.innerHTML = caminhos + rotulos;
+  main.appendChild(svg);
 }
 
 function rkHtmlRack(rack, uso) {
