@@ -44,6 +44,11 @@ async function loadSwitchProvedores() {
       }
       if (b.dataset.swp === 'editar') swpAbrir(_swp.lista.find(s => s.id === id));
       if (b.dataset.swp === 'testar') swpTestar(id, b);
+      if (b.dataset.swp === 'detalhe') swpAbrirPorta(id, b.dataset.porta);
+    });
+    document.getElementById('swpLista')?.addEventListener('keydown', (ev) => {
+      const c = ev.target.closest?.('[data-swp="detalhe"]');
+      if (c && (ev.key === 'Enter' || ev.key === ' ')) { ev.preventDefault(); swpAbrirPorta(c.dataset.id, c.dataset.porta); }
     });
     document.querySelectorAll('[data-swp-fechar]').forEach(b => b.addEventListener('click', swpFechar));
     document.getElementById('swpSalvar')?.addEventListener('click', swpSalvar);
@@ -70,6 +75,7 @@ async function swpCarregar() {
     const res = await api('/api/switch/provedores');
     if (!res) return;
     _swp.lista = (await jsonOrReadableError(res, 'Falha ao carregar as switches.')).switches || [];
+    await swpCarregarLinks();
   } catch (err) {
     box.innerHTML = `<div class="rotas-vazio"><p>${esc(err.message)}</p></div>`;
     return;
@@ -156,7 +162,8 @@ function swpCartaoPorta(sw, p) {
   const tend = p.sfp_rx_dbm != null && rx0 != null ? p.sfp_rx_dbm - rx0 : null;
   const sfpInfo = [p.sfp_fabricante, p.sfp_modelo, p.sfp_onda_nm ? `${p.sfp_onda_nm} nm` : '', p.sfp_temp_c != null ? `${p.sfp_temp_c} °C` : ''].filter(Boolean).join(' · ');
   const sel = _swp.sel?.sw === sw.id && _swp.sel.porta === p.nome;
-  return `<article class="swp-porta ${est}${sel ? ' sel' : ''}" data-porta-card="${esc(sw.id)}:${esc(p.nome)}">
+  return `<article class="swp-porta ${est}${sel ? ' sel' : ''}" data-swp="detalhe" data-id="${esc(sw.id)}" data-porta="${esc(p.nome)}"
+    title="${esc(swpDica(sw, p))}" tabindex="0" role="button" aria-label="${esc(`Detalhes da porta ${p.nome}`)}">
     <header><div><strong>${esc(p.comentario || p.nome)}</strong><small>${esc([p.comentario ? p.nome : '', p.rate].filter(Boolean).join(' · '))}</small></div>
       <span class="pill ${est === 'link' ? 'success' : est === 'caida' ? 'danger' : 'neutral'}">${{ link: 'com link', caida: 'sem link', modulo: 'sem link', vazia: 'vazia', desligada: 'desligada' }[est]}</span></header>
     ${p.running ? `<div class="swp-trafego"><span class="in">↓ ${swpBps(p.in_bps)}</span><span class="out">↑ ${swpBps(p.out_bps)}</span>
@@ -234,6 +241,123 @@ function swpRender() {
         : '<p class="rkv-cinza" style="margin:0">Ainda sem leitura das portas.</p>') : ''}
     </article>`;
   }).join('');
+  lucide.createIcons();
+}
+
+// ------------------------------------------------------------------ o que e a porta
+// O comentario do MikroTik vem em siglas ("PTP - A E B"). Aqui vira frase:
+// ao passar o mouse no cartao (title) e na janela de detalhes ao clicar.
+
+const swpLimpa = t => String(t || '').replace(/\s+/g, ' ').trim();
+
+function swpExplicar(comentario, nomeSwitch, comLink = true) {
+  const c = swpLimpa(comentario);
+  if (!c) return 'Porta sem comentário no MikroTik. Para saber o que está ligado aqui, dê um nome a ela na switch.';
+  const ptp = c.match(/^PTP\s*-\s*(.+)$/i);
+  if (ptp) {
+    const resto = ptp[1];
+    const lados = resto.split(/\s+E\s+/i).map(swpLimpa).filter(Boolean);
+    if (lados.length === 2) {
+      // "CRS-1036" nos comentarios e a CCR1036 de borda (roteador), nao switch
+      const ccr = lados.find(l => /CCR|1036/i.test(l));
+      if (ccr) return `Ligação ponto a ponto (PTP) da switch com o roteador de borda (${ccr}). Por ela passam as redes internas: gerência, câmeras e telefonia.`;
+      const [b, ...prov] = lados[1].split(/\s+-\s+/);
+      if (lados.every(l => /SWITCH/i.test(l))) return `Ligação ponto a ponto (PTP) entre duas switches: ${lados[0]} ↔ ${b}. É o tronco por onde os links dos provedores passam de um prédio para o outro.`;
+      return `Ligação ponto a ponto (PTP) entre ${lados[0]} e ${b}${prov.length ? `, levando o link de ${prov.join(' - ')} de um prédio para o outro` : ''}.`;
+    }
+    const partes = resto.split(/\s+-\s+/).map(swpLimpa).filter(Boolean);
+    if (partes.length >= 2) return `Ligação ponto a ponto (PTP) de ${partes[0]} com ${partes[partes.length - 1]}: por esta porta chega o link desse provedor.`;
+    return `Ligação ponto a ponto (PTP) com ${resto}: por esta porta chega o link desse provedor.`;
+  }
+  if (/\bOLT\b/i.test(c)) {
+    if (!comLink && /PAROU|QUEIM|DEFEITO/i.test(c)) return `Porta que ligava a OLT e parou de funcionar. ${c}.`;
+    return `Uplink da OLT (${c}): por aqui a OLT recebe os provedores da switch e entrega aos condomínios pela fibra.`;
+  }
+  if (/DATACOM|HUAWEI|ZTE|FIBERHOME|NOKIA/i.test(c)) return `Equipamento do provedor ligado direto na switch (${c}). É a entrega do link do provedor.`;
+  return `${c}${nomeSwitch ? ` (na ${nomeSwitch})` : ''}.`;
+}
+
+// links de provedor dos racks (entidade "link"): qual provedor entra em qual porta
+async function swpCarregarLinks() {
+  try {
+    const res = await api('/api/monitoring/entities?entity_type=link&limit=1000');
+    const d = res?.ok ? await res.json() : null;
+    const mapa = {};
+    (d?.entities || []).forEach((e) => {
+      let det = e.detail_json;
+      try { det = typeof det === 'string' ? JSON.parse(det) : (det || {}); } catch (_) { det = {}; }
+      if (det.switch_id && det.porta) {
+        const k = `${det.switch_id}:${String(det.porta).toLowerCase()}`;
+        (mapa[k] = mapa[k] || []).push({ ...det, status: e.status });
+      }
+    });
+    _swp.links = mapa;
+  } catch (_) { /* sem a lista, a janela so nao mostra o provedor */ }
+}
+
+function swpDica(sw, p) {
+  const provs = (_swp.links?.[`${sw.id}:${p.nome.toLowerCase()}`] || []).map(l => l.provedor);
+  return `${swpLimpa(p.comentario) || p.nome}\n\n${swpExplicar(p.comentario, sw.nome, p.running)}${provs.length ? `\n\nProvedor no rack: ${provs.join(', ')}` : ''}\n\nClique para ver os detalhes.`;
+}
+
+function swpAbrirPorta(swId, porta) {
+  const sw = _swp.lista.find(s => s.id === swId);
+  const p = sw?.leitura?.portas?.find(x => x.nome === porta);
+  if (!p) return;
+  const est = swpPortaEstado(p);
+  const pts = sw.leitura?.hist?.[p.nome] || [];
+  const ok = pts.filter(x => x[1] != null);
+  const media = i => (ok.length ? ok.reduce((a, x) => a + (x[i] || 0), 0) / ok.length : null);
+  const pico = i => (ok.length ? Math.max(...ok.map(x => x[i] || 0)) : null);
+  const rate = SWP_RATE[p.rate] || 0;
+  const s = swpSinal(p.sfp_rx_dbm);
+  const links = _swp.links?.[`${sw.id}:${p.nome.toLowerCase()}`] || [];
+  const linha = (rot, val) => (val == null || val === '' ? '' : `<div class="swp-det-linha"><span>${rot}</span><strong>${val}</strong></div>`);
+  let el = document.getElementById('modalSwpPorta');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'modalSwpPorta';
+    el.className = 'modal-backdrop hidden';
+    document.body.appendChild(el);
+    // fecha so pelo X ou Esc (clicar fora nao fecha)
+    el.addEventListener('click', (ev) => { if (ev.target.closest('[data-swp-porta-fechar]')) el.classList.add('hidden'); });
+    document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape' && !el.classList.contains('hidden')) el.classList.add('hidden'); });
+  }
+  el.innerHTML = `<div class="modal swp-det" role="dialog" aria-labelledby="swpDetTitulo">
+    <div class="modal-header">
+      <div><p class="rkv-rotulo">${esc(sw.nome)} · ${esc(p.nome)}</p><h2 id="swpDetTitulo">${esc(swpLimpa(p.comentario) || p.nome)}</h2></div>
+      <button class="icon-button" data-swp-porta-fechar type="button" aria-label="Fechar"><i data-lucide="x"></i></button>
+    </div>
+    <div class="modal-body swp-det-corpo">
+      <div class="swp-det-oque"><i data-lucide="info"></i><div><strong>O que é</strong><p>${esc(swpExplicar(p.comentario, sw.nome, p.running))}</p>
+        ${/PTP/i.test(p.comentario || '') ? '<small>PTP = <em>Point-to-Point</em> (ponto a ponto): um cabo ou fibra direto entre dois pontos, sem nada no meio.</small>' : ''}</div></div>
+      ${links.map(l => `<div class="swp-det-prov ${l.status === 'up' ? 'ok' : 'ruim'}"><i data-lucide="radio-tower"></i><div>
+        <strong>Provedor ${esc(l.provedor)}</strong>
+        <p>Entra no rack <b>${esc(l.rack)}</b>${l.entrada?.porta ? ` pela ${esc(l.entrada.porta)}` : ''}${(l.vlans || []).length ? ` · VLAN ${esc([].concat(l.vlans).join(', '))}` : ''}${l.banda_mbps ? ` · contratado ${l.banda_mbps} Mbps` : ''}. Monitorado no Zabbix.</p></div></div>`).join('')}
+      <div class="swp-det-grade">
+        <div class="swp-det-bloco"><p class="rkv-rotulo">ESTADO</p>
+          ${linha('Link', { link: 'com link', caida: 'sem link', modulo: 'sem link', vazia: 'vazia', desligada: 'desligada' }[est])}
+          ${linha('Velocidade', esc(p.rate || ''))}
+          ${linha('Erros no último minuto', p.erros != null ? String(p.erros) : '')}
+          ${linha('Lida em', esc(swpQuando(sw.lido_em)))}</div>
+        <div class="swp-det-bloco"><p class="rkv-rotulo">TRÁFEGO</p>
+          ${linha('Agora', p.in_bps != null ? `↓ ${swpBps(p.in_bps)}<br>↑ ${swpBps(p.out_bps)}` : '')}
+          ${linha('Média da última hora', media(1) != null ? `↓ ${swpBps(media(1))}<br>↑ ${swpBps(media(2))}` : '')}
+          ${linha('Pico da última hora', pico(1) != null ? `↓ ${swpBps(pico(1))}<br>↑ ${swpBps(pico(2))}` : '')}
+          ${linha('Uso da porta', rate && p.in_bps != null ? `${Math.round((Math.max(p.in_bps, p.out_bps || 0) / rate) * 1000) / 10}%` : '')}</div>
+        ${p.sfp_rx_dbm != null || p.sfp_modelo ? `<div class="swp-det-bloco"><p class="rkv-rotulo">FIBRA E MÓDULO SFP</p>
+          ${linha('Sinal recebido (rx)', p.sfp_rx_dbm != null ? `${swpDbm(p.sfp_rx_dbm)} · ${s.txt}` : '')}
+          ${linha('Sinal enviado (tx)', p.sfp_tx_dbm != null ? swpDbm(p.sfp_tx_dbm) : '')}
+          ${linha('Fabricante', esc(p.sfp_fabricante || ''))}
+          ${linha('Modelo', esc(p.sfp_modelo || ''))}
+          ${linha('Comprimento de onda', p.sfp_onda_nm ? `${p.sfp_onda_nm} nm` : '')}
+          ${linha('Temperatura do módulo', p.sfp_temp_c != null ? `${p.sfp_temp_c} °C` : '')}</div>` : ''}
+      </div>
+      ${p.running ? `<div class="swp-det-bloco"><p class="rkv-rotulo">TRÁFEGO DA ÚLTIMA HORA <span class="swp-det-leg"><i class="in"></i>entrada <i class="out"></i>saída</span></p>${swpSpark(pts, rate)}</div>` : ''}
+      <div class="modal-actions"><span style="flex:1"></span><button class="secondary-action" data-swp-porta-fechar type="button">Fechar</button></div>
+    </div>
+  </div>`;
+  el.classList.remove('hidden');
   lucide.createIcons();
 }
 

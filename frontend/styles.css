@@ -13895,3 +13895,24 @@ button.rk-chip { cursor: pointer; }
 .swp-trafego span { white-space: nowrap; }
 .swp-porta-aviso { margin: 0; font-size: 12px; color: var(--muted); }
 .swp-porta.caida .swp-porta-aviso { color: var(--danger); }
+.swp-porta { cursor: pointer; transition: box-shadow .12s, transform .12s; }
+.swp-porta:hover, .swp-porta:focus-visible { box-shadow: 0 6px 18px rgba(23,32,38,.10); transform: translateY(-1px); outline: none; }
+.swp-det { max-width: 760px; }
+.swp-det h2 { font-size: 18px; margin: 2px 0 0; }
+.swp-det-corpo { display: flex; flex-direction: column; gap: 14px; }
+.swp-det-oque, .swp-det-prov { display: flex; gap: 12px; align-items: flex-start; background: var(--blue-soft); border-radius: 12px; padding: 12px 14px; }
+.swp-det-oque svg, .swp-det-prov svg { flex: none; width: 20px; height: 20px; color: var(--blue); margin-top: 2px; }
+.swp-det-oque p, .swp-det-prov p { margin: 4px 0 0; font-size: 14px; line-height: 1.5; }
+.swp-det-oque small { display: block; margin-top: 6px; color: var(--muted); font-size: 12px; }
+.swp-det-prov.ok { background: var(--primary-soft); } .swp-det-prov.ok svg { color: var(--primary); }
+.swp-det-prov.ruim { background: var(--danger-soft); } .swp-det-prov.ruim svg { color: var(--danger); }
+.swp-det-grade { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px; }
+.swp-det-bloco { border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; }
+.swp-det-bloco .rkv-rotulo { margin: 0 0 2px; display: flex; justify-content: space-between; align-items: center; }
+.swp-det-linha { display: flex; justify-content: space-between; gap: 10px; font-size: 13px; }
+.swp-det-linha span { color: var(--muted); }
+.swp-det-linha strong { text-align: right; }
+.swp-det-leg { font-weight: 500; text-transform: none; letter-spacing: 0; }
+.swp-det-leg i { display: inline-block; width: 14px; height: 3px; margin: 0 4px 2px 10px; vertical-align: middle; background: var(--primary); }
+.swp-det-leg i.out { background: var(--blue); }
+.swp-det .swp-spark { height: 110px; }
