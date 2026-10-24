@@ -65,7 +65,9 @@ class _LeitorFalso:
         if comando == "/system/routerboard/print":
             return [{"model": "CRS317-1G-16S+"}]
         if comando == "/system/resource/print":
-            return [{"version": "6.47.7", "uptime": "1w"}]
+            return [{"version": "6.47.7", "uptime": "1w", "cpu-load": "3", "free-memory": "900000000", "total-memory": "1073741824"}]
+        if comando == "/system/health/print":
+            return [{"voltage": "24.1V", "temperature": "41C"}]
         if comando == "/interface/print":
             return [
                 {"name": "sfp-sfpplus4", "type": "ether", "running": "true", "disabled": "false", "comment": "DATACOM-4270-VOETELECOM",
@@ -76,7 +78,8 @@ class _LeitorFalso:
             ]
         if comando == "/interface/ethernet/monitor":
             assert "=once=" in args
-            return [{"name": "sfp-sfpplus4", "sfp-rx-power": "-8.071dBm", "sfp-tx-power": "-1.578dBm", "rate": "10Gbps"},
+            return [{"name": "sfp-sfpplus4", "sfp-rx-power": "-8.071dBm", "sfp-tx-power": "-1.578dBm", "rate": "10Gbps",
+                     "sfp-vendor-name": "DATACOM", "sfp-vendor-part-number": "DM-SFP10-LR", "sfp-wavelength": "1310nm", "sfp-temperature": "38C"},
                     {"name": "sfp-sfpplus9", "status": "no-link"}]
         raise AssertionError(comando)
 
@@ -233,3 +236,23 @@ def test_switch_id_so_no_tipo_switch():
     eq = {"tipo": "dio", "nome": "D", "portas": [{"id": "P1"}], "switch_id": "sw1"}
     assert "switch_id" not in mapa_rack._equipamentos([eq])[0]
     assert mapa_rack._equipamentos([{**eq, "tipo": "switch"}])[0]["switch_id"] == "sw1"
+
+
+def test_leitura_com_saude_sfp_e_historico(cliente):
+    r = SP.testar(cliente["sw"])
+    assert r["temperatura_c"] == 41 and r["tensao_v"] == 24.1 and r["cpu_pct"] == 3
+    p4 = r["portas"][0]
+    assert p4["sfp_fabricante"] == "DATACOM" and p4["sfp_onda_nm"] == 1310 and p4["sfp_temp_c"] == 38
+    # RouterOS 7: um sensor por linha
+    assert SP._saude([{"name": "cpu-temperature", "value": "52"}])["temperatura_c"] == 52
+    # historico: Testar logo depois troca o ultimo ponto; 1 min depois acrescenta
+    hist = SP.listar()[0]["leitura"]["hist"]["sfp-sfpplus4"]
+    assert len(hist) == 1 and hist[0][3] == -8.071
+    SP.testar(cliente["sw"])
+    assert len(SP.listar()[0]["leitura"]["hist"]["sfp-sfpplus4"]) == 1
+    leitura = SP.listar()[0]["leitura"]
+    leitura["hist"]["sfp-sfpplus4"][0][0] -= 60
+    pts = SP._com_historico(json.dumps(leitura), SP.ler(SP.obter(cliente["sw"])))["hist"]["sfp-sfpplus4"]
+    assert len(pts) == 2
+    many = {"hist": {"sfp-sfpplus4": [[i, 1, 1, -8.0] for i in range(100)]}}
+    assert len(SP._com_historico(json.dumps(many), SP.ler(SP.obter(cliente["sw"])))["hist"]["sfp-sfpplus4"]) == SP.HIST_PONTOS

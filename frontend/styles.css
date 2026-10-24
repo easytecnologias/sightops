@@ -13814,3 +13814,84 @@ button.rk-chip { cursor: pointer; }
 .swp-dica { margin: 4px 0 0; font-size: 12px; color: var(--muted); }
 @media (max-width: 640px) { .swp-info { display: none; } }
 .swp-ativo { display: flex; align-items: center; gap: 8px; font-size: 14px; margin: 4px 0 0; cursor: pointer; }
+
+/* Switch Provedores: indicadores, painel frontal e cartoes de porta */
+.swp-card.aberta { gap: 16px; padding: 16px 18px 18px; }
+.swp-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+.swp-kpi { background: var(--surface-soft); border: 1px solid var(--border); border-radius: 12px; padding: 10px 14px; display: flex; flex-direction: column; gap: 2px; min-width: 0; border-left: 4px solid var(--border); }
+.swp-kpi span { font-size: 12px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .03em; }
+.swp-kpi strong { font-size: 22px; line-height: 1.2; }
+.swp-kpi strong em { font-style: normal; font-size: 14px; color: var(--muted); font-weight: 600; }
+.swp-kpi small { font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.swp-kpi.bom { border-left-color: var(--primary); }
+.swp-kpi.alerta { border-left-color: var(--amber); }
+.swp-kpi.alerta strong { color: var(--amber); }
+.swp-kpi.ruim { border-left-color: var(--danger); }
+.swp-kpi.ruim strong { color: var(--danger); }
+
+.swp-frente { display: flex; align-items: center; gap: 18px; background: linear-gradient(180deg, #2a3a42, var(--sidebar)); border-radius: 12px; padding: 14px 18px; overflow-x: auto; box-shadow: inset 0 1px 0 rgba(255,255,255,.08), 0 6px 18px rgba(19,37,45,.18); }
+.swp-marca { display: flex; flex-direction: column; color: #cfd8dc; min-width: 110px; }
+.swp-marca strong { font-size: 15px; letter-spacing: .02em; color: #fff; }
+.swp-marca span { font-size: 11px; color: #9fb0b8; }
+.swp-ether, .swp-gaiolas > div { display: flex; gap: 6px; }
+.swp-gaiolas { display: flex; flex-direction: column; gap: 6px; }
+.swp-gaiola { position: relative; width: 40px; height: 28px; border-radius: 4px; border: 1px solid #0b1418; background: #0e191e; color: #9fb0b8; font: 600 10px/1 inherit; cursor: pointer; display: flex; align-items: flex-end; justify-content: center; padding-bottom: 3px; transition: transform .12s, box-shadow .12s; }
+.swp-gaiola:hover { transform: translateY(-1px); box-shadow: 0 0 0 2px rgba(255,255,255,.25); }
+.swp-gaiola.sel { box-shadow: 0 0 0 2px #fff; }
+.swp-gaiola .led { position: absolute; top: 4px; left: 50%; width: 14px; height: 5px; margin-left: -7px; border-radius: 2px; background: #33434a; }
+.swp-gaiola.link { background: #123027; color: #d3f9e8; }
+.swp-gaiola.link .led { background: #38d996; box-shadow: 0 0 6px #38d996; animation: swp-pisca 1.6s ease-in-out infinite; }
+.swp-gaiola.caida { background: #3a1517; color: #ffd6d6; }
+.swp-gaiola.caida .led { background: #ff6b6b; box-shadow: 0 0 6px #ff6b6b; }
+.swp-gaiola.modulo .led { background: #7a8a91; }
+.swp-gaiola.desligada { opacity: .5; }
+@keyframes swp-pisca { 50% { opacity: .55; } }
+@media (prefers-reduced-motion: reduce) { .swp-gaiola.link .led { animation: none; } }
+.swp-legenda { display: flex; gap: 16px; flex-wrap: wrap; font-size: 12px; color: var(--muted); margin-top: -6px; }
+.swp-legenda i { display: inline-block; width: 12px; height: 6px; border-radius: 2px; margin-right: 6px; vertical-align: middle; background: #33434a; }
+.swp-legenda i.link { background: #38d996; } .swp-legenda i.caida { background: #ff6b6b; } .swp-legenda i.modulo { background: #7a8a91; }
+
+.swp-portas-topo { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.swp-portas-topo strong { font-size: 14px; }
+.swp-portas { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
+.swp-porta { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; border-top: 3px solid var(--border); }
+.swp-porta.link { border-top-color: var(--primary); }
+.swp-porta.caida { border-top-color: var(--danger); background: linear-gradient(180deg, var(--danger-soft), var(--surface) 70px); }
+.swp-porta.sel { box-shadow: 0 0 0 2px var(--primary); }
+.swp-porta header { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+.swp-porta header div { display: flex; flex-direction: column; min-width: 0; }
+.swp-porta header strong { font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.swp-porta header small { font-size: 12px; color: var(--muted); }
+.swp-trafego { display: flex; align-items: baseline; gap: 12px; font-size: 14px; font-weight: 700; }
+.swp-trafego .in { color: var(--primary); } .swp-trafego .out { color: var(--blue); }
+.swp-uso { margin-left: auto; font-size: 12px; font-weight: 600; color: var(--muted); }
+.swp-spark { width: 100%; height: 54px; display: block; }
+.swp-spark .area { fill: var(--primary-soft); }
+.swp-spark .in { fill: none; stroke: var(--primary); stroke-width: 2; vector-effect: non-scaling-stroke; }
+.swp-spark .out { fill: none; stroke: var(--blue); stroke-width: 1.5; stroke-dasharray: 4 3; vector-effect: non-scaling-stroke; }
+.swp-spark-eixo { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); margin-top: -6px; }
+.swp-spark-vazio { font-size: 12px; color: var(--muted); background: var(--surface-soft); border-radius: 8px; padding: 14px; text-align: center; }
+.swp-barra { height: 6px; background: var(--surface-soft); border-radius: 3px; overflow: hidden; }
+.swp-barra i { display: block; height: 100%; background: var(--primary); border-radius: 3px; }
+.swp-sinal { background: var(--surface-soft); border-radius: 10px; padding: 8px 10px; display: flex; flex-direction: column; gap: 4px; }
+.swp-sinal-topo { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; font-size: 12px; color: var(--muted); }
+.swp-sinal-topo strong { font-size: 16px; color: var(--text); }
+.swp-sinal-topo em { font-style: normal; font-weight: 600; }
+.swp-sinal.bom .swp-sinal-topo em { color: var(--primary); }
+.swp-sinal.alerta .swp-sinal-topo em, .swp-sinal.alerta strong { color: var(--amber); }
+.swp-sinal.ruim .swp-sinal-topo em, .swp-sinal.ruim strong { color: var(--danger); }
+.swp-regua { position: relative; height: 8px; border-radius: 4px; background: linear-gradient(90deg, var(--danger) 0 16.6%, var(--amber) 16.6% 33.3%, var(--primary) 33.3% 96.6%, var(--amber) 96.6%); opacity: .85; }
+.swp-regua i { position: absolute; top: -4px; width: 4px; height: 16px; margin-left: -2px; background: var(--text); border-radius: 2px; box-shadow: 0 0 0 2px var(--surface); }
+.swp-regua-eixo { position: relative; display: flex; justify-content: space-between; font-size: 10px; color: var(--muted); }
+.swp-regua-eixo span:nth-child(2) { position: absolute; left: 16.6%; transform: translateX(-50%); }
+.swp-regua-eixo span:nth-child(3) { position: absolute; left: 33.3%; transform: translateX(-50%); }
+.swp-sinal small { font-size: 11px; color: var(--muted); }
+.swp-porta footer { display: flex; justify-content: space-between; gap: 8px; font-size: 11px; color: var(--muted); border-top: 1px dashed var(--border); padding-top: 8px; }
+.swp-porta footer span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.swp-porta footer .erro { color: var(--danger); font-weight: 700; }
+.swp-portas { align-items: start; }
+.swp-porta header .pill { white-space: nowrap; flex: none; }
+.swp-trafego { flex-wrap: wrap; row-gap: 2px; }
+.swp-trafego span { white-space: nowrap; }
+.swp-porta-aviso { margin: 0; font-size: 12px; color: var(--muted); }
+.swp-porta.caida .swp-porta-aviso { color: var(--danger); }

@@ -195,6 +195,10 @@ def ler(sw: Dict[str, Any]) -> Dict[str, Any]:
             ifs = [i for i in r.ler("/interface/print") if i.get("type") == "ether"]
             sfps = [i["name"] for i in ifs if "sfp" in i.get("name", "")]
             monit = {m.get("name", ""): m for m in (r.ler("/interface/ethernet/monitor", f"=numbers={','.join(sfps)}", "=once=") if sfps else [])}
+            try:
+                saude = r.ler("/system/health/print")
+            except RouterOSErro:
+                saude = []
     except RouterOSErro as exc:
         return {"ok": False, "erro": str(exc)}
     agora = time.time()
@@ -220,9 +224,51 @@ def ler(sw: Dict[str, Any]) -> Dict[str, Any]:
             "in_bps": in_bps, "out_bps": out_bps, "erros": erros, "rate": m.get("rate", ""),
             "sfp_presente": m.get("sfp-module-present", ""), "sfp_rx_dbm": _num(m.get("sfp-rx-power")),
             "sfp_tx_dbm": _num(m.get("sfp-tx-power")), "sfp_modelo": m.get("sfp-vendor-part-number", ""),
+            "sfp_fabricante": m.get("sfp-vendor-name", ""), "sfp_onda_nm": _num(m.get("sfp-wavelength", "").replace("nm", "")),
+            "sfp_temp_c": _num(m.get("sfp-temperature", "").replace("C", "")),
+            "auto_negociacao": m.get("auto-negotiation", ""), "duplex": m.get("full-duplex", ""),
         })
     return {"ok": True, "identidade": ident, "modelo": rb.get("model", "") or res.get("board-name", ""),
-            "versao": res.get("version", ""), "uptime": res.get("uptime", ""), "portas": portas, "lido_em": _agora()}
+            "versao": res.get("version", ""), "uptime": res.get("uptime", ""), "portas": portas, "lido_em": _agora(),
+            "cpu_pct": _num(res.get("cpu-load")), "memoria_livre": _num(res.get("free-memory")),
+            "memoria_total": _num(res.get("total-memory")), **_saude(saude)}
+
+
+def _saude(linhas: List[Dict[str, str]]) -> Dict[str, Any]:
+    """Temperatura e tensao: RouterOS 6 devolve uma linha com os campos;
+    o 7 devolve uma linha por sensor (name/value)."""
+    campos: Dict[str, Any] = {}
+    for ln in linhas or []:
+        if "name" in ln and "value" in ln:
+            campos[ln["name"]] = ln["value"]
+        else:
+            campos.update(ln)
+    temp = next((campos[k] for k in ("temperature", "cpu-temperature", "board-temperature1", "switch-temperature") if k in campos), None)
+    return {"temperatura_c": _num(str(temp).replace("C", "")) if temp is not None else None,
+            "tensao_v": _num(str(campos.get("voltage", "")).replace("V", ""))}
+
+
+HIST_PONTOS = 60  # uma hora de pontos de 1 min, por porta, para o grafico da tela
+
+
+def _com_historico(anterior_json: str, leitura: Dict[str, Any]) -> Dict[str, Any]:
+    """Junta a leitura nova ao historico curto (trafego e sinal) da anterior.
+    Leitura mais perto que 50 s da ultima (Testar) troca o ultimo ponto."""
+    try:
+        hist = (json.loads(anterior_json or "{}") or {}).get("hist") or {}
+    except Exception:
+        hist = {}
+    t = int(time.time())
+    novo: Dict[str, List[List[Any]]] = {}
+    for p in leitura.get("portas") or []:
+        if p.get("in_bps") is None and p.get("sfp_rx_dbm") is None:
+            continue
+        pts = [x for x in (hist.get(p["nome"]) or []) if isinstance(x, list) and len(x) == 4]
+        if pts and t - int(pts[-1][0]) < 50:
+            pts = pts[:-1]
+        pts.append([t, p.get("in_bps"), p.get("out_bps"), p.get("sfp_rx_dbm")])
+        novo[p["nome"]] = pts[-HIST_PONTOS:]
+    return {**leitura, "hist": novo}
 
 
 def testar(sw_id: str) -> Dict[str, Any]:
@@ -237,6 +283,8 @@ def testar(sw_id: str) -> Dict[str, Any]:
 def _gravar_leitura(tenant: str, sw_id: str, leitura: Dict[str, Any]) -> None:
     with db_store._conn() as c:
         if leitura.get("ok"):
+            ant = c.execute("SELECT ultima_leitura FROM provider_switches WHERE tenant_slug=? AND id=?", (tenant, sw_id)).fetchone()
+            leitura = _com_historico(dict(ant)["ultima_leitura"] if ant else "", leitura)
             c.execute("UPDATE provider_switches SET ultima_leitura=?, lido_em=?, erro='' WHERE tenant_slug=? AND id=?",
                       (json.dumps(leitura, ensure_ascii=False), leitura["lido_em"], tenant, sw_id))
         else:
