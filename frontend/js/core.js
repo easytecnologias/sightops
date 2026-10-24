@@ -645,6 +645,7 @@ const VIEW_META = {
   'deploy-tr069':  { title: 'TR-069',            sub: 'ONUs gerenciadas pelo servidor de gerência' },
   olt:             { title: 'OLT',               sub: 'Coleta de MACs da OLT' },
   switch:          { title: 'Switch',            sub: 'Coleta de MACs do switch' },
+  'switch-provedores': { title: 'Switch Provedores', sub: 'Switches da rede neutra e os links dos provedores' },
   kmz:             { title: 'KMZ  Mapa',        sub: 'Localizacao das cameras' },
   'script-grafana':{ title: 'Scripts  Grafana', sub: '' },
   'script-zabbix': { title: 'Scripts  Zabbix',  sub: '' },
@@ -695,6 +696,7 @@ const VIEW_ID_MAP = {
   'deploy-tr069':   'viewDeployTr069',
   olt:              'viewOlt',
   switch:           'viewSwitch',
+  'switch-provedores': 'viewSwitchProvedores',
   kmz:              'viewKmz',
   'script-grafana': 'viewScriptGrafana',
   'script-zabbix':  'viewScriptZabbix',
@@ -810,6 +812,7 @@ function loadView(view) {
     case 'rotas-pnate':    loadRotasPnate();    break;
     case 'olt':         loadOlt();          break;
     case 'switch':      loadSwitch();       break;
+    case 'switch-provedores': loadSwitchProvedores(); break;
     case 'kmz':         loadKmz();          break;
     case 'net-operate': loadNetOperate();   break;
     case 'planning':    loadPlanning();     break;

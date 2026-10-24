@@ -2683,6 +2683,12 @@ def _rack_da_camada_sem_lock(layer_id: str, dados: Dict[str, Any], por: str = ""
         raise HTTPException(404, str(exc))
     except mapa_rack.RackErro as exc:
         raise HTTPException(400, str(exc))
+    if rack:
+        # switch_id so de switch DESTE cliente (obter filtra pelo tenant)
+        from app.services import switch_provedores
+        for eq in rack.get("equipamentos", []):
+            if eq.get("switch_id") and not switch_provedores.obter(eq["switch_id"]):
+                raise HTTPException(400, f"{eq['nome']}: switch não encontrada em Switch Provedores.")
     aviso = ""
     if rack and rack["nome"].lower() != rack["ponto"].lower():
         aviso = _seguir_nome_no_ponto(layer_id, meta, rack["ponto"], rack["nome"],

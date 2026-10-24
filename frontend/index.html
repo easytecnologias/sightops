@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=1792805021">
+  <link rel="stylesheet" href="styles.css?v=1792805035">
   <link rel="stylesheet" href="acesso/acesso.css?v=1792600213">
 </head>
 <body>
@@ -70,6 +70,7 @@
             <button class="nav-item nav-sub-item" data-view="deploy-onu"><i data-lucide="wifi"></i><span>ONU</span></button>
             <button class="nav-item nav-sub-item" data-view="deploy-tr069"><i data-lucide="satellite-dish"></i><span>TR-069</span></button>
             <button class="nav-item nav-sub-item" data-view="switch"><i data-lucide="server"></i><span>Switch</span></button>
+            <button class="nav-item nav-sub-item" data-view="switch-provedores"><i data-lucide="network"></i><span>Switch Provedores</span></button>
           </div>
         </div>
         <div class="nav-group" id="ngDeployCftv">
@@ -3755,6 +3756,58 @@
       </section>
 
       <!-- --- VIEW: SWITCH --- -->
+      <!-- --- VIEW: SWITCH PROVEDORES --- switches da rede neutra (MikroTik), lidas
+           pela API so de leitura; delas vem a leitura dos links do rack (mapaRack.js). -->
+      <section class="workspace hidden" id="viewSwitchProvedores">
+        <div class="page-heading">
+          <div>
+            <p class="eyebrow">Implantação · Redes</p>
+            <h1>Switch Provedores</h1>
+            <p>Switches da rede neutra onde entram os links dos provedores. Lidas a cada minuto pelo túnel do conector, só leitura, e levadas ao Zabbix.</p>
+          </div>
+          <div class="page-heading-actions">
+            <button class="primary-action" type="button" id="btnSwpNova"><i data-lucide="plus"></i> Nova switch</button>
+          </div>
+        </div>
+        <div id="swpLista"></div>
+      </section>
+
+      <div id="modalSwp" class="modal-backdrop hidden">
+        <div class="modal swp-modal" role="dialog" aria-labelledby="swpModalTitulo">
+          <div class="modal-header">
+            <div><h2 id="swpModalTitulo">Nova switch</h2><p>MikroTik (RouterOS). Use um usuário só de leitura com a API liberada para o SightOps.</p></div>
+            <button class="icon-button" data-swp-fechar type="button" aria-label="Fechar"><i data-lucide="x"></i></button>
+          </div>
+          <div class="modal-body">
+            <input type="hidden" id="swpId">
+            <div class="form-row">
+              <div class="form-group"><label for="swpNome">Nome</label><input id="swpNome" maxlength="80" placeholder="ex.: SWITCH JARDINS PERUCABA"></div>
+              <div class="form-group"><label for="swpSite">Local</label><input id="swpSite" maxlength="80" placeholder="ex.: PERUCABA"></div>
+            </div>
+            <div class="form-row">
+              <div class="form-group"><label for="swpConector">Conector (túnel)</label><select id="swpConector"></select></div>
+              <div class="form-group"><label for="swpIp">IP de gerência</label><input id="swpIp" maxlength="45" placeholder="ex.: 10.80.80.7"></div>
+            </div>
+            <div class="form-row">
+              <div class="form-group"><label for="swpUsuario">Usuário de leitura</label><input id="swpUsuario" maxlength="64" autocomplete="off" placeholder="ex.: sightops"></div>
+              <div class="form-group"><label for="swpSenha">Senha</label><input id="swpSenha" type="password" maxlength="128" autocomplete="new-password"></div>
+            </div>
+            <div class="form-row">
+              <div class="form-group"><label for="swpPorta">Porta da API</label><input id="swpPorta" type="number" min="1" max="65535" value="8728"></div>
+              <div class="form-group"></div>
+            </div>
+            <label class="swp-ativo"><input type="checkbox" id="swpAtivo" checked> Ler a cada minuto e mandar ao Zabbix</label>
+            <p class="swp-dica">Só pelo IP virtual do conector, nunca pelo IP real. Mudou IP, porta, conector ou usuário? Digite a senha de novo.</p>
+            <p id="swpErro" class="login-error" hidden></p>
+            <div class="modal-actions">
+              <button class="secondary-action danger-action" id="swpExcluir" type="button" hidden><i data-lucide="trash-2"></i> Excluir</button>
+              <button class="secondary-action" data-swp-fechar type="button"><i data-lucide="x"></i> Cancelar</button>
+              <button class="primary-action" id="swpSalvar" type="button"><i data-lucide="save"></i> Salvar e testar</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <section class="workspace hidden" id="viewSwitch">
         <div class="page-heading">
           <div>
@@ -7921,7 +7974,7 @@
        trechos do app.js original na sequencia em que estavam, entao carregar
        fora de ordem muda o comportamento. Ao adicionar um arquivo novo, entre
        antes de bootstrap.js, que e quem liga os botoes no DOMContentLoaded. -->
-  <script src="js/core.js?v=1792804803"></script>
+  <script src="js/core.js?v=1792805033"></script>
   <script src="js/licencas.js?v=1792600103"></script>
   <script src="js/configuracoes.js?v=1792600138"></script>
   <script src="js/notificacoes.js?v=1792600139"></script>
@@ -7931,7 +7984,8 @@
   <script src="js/liveStream.js?v=1792600184"></script>
   <script src="js/cameras.js?v=1792600352"></script>
   <script src="js/mapaCaixas.js?v=1792600351"></script>
-  <script src="js/mapaRack.js?v=1792805020"></script>
+  <script src="js/mapaRack.js?v=1792805034"></script>
+  <script src="js/switchProvedores.js?v=1792805030"></script>
   <script src="js/recorders.js?v=1792600182"></script>
   <script src="js/windows.js?v=1792000024"></script>
   <script src="js/snapshots.js?v=1791000212"></script>

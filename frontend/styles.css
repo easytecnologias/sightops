@@ -13798,3 +13798,19 @@ button.rk-chip { cursor: pointer; }
 .alert-rel-tabela .data-table td { vertical-align: top; }
 .alert-rel-tabela .alert-ppl-meta { display: block; margin-top: 2px; font-size: 11px; color: var(--muted); }
 .alert-rel-tabela .alert-ppl-meta.warn { color: var(--amber); }
+
+/* Switch Provedores (menu Redes) */
+#swpLista { display: flex; flex-direction: column; gap: 12px; }
+.swp-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; }
+.swp-topo { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.swp-titulo { display: flex; align-items: center; gap: 10px; flex: 1 1 260px; min-width: 0; background: none; border: 0; padding: 0; cursor: pointer; text-align: left; color: inherit; font: inherit; }
+.swp-titulo svg { width: 18px; height: 18px; color: var(--muted); flex: none; }
+.swp-titulo span { display: flex; flex-direction: column; min-width: 0; }
+.swp-titulo strong { font-size: 15px; }
+.swp-titulo small { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.swp-info { font-size: 13px; white-space: nowrap; }
+.swp-erro { margin: 0; font-size: 13px; color: var(--danger); background: var(--danger-soft); border-radius: 8px; padding: 6px 10px; }
+.swp-modal { max-width: 640px; }
+.swp-dica { margin: 4px 0 0; font-size: 12px; color: var(--muted); }
+@media (max-width: 640px) { .swp-info { display: none; } }
+.swp-ativo { display: flex; align-items: center; gap: 8px; font-size: 14px; margin: 4px 0 0; cursor: pointer; }

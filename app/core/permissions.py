@@ -56,7 +56,7 @@ MODULOS: List[Dict[str, Any]] = [
      "views": ["olt", "deploy-olt", "deploy-onu", "deploy-tr069"],
      "prefixos": ["/api/olt", "/api/tr069"]},
     {"key": "rede", "label": "Switches e rede",
-     "views": ["switch", "net-operate"],
+     "views": ["switch", "switch-provedores", "net-operate"],
      "prefixos": ["/api/switch", "/api/network"]},
     {"key": "conectores", "label": "Conectores", "views": ["connectors"], "prefixos": ["/api/connectors"]},
     {"key": "mapa", "label": "Mapa", "views": ["kmz"], "prefixos": ["/api/kmz", "/api/mapa"]},

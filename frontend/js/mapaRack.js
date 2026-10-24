@@ -127,17 +127,20 @@ function rkOpcoesEntidade(ents, tipo, atual) {
 const rkLigadas = (e, uso) => e.portas.filter(p => uso[rkChave(e.id, p.id)]?.lig).length;
 
 // ------------------------------------------------------------------ leitura dos links (API da switch)
+// A switch e cadastrada em Redes > Switch Provedores (switchProvedores.js, com
+// IP, conector e senha). Aqui o equipamento Switch so aponta para ela (switch_id).
 
-const RK_COM_COLETA = ['switch', 'borda'];
+// switch e borda MikroTik podem apontar para uma cadastrada (mesma regra de mapa_rack.py)
+const RK_COM_LEITURA = ['switch', 'borda'];
 const rkCamada = def => String(def?.updateUrl || '').split('/').pop();
 
 async function rkLerLinks(def, rack) {
   try {
     const res = await api(`/api/mapa/rack/coleta?layer_id=${encodeURIComponent(rkCamada(def))}&rack_id=${encodeURIComponent(rack.id)}`);
-    if (!res?.ok) return { links: {}, cred: {} };
+    if (!res?.ok) return { links: {}, sw: {} };
     const d = await res.json();
-    return { links: Object.fromEntries((d.links || []).map(l => [l.entity_id, l])), cred: d.credenciais || {} };
-  } catch (_) { return { links: {}, cred: {} }; }
+    return { links: Object.fromEntries((d.links || []).map(l => [l.entity_id, l])), sw: Object.fromEntries((d.switches || []).map(x => [x.id, x])) };
+  } catch (_) { return { links: {}, sw: {} }; }
 }
 
 function rkBps(v) {
@@ -230,13 +233,13 @@ async function rkAbrirTela(id, def, rack, nomePonto, latlng, ents) {
   el.setAttribute('role', 'dialog');
   el.setAttribute('aria-modal', 'true');
   document.body.appendChild(el);
-  _rk = { el, id, def, rackId: rack.id, nomePonto, latlng, aba: 'rack', sel: null, modo: null, origem: null, cabo: 'patch', editEq: null, editProv: null, ents: ents || {}, links: {}, cred: {}, teste: null };
+  _rk = { el, id, def, rackId: rack.id, nomePonto, latlng, aba: 'rack', sel: null, modo: null, origem: null, cabo: 'patch', editEq: null, editProv: null, ents: ents || {}, links: {}, sw: {} };
   el.addEventListener('click', ev => {
     const b = ev.target.closest('[data-rk]');
     if (b) rkAcao(b).catch(e => rkErro(e));
   });
   el.addEventListener('change', ev => {
-    if (ev.target.id === 'rkEqTipo' || ev.target.id === 'rkEqModelo') rkFormEqAjustar(ev.target.id);
+    if (['rkEqTipo', 'rkEqModelo', 'rkEqSw'].includes(ev.target.id)) rkFormEqAjustar(ev.target.id);
     if (ev.target.id === 'rkPvEq') rkPortasDoProvedor();
   });
   document.addEventListener('keydown', rkEsc, true);
@@ -251,7 +254,7 @@ async function rkAtualizarLinks() {
   if (!_rk || !rack) return;
   const r = await rkLerLinks(_rk.def, rack);
   if (!_rk) return;
-  _rk.links = r.links; _rk.cred = r.cred;
+  _rk.links = r.links; _rk.sw = r.sw;
   // nao redesenha no meio de um formulario (perderia o que foi digitado)
   if (!_rk.modo || _rk.modo === 'ligar') rkRender();
 }
@@ -350,19 +353,22 @@ function rkHtmlRack(rack, uso) {
 }
 
 // Por que este provedor nao e lido (mesma regra de rack_links.porta_lida):
-// mede na porta de entrada se for switch/borda, senao na porta ligada a ela.
+// mede na porta de entrada se for de switch cadastrada, senao na porta ligada a ela.
 function rkMotivoSemLeitura(rack, pv) {
   const eqs = Object.fromEntries(rack.equipamentos.map(e => [e.id, e]));
   const ent = eqs[pv.entrada.eq];
-  let alvo = RK_COM_COLETA.includes(ent?.tipo) ? { eq: ent, porta: pv.entrada.porta } : null;
+  let alvo = ent?.switch_id ? { eq: ent, porta: pv.entrada.porta } : null;
   if (!alvo) {
     const u = rkUsoDasPortas(rack)[rkChave(pv.entrada.eq, pv.entrada.porta)];
     if (!u?.lig) return `entra na ${ent?.nome || '?'} ${pv.entrada.porta}, que não está ligada numa switch`;
-    if (!RK_COM_COLETA.includes(u.eqPara?.tipo)) return `${ent?.nome} ${pv.entrada.porta} vai para ${u.eqPara?.nome}, que não é switch nem borda`;
+    if (!u.eqPara?.switch_id) return `${ent?.nome} ${pv.entrada.porta} vai para ${u.eqPara?.nome}, que não aponta para uma switch de Switch Provedores`;
     alvo = { eq: u.eqPara, porta: u.para.porta };
   }
-  if (!alvo.eq.coleta?.ativo) return `leitura automática desligada em ${alvo.eq.nome}`;
-  if (!_rk.cred[alvo.eq.id]) return `${alvo.eq.nome}: falta o admin guardar a senha de leitura`;
+  const sw = _rk.sw[alvo.eq.switch_id];
+  if (!sw) return `${alvo.eq.nome}: a switch escolhida não existe mais em Switch Provedores`;
+  if (!sw.ativo) return `leitura desligada em Switch Provedores (${sw.nome})`;
+  if (!sw.tem_senha) return `${sw.nome}: falta a senha em Switch Provedores`;
+  if (sw.erro) return `${sw.nome} não respondeu: ${sw.erro}`;
   return 'aguardando a primeira leitura (até 1 minuto)';
 }
 
@@ -471,27 +477,18 @@ function rkHtmlFormEq(rack) {
       <button type="button" class="secondary-action" data-rk="cancelar">Cancelar</button><button type="button" class="primary-action" data-rk="salvar-eq">${eq ? 'Salvar' : 'Adicionar'}</button></div>`;
 }
 
-// Leitura automatica dos links: so switch e borda. A senha vai para o
-// servidor criptografada e nunca volta para a tela ("já guardada").
+// Switch com leitura: escolhe uma de Redes > Switch Provedores. As portas vem
+// da ultima leitura dela (com o comentario de cada porta do MikroTik).
 function rkHtmlColeta(eq, tipo) {
-  const c = eq?.coleta || {};
-  const guardada = eq && _rk.cred[eq.id];
-  const conectores = (_rk.ents.connector || []);
-  const t = _rk.teste && _rk.teste.eq === eq?.id ? _rk.teste : null;
-  const resultado = !t ? '' : t.ok
-    ? `<div class="rkv-box ok"><strong>Leu ${esc(t.identidade || 'a switch')}</strong>${Object.entries(t.portas || {}).map(([p, v]) => `<span>${esc(p)}: ${v.existe ? `${v.running ? 'com link' : 'SEM link'}${v.sfp_rx_dbm != null ? ` · rx ${v.sfp_rx_dbm} dBm` : ''}` : 'porta não existe'}</span>`).join('') || '<span>Nenhum provedor marcado nesta switch ainda.</span>'}</div>`
-    : `<div class="rkv-box rkv-box-erro"><strong>Não leu</strong><span>${esc(t.erro || 'falha')}</span></div>`;
-  return `<fieldset class="rkv-coleta" ${RK_COM_COLETA.includes(tipo) ? '' : 'hidden'}>
-    <legend>Leitura automática dos links <small>API do MikroTik, só leitura</small></legend>
-    <label class="alert-check"><input type="checkbox" id="rkColAtivo" ${c.ativo ? 'checked' : ''}> Ler as portas dos provedores a cada minuto e mandar ao Zabbix</label>
-    <div class="form-group" style="margin:0"><label for="rkColIp">IP de gerência</label><input id="rkColIp" maxlength="45" value="${esc(c.ip || '')}" placeholder="ex.: 10.80.80.7"></div>
-    <div class="form-group" style="margin:0"><label for="rkColConector">Chega pelo conector</label><select id="rkColConector"><option value="">Escolha o conector...</option>${conectores.map(x => `<option value="${esc(x.entity_id)}" ${c.conector === x.entity_id ? 'selected' : ''}>${esc(x.display_name || x.entity_id)}</option>`).join('')}</select></div>
-    <small class="rkv-cinza">Só pelo túnel do conector, nunca pelo IP real. Mudou IP, porta ou conector? O admin guarda a senha de novo.</small>
-    <div class="form-group" style="margin:0"><label for="rkColUser">Usuário de leitura</label><input id="rkColUser" maxlength="64" autocomplete="off" placeholder="${guardada ? 'já guardado (preencha só para trocar)' : 'ex.: sightops'}"></div>
-    <div class="form-group" style="margin:0"><label for="rkColSenha">Senha</label><input id="rkColSenha" type="password" maxlength="128" autocomplete="new-password" placeholder="${guardada ? 'já guardada' : ''}"></div>
-    <div class="form-group" style="margin:0"><label for="rkColPorta">Porta da API</label><input id="rkColPorta" type="number" min="1" max="65535" value="${Number(c.porta || 8728)}"></div>
-    ${eq ? '<button type="button" class="secondary-action" data-rk="testar"><i data-lucide="activity"></i> Testar leitura</button>' : '<small class="rkv-cinza">Salve o equipamento para testar a leitura.</small>'}
-    ${resultado}
+  const lista = Object.values(_rk.sw || {});
+  const atual = eq?.switch_id || '';
+  return `<fieldset class="rkv-coleta" ${RK_COM_LEITURA.includes(tipo) ? '' : 'hidden'}>
+    <legend>Leitura dos links <small>Switch Provedores</small></legend>
+    <div class="form-group" style="margin:0"><label for="rkEqSw">Switch cadastrada</label><select id="rkEqSw">
+      <option value="">Nenhuma (sem leitura dos links)</option>
+      ${lista.map(x => `<option value="${esc(x.id)}" ${atual === x.id ? 'selected' : ''}>${esc(x.nome)}${x.ip ? ` · ${esc(x.ip)}` : ''}</option>`).join('')}
+      ${atual && !_rk.sw[atual] ? `<option value="${esc(atual)}" selected>(switch excluída)</option>` : ''}</select></div>
+    <small class="rkv-cinza">${lista.length ? 'Ao escolher, as portas e os comentários vêm da leitura da switch.' : 'Nenhuma switch cadastrada ainda: cadastre em Implantação › Redes › Switch Provedores.'}</small>
   </fieldset>`;
 }
 
@@ -506,7 +503,22 @@ function rkFormEqAjustar(origem) {
     if (ent) ent.innerHTML = rkOpcoesEntidade(_rk.ents, tipo, '');
   }
   const col = el.querySelector('.rkv-coleta');
-  if (col) col.hidden = !RK_COM_COLETA.includes(tipo);
+  if (col) col.hidden = !RK_COM_LEITURA.includes(tipo);
+  if (origem === 'rkEqSw') {
+    // portas e modelo como o MikroTik informou na ultima leitura
+    const sw = _rk.sw[el.querySelector('#rkEqSw')?.value];
+    const nomes = (sw?.portas || []).map(p => p.nome).filter(Boolean);
+    if (nomes.length) {
+      const m = el.querySelector('#rkEqModelo');
+      if (m) m.value = Object.entries(RK_MODELOS).find(([, v]) => v.join() === nomes.join())?.[0] || '';
+      const livre = el.querySelector('#rkEqPortas');
+      if (livre) livre.value = nomes.join(', ');
+    }
+    const nome = el.querySelector('#rkEqNome');
+    if (sw && nome && !nome.value.trim()) nome.value = sw.nome;
+    const mt = el.querySelector('#rkEqModeloTxt');
+    if (sw?.modelo && mt && !mt.value.trim()) mt.value = sw.modelo;
+  }
   const modelo = el.querySelector('#rkEqModelo')?.value;
   const livre = el.querySelector('#rkEqPortasLivre');
   if (livre) livre.hidden = Boolean(modelo);
@@ -615,42 +627,22 @@ async function rkAcao(btn) {
     const modelo = v('rkEqModelo');
     const nomes = modelo ? RK_MODELOS[modelo] : v('rkEqPortas').split(/[,;\n]+/).map(x => x.trim()).filter(Boolean);
     const atual = rack.equipamentos.find(e => e.id === _rk.editEq);
-    const rotulos = Object.fromEntries((atual?.portas || []).map(x => [x.id.toLowerCase(), x.rotulo || '']));
+    const swId = RK_COM_LEITURA.includes(v('rkEqTipo')) ? v('rkEqSw') : '';
+    // comentario da porta: o que ja estava no rack; se vazio, o do MikroTik
+    const rotulos = Object.fromEntries([
+      ...(_rk.sw[swId]?.portas || []).map(x => [String(x.nome).toLowerCase(), x.comentario || '']),
+      ...(atual?.portas || []).filter(x => x.rotulo).map(x => [x.id.toLowerCase(), x.rotulo]),
+    ]);
     const eq = {
       id: atual?.id || '', tipo: v('rkEqTipo'), nome: v('rkEqNome'), entidade: v('rkEqEnt'),
       // modelo vazio: o da lista de portas quando e equipamento de verdade (CRS/CCR), nao DIO/OLT generico
       modelo: v('rkEqModeloTxt') || (modelo && !/^(DIO|OLT|\d)/.test(modelo) ? modelo : ''),
-      portas: nomes.map(n => ({ id: n, rotulo: rotulos[n.toLowerCase()] || '' })), obs: atual?.obs || '',
+      portas: nomes.map(n => ({ id: n, rotulo: rotulos[n.toLowerCase()] || '' })), obs: atual?.obs || '', switch_id: swId,
     };
     if (!eq.nome) { rkErro(new Error('Informe o nome do equipamento.')); return; }
-    if (RK_COM_COLETA.includes(eq.tipo)) {
-      eq.coleta = { ativo: el.querySelector('#rkColAtivo')?.checked || false, ip: v('rkColIp'), porta: Number(v('rkColPorta') || 8728), conector: v('rkColConector') };
-    } else if (atual?.coleta) eq.coleta = atual.coleta;
-    const usuario = v('rkColUser');
-    const senha = el.querySelector('#rkColSenha')?.value || '';
-    if (eq.coleta?.ativo && !atual && !(usuario && senha)) { rkErro(new Error('Para ligar a leitura informe usuário e senha de leitura.')); return; }
-    if ((usuario && !senha) || (!usuario && senha)) { rkErro(new Error('Informe usuário e senha juntos.')); return; }
     const lista = atual ? rack.equipamentos.map(e => (e.id === atual.id ? eq : e)) : [...rack.equipamentos, eq];
     await rkGravar({ equipamentos: lista }, atual ? 'Equipamento salvo.' : 'Equipamento adicionado.');
-    if (usuario && senha) {
-      const salvo = rkRack().equipamentos.find(e => e.nome === eq.nome && e.tipo === eq.tipo && (!atual || e.id === atual.id));
-      const res = await api('/api/mapa/rack/credencial', { method: 'POST', body: JSON.stringify({ layer_id: rkCamada(_rk.def), rack_id: rkRack().id, eq_id: salvo?.id, usuario, senha }) });
-      await jsonOrReadableError(res, 'Não foi possível guardar a senha.');
-      showToast('Senha de leitura guardada.');
-    }
     limpar(); await rkAtualizarLinks(); rkRender();
-    return;
-  }
-  if (acao === 'testar') {
-    const eqId = _rk.editEq;
-    btn.disabled = true;
-    try {
-      const res = await api('/api/mapa/rack/testar', { method: 'POST', body: JSON.stringify({ layer_id: rkCamada(_rk.def), rack_id: rack.id, eq_id: eqId }) });
-      // a leitura que falhou vem com ok=false e o motivo em "erro" (nao e erro HTTP)
-      const d = res?.ok ? await res.json() : await jsonOrReadableError(res, 'Falha ao testar.');
-      _rk.teste = { eq: eqId, ...d };
-    } catch (e) { _rk.teste = { eq: eqId, ok: false, erro: e.message }; }
-    rkRender();
     return;
   }
   if (acao === 'tirar-eq') {

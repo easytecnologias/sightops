@@ -273,6 +273,25 @@ def _macros_da_entidade(row: Dict[str, Any]) -> List[Dict[str, str]]:
 
 def _mensagens_telegram(entity_type: str) -> tuple[str, str]:
     """Texto de problema e de recuperacao, por tipo de equipamento."""
+    if entity_type == "switch_provedor":
+        problema = "\n".join([
+            "\U0001F534 <b>SWITCH DE PROVEDORES SEM RESPOSTA</b>",
+            "",
+            "\U0001F5A5 <b>Switch:</b> {HOST.NAME}",
+            "",
+            "⚠️ <b>Problema:</b> {EVENT.NAME}",
+            "\U0001F6E0 <b>O que fazer:</b> a switch da rede neutra parou de responder pelo tunel.",
+            "Enquanto isso os links dos provedores dela ficam sem leitura.",
+            "",
+            "\U0001F552 <b>Quando:</b> {EVENT.DATE} {EVENT.TIME}",
+        ])
+        recuperacao = "\n".join([
+            "✅ <b>SWITCH DE PROVEDORES NORMALIZADA</b>",
+            "",
+            "\U0001F5A5 <b>Switch:</b> {HOST.NAME}",
+            "\U0001F552 <b>Quando:</b> {EVENT.RECOVERY.DATE} {EVENT.RECOVERY.TIME}",
+        ])
+        return problema, recuperacao
     if entity_type == "link":
         problema = "\n".join([
             "\U0001F534 <b>LINK DE PROVEDOR COM PROBLEMA</b>",
@@ -486,6 +505,37 @@ def _garantir_gatilhos_gravador(url: str, auth: str, technical_names: Dict[str, 
 GATILHO_LINK_CAIU = "Link do provedor caiu ({HOST.NAME})"
 GATILHO_SINAL_FIBRA = "Sinal da fibra do provedor 3 dB abaixo do normal ({HOST.NAME})"
 GATILHO_LINK_SEM_LEITURA = "Link do provedor sem leitura ha 10 min ({HOST.NAME})"
+GATILHO_SWITCH_PROV_CAIU = "Switch de provedores sem resposta ({HOST.NAME})"
+
+
+def _garantir_gatilhos_switch_provedor(url: str, auth: str, technical_names: Dict[str, Dict[str, Any]],
+                                       host_ids: Dict[str, str], item_by_host_key: Dict[Any, str]) -> int:
+    """Switch de Switch Provedores que para de responder (status 0 depois do
+    limite do perfil). Sem isto o 0 chegava ao Zabbix e ninguem era avisado,
+    inclusive a switch ainda sem provedor em rack. Falha aqui nao derruba o sync."""
+    alvos = {}
+    for nome, row in technical_names.items():
+        hostid = host_ids.get(nome, "")
+        if _text(row.get("entity_type")).lower() == "switch_provedor" and hostid and item_by_host_key.get((hostid, "sightops.status")):
+            alvos[hostid] = nome
+    if not alvos:
+        return 0
+    try:
+        existentes = _call(url, "trigger.get", {
+            "output": ["triggerid"], "selectHosts": ["hostid"], "hostids": list(alvos),
+            "filter": {"description": [GATILHO_SWITCH_PROV_CAIU]}}, auth, 135) or []
+        tem = {_text(h.get("hostid")) for t in existentes for h in (t.get("hosts") or [])}
+        novos = [{"description": GATILHO_SWITCH_PROV_CAIU, "expression": f"last(/{nome}/sightops.status)=0",
+                  "recovery_mode": 1, "recovery_expression": f"last(/{nome}/sightops.status)=1", "priority": 4,
+                  "comments": "O SightOps nao consegue ler esta switch pela API (sem resposta, senha ou caminho pelo conector). "
+                              "Os links dos provedores nela ficam sem leitura. Veja Redes > Switch Provedores > Testar."}
+                 for hostid, nome in alvos.items() if hostid not in tem]
+        for i, lote in enumerate(_chunks(novos)):
+            _call(url, "trigger.create", lote, auth, 136 + i)
+        return len(novos)
+    except Exception as exc:
+        logger.warning("Zabbix: falha ao criar gatilhos de switch de provedores: %s", exc)
+        return 0
 
 
 def _garantir_gatilhos_link(url: str, auth: str, technical_names: Dict[str, Dict[str, Any]],
@@ -555,7 +605,7 @@ def ultimo_sync(tenant: str) -> Dict[str, Any]:
         return dict(_ULTIMO_SYNC.get(_text(tenant).lower()) or {})
 
 
-def sync_monitoring_to_zabbix(entity_types: tuple[str, ...] = ("olt", "onu", "camera", "nvr", "dvr", "connector", "access_device", "whatsapp", "switch", "windows", "access_point", "link")) -> Dict[str, Any]:
+def sync_monitoring_to_zabbix(entity_types: tuple[str, ...] = ("olt", "onu", "camera", "nvr", "dvr", "connector", "access_device", "whatsapp", "switch", "windows", "access_point", "link", "switch_provedor")) -> Dict[str, Any]:
     tenant = _text(get_current_tenant_slug() or "default").lower()
     try:
         result = _sync_monitoring_to_zabbix(entity_types)
@@ -767,8 +817,10 @@ def _sync_monitoring_to_zabbix(entity_types: tuple[str, ...]) -> Dict[str, Any]:
         # da Century) nao manda dBm: so cria o item quando o valor existe.
         "link": ["sightops.link_in_bps", "sightops.link_out_bps", "sightops.link_erros",
                  "sightops.sfp_rx_dbm", "sightops.sfp_tx_dbm"],
+        # Switch Provedores (switch_provedores.py): MikroTik da rede neutra
+        "switch_provedor": ["sightops.ports_up", "sightops.ports_total"],
     }
-    so_se_presente = {"connector", "access_point", "link"}
+    so_se_presente = {"connector", "access_point", "link", "switch_provedor"}
     create_items = []
     for technical_name, row in technical_names.items():
         hostid = host_ids.get(technical_name, "")
@@ -799,6 +851,7 @@ def _sync_monitoring_to_zabbix(entity_types: tuple[str, ...]) -> Dict[str, Any]:
 
     gatilhos = _garantir_gatilhos_gravador(url, auth, technical_names, host_ids, item_by_host_key)
     gatilhos += _garantir_gatilhos_link(url, auth, technical_names, host_ids, item_by_host_key)
+    gatilhos += _garantir_gatilhos_switch_provedor(url, auth, technical_names, host_ids, item_by_host_key)
 
     status_value = {"up": "1", "down": "0", "unstable": "2", "unknown": "3", "maintenance": "4"}
     push_rows = []

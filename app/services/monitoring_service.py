@@ -25,6 +25,7 @@ DEFAULT_PROFILES = (
     ("windows-default", "Computador Windows", "windows", 120, 2),
     # link de provedor do rack (rack_links.py): le a cada minuto; cai depois de 2 leituras sem link
     ("link-default", "Link de provedor (rack)", "link", 60, 2),
+    ("switch_provedor-default", "Switch de provedores", "switch_provedor", 60, 2),
     # underscore para casar com o fallback automatico de _observe_entity_on()
     # (f"{entity_type}-default", e entity_type="access_device"); o bloco de
     # access_device em refresh_from_inventory() nunca define profile_key, entao

@@ -67,6 +67,7 @@ from app.api.endpoints import (
     alert_router,
     rotas_router,
     mapa_rack_router,
+    switch_provedores_router,
     recorder_driver_router,
 )
 
@@ -158,6 +159,7 @@ app.include_router(access_control_router)
 app.include_router(alert_router)
 app.include_router(rotas_router)
 app.include_router(mapa_rack_router)
+app.include_router(switch_provedores_router)
 app.include_router(recorder_driver_router)
 
 # Estado compartilhado (ex.: credencial do ultimo SCAN)
@@ -669,7 +671,7 @@ RACK_LINKS_INTERVAL_S = 60
 
 
 def _coletar_links_tenant(tenant_slug: str) -> dict:
-    from app.services.rack_links import coletar_cliente
+    from app.services.switch_provedores import coletar_cliente
 
     token = set_current_tenant_slug(tenant_slug)
     try:
@@ -679,8 +681,9 @@ def _coletar_links_tenant(tenant_slug: str) -> dict:
 
 
 async def _rack_links_loop() -> None:
-    """Links dos provedores do rack: le as switches (API, so leitura) a cada
-    minuto e grava as entidades "link"; o sync do monitoramento leva ao Zabbix."""
+    """Switch Provedores: le as switches (API, so leitura) a cada minuto e grava
+    a entidade da switch e os links dos provedores dos racks; o sync do
+    monitoramento leva ao Zabbix."""
     await asyncio.sleep(30)
     while True:
         resumo: dict[str, object] = {}

@@ -148,9 +148,9 @@ class ApiAuthMiddleware(BaseHTTPMiddleware):
             # Controle de Rotas: cadastro da frota. DELETE sobe para admin
             # sozinho (permissions.e_exclusao).
             (("POST", "DELETE"), "/api/rotas/", "operator"),
-            # Rack: senha de leitura da switch so admin; testar a leitura, operador.
-            (("POST",), "/api/mapa/rack/credencial", "admin"),
-            (("POST",), "/api/mapa/rack/testar", "operator"),
+            # Switch Provedores: cadastrar/testar operador; DELETE vira admin
+            # pela regra central de exclusao. (POST cai em /api/switch/ abaixo.)
+            (("DELETE",), "/api/switch/provedores/", "operator"),
 
             # --- Fase 1 da correcao de autorizacao (2026-09-20) ---------------
             # Estas rotas de ESCRITA caiam no default "basta estar logado", que
