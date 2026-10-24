@@ -37,7 +37,10 @@ let _alertUnits = null;        // camada com as lotacoes (tela calma)
 let _alertHoje = { at: 0, lista: [] };
 
 const ALERT_REFRESH_MS = 3000;
-const ALERT_SUMMARY_MS = 10000;
+// Consulta leve do resumo (badge + som em qualquer tela). Era 10 s: um alerta
+// que chegava logo depois de uma consulta so tocava ~10 s depois. O backend
+// aguenta 1,5 s (uma consulta indexada, site do conector em cache).
+const ALERT_SUMMARY_MS = 1500;
 const ALERT_CIRCULO_MAX_M = 100;   // acima disso nao desenha o circulo de erro do GPS
 const ALERT_CAMS_MAX = 8;          // cameras da lotacao mostradas de cara (as mais proximas)
 let _alertCamsTodas = '';          // id do alerta em que pediram "ver todas"
@@ -543,9 +546,14 @@ async function alertPollSummary() {
         alertSetIncidentsForSound([]);
       }
     }
-    if (s.latest_new_id && !_alertKnownIds.has(s.latest_new_id) && _currentView !== 'alert-live') {
-      _alertKnownIds.add(s.latest_new_id);
-      showToast('ALERTA DE PANICO recebido. Abra a Central ao vivo.', true);
+    if (s.latest_new_id && !_alertKnownIds.has(s.latest_new_id)) {
+      if (_currentView === 'alert-live') {
+        // Na Central ao vivo: nao espera o refresh de 3 s, atualiza (e toca) ja.
+        alertRefresh(true);
+      } else {
+        _alertKnownIds.add(s.latest_new_id);
+        showToast('ALERTA DE PANICO recebido. Abra a Central ao vivo.', true);
+      }
     }
   } catch { /* silencioso: e so o badge */ }
 }
