@@ -4,13 +4,17 @@
 // ponto a ponto, como no FTTH; o monitoramento dos links vem depois e le daqui
 // qual porta e de qual provedor.
 //
-// Usa a moldura e a gravacao dos paineis do mapa (mapaCaixas.js: cxPainelBase,
-// cxGravar, cxRedesenhar). O backend valida tudo em app/services/mapa_rack.py.
+// Duas telas: clicar no rack abre um RESUMO no painel lateral do mapa
+// (mapaCaixas.js: cxPainelBase); "Abrir rack" abre a TELA GRANDE, com o
+// destino escrito embaixo de cada porta e um painel a direita que mostra so a
+// porta escolhida. Ligar = clicar na porta livre e depois no destino.
+// O backend valida tudo em app/services/mapa_rack.py.
 
 const RK_TIPOS = {
   dio: 'DIO', olt: 'OLT', borda: 'Borda (roteador)', switch: 'Switch', nvr: 'Gravador (NVR)',
   dvr: 'DVR', servidor: 'Servidor', computador: 'Computador', outro: 'Outro',
 };
+const RK_TIPOS_CURTO = { dio: 'DIO', olt: 'OLT', borda: 'Borda', switch: 'Switch', nvr: 'NVR', dvr: 'DVR', servidor: 'Servidor', computador: 'PC', outro: 'Outro' };
 const RK_LIGACOES = { patch: 'Cordão óptico', dac: 'Cabo DAC', utp: 'Cabo de rede', fibra: 'Fibra' };
 // Tipo do equipamento no rack -> tipo no monitoramento (para mostrar se esta no ar)
 const RK_ENTIDADE = { olt: 'olt', borda: 'connector', switch: 'switch', nvr: 'nvr', dvr: 'dvr', servidor: 'windows', computador: 'windows' };
@@ -35,6 +39,9 @@ const RK_MODELO_PADRAO = {
   dio: 'DIO 24', olt: 'OLT 16 PON + 4 uplinks', borda: 'CCR1036-8G-2S+', switch: 'CRS317-1G-16S+',
   nvr: '1 porta de rede', dvr: '1 porta de rede', servidor: '2 portas de rede', computador: '1 porta de rede', outro: '1 porta de rede',
 };
+
+// Tela grande aberta: { el, id, def, rackId, nomePonto, latlng, aba, sel, modo, origem, cabo, editEq, editProv, ents }
+let _rk = null;
 
 function rkPos(def, rack) {
   if (rack?.lat != null) return [Number(rack.lat), Number(rack.lng)];
@@ -66,293 +73,491 @@ function rkMarcador(id, def, f, lat, lng) {
   return marker;
 }
 
+// ------------------------------------------------------------------ apoio
+
+const rkChave = (eq, porta) => `${eq}|${String(porta).toLowerCase()}`;
+// Nome curto da porta para caber no botao: sfp-sfpplus7 -> sfp7, ether3 -> e3
+const rkPortaCurta = p => String(p).replace(/^sfp-sfpplus/, 'sfp').replace(/^ether/, 'e').replace(/^qsfpplus/, 'q');
+// Nome curto do equipamento: a primeira palavra quando e curta (OLT, SWITCH, CCR, DIO), senao o tipo
+function rkEqCurto(e) {
+  const w = String(e?.nome || '').trim().split(/[\s-]+/)[0] || '';
+  return w && w.length <= 8 ? w : (RK_TIPOS_CURTO[e?.tipo] || 'Eq');
+}
+
 // Estado de cada porta: ligacao (para onde vai) e provedor que entra nela
 function rkUsoDasPortas(rack) {
   const eqs = Object.fromEntries((rack?.equipamentos || []).map(e => [e.id, e]));
   const uso = {};
-  const chave = (eq, porta) => `${eq}|${String(porta).toLowerCase()}`;
   (rack?.ligacoes || []).forEach(lg => {
-    uso[chave(lg.a.eq, lg.a.porta)] = { ...(uso[chave(lg.a.eq, lg.a.porta)] || {}), lig: lg, para: lg.b, nomePara: eqs[lg.b.eq]?.nome || '?' };
-    uso[chave(lg.b.eq, lg.b.porta)] = { ...(uso[chave(lg.b.eq, lg.b.porta)] || {}), lig: lg, para: lg.a, nomePara: eqs[lg.a.eq]?.nome || '?' };
+    uso[rkChave(lg.a.eq, lg.a.porta)] = { ...(uso[rkChave(lg.a.eq, lg.a.porta)] || {}), lig: lg, para: lg.b, eqPara: eqs[lg.b.eq] };
+    uso[rkChave(lg.b.eq, lg.b.porta)] = { ...(uso[rkChave(lg.b.eq, lg.b.porta)] || {}), lig: lg, para: lg.a, eqPara: eqs[lg.a.eq] };
   });
   (rack?.provedores || []).forEach(pv => {
-    const k = chave(pv.entrada.eq, pv.entrada.porta);
+    const k = rkChave(pv.entrada.eq, pv.entrada.porta);
     uso[k] = { ...(uso[k] || {}), provedor: pv };
   });
-  return { uso, chave };
+  return uso;
 }
 
-async function rkEntidades(rack) {
-  const tipos = [...new Set((rack?.equipamentos || []).map(e => RK_ENTIDADE[e.tipo]).filter(Boolean).concat(Object.values(RK_ENTIDADE)))];
+async function rkEntidades() {
+  const tipos = [...new Set(Object.values(RK_ENTIDADE))];
   const listas = await Promise.all(tipos.map(t => ctEntidades(t)));
   const porTipo = {};
   tipos.forEach((t, i) => { porTipo[t] = listas[i] || []; });
   return porTipo;
 }
 
-function rkStatusPill(ent) {
-  if (!ent) return '';
-  const st = String(ent.status || '').toLowerCase();
-  const cls = st === 'up' || st === 'online' ? 'rk-on' : st === 'down' || st === 'offline' ? 'rk-off' : 'rk-sem';
-  const txt = cls === 'rk-on' ? 'no ar' : cls === 'rk-off' ? 'fora do ar' : 'sem leitura';
-  return `<span class="rk-status ${cls}">${txt}</span>`;
+function rkStatus(ents, chave) {
+  if (!chave) return null;
+  const e = Object.values(ents || {}).flat().find(x => x.entity_key === chave);
+  if (!e) return { cls: 'rk-sem', txt: 'sem leitura' };
+  const st = String(e.status || '').toLowerCase();
+  if (st === 'up' || st === 'online') return { cls: 'rk-on', txt: 'no ar' };
+  if (st === 'down' || st === 'offline') return { cls: 'rk-off', txt: 'fora do ar' };
+  return { cls: 'rk-sem', txt: 'sem leitura' };
 }
+
+function rkOpcoesEntidade(ents, tipo, atual) {
+  const t = RK_ENTIDADE[tipo];
+  const lista = (t && ents?.[t]) || [];
+  const tem = lista.some(e => e.entity_key === atual);
+  return `<option value="">Não</option>${lista.map(e => `<option value="${esc(e.entity_key)}" ${atual === e.entity_key ? 'selected' : ''}>${esc(e.display_name || e.entity_id)}${e.site ? ` · ${esc(e.site)}` : ''}</option>`).join('')}${atual && !tem ? `<option value="${esc(atual)}" selected>${esc(atual)}</option>` : ''}`;
+}
+
+const rkLigadas = (e, uso) => e.portas.filter(p => uso[rkChave(e.id, p.id)]?.lig).length;
+
+// ------------------------------------------------------------------ resumo no mapa
 
 async function rkAbrirPainel(id, def, nomePonto, latlng) {
   if (!def?.updateUrl || def.source !== 'imported') { showToast('Rack só em camadas importadas (KMZ).', true); return; }
   latlng = latlng || cxLatLngDoPonto(def, nomePonto);
   const rack = rkDoPonto(def, nomePonto, latlng);
-  const ents = rack ? await rkEntidades(rack) : {};
-  const entPorChave = {};
-  Object.values(ents).flat().forEach(e => { entPorChave[e.entity_key] = e; });
-  const { uso, chave } = rkUsoDasPortas(rack);
-  const eqs = rack?.equipamentos || [];
-
-  const cardEq = (e) => {
-    const ent = e.entidade ? entPorChave[e.entidade] : null;
-    const grade = e.portas.map(p => {
-      const u = uso[chave(e.id, p.id)] || {};
-      const cls = u.provedor ? 'rk-p-prov' : u.lig ? 'rk-p-lig' : 'rk-p-livre';
-      const dica = [p.id, p.rotulo, u.provedor ? `provedor ${u.provedor.nome}` : '', u.lig ? `→ ${u.nomePara} ${u.para.porta}` : 'livre'].filter(Boolean).join(' · ');
-      return `<button type="button" class="rk-porta ${cls}" data-rk="porta" data-eq="${esc(e.id)}" data-porta="${esc(p.id)}" title="${esc(dica)}">${esc(p.id.replace(/^sfp-sfpplus/, 'sfp').replace(/^ether/, 'e'))}</button>`;
-    }).join('');
-    const ligadas = e.portas.filter(p => uso[chave(e.id, p.id)]?.lig).length;
-    return `<article class="rk-eq">
-      <div class="rk-eq-topo">
-        <span class="rk-tipo">${esc(RK_TIPOS[e.tipo] || e.tipo)}</span>
-        <strong>${esc(e.nome)}</strong>${e.modelo ? `<small>${esc(e.modelo)}</small>` : ''}
-        ${rkStatusPill(ent)}
-        <span style="flex:1"></span>
-        <small>${ligadas}/${e.portas.length} ligadas</small>
-        <button type="button" class="ghost-action cx-ico" data-rk="editar-eq" data-eq="${esc(e.id)}" title="Editar equipamento" aria-label="Editar ${esc(e.nome)}"><i data-lucide="pencil"></i></button>
-      </div>
-      <div class="rk-portas">${grade}</div>
-    </article>`;
-  };
-
-  const opEq = (sel) => eqs.map(e => `<option value="${esc(e.id)}" ${sel === e.id ? 'selected' : ''}>${esc(e.nome)}</option>`).join('');
-  const linhasLig = (rack?.ligacoes || []).map(lg => {
-    const a = eqs.find(e => e.id === lg.a.eq);
-    const b = eqs.find(e => e.id === lg.b.eq);
-    return `<tr><td><strong>${esc(a?.nome || '?')}</strong> <small>${esc(lg.a.porta)}</small></td><td>→</td>
-      <td><strong>${esc(b?.nome || '?')}</strong> <small>${esc(lg.b.porta)}</small></td><td><small>${esc(RK_LIGACOES[lg.tipo] || lg.tipo)}</small></td>
-      <td><button type="button" class="ghost-action cx-ico" data-rk="desligar" data-lig="${esc(lg.id)}" title="Desfazer ligação" aria-label="Desfazer ligação"><i data-lucide="unlink"></i></button></td></tr>`;
-  }).join('');
-  const linhasProv = (rack?.provedores || []).map(pv => {
-    const e = eqs.find(x => x.id === pv.entrada.eq);
-    return `<tr><td><strong>${esc(pv.nome)}</strong></td><td>${esc(e?.nome || '?')} <small>${esc(pv.entrada.porta)}</small></td>
-      <td><small>${pv.vlans.length ? `VLAN ${esc(pv.vlans.join(', '))}` : '—'}</small></td>
-      <td><button type="button" class="ghost-action cx-ico" data-rk="tirar-prov" data-prov="${esc(pv.id)}" title="Tirar provedor" aria-label="Tirar provedor ${esc(pv.nome)}"><i data-lucide="x"></i></button></td></tr>`;
-  }).join('');
-
-  const corpo = rack ? `
-    <div class="form-row">
-      <div class="form-group" style="margin:0"><label for="rkNome">Nome</label><input id="rkNome" maxlength="80" value="${esc(rack.nome)}"></div>
-      <div class="form-group" style="margin:0"><label for="rkObs">Observação</label><input id="rkObs" maxlength="300" value="${esc(rack.obs || '')}" placeholder="ex.: sala do datacenter"></div>
-    </div>
-    <section><h3>Equipamentos <small>${eqs.length} · clique numa porta para ligar</small></h3>
-      ${eqs.map(cardEq).join('') || '<p class="text-muted" style="margin:0;font-size:12.5px">Nenhum equipamento ainda.</p>'}
-      <div id="rkFormEq" class="rk-form" hidden></div>
-      <button type="button" class="secondary-action" data-rk="novo-eq" style="margin-top:8px"><i data-lucide="plus"></i> Adicionar equipamento</button>
-    </section>
-    <section><h3>Ligações <small>${rack.ligacoes?.length || 0}</small></h3>
-      ${linhasLig ? `<table class="cx-tabela rk-tabela"><tbody>${linhasLig}</tbody></table>` : ''}
-      ${eqs.length >= 2 ? `<div class="rk-form rk-ligar">
-        <div class="rk-ponta"><select id="rkDeEq" aria-label="Equipamento de origem">${opEq('')}</select><select id="rkDePorta" aria-label="Porta de origem"></select></div>
-        <span class="rk-seta">→</span>
-        <div class="rk-ponta"><select id="rkParaEq" aria-label="Equipamento de destino">${opEq(eqs[1]?.id)}</select><select id="rkParaPorta" aria-label="Porta de destino"></select></div>
-        <select id="rkLigTipo" aria-label="Tipo de ligação">${Object.entries(RK_LIGACOES).map(([k, v]) => `<option value="${k}">${esc(v)}</option>`).join('')}</select>
-        <button type="button" class="primary-action" data-rk="ligar"><i data-lucide="spline"></i> Ligar</button>
-      </div>` : '<p class="text-muted" style="margin:0;font-size:12.5px">Com dois equipamentos você liga uma porta na outra.</p>'}
-    </section>
-    <section><h3>Provedores <small>entrada de cada link</small></h3>
-      ${linhasProv ? `<table class="cx-tabela rk-tabela"><tbody>${linhasProv}</tbody></table>` : ''}
-      ${eqs.length ? `<div class="rk-form rk-prov">
-        <input id="rkProvNome" maxlength="80" placeholder="Provedor (ex.: VOE TELECOM)" aria-label="Nome do provedor">
-        <div class="rk-ponta"><select id="rkProvEq" aria-label="Equipamento de entrada">${opEq('')}</select><select id="rkProvPorta" aria-label="Porta de entrada"></select></div>
-        <input id="rkProvVlans" maxlength="200" placeholder="VLANs (ex.: 3030, 3031)" aria-label="VLANs do provedor">
-        <button type="button" class="secondary-action" data-rk="prov"><i data-lucide="plus"></i> Adicionar</button>
-      </div>` : ''}
-    </section>
-    <p id="cxErro" class="login-error" hidden></p>` : `
-    <div class="so-note"><i data-lucide="info"></i><span>Monte o rack: DIOs, OLT, borda, switch, gravadores, servidores e computadores. Depois ligue porta a porta e marque por onde entra cada provedor.</span></div>
-    <div class="form-row">
+  if (!rack) {
+    const corpo = `
+      <div class="so-note"><i data-lucide="info"></i><span>Monte o rack: DIOs, OLT, borda, switch, gravadores, servidores e computadores. Depois ligue porta a porta e marque por onde entra cada provedor.</span></div>
       <div class="form-group" style="margin:0"><label for="rkNome">Nome</label><input id="rkNome" maxlength="80" value="${esc(nomePonto)}"></div>
       <div class="form-group" style="margin:0"><label for="rkObs">Observação</label><input id="rkObs" maxlength="300" placeholder="ex.: sala do datacenter"></div>
+      <p id="cxErro" class="login-error" hidden></p>`;
+    const el = cxPainelBase(nomePonto || 'Rack', corpo, '<span style="flex:1"></span><button type="button" class="primary-action" data-rk="criar"><i data-lucide="plus"></i> Criar rack</button>', 'Rack · rede neutra');
+    el.classList.add('rk-painel');
+    // registrado: sem isso cxFecharPainel (e o Esc) nao fecham este painel
+    _cx.painel = { el, id, def, nomePonto, latlng, tipo: 'rack' };
+    el.addEventListener('click', ev => {
+      if (!ev.target.closest('[data-rk="criar"]')) return;
+      const v = idc => (el.querySelector(`#${idc}`)?.value ?? '').trim();
+      cxGravar(def, { rack: { ponto: nomePonto, lat: latlng?.[0], lng: latlng?.[1], nome: v('rkNome'), obs: v('rkObs') } })
+        .then(() => {
+          cxFecharPainel(); cxRedesenhar(id, def);
+          const novo = rkDoPonto(def, nomePonto, latlng);
+          if (novo) rkAbrirTela(id, def, novo, nomePonto, latlng);
+        })
+        .catch(e => { const er = el.querySelector('#cxErro'); if (er) { er.textContent = e.message; er.hidden = false; } });
+    });
+    return;
+  }
+  const ents = await rkEntidades();
+  const uso = rkUsoDasPortas(rack);
+  const eqs = rack.equipamentos || [];
+  const noAr = eqs.filter(e => rkStatus(ents, e.entidade)?.cls === 'rk-on').length;
+  const linhas = eqs.map(e => {
+    const lig = rkLigadas(e, uso);
+    const pct = e.portas.length ? Math.round((lig / e.portas.length) * 100) : 0;
+    const st = rkStatus(ents, e.entidade);
+    return `<div class="rk-res-eq"><span class="rk-tipo">${esc(RK_TIPOS_CURTO[e.tipo] || e.tipo)}</span>
+      <span class="rk-res-nome"><strong>${esc(e.nome)}</strong><small>${esc(e.modelo || '')}${st ? ` · <span class="${st.cls}-txt">${st.txt}</span>` : ''}</small></span>
+      <span class="rk-barra" aria-hidden="true"><i style="width:${pct}%"></i></span><small class="rk-res-uso">${lig}/${e.portas.length}</small></div>`;
+  }).join('') || '<p class="text-muted" style="margin:0;font-size:12.5px">Nenhum equipamento ainda.</p>';
+  const provs = (rack.provedores || []).map(pv => `<span class="rk-chip">${esc(pv.nome)}</span>`).join('');
+  const corpo = `
+    <div class="rk-res-pills">
+      <span class="rk-pill">${eqs.length} equipamento(s)${noAr ? ` · ${noAr} no ar` : ''}</span>
+      <span class="rk-pill">${rack.ligacoes?.length || 0} ligação(ões)</span>
+      <span class="rk-pill">${rack.provedores?.length || 0} provedor(es)</span>
     </div>
-    <p id="cxErro" class="login-error" hidden></p>`;
-  const rodape = `${rack ? '<button type="button" class="ghost-action cx-perigo cx-ico" data-rk="excluir" title="Excluir o rack" aria-label="Excluir o rack"><i data-lucide="trash-2"></i></button>' : ''}
-    <span style="flex:1"></span>
-    <button type="button" class="primary-action" data-rk="salvar"><i data-lucide="save"></i> ${rack ? 'Salvar' : 'Criar rack'}</button>`;
-  const el = cxPainelBase(rack?.nome || nomePonto || 'Rack', corpo, rodape, 'Rack · rede neutra');
+    <section><h3>O que tem dentro</h3>${linhas}</section>
+    ${provs ? `<section><h3>Provedores <small>ficam verdes ou vermelhos quando a leitura da CRS for ligada</small></h3><div class="rk-chips">${provs}</div></section>` : ''}`;
+  const el = cxPainelBase(rack.nome, corpo, '<span style="flex:1"></span><button type="button" class="primary-action" data-rk="abrir"><i data-lucide="maximize-2"></i> Abrir rack</button>', 'Rack · rede neutra');
   el.classList.add('rk-painel');
-  _cx.painel = { el, id, def, rack, nomePonto, latlng, tipo: 'rack', ents };
+  _cx.painel = { el, id, def, nomePonto, latlng, tipo: 'rack' };
+  el.addEventListener('click', ev => {
+    if (!ev.target.closest('[data-rk="abrir"]')) return;
+    cxFecharPainel();
+    rkAbrirTela(id, def, rack, nomePonto, latlng, ents);
+  });
+}
 
-  const portasDe = (eqSel, portaSel, soLivres) => {
-    const e = eqs.find(x => x.id === eqSel?.value);
-    if (!e || !portaSel) return;
-    portaSel.innerHTML = e.portas.map(p => {
-      const u = uso[chave(e.id, p.id)];
-      const ocupada = soLivres && u?.lig;
-      return `<option value="${esc(p.id)}" ${ocupada ? 'disabled' : ''}>${esc(p.id)}${u?.lig ? ` → ${esc(u.nomePara)}` : ''}${u?.provedor ? ` (${esc(u.provedor.nome)})` : ''}</option>`;
-    }).join('');
-    const livre = [...portaSel.options].find(o => !o.disabled);
-    if (livre) portaSel.value = livre.value;
-  };
-  const liga = (eqId, portaId) => {
-    const s = el.querySelector(`#${eqId}`);
-    const p = el.querySelector(`#${portaId}`);
-    s?.addEventListener('change', () => portasDe(s, p, eqId !== 'rkProvEq'));
-    portasDe(s, p, eqId !== 'rkProvEq');
-  };
-  liga('rkDeEq', 'rkDePorta'); liga('rkParaEq', 'rkParaPorta'); liga('rkProvEq', 'rkProvPorta');
+// ------------------------------------------------------------------ tela grande
+
+async function rkAbrirTela(id, def, rack, nomePonto, latlng, ents) {
+  rkFecharTela();
+  const el = document.createElement('div');
+  el.className = 'rkv';
+  el.setAttribute('role', 'dialog');
+  el.setAttribute('aria-modal', 'true');
+  document.body.appendChild(el);
+  _rk = { el, id, def, rackId: rack.id, nomePonto, latlng, aba: 'rack', sel: null, modo: null, origem: null, cabo: 'patch', editEq: null, editProv: null, ents: ents || {} };
   el.addEventListener('click', ev => {
     const b = ev.target.closest('[data-rk]');
-    if (b) rkAcao(b).catch(e => showToast(e?.message || 'Falha na ação.', true));
+    if (b) rkAcao(b).catch(e => rkErro(e));
   });
   el.addEventListener('change', ev => {
-    if (ev.target.id === 'rkEqTipo' || ev.target.id === 'rkEqModelo') rkFormEqAjustar(el, ev.target.id);
+    if (ev.target.id === 'rkEqTipo' || ev.target.id === 'rkEqModelo') rkFormEqAjustar(ev.target.id);
+    if (ev.target.id === 'rkPvEq') rkPortasDoProvedor();
   });
+  document.addEventListener('keydown', rkEsc, true);
+  rkRender();
+  if (!ents) { _rk.ents = await rkEntidades(); rkRender(); }
 }
 
-function rkFormEq(el, eq) {
-  const box = el.querySelector('#rkFormEq');
-  if (!box) return;
-  const p = _cx.painel;
-  const tipo = eq?.tipo || 'switch';
-  const modelos = Object.keys(RK_MODELOS);
-  const modeloAtual = eq ? (Object.entries(RK_MODELOS).find(([, v]) => v.join() === eq.portas.map(x => x.id).join())?.[0] || '') : RK_MODELO_PADRAO[tipo];
-  const ents = p?.ents || {};
-  box.innerHTML = `
-    <h4>${eq ? `Editar ${esc(eq.nome)}` : 'Novo equipamento'}</h4>
-    <div class="form-row">
-      <div class="form-group" style="margin:0"><label for="rkEqTipo">Tipo</label><select id="rkEqTipo">${Object.entries(RK_TIPOS).map(([k, v]) => `<option value="${k}" ${tipo === k ? 'selected' : ''}>${esc(v)}</option>`).join('')}</select></div>
-      <div class="form-group" style="margin:0"><label for="rkEqNome">Nome</label><input id="rkEqNome" maxlength="80" value="${esc(eq?.nome || '')}" placeholder="ex.: SWITCH JARDINS"></div>
-    </div>
-    <div class="form-row">
-      <div class="form-group" style="margin:0"><label for="rkEqModelo">Portas</label><select id="rkEqModelo">${modelos.map(m => `<option value="${esc(m)}" ${modeloAtual === m ? 'selected' : ''}>${esc(m)}</option>`).join('')}<option value="" ${modeloAtual ? '' : 'selected'}>Outro: digitar as portas</option></select></div>
-      <div class="form-group" style="margin:0"><label for="rkEqModeloTxt">Modelo</label><input id="rkEqModeloTxt" maxlength="60" value="${esc(eq?.modelo || '')}" placeholder="ex.: CRS317-1G-16S+"></div>
-    </div>
-    <div class="form-group" style="margin:0" id="rkEqPortasLivre" ${modeloAtual ? 'hidden' : ''}>
-      <label for="rkEqPortas">Nomes das portas (separados por vírgula)</label>
-      <input id="rkEqPortas" maxlength="4000" value="${esc(eq ? eq.portas.map(x => x.id).join(', ') : '')}" placeholder="ex.: ether1, ether2, sfp1">
-    </div>
-    <div class="form-group" style="margin:0"><label for="rkEqEnt">É um equipamento já monitorado?</label>
-      <select id="rkEqEnt">${rkOpcoesEntidade(ents, tipo, eq?.entidade)}</select></div>
-    <div class="rk-form-acoes">
-      ${eq ? `<button type="button" class="ghost-action cx-perigo" data-rk="tirar-eq" data-eq="${esc(eq.id)}"><i data-lucide="trash-2"></i> Tirar do rack</button>` : ''}
+function rkFecharTela() {
+  _rk?.el?.remove();
+  _rk = null;
+  document.removeEventListener('keydown', rkEsc, true);
+}
+
+// Esc: primeiro cancela o que esta em andamento (ligar, formulario); depois fecha
+function rkEsc(e) {
+  if (e.key !== 'Escape' || !_rk) return;
+  if (!document.getElementById('modalConfirm')?.classList.contains('hidden')) return;
+  e.stopPropagation();
+  if (_rk.modo || _rk.sel) { _rk.modo = null; _rk.sel = null; _rk.origem = null; rkRender(); return; }
+  rkFecharTela();
+}
+
+function rkRack() {
+  return _rk?.def?.racks?.[_rk.rackId] || null;
+}
+
+function rkErro(e) {
+  const er = _rk?.el?.querySelector('#rkErro');
+  if (er) { er.textContent = e?.message || 'Falha.'; er.hidden = false; } else showToast(e?.message || 'Falha.', true);
+}
+
+function rkRender() {
+  const rack = rkRack();
+  if (!_rk || !rack) { rkFecharTela(); return; }
+  const uso = rkUsoDasPortas(rack);
+  _rk.el.setAttribute('aria-label', `Rack ${rack.nome}`);
+  _rk.el.innerHTML = `
+    <header class="rkv-topo">
+      <button type="button" class="secondary-action" data-rk="fechar"><i data-lucide="arrow-left"></i> Mapa</button>
+      <div class="rkv-titulo"><p class="eyebrow">Rack · rede neutra</p><h2>${esc(rack.nome)}</h2></div>
+      <nav class="rkv-abas" aria-label="Abas do rack">
+        <button type="button" class="${_rk.aba === 'rack' ? 'on' : ''}" data-rk="aba" data-aba="rack">Rack</button>
+        <button type="button" class="${_rk.aba === 'prov' ? 'on' : ''}" data-rk="aba" data-aba="prov">Provedores (${rack.provedores?.length || 0})</button>
+      </nav>
       <span style="flex:1"></span>
-      <button type="button" class="secondary-action" data-rk="cancelar-eq">Cancelar</button>
-      <button type="button" class="primary-action" data-rk="salvar-eq" data-eq="${esc(eq?.id || '')}"><i data-lucide="save"></i> ${eq ? 'Salvar' : 'Adicionar'}</button>
+      ${_rk.aba === 'prov'
+        ? '<button type="button" class="primary-action" data-rk="novo-prov"><i data-lucide="plus"></i> Provedor</button>'
+        : '<button type="button" class="secondary-action" data-rk="novo-eq"><i data-lucide="plus"></i> Equipamento</button>'}
+      <button type="button" class="ghost-action cx-ico" data-rk="config" title="Nome e opções do rack" aria-label="Nome e opções do rack"><i data-lucide="settings"></i></button>
+    </header>
+    <div class="rkv-corpo">
+      <main class="rkv-main">${_rk.aba === 'prov' ? rkHtmlProvedores(rack) : rkHtmlRack(rack, uso)}</main>
+      <aside class="rkv-lado">${rkHtmlLado(rack, uso)}<p id="rkErro" class="login-error" hidden></p></aside>
     </div>`;
-  box.hidden = false;
   lucide.createIcons();
-  box.scrollIntoView({ block: 'nearest' });
-  box.querySelector('#rkEqNome')?.focus();
+  if (_rk.modo === 'eq') rkFormEqAjustar('');
+  if (_rk.modo === 'prov') rkPortasDoProvedor(true);
 }
 
-function rkOpcoesEntidade(ents, tipo, atual) {
-  const t = RK_ENTIDADE[tipo];
-  const lista = (t && ents[t]) || [];
-  const tem = lista.some(e => e.entity_key === atual);
-  return `<option value="">Não</option>${lista.map(e => `<option value="${esc(e.entity_key)}" ${atual === e.entity_key ? 'selected' : ''}>${esc(e.display_name || e.entity_id)}${e.site ? ` · ${esc(e.site)}` : ''}</option>`).join('')}${atual && !tem ? `<option value="${esc(atual)}" selected>${esc(atual)}</option>` : ''}`;
+function rkHtmlRack(rack, uso) {
+  const eqs = rack.equipamentos || [];
+  if (!eqs.length) {
+    return `<div class="rkv-vazio"><h3>Rack vazio</h3><p>Comece pelos equipamentos: DIO, OLT, borda, switch, gravadores, servidores e computadores.</p>
+      <button type="button" class="primary-action" data-rk="novo-eq"><i data-lucide="plus"></i> Adicionar equipamento</button></div>`;
+  }
+  const ligando = _rk.modo === 'ligar' && _rk.origem;
+  const banner = ligando
+    ? `<div class="rkv-banner"><strong>${esc(eqs.find(e => e.id === _rk.origem.eq)?.nome || '')} · ${esc(rkPortaCurta(_rk.origem.porta))}</strong>
+        <span>está livre. Clique na porta de destino; as livres estão com borda verde.</span><span style="flex:1"></span>
+        <button type="button" class="secondary-action" data-rk="cancelar">Cancelar</button></div>`
+    : `<div class="rkv-legenda"><span><b class="rkv-l-livre"></b>livre</span><span><b class="rkv-l-lig"></b>ligada (embaixo diz para onde)</span>
+        <span><b class="rkv-l-prov"></b>entrada de provedor</span><span><b class="rkv-l-sel"></b>selecionada e o outro lado</span></div>`;
+  const sel = _rk.sel;
+  const par = sel ? uso[rkChave(sel.eq, sel.porta)]?.para : null;
+  const cards = eqs.map(e => {
+    const st = rkStatus(_rk.ents, e.entidade);
+    const portas = e.portas.map(p => {
+      const u = uso[rkChave(e.id, p.id)] || {};
+      const destino = u.lig ? `${rkEqCurto(u.eqPara)} ${rkPortaCurta(u.para.porta)}` : u.provedor ? u.provedor.nome.split(/\s+/)[0] : 'livre';
+      let cls = u.provedor ? 'prov' : u.lig ? 'lig' : 'livre';
+      if (ligando) {
+        if (_rk.origem.eq === e.id && _rk.origem.porta.toLowerCase() === p.id.toLowerCase()) cls = 'origem';
+        else if (!u.lig) cls = 'alvo';
+        else cls += ' apagada';
+      } else if (sel && sel.eq === e.id && sel.porta.toLowerCase() === p.id.toLowerCase()) cls += ' sel';
+      else if (par && par.eq === e.id && par.porta.toLowerCase() === p.id.toLowerCase()) cls += ' par';
+      const dica = [p.id, p.rotulo, u.provedor ? `provedor ${u.provedor.nome}` : '', u.lig ? `→ ${u.eqPara?.nome} ${u.para.porta}` : 'livre'].filter(Boolean).join(' · ');
+      return `<button type="button" class="rkv-p ${cls}" data-rk="porta" data-eq="${esc(e.id)}" data-porta="${esc(p.id)}" title="${esc(dica)}">${esc(rkPortaCurta(p.id))}<small>${esc(destino)}</small></button>`;
+    }).join('');
+    return `<section class="rkv-eq${ligando && _rk.origem.eq === e.id ? ' apagado' : ''}" aria-label="${esc(e.nome)}">
+      <div class="rkv-eq-topo"><span class="rk-tipo">${esc(RK_TIPOS_CURTO[e.tipo] || e.tipo)}</span><strong>${esc(e.nome)}</strong>
+        ${e.modelo ? `<span class="rkv-cinza">${esc(e.modelo)}</span>` : ''}${st ? `<span class="rk-status ${st.cls}">${st.txt}</span>` : ''}
+        <span style="flex:1"></span><span class="rkv-cinza">${rkLigadas(e, uso)}/${e.portas.length} ligadas</span>
+        <button type="button" class="ghost-action cx-ico" data-rk="editar-eq" data-eq="${esc(e.id)}" title="Editar equipamento" aria-label="Editar ${esc(e.nome)}"><i data-lucide="more-horizontal"></i></button></div>
+      <div class="rkv-portas">${portas}</div></section>`;
+  }).join('');
+  return banner + cards;
 }
 
-function rkFormEqAjustar(el, origem) {
+function rkHtmlProvedores(rack) {
+  const eqs = Object.fromEntries((rack.equipamentos || []).map(e => [e.id, e]));
+  const linhas = (rack.provedores || []).map(pv => `<tr>
+      <td><strong>${esc(pv.nome)}</strong></td>
+      <td>${esc(eqs[pv.entrada.eq]?.nome || '?')} <span class="rkv-porta-tag">${esc(rkPortaCurta(pv.entrada.porta))}</span></td>
+      <td>${pv.vlans.length ? esc(pv.vlans.join(', ')) : '—'}</td>
+      <td><span class="rk-status rk-sem">sem leitura</span></td>
+      <td class="rkv-cinza">—</td><td class="rkv-cinza">—</td>
+      <td>${pv.banda_mbps ? `${pv.banda_mbps} Mbps` : '—'}</td>
+      <td><button type="button" class="ghost-action cx-ico" data-rk="editar-prov" data-prov="${esc(pv.id)}" title="Editar provedor" aria-label="Editar ${esc(pv.nome)}"><i data-lucide="pencil"></i></button></td></tr>`).join('');
+  return `<div class="rkv-aviso"><strong>Leitura dos links ainda desligada.</strong> Quando a API só de leitura for liberada nas CRS, link, tráfego e sinal da fibra passam a atualizar sozinhos e vão para o Zabbix.</div>
+    ${linhas ? `<div class="rkv-tabela-box"><table class="rkv-tabela"><thead><tr><th>Provedor</th><th>Entra em</th><th>VLANs</th><th>Link</th><th>Tráfego</th><th>Sinal da fibra</th><th>Banda</th><th></th></tr></thead><tbody>${linhas}</tbody></table></div>`
+      : '<div class="rkv-vazio"><h3>Nenhum provedor</h3><p>Marque por qual porta entra cada provedor e as VLANs dele.</p><button type="button" class="primary-action" data-rk="novo-prov"><i data-lucide="plus"></i> Adicionar provedor</button></div>'}`;
+}
+
+// Painel da direita: so o que importa agora
+function rkHtmlLado(rack, uso) {
+  const eqs = rack.equipamentos || [];
+  const nomeEq = id => eqs.find(e => e.id === id)?.nome || '?';
+  if (_rk.modo === 'config') {
+    return `<p class="rkv-rotulo">RACK</p>
+      <div class="form-group" style="margin:0"><label for="rkCfgNome">Nome</label><input id="rkCfgNome" maxlength="80" value="${esc(rack.nome)}"></div>
+      <div class="form-group" style="margin:0"><label for="rkCfgObs">Observação</label><input id="rkCfgObs" maxlength="300" value="${esc(rack.obs || '')}" placeholder="ex.: sala do datacenter"></div>
+      <div class="rkv-acoes"><button type="button" class="ghost-action cx-perigo" data-rk="excluir-rack"><i data-lucide="trash-2"></i> Excluir rack</button><span style="flex:1"></span>
+        <button type="button" class="secondary-action" data-rk="cancelar">Cancelar</button><button type="button" class="primary-action" data-rk="salvar-config">Salvar</button></div>`;
+  }
+  if (_rk.modo === 'eq') return rkHtmlFormEq(rack);
+  if (_rk.modo === 'prov') return rkHtmlFormProv(rack);
+  if (_rk.modo === 'ligar' && _rk.origem) {
+    return `<p class="rkv-rotulo">LIGAR</p><h3 class="rkv-h">${esc(nomeEq(_rk.origem.eq))} · ${esc(_rk.origem.porta)}</h3>
+      <div class="rkv-ponte"><span class="rkv-ponte-a">${esc(rkPortaCurta(_rk.origem.porta))}</span><span aria-hidden="true">→</span><span class="rkv-ponte-b">clique no destino</span></div>
+      <p class="rkv-rotulo">TIPO DE CABO</p>
+      <div class="rk-chips">${Object.entries(RK_LIGACOES).map(([k, v]) => `<button type="button" class="rk-chip${_rk.cabo === k ? ' on' : ''}" data-rk="cabo" data-cabo="${k}">${esc(v)}</button>`).join('')}</div>
+      <p class="rkv-rotulo" style="margin-top:6px">OU ESTA PORTA É…</p>
+      <button type="button" class="secondary-action rkv-largo" data-rk="porta-provedor">a entrada de um provedor</button>
+      <button type="button" class="secondary-action rkv-largo" disabled title="Em breve">a saída de um cabo no mapa (em breve)</button>
+      <span style="flex:1"></span>
+      <button type="button" class="secondary-action" data-rk="cancelar">Cancelar</button>`;
+  }
+  if (_rk.sel) {
+    const eq = eqs.find(e => e.id === _rk.sel.eq);
+    const porta = eq?.portas.find(p => p.id.toLowerCase() === _rk.sel.porta.toLowerCase());
+    if (!eq || !porta) { _rk.sel = null; return rkHtmlLado(rack, uso); }
+    const u = uso[rkChave(eq.id, porta.id)] || {};
+    const ligBox = u.lig ? `<div class="rkv-box ok"><p class="rkv-rotulo">LIGADA EM</p><strong>${esc(u.eqPara?.nome || '?')} · ${esc(u.para.porta)}</strong>
+        <span>${esc(RK_LIGACOES[u.lig.tipo] || u.lig.tipo)}</span></div>` : '<div class="rkv-box"><p class="rkv-rotulo">SEM LIGAÇÃO</p><span>Esta porta não está ligada em nada do rack.</span></div>';
+    const provBox = u.provedor ? `<div class="rkv-box prov"><p class="rkv-rotulo">ENTRADA DO PROVEDOR</p><strong>${esc(u.provedor.nome)}</strong>
+        <span>${u.provedor.vlans.length ? `VLAN ${esc(u.provedor.vlans.join(', '))}` : 'sem VLAN informada'}</span>
+        <button type="button" class="secondary-action" data-rk="editar-prov" data-prov="${esc(u.provedor.id)}">Editar provedor</button></div>` : '';
+    const parRot = u.lig ? u.eqPara?.portas.find(p => p.id.toLowerCase() === u.para.porta.toLowerCase())?.rotulo : '';
+    return `<p class="rkv-rotulo">PORTA SELECIONADA</p><h3 class="rkv-h">${esc(eq.nome)} · ${esc(porta.id)}</h3>
+      ${ligBox}${provBox}
+      ${u.lig ? `<div class="rkv-caminho"><p class="rkv-rotulo">CAMINHO</p>
+        <div class="rkv-passo"><b>1</b>${esc(rkEqCurto(eq))} ${esc(rkPortaCurta(porta.id))}${porta.rotulo ? ` <small>${esc(porta.rotulo)}</small>` : ''}</div>
+        <div class="rkv-passo"><b>2</b>${esc(rkEqCurto(u.eqPara))} ${esc(rkPortaCurta(u.para.porta))}${parRot ? ` <small>${esc(parRot)}</small>` : ''}</div></div>` : ''}
+      <div class="form-group" style="margin:0"><label for="rkRotulo">Comentário da porta</label>
+        <input id="rkRotulo" maxlength="120" value="${esc(porta.rotulo || '')}" placeholder="ex.: OLT JARDINS I (a sfp1 queimou)"></div>
+      <span style="flex:1"></span>
+      <div class="rkv-acoes">${u.lig ? '<button type="button" class="ghost-action cx-perigo" data-rk="desligar">Desfazer ligação</button>' : '<button type="button" class="secondary-action" data-rk="ligar-daqui">Ligar esta porta</button>'}
+        <span style="flex:1"></span><button type="button" class="primary-action" data-rk="salvar-rotulo">Salvar comentário</button></div>`;
+  }
+  const total = eqs.reduce((n, e) => n + e.portas.length, 0);
+  return `<p class="rkv-rotulo">COMO USAR</p>
+    <div class="rkv-dica"><b>1</b><span>Clique numa porta <strong>livre</strong> e depois na porta de destino para ligar.</span></div>
+    <div class="rkv-dica"><b>2</b><span>Clique numa porta <strong>ligada</strong> para ver para onde vai, comentar ou desfazer.</span></div>
+    <div class="rkv-dica"><b>3</b><span>Na aba <strong>Provedores</strong>, marque por onde entra cada link.</span></div>
+    <div class="rkv-resumo"><span><strong>${eqs.length}</strong> equipamentos</span><span><strong>${rack.ligacoes?.length || 0}</strong> ligações</span><span><strong>${total}</strong> portas</span></div>`;
+}
+
+// ------------------------------------------------------------------ formularios no painel
+
+function rkHtmlFormEq(rack) {
+  const eq = _rk.editEq ? rack.equipamentos.find(e => e.id === _rk.editEq) : null;
+  const tipo = eq?.tipo || 'switch';
+  const modeloAtual = eq ? (Object.entries(RK_MODELOS).find(([, v]) => v.join() === eq.portas.map(x => x.id).join())?.[0] || '') : RK_MODELO_PADRAO[tipo];
+  return `<p class="rkv-rotulo">${eq ? 'EDITAR EQUIPAMENTO' : 'NOVO EQUIPAMENTO'}</p>
+    <div class="form-group" style="margin:0"><label for="rkEqTipo">Tipo</label><select id="rkEqTipo">${Object.entries(RK_TIPOS).map(([k, v]) => `<option value="${k}" ${tipo === k ? 'selected' : ''}>${esc(v)}</option>`).join('')}</select></div>
+    <div class="form-group" style="margin:0"><label for="rkEqNome">Nome</label><input id="rkEqNome" maxlength="80" value="${esc(eq?.nome || '')}" placeholder="ex.: SWITCH JARDINS"></div>
+    <div class="form-group" style="margin:0"><label for="rkEqModelo">Portas</label><select id="rkEqModelo">${Object.keys(RK_MODELOS).map(m => `<option value="${esc(m)}" ${modeloAtual === m ? 'selected' : ''}>${esc(m)}</option>`).join('')}<option value="" ${modeloAtual ? '' : 'selected'}>Outro: digitar as portas</option></select></div>
+    <div class="form-group" style="margin:0" id="rkEqPortasLivre" ${modeloAtual ? 'hidden' : ''}><label for="rkEqPortas">Nomes das portas (separados por vírgula)</label>
+      <input id="rkEqPortas" maxlength="4000" value="${esc(eq ? eq.portas.map(x => x.id).join(', ') : '')}" placeholder="ex.: ether1, ether2, sfp1"></div>
+    <div class="form-group" style="margin:0"><label for="rkEqModeloTxt">Modelo</label><input id="rkEqModeloTxt" maxlength="60" value="${esc(eq?.modelo || '')}" placeholder="ex.: CRS317-1G-16S+"></div>
+    <div class="form-group" style="margin:0"><label for="rkEqEnt">É um equipamento já monitorado?</label><select id="rkEqEnt">${rkOpcoesEntidade(_rk.ents, tipo, eq?.entidade)}</select></div>
+    <span style="flex:1"></span>
+    <div class="rkv-acoes">${eq ? '<button type="button" class="ghost-action cx-perigo" data-rk="tirar-eq">Tirar do rack</button>' : ''}<span style="flex:1"></span>
+      <button type="button" class="secondary-action" data-rk="cancelar">Cancelar</button><button type="button" class="primary-action" data-rk="salvar-eq">${eq ? 'Salvar' : 'Adicionar'}</button></div>`;
+}
+
+function rkFormEqAjustar(origem) {
+  const el = _rk?.el;
+  if (!el) return;
   const tipo = el.querySelector('#rkEqTipo')?.value;
   if (origem === 'rkEqTipo') {
     const m = el.querySelector('#rkEqModelo');
     if (m) m.value = RK_MODELO_PADRAO[tipo] || '';
-    el.querySelector('#rkEqEnt').innerHTML = rkOpcoesEntidade(_cx.painel?.ents || {}, tipo, '');
+    const ent = el.querySelector('#rkEqEnt');
+    if (ent) ent.innerHTML = rkOpcoesEntidade(_rk.ents, tipo, '');
   }
   const modelo = el.querySelector('#rkEqModelo')?.value;
-  el.querySelector('#rkEqPortasLivre').hidden = Boolean(modelo);
-  const txt = el.querySelector('#rkEqModeloTxt');
-  if (modelo && txt && !txt.value && !/^(DIO|OLT|\d)/.test(modelo)) txt.value = modelo;
+  const livre = el.querySelector('#rkEqPortasLivre');
+  if (livre) livre.hidden = Boolean(modelo);
 }
 
-async function rkGravarRack(p, mudancas, msg) {
-  const r = p.rack;
-  await cxGravar(p.def, { rack: { id: r?.id || '', ponto: p.nomePonto, lat: p.latlng?.[0], lng: p.latlng?.[1], ...mudancas } });
+function rkHtmlFormProv(rack) {
+  const pv = _rk.editProv ? rack.provedores.find(p => p.id === _rk.editProv) : null;
+  const entrada = pv?.entrada || _rk.origem || { eq: rack.equipamentos[0]?.id || '', porta: '' };
+  return `<p class="rkv-rotulo">${pv ? 'EDITAR PROVEDOR' : 'NOVO PROVEDOR'}</p>
+    <div class="form-group" style="margin:0"><label for="rkPvNome">Provedor</label><input id="rkPvNome" maxlength="80" value="${esc(pv?.nome || '')}" placeholder="ex.: VOE TELECOM"></div>
+    <div class="form-group" style="margin:0"><label for="rkPvEq">Entra no equipamento</label><select id="rkPvEq">${rack.equipamentos.map(e => `<option value="${esc(e.id)}" ${entrada.eq === e.id ? 'selected' : ''}>${esc(e.nome)}</option>`).join('')}</select></div>
+    <div class="form-group" style="margin:0"><label for="rkPvPorta">Pela porta</label><select id="rkPvPorta" data-atual="${esc(entrada.porta)}"></select></div>
+    <div class="form-group" style="margin:0"><label for="rkPvVlans">VLANs</label><input id="rkPvVlans" maxlength="200" value="${esc(pv ? pv.vlans.join(', ') : '')}" placeholder="ex.: 3030, 3031"></div>
+    <div class="form-group" style="margin:0"><label for="rkPvBanda">Banda contratada (Mbps)</label><input id="rkPvBanda" type="number" min="0" max="400000" value="${pv?.banda_mbps || ''}" placeholder="ex.: 1000"></div>
+    <span style="flex:1"></span>
+    <div class="rkv-acoes">${pv ? '<button type="button" class="ghost-action cx-perigo" data-rk="tirar-prov">Tirar provedor</button>' : ''}<span style="flex:1"></span>
+      <button type="button" class="secondary-action" data-rk="cancelar">Cancelar</button><button type="button" class="primary-action" data-rk="salvar-prov">${pv ? 'Salvar' : 'Adicionar'}</button></div>`;
+}
+
+function rkPortasDoProvedor(inicial) {
+  const el = _rk?.el;
+  const rack = rkRack();
+  const sel = el?.querySelector('#rkPvPorta');
+  const eq = rack?.equipamentos.find(e => e.id === el?.querySelector('#rkPvEq')?.value);
+  if (!sel || !eq) return;
+  const uso = rkUsoDasPortas(rack);
+  const meu = _rk.editProv;
+  sel.innerHTML = eq.portas.map(p => {
+    const u = uso[rkChave(eq.id, p.id)] || {};
+    const deOutro = u.provedor && u.provedor.id !== meu;
+    return `<option value="${esc(p.id)}" ${deOutro ? 'disabled' : ''}>${esc(p.id)}${u.lig ? ` → ${esc(rkEqCurto(u.eqPara))} ${esc(rkPortaCurta(u.para.porta))}` : ''}${deOutro ? ` (${esc(u.provedor.nome)})` : ''}</option>`;
+  }).join('');
+  const atual = inicial ? sel.dataset.atual : '';
+  if (atual && [...sel.options].some(o => o.value.toLowerCase() === atual.toLowerCase() && !o.disabled)) {
+    sel.value = [...sel.options].find(o => o.value.toLowerCase() === atual.toLowerCase()).value;
+  } else {
+    const livre = [...sel.options].find(o => !o.disabled);
+    if (livre) sel.value = livre.value;
+  }
+}
+
+// ------------------------------------------------------------------ acoes
+
+async function rkGravar(mudancas, msg) {
+  const rack = rkRack();
+  await cxGravar(_rk.def, { rack: { id: rack.id, ponto: rack.ponto, ...mudancas } });
   if (msg) showToast(msg);
-  cxRedesenhar(p.id, p.def);
-  const novo = rkDoPonto(p.def, p.nomePonto, p.latlng) || Object.values(p.def.racks || {}).find(x => x.nome === mudancas.nome);
-  await rkAbrirPainel(p.id, p.def, novo?.ponto || p.nomePonto, p.latlng);
+  cxRedesenhar(_rk.id, _rk.def);
 }
 
 async function rkAcao(btn) {
-  const p = _cx.painel;
-  if (!p?.el || p.tipo !== 'rack') return;
-  const el = p.el;
-  const er = el.querySelector('#cxErro');
-  const falha = e => { if (er) { er.textContent = e.message; er.hidden = false; er.scrollIntoView({ block: 'nearest' }); } };
+  if (!_rk) return;
+  const rack = rkRack();
+  const el = _rk.el;
   const v = idc => (el.querySelector(`#${idc}`)?.value ?? '').trim();
-  const rack = p.rack;
   const acao = btn.dataset.rk;
-  try {
-    if (acao === 'salvar') {
-      await rkGravarRack(p, { nome: v('rkNome'), obs: v('rkObs') }, rack ? 'Rack salvo.' : 'Rack criado. Agora adicione os equipamentos.');
-    } else if (acao === 'novo-eq') {
-      rkFormEq(el, null);
-    } else if (acao === 'editar-eq') {
-      rkFormEq(el, rack.equipamentos.find(e => e.id === btn.dataset.eq));
-    } else if (acao === 'cancelar-eq') {
-      el.querySelector('#rkFormEq').hidden = true;
-    } else if (acao === 'salvar-eq') {
-      const modelo = v('rkEqModelo');
-      const nomes = modelo ? RK_MODELOS[modelo] : v('rkEqPortas').split(/[,;\n]+/).map(x => x.trim()).filter(Boolean);
-      const atual = rack.equipamentos.find(e => e.id === btn.dataset.eq);
-      const rotulos = Object.fromEntries((atual?.portas || []).map(x => [x.id.toLowerCase(), x.rotulo || '']));
-      const eq = {
-        id: atual?.id || '', tipo: v('rkEqTipo'), nome: v('rkEqNome'), modelo: v('rkEqModeloTxt'), entidade: v('rkEqEnt'),
-        portas: nomes.map(n => ({ id: n, rotulo: rotulos[n.toLowerCase()] || '' })), obs: atual?.obs || '',
-      };
-      const lista = atual ? rack.equipamentos.map(e => (e.id === atual.id ? eq : e)) : [...rack.equipamentos, eq];
-      await rkGravarRack(p, { equipamentos: lista }, atual ? 'Equipamento salvo.' : 'Equipamento adicionado.');
-    } else if (acao === 'tirar-eq') {
-      const eq = rack.equipamentos.find(e => e.id === btn.dataset.eq);
-      if (!eq || !(await showConfirm({ title: 'Tirar equipamento', msg: `Tirar "${eq.nome}" do rack? As ligações e os provedores das portas dele saem junto.`, label: 'Tirar' }))) return;
-      await rkGravarRack(p, {
-        equipamentos: rack.equipamentos.filter(e => e.id !== eq.id),
-        ligacoes: rack.ligacoes.filter(lg => lg.a.eq !== eq.id && lg.b.eq !== eq.id),
-        provedores: rack.provedores.filter(pv => pv.entrada.eq !== eq.id),
-      }, 'Equipamento retirado.');
-    } else if (acao === 'porta') {
-      // clique na porta: vira a origem da ligacao
-      const de = el.querySelector('#rkDeEq');
-      if (!de) return;
-      de.value = btn.dataset.eq;
-      de.dispatchEvent(new Event('change'));
-      const dp = el.querySelector('#rkDePorta');
-      if (dp && ![...dp.options].find(o => o.value === btn.dataset.porta && !o.disabled)) {
-        showToast(`${btn.dataset.porta} já está ligada. Desfaça a ligação para trocar.`, true);
-        return;
-      }
-      dp.value = btn.dataset.porta;
-      el.querySelector('.rk-ligar')?.scrollIntoView({ block: 'nearest' });
-      el.querySelector('#rkParaEq')?.focus();
-    } else if (acao === 'ligar') {
-      const a = { eq: v('rkDeEq'), porta: v('rkDePorta') };
-      const b = { eq: v('rkParaEq'), porta: v('rkParaPorta') };
-      if (!a.porta || !b.porta) { falha(new Error('Escolha as duas portas.')); return; }
-      await rkGravarRack(p, { ligacoes: [...rack.ligacoes, { a, b, tipo: v('rkLigTipo') }] }, 'Portas ligadas.');
-    } else if (acao === 'desligar') {
-      const lg = rack.ligacoes.find(x => x.id === btn.dataset.lig);
-      if (!lg || !(await showConfirm({ title: 'Desfazer ligação', msg: `Desfazer a ligação ${lg.a.porta} → ${lg.b.porta}?`, label: 'Desfazer' }))) return;
-      await rkGravarRack(p, { ligacoes: rack.ligacoes.filter(x => x.id !== lg.id) }, 'Ligação desfeita.');
-    } else if (acao === 'prov') {
-      const pv = { nome: v('rkProvNome'), entrada: { eq: v('rkProvEq'), porta: v('rkProvPorta') }, vlans: v('rkProvVlans') };
-      if (!pv.nome) { falha(new Error('Informe o nome do provedor.')); return; }
-      await rkGravarRack(p, { provedores: [...rack.provedores, pv] }, 'Provedor adicionado.');
-    } else if (acao === 'tirar-prov') {
-      const pv = rack.provedores.find(x => x.id === btn.dataset.prov);
-      if (!pv || !(await showConfirm({ title: 'Tirar provedor', msg: `Tirar o provedor ${pv.nome} deste rack?`, label: 'Tirar' }))) return;
-      await rkGravarRack(p, { provedores: rack.provedores.filter(x => x.id !== pv.id) }, 'Provedor retirado.');
-    } else if (acao === 'excluir') {
-      if (!(await showConfirm({ title: 'Excluir rack', msg: `Apagar o rack "${rack.nome}" com todos os equipamentos, ligações e provedores? O ponto continua no mapa.`, label: 'Excluir' }))) return;
-      await cxGravar(p.def, { rack: { id: rack.id, excluir: true } });
-      showToast('Rack excluído.');
-      cxFecharPainel(); cxRedesenhar(p.id, p.def);
+  const limpar = () => { _rk.modo = null; _rk.origem = null; _rk.editEq = null; _rk.editProv = null; };
+
+  if (acao === 'fechar') { rkFecharTela(); return; }
+  if (acao === 'aba') { _rk.aba = btn.dataset.aba; _rk.sel = null; limpar(); rkRender(); return; }
+  if (acao === 'cancelar') { limpar(); rkRender(); return; }
+  if (acao === 'config') { limpar(); _rk.sel = null; _rk.modo = 'config'; rkRender(); return; }
+  if (acao === 'novo-eq') { limpar(); _rk.sel = null; _rk.aba = 'rack'; _rk.modo = 'eq'; rkRender(); el.querySelector('#rkEqNome')?.focus(); return; }
+  if (acao === 'editar-eq') { limpar(); _rk.sel = null; _rk.modo = 'eq'; _rk.editEq = btn.dataset.eq; rkRender(); return; }
+  if (acao === 'novo-prov') { limpar(); _rk.sel = null; _rk.modo = 'prov'; rkRender(); el.querySelector('#rkPvNome')?.focus(); return; }
+  if (acao === 'editar-prov') { limpar(); _rk.sel = null; _rk.modo = 'prov'; _rk.editProv = btn.dataset.prov; rkRender(); return; }
+  if (acao === 'cabo') { _rk.cabo = btn.dataset.cabo; rkRender(); return; }
+  if (acao === 'porta-provedor') { const o = _rk.origem; limpar(); _rk.origem = o; _rk.modo = 'prov'; _rk.aba = 'rack'; rkRender(); el.querySelector('#rkPvNome')?.focus(); return; }
+  if (acao === 'ligar-daqui') { _rk.origem = { ..._rk.sel }; _rk.sel = null; _rk.modo = 'ligar'; rkRender(); return; }
+
+  if (acao === 'porta') {
+    const alvo = { eq: btn.dataset.eq, porta: btn.dataset.porta };
+    const uso = rkUsoDasPortas(rack);
+    const u = uso[rkChave(alvo.eq, alvo.porta)] || {};
+    if (_rk.modo === 'ligar' && _rk.origem) {
+      if (_rk.origem.eq === alvo.eq && _rk.origem.porta.toLowerCase() === alvo.porta.toLowerCase()) { limpar(); rkRender(); return; }
+      if (u.lig) { showToast(`${rkPortaCurta(alvo.porta)} já está ligada. Escolha uma porta com borda verde.`, true); return; }
+      const nova = { a: _rk.origem, b: alvo, tipo: _rk.cabo };
+      await rkGravar({ ligacoes: [...rack.ligacoes, nova] }, 'Portas ligadas.');
+      limpar(); _rk.sel = { ...nova.a }; rkRender();
+      return;
     }
-  } catch (e) { falha(e); }
+    if (_rk.modo === 'eq' || _rk.modo === 'prov' || _rk.modo === 'config') limpar();
+    if (!u.lig && !u.provedor) { _rk.sel = null; _rk.origem = alvo; _rk.modo = 'ligar'; rkRender(); return; }
+    _rk.sel = alvo; rkRender();
+    return;
+  }
+
+  if (acao === 'salvar-rotulo' && _rk.sel) {
+    const rotulo = v('rkRotulo');
+    const eqs = rack.equipamentos.map(e => (e.id !== _rk.sel.eq ? e : {
+      ...e, portas: e.portas.map(p => (p.id.toLowerCase() === _rk.sel.porta.toLowerCase() ? { ...p, rotulo } : p)),
+    }));
+    await rkGravar({ equipamentos: eqs }, 'Comentário salvo.');
+    rkRender();
+    return;
+  }
+  if (acao === 'desligar' && _rk.sel) {
+    const u = rkUsoDasPortas(rack)[rkChave(_rk.sel.eq, _rk.sel.porta)];
+    if (!u?.lig || !(await showConfirm({ title: 'Desfazer ligação', msg: `Desfazer a ligação ${u.lig.a.porta} → ${u.lig.b.porta}?`, label: 'Desfazer' }))) return;
+    await rkGravar({ ligacoes: rack.ligacoes.filter(x => x.id !== u.lig.id) }, 'Ligação desfeita.');
+    rkRender();
+    return;
+  }
+  if (acao === 'salvar-eq') {
+    const modelo = v('rkEqModelo');
+    const nomes = modelo ? RK_MODELOS[modelo] : v('rkEqPortas').split(/[,;\n]+/).map(x => x.trim()).filter(Boolean);
+    const atual = rack.equipamentos.find(e => e.id === _rk.editEq);
+    const rotulos = Object.fromEntries((atual?.portas || []).map(x => [x.id.toLowerCase(), x.rotulo || '']));
+    const eq = {
+      id: atual?.id || '', tipo: v('rkEqTipo'), nome: v('rkEqNome'), entidade: v('rkEqEnt'),
+      // modelo vazio: o da lista de portas quando e equipamento de verdade (CRS/CCR), nao DIO/OLT generico
+      modelo: v('rkEqModeloTxt') || (modelo && !/^(DIO|OLT|\d)/.test(modelo) ? modelo : ''),
+      portas: nomes.map(n => ({ id: n, rotulo: rotulos[n.toLowerCase()] || '' })), obs: atual?.obs || '',
+    };
+    if (!eq.nome) { rkErro(new Error('Informe o nome do equipamento.')); return; }
+    const lista = atual ? rack.equipamentos.map(e => (e.id === atual.id ? eq : e)) : [...rack.equipamentos, eq];
+    await rkGravar({ equipamentos: lista }, atual ? 'Equipamento salvo.' : 'Equipamento adicionado.');
+    limpar(); rkRender();
+    return;
+  }
+  if (acao === 'tirar-eq') {
+    const eq = rack.equipamentos.find(e => e.id === _rk.editEq);
+    if (!eq || !(await showConfirm({ title: 'Tirar equipamento', msg: `Tirar "${eq.nome}" do rack? As ligações e os provedores das portas dele saem junto.`, label: 'Tirar' }))) return;
+    await rkGravar({
+      equipamentos: rack.equipamentos.filter(e => e.id !== eq.id),
+      ligacoes: rack.ligacoes.filter(lg => lg.a.eq !== eq.id && lg.b.eq !== eq.id),
+      provedores: rack.provedores.filter(pv => pv.entrada.eq !== eq.id),
+    }, 'Equipamento retirado.');
+    limpar(); rkRender();
+    return;
+  }
+  if (acao === 'salvar-prov') {
+    const atual = rack.provedores.find(p => p.id === _rk.editProv);
+    const pv = { id: atual?.id || '', nome: v('rkPvNome'), entrada: { eq: v('rkPvEq'), porta: v('rkPvPorta') }, vlans: v('rkPvVlans'), banda_mbps: Number(v('rkPvBanda') || 0), contato: atual?.contato || '', obs: atual?.obs || '' };
+    if (!pv.nome) { rkErro(new Error('Informe o nome do provedor.')); return; }
+    const lista = atual ? rack.provedores.map(p => (p.id === atual.id ? pv : p)) : [...rack.provedores, pv];
+    await rkGravar({ provedores: lista }, atual ? 'Provedor salvo.' : 'Provedor adicionado.');
+    const volta = _rk.aba === 'rack' ? pv.entrada : null;
+    limpar(); _rk.sel = volta; rkRender();
+    return;
+  }
+  if (acao === 'tirar-prov') {
+    const pv = rack.provedores.find(p => p.id === _rk.editProv);
+    if (!pv || !(await showConfirm({ title: 'Tirar provedor', msg: `Tirar o provedor ${pv.nome} deste rack?`, label: 'Tirar' }))) return;
+    await rkGravar({ provedores: rack.provedores.filter(p => p.id !== pv.id) }, 'Provedor retirado.');
+    limpar(); rkRender();
+    return;
+  }
+  if (acao === 'salvar-config') {
+    await rkGravar({ nome: v('rkCfgNome'), obs: v('rkCfgObs') }, 'Rack salvo.');
+    limpar(); rkRender();
+    return;
+  }
+  if (acao === 'excluir-rack') {
+    if (!(await showConfirm({ title: 'Excluir rack', msg: `Apagar o rack "${rack.nome}" com todos os equipamentos, ligações e provedores? O ponto continua no mapa.`, label: 'Excluir' }))) return;
+    await cxGravar(_rk.def, { rack: { id: rack.id, excluir: true } });
+    showToast('Rack excluído.');
+    cxRedesenhar(_rk.id, _rk.def);
+    rkFecharTela();
+  }
 }
