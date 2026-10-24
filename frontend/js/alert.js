@@ -776,6 +776,7 @@ async function alertCarregarHoje() {
     _alertHoje.lista = (hist.incidents || []).filter((i) => (alertDate(i.opened_at)?.getTime() || 0) >= ini.getTime());
   } catch { /* contador fica como estava */ }
   alertRenderContadores();
+  alertRenderList();  // "Encerrados hoje" da fila sai desta lista
 }
 
 function alertRenderContadores() {
@@ -1089,37 +1090,52 @@ function alertRenderList() {
     if (window.lucide) lucide.createIcons();
     return;
   }
+  const STATUS_CURTO = { acknowledged: 'assumido', dispatched: 'equipe a caminho' };
   const card = (inc) => {
     const m = inc.member || {};
-    const cls = [
-      'alert-card',
-      inc.id === _alertSelectedId ? 'selected' : '',
-      inc.status === 'new' ? 'is-new' : '',
-      inc.kind === 'duress' && alertOpen(inc) ? 'is-duress' : '',
-      alertOpen(inc) ? '' : 'is-final',
-    ].filter(Boolean).join(' ');
-    const dono = inc.acknowledged_by && alertOpen(inc)
-      ? `<div class="alert-card-owner"><span>${esc(alertIniciais(inc.acknowledged_by))}</span>com ${esc(inc.acknowledged_by)}</div>` : '';
+    if (!alertOpen(inc)) {
+      // Encerrado: uma linha so -- quem, como terminou, quanto durou.
+      const como = inc.status === 'cancelled' ? 'cancelado pela pessoa' : (String(inc.close_note || '').trim() || 'encerrado');
+      return `
+      <button type="button" class="alert-card is-final${inc.id === _alertSelectedId ? ' selected' : ''}" data-alert-id="${esc(inc.id)}">
+        <span class="alert-card-fim"><b>${esc(m.full_name)}</b><small>${esc(como.length > 34 ? `${como.slice(0, 33)}…` : como)} · ${esc(alertTimer(inc.opened_at, inc.closed_at))}</small></span>
+        <span class="alert-card-hora">${esc(alertClock(inc.opened_at).slice(0, 5))}</span>
+      </button>`;
+    }
+    const cls = ['alert-card', inc.id === _alertSelectedId ? 'selected' : '', inc.status === 'new' ? 'is-new' : '',
+      inc.kind === 'duress' ? 'is-duress' : ''].filter(Boolean).join(' ');
+    const p = alertPoint(inc);
+    const gps = !p ? '' : (p.gps ? (inc.last_accuracy != null ? `GPS ~${Math.round(inc.last_accuracy)} m` : '') : 'sem GPS');
+    const dono = inc.status === 'new' ? ''
+      : `<span class="alert-card-dono">${inc.acknowledged_by ? `com ${esc(inc.acknowledged_by)} · ` : ''}${esc(STATUS_CURTO[inc.status] || '')}</span>`;
     return `
       <button type="button" class="${cls}" data-alert-id="${esc(inc.id)}">
-        <div class="alert-card-top">
-          <strong>${esc(m.full_name)}</strong>
-          ${alertOpen(inc)
-            ? `<span class="alert-card-age is-live${inc.status === 'new' ? ' is-new' : ''}" data-alert-tick="${esc(inc.opened_at)}">${esc(alertTimer(inc.opened_at))}</span>`
-            : `<span class="alert-card-age">${esc(alertClock(inc.opened_at).slice(0, 5))}</span>`}
-        </div>
-        <div class="alert-card-meta">${alertSiteTag(inc.site)}${esc([m.role_title, m.unit_name].filter(Boolean).join(' · ') || (inc.site ? '' : 'sem lotacao'))}</div>
-        <div class="alert-card-pills">${alertKindPill(inc)} ${alertStatusPill(inc)}${alertPoint(inc)?.gps === false ? ' <span class="pill neutral">sem GPS</span>' : ''}</div>
-        ${dono}
+        <span class="alert-card-top">
+          <span class="alert-card-quem"><span class="alert-card-ava">${esc(alertIniciais(m.full_name))}</span><strong>${esc(m.full_name)}</strong></span>
+          <span class="alert-card-age is-live${inc.status === 'new' ? ' is-new' : ''}" data-alert-tick="${esc(inc.opened_at)}">${esc(alertTimer(inc.opened_at))}</span>
+        </span>
+        <span class="alert-card-meta">${esc([m.role_title, inc.site || m.unit_name].filter(Boolean).join(' · ') || 'sem lotacao')}</span>
+        <span class="alert-card-tags">
+          <span class="alert-tag ${inc.kind === 'duress' ? 'is-coacao' : 'is-panico'}">${inc.kind === 'duress' ? 'COACAO' : 'PANICO'}</span>
+          ${gps ? `<span class="alert-tag">${esc(gps)}</span>` : ''}${dono}
+        </span>
       </button>`;
   };
   if (_alertScope !== 'live') { box.innerHTML = _alertIncidents.map(card).join(''); return; }
-  // Abertos em cima (sem atendimento primeiro); encerrados recentes embaixo, discretos.
-  const abertos = _alertIncidents.filter(alertOpen)
-    .sort((a, b) => Number(b.status === 'new') - Number(a.status === 'new') || String(a.opened_at).localeCompare(String(b.opened_at)));
-  const fechados = _alertIncidents.filter((i) => !alertOpen(i));
-  box.innerHTML = (abertos.length ? abertos.map(card).join('') : '<div class="alert-live-empty alert-fila-vazia is-mini">Nenhum aberto agora.</div>')
-    + (fechados.length ? `<div class="alert-fila-sep">Encerrados nos ultimos 30 min</div>${fechados.map(card).join('')}` : '');
+  // Sem atendimento em cima, depois em atendimento, depois os encerrados de hoje.
+  const porIdade = (a, b) => String(a.opened_at).localeCompare(String(b.opened_at));
+  const novos = _alertIncidents.filter((i) => i.status === 'new').sort(porIdade);
+  const atend = _alertIncidents.filter((i) => alertOpen(i) && i.status !== 'new').sort(porIdade);
+  const vistos = new Set(_alertIncidents.map((i) => i.id));
+  const fechados = [..._alertIncidents.filter((i) => !alertOpen(i)),
+    ...(_alertHoje.lista || []).filter((i) => !alertOpen(i) && !vistos.has(i.id))]
+    .sort((a, b) => String(b.opened_at).localeCompare(String(a.opened_at)));
+  const grupo = (titulo, lista) => (lista.length ? `<div class="alert-fila-sep">${titulo}</div>${lista.map(card).join('')}` : '');
+  box.innerHTML = (novos.length || atend.length
+    ? grupo('Sem atendimento', novos) + grupo('Em atendimento', atend)
+    : '<div class="alert-live-empty alert-fila-vazia"><i data-lucide="shield-check"></i><span>Nenhum pedido aberto</span></div>')
+    + grupo('Encerrados hoje', fechados);
+  if (window.lucide) lucide.createIcons();
 }
 
 function alertMarkerIcon(inc, selected) {
@@ -1278,8 +1294,8 @@ function alertRenderDetail() {
   panel.hidden = false;
   panel.classList.remove('is-calm');
   panel.innerHTML = `
-    <div class="alert-case-head${inc.kind === 'duress' ? ' is-duress' : ''}${inc.status === 'new' ? ' is-new' : ''}">
-      <div class="alert-case-pills">${alertKindPill(inc)} ${alertStatusPill(inc)}</div>
+    <div class="alert-case-head${inc.kind === 'duress' ? ' is-duress' : ''}${inc.status === 'new' ? ' is-new' : ''}${open ? '' : ' is-final'}">
+      <div class="alert-case-kicker">${esc(alertKicker(inc))}</div>
       <div class="alert-case-who">
         <span class="alert-case-avatar">${esc(alertIniciais(m.full_name))}</span>
         <div class="alert-case-name">
@@ -1333,6 +1349,17 @@ function alertRenderDetail() {
   if (window.lucide) lucide.createIcons();
 }
 
+// Uma linha que diz o estado do atendimento, no topo do painel.
+function alertKicker(inc) {
+  const coacao = inc.kind === 'duress' ? 'COACAO · ' : '';
+  if (inc.status === 'cancelled') return 'CANCELADO PELA PESSOA';
+  if (inc.status === 'closed') return `${coacao}ATENDIMENTO ENCERRADO`;
+  if (inc.status === 'new') return `${coacao || 'PEDIDO DE AJUDA · '}NINGUEM ASSUMIU`;
+  if (inc.arrived_at) return `${coacao}EQUIPE NO LOCAL`;
+  if (inc.dispatched_at) return `${coacao}EQUIPE A CAMINHO`;
+  return `${coacao}EM ATENDIMENTO${inc.acknowledged_by ? ` · COM ${String(inc.acknowledged_by).toUpperCase()}` : ''}`;
+}
+
 function alertIniciais(nome) {
   const partes = String(nome || '').trim().split(/\s+/).filter(Boolean);
   if (!partes.length) return '?';
@@ -1378,19 +1405,20 @@ async function alertRenderCalm() {
       <span class="alert-calm-badge"><i data-lucide="shield-check"></i></span>
       <div><strong>Tudo calmo</strong><small>Nenhum pedido de ajuda aberto${_alertMeusSites ? ` nos seus ${_alertMeusSites.length === 1 ? 'site' : `${_alertMeusSites.length} sites`}` : ''}.</small></div>
     </div>
+    <h3 class="alert-calm-titulo">Este posto esta pronto?</h3>
     <div class="alert-calm-list">
       ${linha(somOn, somOn ? 'volume-2' : 'volume-x', somOn ? 'Este posto vai tocar' : 'Som desligado neste posto',
         somOn ? `${alertSomDescricao()}.` : 'Ligue o som para nao perder alerta.',
-        '<button type="button" class="link-action" data-calm="som">Testar</button>')}
+        '<button type="button" class="alert-calm-btn" data-calm="som">Testar</button>')}
       ${linha(aviso === 'ativo', 'bell-ring', `Notificacao do computador: ${aviso}`,
         aviso === 'ativo' ? 'Balao aparece mesmo com o SightOps minimizado.' : 'Ative para ser avisado com o navegador em outra aba.',
-        aviso === 'ativo' ? '' : '<button type="button" class="link-action" data-calm="aviso">Ativar</button>')}
+        aviso === 'ativo' ? '' : '<button type="button" class="alert-calm-btn" data-calm="aviso">Ativar</button>')}
       ${pr ? linha(pend === 0, 'smartphone', `${pr.prontas} de ${pr.total} pessoas prontas`,
         pend ? `${pend} com pendencia (app, senha, GPS ou sem sinal).` : 'Todos os celulares conseguem pedir ajuda.',
-        '<button type="button" class="link-action" data-calm="pessoas">Ver</button>') : ''}
+        '<button type="button" class="alert-calm-btn" data-calm="pessoas">Ver</button>') : ''}
       ${linha(true, 'history', hoje.length ? `${hoje.length} alerta${hoje.length > 1 ? 's' : ''} hoje` : 'Nenhum alerta hoje',
         ult ? `Ultimo: ${esc(alertClock(ult.opened_at).slice(0, 5))} · ${esc(ult.member?.full_name || '')} · ${esc((ALERT_STATUS[ult.status] || {}).label || ult.status)}` : 'O historico completo fica em Historico.',
-        hoje.length ? '<button type="button" class="link-action" data-calm="historico">Historico</button>' : '')}
+        hoje.length ? '<button type="button" class="alert-calm-btn" data-calm="historico">Historico</button>' : '')}
     </div>
     <div class="alert-calm-foot">Quando alguem apertar o botao, este painel vira o atendimento.</div>`;
   if (window.lucide) lucide.createIcons();
@@ -1676,7 +1704,7 @@ async function alertLoadMembers() {
     _alertMembers = data.members || [];
     _alertMeusSites = Array.isArray(data.meus_sites) ? data.meus_sites : null;
   } catch (err) {
-    body.innerHTML = `<tr class="empty-row"><td colspan="8">${esc(err.message || 'Falha ao carregar.')}</td></tr>`;
+    body.innerHTML = `<div class="alert-live-empty">${esc(err.message || 'Falha ao carregar.')}</div>`;
     return;
   }
   alertRenderScope('alertScopeMembers', _alertMeusSites);
@@ -1690,24 +1718,27 @@ async function alertLoadMembers() {
   const foot = document.getElementById('alertPplFoot');
   if (foot) foot.textContent = doSite.length ? `Mostrando ${visiveis.length} de ${doSite.length} · pendencias primeiro` : '';
   if (!visiveis.length) {
-    body.innerHTML = `<tr class="empty-row"><td colspan="7">${_alertSoPendencia ? 'Ninguem com pendencia. Tudo pronto.' : (q || _alertMemberSite ? 'Ninguem encontrado.' : 'Nenhuma pessoa cadastrada. Clique em "Nova pessoa".')}</td></tr>`;
+    body.innerHTML = `<div class="alert-live-empty">${_alertSoPendencia ? 'Ninguem com pendencia. Tudo pronto.' : (q || _alertMemberSite ? 'Ninguem encontrado.' : 'Nenhuma pessoa cadastrada. Clique em "Nova pessoa".')}</div>`;
     return;
   }
   body.innerHTML = visiveis.map(alertMemberRow).join('');
   if (window.lucide) lucide.createIcons();
 }
 
-// Uma linha de Pessoas: cada coluna e um item da prontidao, e o botao principal
-// e o que resolve a pendencia daquela pessoa.
+// Um card de Pessoas: os tres itens da prontidao, o que falta, e o botao
+// principal e o que resolve a pendencia daquela pessoa.
 function alertMemberRow(m) {
   const dev = m.device || {};
   const cod = new Set((m.prontidao?.pendencias || []).map((p) => p.codigo));
-  const tick = (ok, txt, titulo, cls = '') => `<span class="alert-tick ${ok ? 'ok' : cls}" title="${esc(titulo)}">${ok ? '<i data-lucide="check"></i>' : esc(txt)}</span>`;
-  const app = m.app_devices ? tick(true, '', `${m.app_devices} aparelho(s) ativo(s)`)
-    : tick(false, '–', m.activation_pending ? 'Codigo gerado, ainda nao ativou' : 'Nunca ativou o app', m.activation_pending ? 'warn' : 'off');
-  const senhas = m.pins_configured ? tick(true, '', 'Senha normal e de coacao criadas')
-    : tick(false, m.app_devices ? '!' : '–', m.app_devices ? 'Ativou, mas nao criou as senhas' : 'Cria as senhas ao ativar', m.app_devices ? 'info' : 'off');
-  const cams = m.unit_connector_id ? tick(true, '', `Local monitorado: ${alertConnectorName(m.unit_connector_id)}`) : tick(false, '0', 'Lotacao sem local monitorado (cameras)', 'warn');
+  // estado: ok | warn (ambar) | bad (vermelho) | off (cinza, ainda nao se aplica)
+  const tick = (estado, rotulo, titulo) => `<span class="alert-chk is-${estado}" title="${esc(titulo)}">${
+    { ok: '✓', warn: '!', bad: '✕', off: '–' }[estado]} ${esc(rotulo)}</span>`;
+  const app = m.app_devices ? tick('ok', 'App', `${m.app_devices} aparelho(s) ativo(s)`)
+    : tick(m.activation_pending ? 'warn' : 'bad', 'App', m.activation_pending ? 'Codigo gerado, ainda nao ativou' : 'Nunca ativou o app');
+  const senhas = m.pins_configured ? tick('ok', 'Senhas', 'Senha normal e de coacao criadas')
+    : tick(m.app_devices ? 'bad' : 'off', 'Senhas', m.app_devices ? 'Ativou, mas nao criou as senhas' : 'Cria as senhas ao ativar');
+  const cams = m.unit_connector_id ? tick('ok', 'Cameras', `Local monitorado: ${alertConnectorName(m.unit_connector_id)}`)
+    : tick('warn', 'Cameras', 'Lotacao sem local monitorado (cameras)');
   let sinal = '<span class="alert-sinal off">nunca</span>';
   if (dev.last_seen_at) {
     const ago = alertAgo(dev.last_seen_at);
@@ -1730,22 +1761,33 @@ function alertMemberRow(m) {
   else if (cod.has('gps_bloqueado') || cod.has('sem_sinal')) principal = `<button class="secondary-action" data-member-act="teste" data-id="${esc(m.id)}" type="button"><i data-lucide="message-circle"></i> Pedir teste</button>`;
   else if (cod.has('sem_cameras')) principal = `<button class="secondary-action" data-member-act="edit" data-id="${esc(m.id)}" type="button"><i data-lucide="cctv"></i> Ligar cameras</button>`;
   else principal = `<button class="secondary-action" data-member-act="code" data-id="${esc(m.id)}" type="button"><i data-lucide="key-round"></i> Codigo</button>`;
-  const meta = [m.role_title, alertCpf(m.document_id), alertPhone(m.phone)].filter(Boolean).join(' · ');
+  const pronta = alertPronta(m);
+  const pend = m.prontidao?.pendencias || [];
+  const falta = !m.active ? 'Cadastro inativo' : (pronta ? 'Pronta' : (pend[0]?.texto || 'Com pendencia'));
+  const tom = !m.active ? 'off' : (pronta ? 'ok' : (pend.some((p) => p.bloqueia) ? 'bad' : 'warn'));
+  const quem = [m.role_title, m.unit_name].filter(Boolean).join(' · ');
+  const meta = [alertCpf(m.document_id), alertPhone(m.phone)].filter(Boolean).join(' · ');
   return `
-      <tr class="${alertPronta(m) ? '' : 'alert-row-pendente'}${m.id === _alertAtivId ? ' is-sel' : ''}">
-        <td><strong>${esc(m.full_name)}</strong><small class="alert-ppl-meta">${esc(meta || '-')}</small></td>
-        <td title="${esc(alertConnectorName(m.unit_connector_id))}">${m.site ? `<div class="alert-member-site">${esc(m.site)}</div>` : '<div class="alert-member-site is-vazio">sem site</div>'}${esc(m.unit_name || '-')}</td>
-        <td class="c">${app}</td>
-        <td class="c">${senhas}</td>
-        <td class="c">${cams}</td>
-        <td>${sinal}${det.length ? `<small class="alert-ppl-meta">${det.join(' · ')}</small>` : ''}</td>
-        <td><div class="alert-row-actions">
-          ${principal}
-          <button class="icon-button" data-member-act="edit" data-id="${esc(m.id)}" type="button" title="Editar"><i data-lucide="pencil"></i></button>
-          <button class="icon-button" data-member-act="revoke" data-id="${esc(m.id)}" type="button" title="Desconectar aparelhos" ${m.app_devices ? '' : 'disabled'}><i data-lucide="unplug"></i></button>
-          <button class="icon-button" data-member-act="delete" data-id="${esc(m.id)}" type="button" title="Excluir"><i data-lucide="trash-2"></i></button>
-        </div></td>
-      </tr>`;
+      <article class="alert-pcard is-${tom}${m.id === _alertAtivId ? ' is-sel' : ''}">
+        <div class="alert-pcard-top">
+          <span class="alert-pcard-foto">${esc(alertIniciais(m.full_name))}<i></i></span>
+          <div class="alert-pcard-quem">
+            <b>${esc(m.full_name)}</b>
+            <small>${esc(quem || 'sem lotacao')}</small>
+            <span class="alert-pcard-site${m.site ? '' : ' is-vazio'}" title="${esc(alertConnectorName(m.unit_connector_id))}">${esc(m.site || 'sem site')}</span>
+          </div>
+          <div class="alert-pcard-icones">
+            <button class="icon-button" data-member-act="edit" data-id="${esc(m.id)}" type="button" title="Editar" aria-label="Editar"><i data-lucide="pencil"></i></button>
+            <button class="icon-button" data-member-act="revoke" data-id="${esc(m.id)}" type="button" title="Desconectar aparelhos" aria-label="Desconectar aparelhos" ${m.app_devices ? '' : 'disabled'}><i data-lucide="unplug"></i></button>
+            <button class="icon-button" data-member-act="delete" data-id="${esc(m.id)}" type="button" title="Excluir" aria-label="Excluir"><i data-lucide="trash-2"></i></button>
+          </div>
+        </div>
+        <div class="alert-pcard-chips">${app}${senhas}${cams}</div>
+        <div class="alert-pcard-pe">
+          <div class="alert-pcard-falta"><b>${esc(falta)}</b><small>${sinal}${det.length ? ` · ${det.join(' · ')}` : ''}</small>${meta ? `<small>${esc(meta)}</small>` : ''}</div>
+          <div class="alert-row-actions">${principal}</div>
+        </div>
+      </article>`;
 }
 
 function alertPlataforma(p) {
