@@ -1950,6 +1950,7 @@ function alertMemberRow(m) {
           </div>
           <div class="alert-pcard-icones">
             <button class="icon-button" data-member-act="edit" data-id="${esc(m.id)}" type="button" title="Editar" aria-label="Editar"><i data-lucide="pencil"></i></button>
+            ${m.active ? `<button class="icon-button" data-member-act="code" data-id="${esc(m.id)}" type="button" title="Codigo / QR de ativacao do app" aria-label="Codigo de ativacao"><i data-lucide="qr-code"></i></button>` : ''}
             <button class="icon-button" data-member-act="revoke" data-id="${esc(m.id)}" type="button" title="Desconectar aparelhos" aria-label="Desconectar aparelhos" ${m.app_devices ? '' : 'disabled'}><i data-lucide="unplug"></i></button>
             <button class="icon-button" data-member-act="delete" data-id="${esc(m.id)}" type="button" title="Excluir" aria-label="Excluir"><i data-lucide="trash-2"></i></button>
           </div>
