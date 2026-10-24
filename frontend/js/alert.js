@@ -1482,7 +1482,8 @@ async function alertLoadNearby() {
     await alertLoadConnectors();
     const [unit, near] = await Promise.all([
       cid ? alertApiJson(`/api/alert/unit-cameras?connector_id=${encodeURIComponent(cid)}${qs ? `&${qs}` : ''}`) : Promise.resolve({ cameras: [] }),
-      p ? alertApiJson(`/api/alert/nearby-cameras?${qs}&limit=6`) : Promise.resolve({ cameras: [] }),
+      // Raio escolhido no cadastro da pessoa (0 = padrao do servidor, 20 m).
+      p ? alertApiJson(`/api/alert/nearby-cameras?${qs}&limit=6${_alertDetail.member?.camera_radius_m ? `&radius_m=${_alertDetail.member.camera_radius_m}` : ''}`) : Promise.resolve({ cameras: [] }),
     ]);
     const unitCams = unit.cameras || [];
     const seen = new Set(unitCams.map((c) => `${c.remote_connector_id}|${c.ip}`));
@@ -1661,6 +1662,14 @@ async function loadAlertMembers() {
     document.getElementById('btnAlertMemberNew')?.addEventListener('click', () => alertOpenMember(null));
     document.getElementById('btnAlertMemberSave')?.addEventListener('click', alertSaveMember);
     document.getElementById('alertMemberCpf')?.addEventListener('input', alertConferirCpf);
+    ['alertMemberName', 'alertMemberRole', 'alertMemberUnit', 'alertMemberRaio'].forEach((id) =>
+      document.getElementById(id)?.addEventListener('input', alertFichaPrevia));
+    document.getElementById('alertMemberRaioAtalhos')?.addEventListener('click', (ev) => {
+      const b = ev.target.closest('[data-raio]');
+      if (!b) return;
+      document.getElementById('alertMemberRaio').value = b.dataset.raio === '20' ? '' : b.dataset.raio;
+      alertFichaPrevia();
+    });
     document.getElementById('alertMemberCpfDup')?.addEventListener('click', (ev) => {
       if (ev.target.closest('[data-cpf-abrir]') && _alertCpfDono) alertOpenMember(_alertCpfDono);
     });
@@ -2011,6 +2020,8 @@ function alertOpenMember(m) {
   v('alertMemberLat', m?.unit_lat);
   v('alertMemberLon', m?.unit_lon);
   v('alertMemberNotes', m?.notes);
+  v('alertMemberRaio', m?.camera_radius_m || '');
+  alertFichaPrevia();
   document.getElementById('alertMemberActive').checked = m ? !!m.active : true;
   _alertCpfDono = null;
   const dup = document.getElementById('alertMemberCpfDup');
@@ -2021,6 +2032,17 @@ function alertOpenMember(m) {
   if (bc) bc.hidden = !_alertEditPonto || m?.unit_lat != null;
   document.getElementById('modalAlertMember').classList.remove('hidden');
   setTimeout(() => document.getElementById('alertMemberName')?.focus(), 50);
+}
+
+// Previa do cadastro: o cartao como a central ve no alerta, enquanto digita.
+function alertFichaPrevia() {
+  const val = (id) => (document.getElementById(id)?.value || '').trim();
+  const nome = val('alertMemberName');
+  setText('alertMemberPrevIni', nome ? alertIniciais(nome) : '?');
+  setText('alertMemberPrevNome', nome || 'Nome da pessoa');
+  setText('alertMemberPrevCargo', [val('alertMemberRole'), val('alertMemberUnit')].filter(Boolean).join(' · ') || 'Cargo · lotacao');
+  const raio = val('alertMemberRaio');
+  document.querySelectorAll('#alertMemberRaioAtalhos [data-raio]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.raio === (raio || '20'))));
 }
 
 // CPF ja cadastrado: avisa ao digitar, antes do Salvar (o backend recusa de
@@ -2064,6 +2086,7 @@ async function alertSaveMember() {
     unit_lon: g('alertMemberLon') || null,
     notes: g('alertMemberNotes'),
     active: document.getElementById('alertMemberActive').checked,
+    camera_radius_m: g('alertMemberRaio') || null,
   };
   try {
     await alertApiJson('/api/alert/members', { method: 'POST', body: JSON.stringify(payload) });

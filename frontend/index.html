@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=1792803302">
+  <link rel="stylesheet" href="styles.css?v=1792803402">
   <link rel="stylesheet" href="acesso/acesso.css?v=1792600213">
 </head>
 <body>
@@ -1682,40 +1682,69 @@
         </div>
 
         <div id="modalAlertMember" class="modal-backdrop hidden">
-          <div class="modal alert-member-modal">
+          <div class="modal alert-member-modal" role="dialog" aria-labelledby="alertMemberModalTitle">
             <div class="modal-header">
-              <div><h2 id="alertMemberModalTitle">Nova pessoa</h2><p>Os dados aparecem para a central quando a pessoa pedir ajuda.</p></div>
+              <div><p class="alert-ficha-eyebrow">Pessoas e aparelhos</p><h2 id="alertMemberModalTitle">Nova pessoa</h2></div>
               <button class="icon-button" data-alert-close="modalAlertMember" type="button" aria-label="Fechar"><i data-lucide="x"></i></button>
             </div>
-            <div class="modal-body">
+            <div class="modal-body alert-ficha">
               <input type="hidden" id="alertMemberId">
-              <div class="form-row">
-                <div class="form-group"><label for="alertMemberName">Nome completo</label><input id="alertMemberName" maxlength="160"></div>
-                <div class="form-group"><label for="alertMemberCpf">CPF</label><input id="alertMemberCpf" inputmode="numeric" maxlength="14" placeholder="000.000.000-00"></div>
+              <aside class="alert-ficha-lado">
+                <span class="alert-ficha-rot">No alerta, a central ve assim</span>
+                <div class="alert-ficha-previa">
+                  <span class="alert-ficha-ava" id="alertMemberPrevIni">?</span>
+                  <div><b id="alertMemberPrevNome">Nome da pessoa</b><small id="alertMemberPrevCargo">Cargo · lotacao</small></div>
+                  <b class="alert-ficha-tempo">00:12</b>
+                </div>
+                <p class="alert-ficha-ajuda">Telefone, CPF e as observacoes aparecem no painel de atendimento. As cameras do local monitorado e as que estiverem dentro do raio abrem de cara.</p>
+              </aside>
+              <div class="alert-ficha-form">
+                <fieldset class="alert-ficha-bloco">
+                  <legend><span>1</span>Quem e</legend>
+                  <div class="form-row">
+                    <div class="form-group"><label for="alertMemberName">Nome completo</label><input id="alertMemberName" maxlength="160" placeholder="Ex.: Joana Ribeiro"></div>
+                    <div class="form-group"><label for="alertMemberCpf">CPF</label><input id="alertMemberCpf" inputmode="numeric" maxlength="14" placeholder="000.000.000-00"></div>
+                  </div>
+                  <div class="alert-cpf-dup" id="alertMemberCpfDup" role="alert" hidden></div>
+                  <div class="form-row">
+                    <div class="form-group"><label for="alertMemberRole">Cargo</label><input id="alertMemberRole" maxlength="120" placeholder="Professora, merendeira, vigia..."></div>
+                    <div class="form-group"><label for="alertMemberPhone">Telefone (WhatsApp)</label><input id="alertMemberPhone" maxlength="20" inputmode="tel" placeholder="(82) 99999-0000"></div>
+                  </div>
+                </fieldset>
+                <fieldset class="alert-ficha-bloco">
+                  <legend><span>2</span>Onde trabalha</legend>
+                  <div class="form-row">
+                    <div class="form-group"><label for="alertMemberUnit">Lotacao (escola ou predio)</label><input id="alertMemberUnit" maxlength="160" placeholder="Ex.: E. M. Santa Luzia · Bloco A"></div>
+                    <div class="form-group"><label for="alertMemberConnector">Local monitorado (cameras)</label>
+                      <select id="alertMemberConnector"><option value="">Nenhum</option></select></div>
+                  </div>
+                  <div class="alert-ficha-coord">
+                    <div class="form-group"><label for="alertMemberLat">Latitude</label><input id="alertMemberLat" placeholder="-10.18" inputmode="decimal"></div>
+                    <div class="form-group"><label for="alertMemberLon">Longitude</label><input id="alertMemberLon" placeholder="-36.82" inputmode="decimal"></div>
+                    <button class="secondary-action" id="btnAlertCoordCams" type="button" hidden><i data-lucide="crosshair"></i> Usar a posicao das cameras</button>
+                  </div>
+                  <p class="inline-help">Usada quando o GPS do celular falha, comum dentro de predio. Da para colar "-10.18, -36.82" do Google Maps na latitude.</p>
+                  <div class="alert-ficha-raio">
+                    <div class="form-group"><label for="alertMemberRaio">Raio das cameras no alerta</label>
+                      <div class="alert-ficha-metros"><input id="alertMemberRaio" type="number" inputmode="numeric" min="5" max="500" step="5" placeholder="20"><span>metros</span></div></div>
+                    <div class="alert-ficha-raio-atalhos" id="alertMemberRaioAtalhos">
+                      <button type="button" data-raio="20">20 m</button><button type="button" data-raio="50">50 m</button><button type="button" data-raio="100">100 m</button><button type="button" data-raio="200">200 m</button>
+                    </div>
+                  </div>
+                  <p class="inline-help">Cameras ate essa distancia do ponto do alerta aparecem em "No local do alerta". Vazio = 20 m. Se o GPS do celular estiver pior que o raio, ele aumenta sozinho.</p>
+                </fieldset>
+                <fieldset class="alert-ficha-bloco">
+                  <legend><span>3</span>Para quem atende</legend>
+                  <div class="form-group"><label for="alertMemberNotes">Observacoes</label><textarea id="alertMemberNotes" rows="2" maxlength="1000" placeholder="Ex.: usa cadeira de rodas · sala 12, no 2o andar"></textarea></div>
+                </fieldset>
               </div>
-              <div class="alert-cpf-dup" id="alertMemberCpfDup" role="alert" hidden></div>
-              <div class="form-row">
-                <div class="form-group"><label for="alertMemberRole">Cargo</label><input id="alertMemberRole" maxlength="120" placeholder="Professora, merendeira, vigia..."></div>
-                <div class="form-group"><label for="alertMemberPhone">Telefone</label><input id="alertMemberPhone" maxlength="20" placeholder="(82) 99999-0000"></div>
-              </div>
-              <div class="form-row">
-                <div class="form-group"><label for="alertMemberUnit">Lotacao (escola / predio)</label><input id="alertMemberUnit" maxlength="160"></div>
-                <div class="form-group"><label for="alertMemberConnector">Local monitorado (cameras)</label>
-                  <select id="alertMemberConnector"><option value="">Nenhum</option></select></div>
-              </div>
-              <p class="inline-help">No alerta, a central ve todas as cameras do local monitorado, mesmo sem GPS e mesmo que as cameras nao tenham coordenada.</p>
-              <div class="form-row">
-                <div class="form-group"><label for="alertMemberLat">Latitude da lotacao</label><input id="alertMemberLat" placeholder="-10.18" inputmode="decimal"></div>
-                <div class="form-group"><label for="alertMemberLon">Longitude da lotacao</label><input id="alertMemberLon" placeholder="-36.82" inputmode="decimal"></div>
-              </div>
-              <div class="alert-coord-help"><p class="inline-help">A coordenada da lotacao e usada quando o GPS do celular falha (comum dentro de predio). Dica: cole "-10.18, -36.82" do Google Maps no campo de latitude.</p>
-                <button class="secondary-action" id="btnAlertCoordCams" type="button" hidden><i data-lucide="crosshair"></i> Usar a posicao das cameras do local</button></div>
-              <div class="form-group"><label for="alertMemberNotes">Observacoes para a central</label><textarea id="alertMemberNotes" rows="2" maxlength="1000"></textarea></div>
-              <label class="alert-check"><input type="checkbox" id="alertMemberActive" checked> Cadastro ativo (desativar bloqueia o app na hora)</label>
             </div>
-            <div class="modal-actions">
-              <button class="secondary-action" data-alert-close="modalAlertMember" type="button"><i data-lucide="x"></i> Cancelar</button>
-              <button class="primary-action" id="btnAlertMemberSave" type="button"><i data-lucide="save"></i> Salvar</button>
+            <div class="modal-actions alert-ficha-pe">
+              <label class="alert-check"><input type="checkbox" id="alertMemberActive" checked> Cadastro ativo <span>· desativar bloqueia o app na hora</span></label>
+              <div class="alert-ficha-botoes">
+                <button class="secondary-action" data-alert-close="modalAlertMember" type="button"><i data-lucide="x"></i> Cancelar</button>
+                <button class="primary-action" id="btnAlertMemberSave" type="button"><i data-lucide="save"></i> Salvar</button>
+              </div>
             </div>
           </div>
         </div>
@@ -7794,7 +7823,7 @@
   <script src="acesso/acesso.js?v=1792600205"></script>
   <script src="js/messenger.js?v=1791000212"></script>
   <script src="https://unpkg.com/qrcode-generator@1.4.4/qrcode.js"></script>
-  <script src="js/alert.js?v=1792803301"></script>
+  <script src="js/alert.js?v=1792803401"></script>
   <script src="js/controleRotas.js?v=1792600341"></script>
   <script src="js/tr069.js?v=1791000212"></script>
   <script src="js/bootstrap.js?v=1792600207"></script>

@@ -150,8 +150,26 @@ def haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
 
 _MEMBER_PUBLIC_COLS = (
     "id, tenant_slug, full_name, document_id, role_title, unit_name, unit_lat, unit_lon, unit_connector_id, "
-    "phone, notes, active, pin_hash, activation_code_hash, activation_expires_at, created_at, updated_at"
+    "phone, notes, active, camera_radius_m, pin_hash, activation_code_hash, activation_expires_at, created_at, updated_at"
 )
+
+# Raio das cameras por pessoa: 0 = padrao (NEARBY_RADIUS_M). Fora disso, de 5 a 500 m.
+CAMERA_RADIUS_MIN_M = 5
+CAMERA_RADIUS_MAX_M = 500
+
+
+def _camera_radius(value: Any) -> int:
+    if value in (None, ""):
+        return 0
+    try:
+        n = int(round(float(str(value).replace(",", "."))))
+    except (TypeError, ValueError):
+        raise ValueError("Raio das cameras: informe um numero de metros.")
+    if n <= 0:
+        return 0
+    if n < CAMERA_RADIUS_MIN_M or n > CAMERA_RADIUS_MAX_M:
+        raise ValueError(f"Raio das cameras: entre {CAMERA_RADIUS_MIN_M} e {CAMERA_RADIUS_MAX_M} m (ou vazio para o padrao).")
+    return n
 
 
 def _member_public(row: Dict[str, Any], active_sessions: int = 0) -> Dict[str, Any]:
@@ -168,6 +186,7 @@ def _member_public(row: Dict[str, Any], active_sessions: int = 0) -> Dict[str, A
         "phone": row.get("phone") or "",
         "notes": row.get("notes") or "",
         "active": bool(int(row.get("active") or 0)),
+        "camera_radius_m": int(row.get("camera_radius_m") or 0),
         "pins_configured": bool(row.get("pin_hash")),
         "activation_pending": pending_code,
         "activation_expires_at": row.get("activation_expires_at") if pending_code else "",
@@ -444,6 +463,7 @@ def save_member(payload: Dict[str, Any]) -> Dict[str, Any]:
         "phone": _phone(payload.get("phone")),
         "notes": _text(payload.get("notes"), 1000),
         "active": 0 if payload.get("active") is False else 1,
+        "camera_radius_m": _camera_radius(payload.get("camera_radius_m")),
     }
     liberados = _sites_liberados()
     if liberados is not None and not _membro_liberado(values, liberados):
@@ -469,7 +489,7 @@ def save_member(payload: Dict[str, Any]) -> Dict[str, Any]:
             _exigir_membro_liberado(c, tenant, member_id)
             c.execute(
                 "UPDATE alert_members SET full_name=?, document_id=?, role_title=?, unit_name=?, unit_lat=?, unit_lon=?, unit_connector_id=?, "
-                "phone=?, notes=?, active=?, updated_at=? WHERE tenant_slug=? AND id=?",
+                "phone=?, notes=?, active=?, camera_radius_m=?, updated_at=? WHERE tenant_slug=? AND id=?",
                 (*values.values(), now, tenant, member_id),
             )
             if not values["active"]:
@@ -482,7 +502,7 @@ def save_member(payload: Dict[str, Any]) -> Dict[str, Any]:
             member_id = uuid.uuid4().hex
             c.execute(
                 "INSERT INTO alert_members(id, tenant_slug, full_name, document_id, role_title, unit_name, unit_lat, unit_lon, "
-                "unit_connector_id, phone, notes, active, created_at, updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                "unit_connector_id, phone, notes, active, camera_radius_m, created_at, updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (member_id, tenant, *values.values(), now, now),
             )
         row = _row(c, f"SELECT {_MEMBER_PUBLIC_COLS} FROM alert_members WHERE tenant_slug = ? AND id = ?", (tenant, member_id))
@@ -788,6 +808,8 @@ def _incident_view(inc: Dict[str, Any], member: Optional[Dict[str, Any]]) -> Dic
             "unit_lon": m.get("unit_lon"),
             "unit_connector_id": m.get("unit_connector_id") or "",
             "phone": m.get("phone") or "",
+            "notes": m.get("notes") or "",
+            "camera_radius_m": int(m.get("camera_radius_m") or 0),
         },
     }
 
@@ -798,7 +820,7 @@ def _members_by_id(c: Any, tenant: str, ids: List[str]) -> Dict[str, Dict[str, A
         return {}
     rows = _rows(
         c,
-        f"SELECT id, full_name, document_id, role_title, unit_name, unit_lat, unit_lon, unit_connector_id, phone FROM alert_members "
+        f"SELECT id, full_name, document_id, role_title, unit_name, unit_lat, unit_lon, unit_connector_id, phone, notes, camera_radius_m FROM alert_members "
         f"WHERE tenant_slug=? AND id IN ({','.join('?' * len(ids))})",
         (tenant, *ids),
     )

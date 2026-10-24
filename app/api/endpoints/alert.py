@@ -94,6 +94,7 @@ class AlertMemberRequest(BaseModel):
     phone: str = ""
     notes: str = ""
     active: bool = True
+    camera_radius_m: Optional[Any] = None  # vazio/0 = padrao (20 m)
 
 
 class AlertTransitionRequest(BaseModel):
