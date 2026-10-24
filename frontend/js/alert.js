@@ -592,6 +592,9 @@ function alertInitMap() {
   _alertMarkers = L.layerGroup().addTo(_alertMap);
   _alertTrail = L.layerGroup().addTo(_alertMap);
   _alertUnits = L.layerGroup().addTo(_alertMap);
+  // O mapa estica com a coluna: muda de altura quando a faixa ou as cameras
+  // aparecem, sem a janela mudar. Sem isso o Leaflet deixa faixa cinza.
+  if (window.ResizeObserver) new ResizeObserver(() => _alertMap?.invalidateSize()).observe(document.getElementById('alertLiveMap'));
 }
 
 function alertBind() {
@@ -1373,7 +1376,7 @@ async function alertRenderCalm() {
   panel.innerHTML = `
     <div class="alert-calm-head">
       <span class="alert-calm-badge"><i data-lucide="shield-check"></i></span>
-      <div><strong>Tudo calmo</strong><small>Nenhum pedido de ajuda aberto${_alertMeusSites ? ` nos seus ${_alertMeusSites.length === 1 ? 'site' : `${_alertMeusSites.length} sites`}` : ''}. Quando alguem apertar o botao, este painel vira o atendimento.</small></div>
+      <div><strong>Tudo calmo</strong><small>Nenhum pedido de ajuda aberto${_alertMeusSites ? ` nos seus ${_alertMeusSites.length === 1 ? 'site' : `${_alertMeusSites.length} sites`}` : ''}.</small></div>
     </div>
     <div class="alert-calm-list">
       ${linha(somOn, somOn ? 'volume-2' : 'volume-x', somOn ? 'Este posto vai tocar' : 'Som desligado neste posto',
@@ -1388,7 +1391,8 @@ async function alertRenderCalm() {
       ${linha(true, 'history', hoje.length ? `${hoje.length} alerta${hoje.length > 1 ? 's' : ''} hoje` : 'Nenhum alerta hoje',
         ult ? `Ultimo: ${esc(alertClock(ult.opened_at).slice(0, 5))} · ${esc(ult.member?.full_name || '')} · ${esc((ALERT_STATUS[ult.status] || {}).label || ult.status)}` : 'O historico completo fica em Historico.',
         hoje.length ? '<button type="button" class="link-action" data-calm="historico">Historico</button>' : '')}
-    </div>`;
+    </div>
+    <div class="alert-calm-foot">Quando alguem apertar o botao, este painel vira o atendimento.</div>`;
   if (window.lucide) lucide.createIcons();
 }
 

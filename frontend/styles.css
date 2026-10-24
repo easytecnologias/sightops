@@ -10248,6 +10248,28 @@ button.alert-chip { cursor: pointer; }
 #viewAlertLive:fullscreen { background: var(--bg); padding: 18px 22px; overflow-y: auto; }
 #viewAlertLive:fullscreen .alert-live-map { height: calc(100vh - 380px); min-height: 360px; }
 
+/* Tela larga: as 3 colunas com a MESMA altura, ocupando a tela ate embaixo.
+   Fila e atendimento rolam por dentro; o mapa estica no que sobra do centro. */
+@media (min-width: 1281px) {
+  #viewAlertLive { display: flex; flex-direction: column; height: calc(100vh - 68px); min-height: 720px; box-sizing: border-box; }
+  #viewAlertLive:fullscreen { height: 100vh; }
+  #viewAlertLive > .page-heading, #viewAlertLive > .alert-banner { flex: 0 0 auto; }
+  #viewAlertLive .alert-live-grid { flex: 1 1 auto; min-height: 0; grid-template-rows: minmax(0, 1fr); align-items: stretch; }
+  #viewAlertLive .alert-live-list-panel,
+  #viewAlertLive .alert-live-detail-panel { position: static; max-height: none; min-height: 0; }
+  #viewAlertLive .alert-live-list { flex: 1 1 auto; }
+  #viewAlertLive .alert-live-center { min-height: 0; }
+  #viewAlertLive .alert-live-map-panel { flex: 1 1 auto; min-height: 280px; }
+  /* .panel traz margin-bottom: 20px; dentro da grade isso desalinhava o pe das colunas */
+  #viewAlertLive .alert-live-grid > .panel,
+  #viewAlertLive .alert-live-center > .panel { margin-bottom: 0; }
+  #viewAlertLive .alert-live-map,
+  #viewAlertLive:fullscreen .alert-live-map { height: 100%; min-height: 0; }
+  #viewAlertLive .alert-live-cams { flex: 0 1 auto; max-height: 45%; overflow-y: auto; }
+  #viewAlertLive .alert-live-detail-panel.is-calm { display: flex; flex-direction: column; }
+}
+.alert-calm-foot { margin-top: auto; padding: 14px 18px; border-top: 1px solid var(--border); font-size: 12px; color: var(--muted); line-height: 1.5; }
+
 /* ===== Pessoas e aparelhos ===== */
 .alert-ppl-top { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin-bottom: 16px; align-items: stretch; }
 .alert-ppl-kpi { display: flex; flex-direction: column; gap: 6px; min-height: 132px; padding: 16px 18px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); box-sizing: border-box; }
