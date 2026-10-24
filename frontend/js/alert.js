@@ -662,6 +662,13 @@ function alertBind() {
   document.getElementById('alertChips')?.addEventListener('click', (ev) => {
     if (ev.target.closest('[data-chip="som"]')) alertOpenSoundModal();
   });
+  document.getElementById('alertMapLegend')?.addEventListener('click', (ev) => {
+    const b = ev.target.closest('[data-lg-site]');
+    if (!b) return;
+    const site = b.dataset.lgSite;
+    if (_alertSitesOcultos.has(site)) _alertSitesOcultos.delete(site); else _alertSitesOcultos.add(site);
+    if (!_alertDetail) alertDesenharLotacoes();
+  });
   document.getElementById('alertMapTools')?.addEventListener('click', (ev) => {
     if (ev.target.closest('[data-map="seguir"]')) { _alertSeguir = !_alertSeguir; alertRenderMapaInfo(); if (_alertSeguir) alertCentralizar(); }
   });
@@ -891,6 +898,15 @@ function alertRenderMapaInfo() {
 
 let _alertLotKey = '';
 let _alertMapCams = { at: 0, lista: null };
+let _alertSitesOcultos = new Set();  // sites escondidos pela legenda do mapa
+// Cores separaveis entre si (e do vermelho do alerta); a mesma cor para o mesmo
+// site enquanto a lista de sites nao muda (ordem alfabetica).
+const ALERT_SITE_CORES = ['#1971c2', '#e8590c', '#2f9e44', '#9c36b5', '#0b7285', '#f08c00', '#364fc7', '#5c940d', '#d6336c', '#495057'];
+function alertCorDoSite(site) {
+  const sites = [...new Set((_alertMapCams.lista || []).map((c) => c.site || 'Sem site'))].sort((a, b) => a.localeCompare(b, 'pt-BR'));
+  const i = sites.indexOf(site);
+  return ALERT_SITE_CORES[(i < 0 ? 0 : i) % ALERT_SITE_CORES.length];
+}
 // Cameras com coordenada dos sites do usuario: 1 busca por minuto (o backend tambem guarda 60 s).
 async function alertCamsDoMapa() {
   if (!_alertMapCams.lista || Date.now() - _alertMapCams.at > 60000) {
@@ -914,7 +930,7 @@ async function alertDesenharCamsDoAlerta(raio) {
   const render = L.canvas ? L.canvas({ padding: 0.3 }) : undefined;
   cams.forEach((c) => {
     const dentro = p && raio ? alertDistM([p.lat, p.lon], [c.lat, c.lon]) <= raio : false;
-    L.circleMarker([c.lat, c.lon], { renderer: render, radius: dentro ? 6 : 4, weight: dentro ? 2 : 1, color: '#ffffff', fillColor: '#1971c2', fillOpacity: dentro ? 1 : 0.75 })
+    L.circleMarker([c.lat, c.lon], { renderer: render, radius: dentro ? 6 : 4, weight: dentro ? 2 : 1, color: '#ffffff', fillColor: alertCorDoSite(c.site || 'Sem site'), fillOpacity: dentro ? 1 : 0.75 })
       .bindTooltip(`${esc(c.titulo || '')}${c.site ? `<br><small>${esc(c.site)}</small>` : ''}`).addTo(_alertCamsAlerta);
   });
   if (p && raio) {
@@ -945,27 +961,36 @@ async function alertDesenharLotacoes() {
     const partes = [];
     if (locais.size) partes.push(`<span class="alert-map-chip"><span class="alert-chip-dot"></span>${locais.size} ${locais.size === 1 ? 'local monitorado' : 'locais monitorados'} · ${ativos} ${ativos === 1 ? 'pessoa' : 'pessoas'}</span>`);
     if (cams.length) partes.push(`<span class="alert-map-chip">${cams.length} cameras no mapa</span>`);
-    if (!locais.size) partes.push(ativos ? '<span class="alert-map-chip is-warn">Sem coordenada da lotacao nem cameras com coordenada no local</span>' : '<span class="alert-map-chip is-warn">Nenhuma pessoa cadastrada no Alerta</span>');
+    if (!locais.size) partes.push(ativos ? '<span class="alert-map-chip is-warn">Pessoas sem local monitorado nem coordenada da lotacao: confira o cadastro</span>' : '<span class="alert-map-chip is-warn">Nenhuma pessoa cadastrada no Alerta</span>');
     chips.innerHTML = partes.join('');
   }
+  // Um site por cor: os condominios se sobrepoem no mapa e com tudo azul nao
+  // dava para dizer qual ponto e de qual. Clicar no site da legenda esconde/mostra.
+  const porSite = new Map();
+  cams.forEach((c) => porSite.set(c.site || 'Sem site', (porSite.get(c.site || 'Sem site') || 0) + 1));
   if (legenda) {
     const lg = [];
     if (locais.size) {
       lg.push('<span><i class="lg-local"></i> lotacao (todos prontos)</span>');
       if ([...locais.values()].some((x) => x.pend)) lg.push('<span><i class="lg-local-warn"></i> lotacao com pendencia</span>');
     }
-    if (cams.length) lg.push('<span><i class="lg-camera"></i> camera do local</span>');
+    [...porSite.entries()].sort((a, b) => a[0].localeCompare(b[0], 'pt-BR')).forEach(([site, n]) => {
+      const off = _alertSitesOcultos.has(site);
+      lg.push(`<button type="button" class="lg-site${off ? ' is-off' : ''}" data-lg-site="${esc(site)}" aria-pressed="${!off}" title="${off ? 'Mostrar' : 'Esconder'} as cameras de ${esc(site)}"><i style="background:${alertCorDoSite(site)}"></i> ${esc(site)} <b>${n}</b></button>`);
+    });
     legenda.innerHTML = lg.join('');
   }
-  const key = `${[...locais.keys()].sort().join('|')}#${cams.length}`;
+  const key = `${[...locais.keys()].sort().join('|')}#${cams.length}#${[..._alertSitesOcultos].sort().join(',')}`;
   if (!_alertUnits || key === _alertLotKey) return;
+  const primeira = !_alertLotKey;
   _alertLotKey = key;
   _alertUnits.clearLayers();
   const pts = [];
   // Cameras primeiro (embaixo), em canvas: centenas de pontos sem travar o mapa.
   const render = L.canvas ? L.canvas({ padding: 0.3 }) : undefined;
   cams.forEach((c) => {
-    L.circleMarker([c.lat, c.lon], { renderer: render, radius: 3.5, weight: 1, color: '#ffffff', fillColor: '#1971c2', fillOpacity: 0.9 })
+    if (_alertSitesOcultos.has(c.site || 'Sem site')) return;
+    L.circleMarker([c.lat, c.lon], { renderer: render, radius: 4, weight: 1, color: '#ffffff', fillColor: alertCorDoSite(c.site || 'Sem site'), fillOpacity: 0.95 })
       .bindTooltip(`${esc(c.titulo || '')}${c.site ? `<br><small>${esc(c.site)}</small>` : ''}`).addTo(_alertUnits);
     pts.push([c.lat, c.lon]);
   });
@@ -976,7 +1001,8 @@ async function alertDesenharLotacoes() {
       .bindTooltip(`${esc(it.site)}${onde}<br>${it.nomes.map(esc).slice(0, 6).join('<br>')}${it.nomes.length > 6 ? '<br>...' : ''}`).addTo(_alertUnits);
     pts.push([it.lat, it.lon]);
   });
-  if (pts.length && _alertMap) _alertMap.fitBounds(pts, { padding: [50, 50], maxZoom: 16 });
+  // So enquadra na primeira vez: esconder/mostrar um site nao tira o mapa do lugar.
+  if (primeira && pts.length && _alertMap) _alertMap.fitBounds(pts, { padding: [50, 50], maxZoom: 16 });
 }
 
 // Faixa no topo: o alerta sem atendimento mais antigo, com cronometro e Assumir.
