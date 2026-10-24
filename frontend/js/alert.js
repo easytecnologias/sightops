@@ -1854,6 +1854,7 @@ async function loadAlertMembers() {
     });
     document.getElementById('alertMembersBody')?.addEventListener('click', alertMembersClick);
     document.getElementById('alertAtivacao')?.addEventListener('click', alertAtivacaoClick);
+    document.getElementById('alertAtivacao')?.addEventListener('pointerdown', alertAtivArrastar);
     document.getElementById('alertSoPendencia')?.addEventListener('change', (ev) => { _alertSoPendencia = ev.target.checked; alertLoadMembers(); });
     document.getElementById('btnAlertCoordCams')?.addEventListener('click', () => {
       const pt = _alertEditPonto;
@@ -2028,8 +2029,17 @@ function alertRenderAtivacao() {
   const vence = alertDate(a.expires_at)?.toLocaleDateString('pt-BR') || '';
   const zap = alertWhatsappLink(m.phone, `Ola, ${m.full_name.split(' ')[0]}! Este e o seu acesso ao botao de ajuda do SightOps.\n\n1. Abra no celular: ${link}\n2. Se pedir, digite o codigo: ${codigo}\n3. Crie a sua senha e a senha de coacao.\n\nO codigo vale uma vez, ate ${vence}.`);
   box.hidden = false;
+  // Card flutuante: abre no meio da tela; arrastado, fica onde o usuario deixou.
+  if (_alertAtivPos) {
+    box.style.left = `${_alertAtivPos.x}px`;
+    box.style.top = `${_alertAtivPos.y}px`;
+    box.style.transform = 'none';
+  } else {
+    box.style.left = box.style.top = box.style.transform = '';
+  }
   box.innerHTML = `
-    <div class="alert-ativ-head">
+    <div class="alert-ativ-head" data-ativ-arrastar title="Arraste para mover">
+      <span class="alert-ativ-grip" aria-hidden="true"><i data-lucide="grip-vertical"></i></span>
       <div><span class="lbl">Ativar aparelho</span><strong>${esc(m.full_name)}</strong><small>${esc([m.role_title, m.site, m.unit_name].filter(Boolean).join(' · '))}</small></div>
       <button class="icon-button" type="button" data-ativ="fechar" aria-label="Fechar"><i data-lucide="x"></i></button>
     </div>
@@ -2062,6 +2072,37 @@ function alertImprimirAtivacao() {
     <ol><li>Aponte a camera do celular para o QR.</li><li>Se pedir, digite o codigo acima.</li><li>Crie a sua senha e a senha de coacao.</li><li>Libere a localizacao quando o app pedir.</li></ol>
     <script>window.onload=function(){window.print()}<\/script></body></html>`);
   w.document.close();
+}
+
+// Arrastar o card do codigo pela barra de cima (mouse, caneta ou dedo).
+let _alertAtivPos = null;  // {x, y} em px; null = centralizado
+function alertAtivArrastar(ev) {
+  const head = ev.target.closest('[data-ativ-arrastar]');
+  if (!head || ev.target.closest('button, a') || ev.button > 0) return;
+  const box = document.getElementById('alertAtivacao');
+  const r = box.getBoundingClientRect();
+  const dx = ev.clientX - r.left, dy = ev.clientY - r.top;
+  box.classList.add('arrastando');
+  head.setPointerCapture?.(ev.pointerId);
+  const mover = (e) => {
+    // Nao deixa sair da tela: sempre sobra a barra para pegar de volta.
+    const x = Math.min(Math.max(e.clientX - dx, 8 - r.width + 120), window.innerWidth - 120);
+    const y = Math.min(Math.max(e.clientY - dy, 8), window.innerHeight - 60);
+    _alertAtivPos = { x: Math.round(x), y: Math.round(y) };
+    box.style.left = `${_alertAtivPos.x}px`;
+    box.style.top = `${_alertAtivPos.y}px`;
+    box.style.transform = 'none';
+  };
+  const soltar = () => {
+    box.classList.remove('arrastando');
+    head.removeEventListener('pointermove', mover);
+    head.removeEventListener('pointerup', soltar);
+    head.removeEventListener('pointercancel', soltar);
+  };
+  head.addEventListener('pointermove', mover);
+  head.addEventListener('pointerup', soltar);
+  head.addEventListener('pointercancel', soltar);
+  ev.preventDefault();
 }
 
 async function alertAtivacaoClick(ev) {
@@ -2359,7 +2400,6 @@ async function alertMembersClick(ev) {
       _alertAtiv = { m, code: out.code, expires_at: out.expires_at };
       _alertAtivId = m.id;
       alertRenderAtivacao();
-      document.getElementById('alertAtivacao')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     } else if (act === 'lembrar' || act === 'teste') {
       alertMandarLembrete(m, act);
       return;
