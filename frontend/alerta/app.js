@@ -94,6 +94,13 @@
     return `rgb(${c.join(',')})`;
   }
 
+  function escurecer(hex, quanto) {
+    const n = parseInt(String(hex).replace('#', ''), 16);
+    if (Number.isNaN(n)) return hex;
+    const c = [n >> 16, (n >> 8) & 255, n & 255].map((v) => Math.round(v * (1 - quanto)));
+    return `rgb(${c.join(',')})`;
+  }
+
   (function aplicarMarca() {
     const raiz = document.documentElement.style;
     raiz.setProperty('--marca', MARCA.cor);
@@ -101,6 +108,7 @@
     raiz.setProperty('--alerta', MARCA.alerta);
     raiz.setProperty('--marca-suave', clarear(MARCA.cor, 0.9));
     raiz.setProperty('--destaque-suave', clarear(MARCA.destaque, 0.86));
+    raiz.setProperty('--destaque-escuro', escurecer(MARCA.destaque, 0.25));
     const n = parseInt(String(MARCA.cor).replace('#', ''), 16);
     if (!Number.isNaN(n)) raiz.setProperty('--marca-sombra', `rgba(${n >> 16},${(n >> 8) & 255},${n & 255},.28)`);
     if (MARCA.fonte) raiz.setProperty('--fonte', `${MARCA.fonte}, system-ui, sans-serif`);
@@ -114,6 +122,30 @@
     document.querySelectorAll('.txt-central').forEach((el) => { el.textContent = MARCA.empresa ? `central da ${MARCA.empresa}` : 'central'; });
     const versao = $('appVersao');
     if (versao) versao.textContent = `${MARCA.nome} · versão ${APP_VERSION}`;
+    // Abertura: so no APK (o build tira o hidden). Fica o tempo de ler a marca.
+    const abertura = $('abertura');
+    if (abertura && !abertura.hidden) {
+      const logo = abertura.querySelector('.abertura-logo');
+      if (MARCA.logo) { logo.src = MARCA.logo; logo.alt = MARCA.nome; }
+      abertura.querySelector('.abertura-slogan').textContent = MARCA.slogan || MARCA.nome;
+      // Conta a partir do primeiro quadro desenhado: no celular o WebView leva
+      // um tempo para pintar e a abertura sumia antes de aparecer.
+      let saiu = false;
+      const sair = () => {
+        if (saiu) return;
+        saiu = true;
+        setTimeout(() => {
+          abertura.classList.add('saindo');
+          setTimeout(() => { abertura.hidden = true; }, 300);
+        }, 1800);
+      };
+      try {
+        new PerformanceObserver((lista) => {
+          if (lista.getEntries().some((e) => e.name === 'first-contentful-paint')) sair();
+        }).observe({ type: 'paint', buffered: true });
+      } catch {}
+      setTimeout(sair, 4000); // sem medicao de pintura: sai assim mesmo
+    }
   })();
 
   // ------------------------------------------------------------------ telas
@@ -246,6 +278,105 @@
       btn.disabled = false;
     }
   });
+
+  // QR de ativacao pela camera do proprio app: no APK, o QR lido pela camera
+  // do celular abriria o navegador, e nao o app. O QR traz .../alerta/?codigo=X.
+  // Leitor nativo do Chrome (BarcodeDetector) quando existe; senao jsQR.
+  const qr = { stream: null, timer: null };
+
+  function codigoDoTexto(texto) {
+    const t = String(texto || '').trim();
+    let c;
+    try { c = new URL(t).searchParams.get('codigo') || ''; } catch { c = t; }
+    c = c.toUpperCase().replace(/[^A-Z0-9]/g, '');
+    return c.length === 8 ? c : '';
+  }
+
+  function carregarJsQr() {
+    if (window.jsQR) return Promise.resolve(window.jsQR);
+    return new Promise((ok, falha) => {
+      const s = document.createElement('script');
+      s.src = 'jsqr.js?v=1';
+      s.onload = () => ok(window.jsQR);
+      s.onerror = () => falha(new Error('jsqr'));
+      document.head.appendChild(s);
+    });
+  }
+
+  async function prepararLeitor() {
+    try {
+      if ('BarcodeDetector' in window && (await window.BarcodeDetector.getSupportedFormats()).includes('qr_code')) {
+        const det = new window.BarcodeDetector({ formats: ['qr_code'] });
+        return async (video) => ((await det.detect(video))[0] || {}).rawValue || '';
+      }
+    } catch {}
+    const jsQR = await carregarJsQr();
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    return async (video) => {
+      const w = video.videoWidth, h = video.videoHeight;
+      if (!w || !h) return '';
+      const escala = Math.min(1, 720 / Math.max(w, h));
+      canvas.width = Math.round(w * escala); canvas.height = Math.round(h * escala);
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      return (jsQR(img.data, img.width, img.height, { inversionAttempts: 'dontInvert' }) || {}).data || '';
+    };
+  }
+
+  function fecharLeitor() {
+    clearTimeout(qr.timer); qr.timer = null;
+    if (qr.stream) qr.stream.getTracks().forEach((t) => t.stop());
+    qr.stream = null;
+    $('qrVideo').srcObject = null;
+    $('qrSheet').hidden = true;
+  }
+
+  $('btnLerQr').addEventListener('click', async () => {
+    $('errActivate').textContent = '';
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      $('errActivate').textContent = 'Este aparelho não deixa usar a câmera aqui. Digite o código.';
+      return;
+    }
+    $('qrMsg').textContent = 'Aponte para o QR de ativação';
+    $('qrSheet').hidden = false;
+    let stream, ler;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
+      if ($('qrSheet').hidden) { stream.getTracks().forEach((t) => t.stop()); return; } // cancelou enquanto abria
+      qr.stream = stream;
+      ler = await prepararLeitor();
+    } catch (e) {
+      fecharLeitor();
+      $('errActivate').textContent = e && e.name === 'NotAllowedError'
+        ? 'Sem permissão para a câmera. Libere nas configurações ou digite o código.'
+        : 'Não consegui abrir a câmera. Digite o código.';
+      return;
+    }
+    const video = $('qrVideo');
+    video.srcObject = stream;
+    try { await video.play(); } catch {}
+    const passo = async () => {
+      if (qr.stream !== stream) return;
+      let texto = '';
+      try { texto = await ler(video); } catch {}
+      if (qr.stream !== stream) return;
+      if (texto) {
+        const codigo = codigoDoTexto(texto);
+        if (codigo) {
+          fecharLeitor();
+          $('inCode').value = codigo.slice(0, 4) + '-' + codigo.slice(4);
+          if (navigator.vibrate) navigator.vibrate(60);
+          $('formActivate').requestSubmit();
+          return;
+        }
+        $('qrMsg').textContent = 'Esse QR não é o de ativação. Aponte para o QR da central.';
+      }
+      qr.timer = setTimeout(passo, 250);
+    };
+    passo();
+  });
+  $('btnQrCancel').addEventListener('click', fecharLeitor);
 
   function detectPlatform() {
     if (window.Capacitor?.getPlatform) return window.Capacitor.getPlatform();

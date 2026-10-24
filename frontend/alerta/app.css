@@ -7,6 +7,7 @@
   --alerta: #b3261e;       /* tela de alerta enviado */
   --marca-suave: #e8ecee;  /* tons claros: o app.js recalcula a partir da marca */
   --destaque-suave: #dff5ec;
+  --destaque-escuro: #06603f; /* texto na cor de destaque sobre branco */
   --marca-sombra: rgba(19, 37, 45, .28);
   --fundo: #f3f5f7;
   --cartao: #ffffff;
@@ -92,6 +93,46 @@ input:focus { border-color: var(--destaque); }
 .btn.btn-curto { width: auto; padding: 15px 30px; }
 .btn:disabled { opacity: .55; }
 .form-error { color: var(--erro); min-height: 1.2em; margin: 0; font-size: 14px; }
+.btn.qr {
+  background: var(--cartao); border: 2px solid var(--destaque); color: var(--destaque-escuro);
+  display: inline-flex; align-items: center; justify-content: center; gap: 10px; font-size: 15px;
+}
+.ou { display: flex; align-items: center; gap: 10px; margin: 2px 0; color: var(--muted); font-size: 12px; }
+.ou span { flex: 1; height: 1px; background: var(--linha); }
+
+/* Leitor do QR: camera em tela cheia com a mira no meio */
+.leitor { position: fixed; inset: 0; z-index: 20; background: #000; display: flex; flex-direction: column; }
+.leitor video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.leitor-mira {
+  position: absolute; left: 50%; top: 44%; width: min(68vw, 280px); aspect-ratio: 1; transform: translate(-50%, -50%);
+  border-radius: 24px; border: 3px solid #fff; box-shadow: 0 0 0 100vmax rgba(0, 0, 0, .55);
+}
+.leitor-rodape {
+  position: relative; margin-top: auto; padding: 0 22px calc(env(safe-area-inset-bottom, 0px) + 26px);
+  display: flex; flex-direction: column; gap: 16px; color: #fff; text-align: center;
+}
+.leitor-rodape p { margin: 0; font-size: 15px; font-weight: 600; }
+
+/* Abertura do APK: o emblema fica no centro exato, no mesmo lugar e tamanho do
+   icone da abertura do Android 12+; logo e slogan aparecem embaixo. */
+.abertura { position: fixed; inset: 0; z-index: 30; background: var(--marca); transition: opacity .25s ease; }
+.abertura.saindo { opacity: 0; pointer-events: none; }
+.abertura-emblema {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  width: 144px; height: 144px; border-radius: 50%; background: #fff; display: grid; place-items: center;
+  box-shadow: 0 0 0 8px var(--destaque);
+}
+.abertura-emblema > span { width: 109px; height: 109px; border-radius: 50%; background: var(--marca); display: grid; place-items: center; }
+.abertura-emblema svg { width: 58%; height: 58%; }
+.abertura-texto {
+  position: absolute; left: 0; right: 0; top: calc(50% + 72px + 8px + 30px);
+  display: flex; flex-direction: column; align-items: center; gap: 18px;
+  opacity: 0; animation: abertura-entra .35s ease .12s forwards;
+}
+.abertura-logo { width: 200px; height: auto; }
+.abertura-logo:not([src]) { display: none; }
+.abertura-slogan { font-size: 13px; font-weight: 600; color: #fff; opacity: .85; text-align: center; padding: 0 24px; }
+@keyframes abertura-entra { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 
 /* Inicio: o botao */
 .panic-wrap { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 22px; padding: 0 24px; }

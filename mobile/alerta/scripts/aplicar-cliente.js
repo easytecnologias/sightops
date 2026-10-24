@@ -52,6 +52,22 @@ if (!st.includes('windowSplashScreenBackground')) {
   );
   fs.writeFileSync(estilos, st);
 }
+// Fundo da janela = cor da marca com o emblema no centro: cobre o tempo em que o
+// WebView ainda nao desenhou a pagina (antes ficava branco).
+fs.mkdirSync(path.join(res, 'drawable'), { recursive: true });
+fs.writeFileSync(path.join(res, 'drawable', 'abertura_fundo.xml'), `<?xml version="1.0" encoding="utf-8"?>
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@color/ic_launcher_background" />
+    <item><bitmap android:gravity="center" android:src="@drawable/abertura_emblema" /></item>
+</layer-list>
+`);
+if (!st.includes('abertura_fundo')) {
+  st = st.replace(
+    '<item name="android:background">@null</item>',
+    '<item name="android:background">@null</item>\n        <item name="android:windowBackground">@drawable/abertura_fundo</item>',
+  );
+  fs.writeFileSync(estilos, st);
+}
 // Barra de status (relogio, bateria) na cor da marca, emendando no cabecalho.
 if (!st.includes('android:statusBarColor')) {
   st = st.replace(

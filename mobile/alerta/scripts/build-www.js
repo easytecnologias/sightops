@@ -40,7 +40,9 @@ if (cfg) {
   });
   fs.writeFileSync(path.join(marca, 'marca.css'), faces.join('\n') + '\n');
   cabeca = '<link rel="stylesheet" href="marca/marca.css">\n  ';
-  config += ` window.ALERTA_MARCA = ${JSON.stringify(cfg.marca)};`;
+  // Slogan da abertura do APK ("Alerta · <slogan do cliente>").
+  const marcaApp = Object.assign({}, cfg.marca, cfg.slogan ? { slogan: `Alerta · ${cfg.slogan}` } : {});
+  config += ` window.ALERTA_MARCA = ${JSON.stringify(marcaApp)};`;
 }
 
 const indexPath = path.join(out, 'index.html');
@@ -50,6 +52,12 @@ if (!html.includes(marker)) throw new Error('index.html sem <script src="app.js"
 if (!html.includes('</head>')) throw new Error('index.html sem </head>');
 html = html.replace(marker, `<script>${config}</script>\n  ${marker}`);
 if (cabeca) html = html.replace('</head>', `  ${cabeca}</head>`);
+// Abertura com logo e slogan: so no APK de cliente (no navegador nao aparece).
+if (cfg) {
+  const ab = 'id="abertura" hidden';
+  if (!html.includes(ab)) throw new Error('index.html sem a abertura (id="abertura" hidden)');
+  html = html.replace(ab, 'id="abertura"');
+}
 fs.writeFileSync(indexPath, html);
 
 // Identificador e nome do app no Capacitor (o cap sync leva para o Android).
@@ -57,6 +65,10 @@ const capPath = path.join(raiz, 'capacitor.config.json');
 const cap = JSON.parse(fs.readFileSync(capPath, 'utf8'));
 cap.appId = cfg ? cfg.appId : 'br.com.easytecnologias.sightopsalerta';
 cap.appName = cfg ? cfg.appName : 'SightOps Alerta';
+// WebView transparente ate a pagina desenhar: aparece o fundo da janela (cor da
+// marca com o emblema) em vez de branco.
+cap.android = Object.assign({}, cap.android);
+if (cfg) cap.android.backgroundColor = '#00000000'; else delete cap.android.backgroundColor;
 fs.writeFileSync(capPath, JSON.stringify(cap, null, 2) + '\n');
 
 console.log(`www/ pronto (${fs.readdirSync(out).length} itens) -> API ${API_BASE}${cfg ? ` · cliente ${cliente} (${cfg.appName})` : ''}`);

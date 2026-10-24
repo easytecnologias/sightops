@@ -70,6 +70,11 @@ with sync_playwright() as p:
         foto(pg, pagina(quadrado, lado, lado, "transparent"), lado, lado, saida / f"mipmap-{nome}" / "ic_launcher.png", True)
         redondo = quadrado.replace(f"border-radius:{lado * 0.22}px", "border-radius:50%")
         foto(pg, pagina(redondo, lado, lado, "transparent"), lado, lado, saida / f"mipmap-{nome}" / "ic_launcher_round.png", True)
+        # Fundo da janela enquanto o app carrega: so o emblema, no tamanho do icone da
+        # abertura do Android 12+ (disco de 144 dp + anel), para nao piscar branco.
+        lado = round(160 * k)
+        foto(pg, pagina(emblema(144 * k), lado, lado, "transparent"), lado, lado,
+             saida / f"drawable-{nome}" / "abertura_emblema.png", transparente=True)
         # Abertura: emblema + logo + slogan sobre a cor da marca (retrato e paisagem).
         for orient, (w, h) in (("port", SPLASH_PORT[nome]), ("land", SPLASH_PORT[nome][::-1])):
             base = min(w, h)
