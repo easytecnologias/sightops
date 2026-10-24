@@ -1,0 +1,13 @@
+{
+  "appId": "br.com.easytecnologias.sightopsalerta",
+  "appName": "SightOps Alerta",
+  "webDir": "www",
+  "android": {
+    "allowMixedContent": false
+  },
+  "plugins": {
+    "CapacitorHttp": {
+      "enabled": true
+    }
+  }
+}

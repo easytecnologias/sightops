@@ -1,0 +1,20 @@
+{
+  "name": "sightops-alerta-app",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Alerta (botao de panico) - APK Android (Capacitor) com a marca de cada contratante. Codigo web vem de frontend/alerta/; marca em clientes/<cliente>/.",
+  "scripts": {
+    "build:www": "node scripts/build-www.js",
+    "sync": "npm run build:www && npx cap sync android && node scripts/aplicar-cliente.js",
+    "apk": "npm run sync && cd android && .\\gradlew.bat assembleRelease",
+    "apk:teste": "npm run sync && cd android && .\\gradlew.bat assembleDebug"
+  },
+  "dependencies": {
+    "@capacitor-community/background-geolocation": "1.2.26",
+    "@capacitor/android": "7.6.9",
+    "@capacitor/core": "7.6.9"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "7.6.9"
+  }
+}

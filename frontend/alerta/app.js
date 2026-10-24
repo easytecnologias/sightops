@@ -17,6 +17,13 @@
   const API_BASE = window.ALERTA_API_BASE
     || (window.location.pathname.startsWith('/v3/') ? window.location.origin + '/v3-api' : window.location.origin);
 
+  // Marca do cliente: o build do APK de cada contratante define
+  // window.ALERTA_MARCA (nome, empresa, logo, cores). Sem ela, SightOps.
+  const MARCA = Object.assign({
+    nome: 'SightOps Alerta', empresa: '', logo: '',
+    cor: '#13252d', destaque: '#087f5b', alerta: '#b3261e', fonte: '',
+  }, window.ALERTA_MARCA || {});
+
   const HOLD_MS = 2000;
   const FLUSH_MS = 5000;
   const STATUS_POLL_MS = 5000;
@@ -76,6 +83,39 @@
     return data;
   }
 
+  // ------------------------------------------------------------------ marca
+
+  // Mistura uma cor com o branco (tons suaves sem color-mix, que WebView
+  // antigo de Android nao entende).
+  function clarear(hex, quanto) {
+    const n = parseInt(String(hex).replace('#', ''), 16);
+    if (Number.isNaN(n)) return hex;
+    const c = [n >> 16, (n >> 8) & 255, n & 255].map((v) => Math.round(v + (255 - v) * quanto));
+    return `rgb(${c.join(',')})`;
+  }
+
+  (function aplicarMarca() {
+    const raiz = document.documentElement.style;
+    raiz.setProperty('--marca', MARCA.cor);
+    raiz.setProperty('--destaque', MARCA.destaque);
+    raiz.setProperty('--alerta', MARCA.alerta);
+    raiz.setProperty('--marca-suave', clarear(MARCA.cor, 0.9));
+    raiz.setProperty('--destaque-suave', clarear(MARCA.destaque, 0.86));
+    const n = parseInt(String(MARCA.cor).replace('#', ''), 16);
+    if (!Number.isNaN(n)) raiz.setProperty('--marca-sombra', `rgba(${n >> 16},${(n >> 8) & 255},${n & 255},.28)`);
+    if (MARCA.fonte) raiz.setProperty('--fonte', `${MARCA.fonte}, system-ui, sans-serif`);
+    document.title = MARCA.nome;
+    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', MARCA.cor);
+    document.querySelectorAll('.marca').forEach((el) => {
+      const img = el.querySelector('.marca-logo');
+      el.querySelector('.marca-nome').textContent = MARCA.nome;
+      if (MARCA.logo && img) { img.src = MARCA.logo; img.alt = MARCA.nome; el.classList.add('com-logo'); }
+    });
+    document.querySelectorAll('.txt-central').forEach((el) => { el.textContent = MARCA.empresa ? `central da ${MARCA.empresa}` : 'central'; });
+    const versao = $('appVersao');
+    if (versao) versao.textContent = `${MARCA.nome} · versão ${APP_VERSION}`;
+  })();
+
   // ------------------------------------------------------------------ telas
 
   function show(id) {
@@ -84,7 +124,7 @@
 
   function renderHome() {
     const m = state.member || {};
-    $('homeName').textContent = m.full_name || 'SightOps Alerta';
+    $('homeName').textContent = m.full_name || MARCA.nome;
     $('homeUnit').textContent = [m.role_title, m.unit_name].filter(Boolean).join(' · ');
     show('scrHome');
   }
@@ -302,11 +342,47 @@
     };
   }
 
+  // APK (Capacitor): GPS por servico nativo em primeiro plano, que continua com
+  // a tela bloqueada -- o GPS do navegador para quando a tela apaga. Titulo e
+  // texto da notificacao fixa sao os MESMOS no panico e na coacao, e neutros:
+  // nada na tela do celular pode denunciar que a central sabe da coacao.
+  const NativeGeo = (() => {
+    const cap = window.Capacitor;
+    if (!cap || typeof cap.isNativePlatform !== 'function' || !cap.isNativePlatform()) return null;
+    try { return cap.registerPlugin ? cap.registerPlugin('BackgroundGeolocation') : cap.Plugins.BackgroundGeolocation; } catch { return null; }
+  })();
+
+  function startNativeWatch() {
+    state.watchId = 'native-pending';
+    // Pelo Capacitor.Plugins (sem registerPlugin) o addWatcher devolve o id na
+    // hora, como texto, e nao uma Promise: um .then direto quebrava o disparo
+    // e o alerta nunca saia do APK. Promise.resolve aceita os dois formatos.
+    Promise.resolve(NativeGeo.addWatcher({
+      backgroundTitle: MARCA.nome,
+      backgroundMessage: 'Proteção ativa',
+      requestPermissions: true,
+      stale: false,
+      distanceFilter: 0,
+    }, (loc, err) => {
+      if (err) { onFixError({ code: err.code === 'NOT_AUTHORIZED' ? 1 : 2 }); return; }
+      if (!loc) return;
+      onFix({ coords: { latitude: loc.latitude, longitude: loc.longitude, accuracy: loc.accuracy }, timestamp: loc.time || Date.now() });
+    })).then((id) => {
+      // Parou antes do plugin responder: desliga o que acabou de ligar.
+      if (state.watchId === 'native-pending') state.watchId = id;
+      else NativeGeo.removeWatcher({ id }).catch(() => {});
+    }).catch(() => { if (state.watchId === 'native-pending') state.watchId = null; });
+  }
+
   function startTracking() {
-    if (state.watchId === null && navigator.geolocation) {
-      state.watchId = navigator.geolocation.watchPosition(onFix, onFixError, {
-        enableHighAccuracy: true, maximumAge: 5000, timeout: 20000,
-      });
+    if (state.watchId === null) {
+      if (NativeGeo) {
+        startNativeWatch();
+      } else if (navigator.geolocation) {
+        state.watchId = navigator.geolocation.watchPosition(onFix, onFixError, {
+          enableHighAccuracy: true, maximumAge: 5000, timeout: 20000,
+        });
+      }
     }
     if (!state.flushTimer) state.flushTimer = setInterval(flushPositions, FLUSH_MS);
     if (!state.pollTimer) state.pollTimer = setInterval(pollStatus, STATUS_POLL_MS);
@@ -315,7 +391,13 @@
   }
 
   function stopTracking() {
-    if (state.watchId !== null && navigator.geolocation) navigator.geolocation.clearWatch(state.watchId);
+    if (NativeGeo) {
+      if (typeof state.watchId === 'string' && state.watchId !== 'native-pending') {
+        NativeGeo.removeWatcher({ id: state.watchId }).catch(() => {});
+      }
+    } else if (state.watchId !== null && navigator.geolocation) {
+      navigator.geolocation.clearWatch(state.watchId);
+    }
     state.watchId = null;
     clearInterval(state.flushTimer); state.flushTimer = null;
     clearInterval(state.pollTimer); state.pollTimer = null;
@@ -328,6 +410,9 @@
     state.pending.push(fixPayload(state.lastFix));
     if (state.pending.length > 50) state.pending.splice(0, state.pending.length - 50);
     updateGpsFacts();
+    // Com a tela bloqueada o setInterval do WebView quase para; a chegada da
+    // posicao (servico nativo) vira o proprio gatilho de envio.
+    if (Date.now() - (state.lastFlushTry || 0) >= FLUSH_MS) flushPositions();
   }
 
   function onFixError(err) {
@@ -336,6 +421,7 @@
 
   async function flushPositions() {
     if (!state.incidentId || !state.pending.length) return;
+    state.lastFlushTry = Date.now();
     const batch = state.pending.slice();
     try {
       const out = await api(`/incidents/${encodeURIComponent(state.incidentId)}/positions`, { method: 'POST', body: { positions: batch } });
@@ -442,6 +528,7 @@
   function closePinSheet() { $('pinSheet').hidden = true; pinBuffer = ''; }
 
   $('btnCancelAlarm').addEventListener('click', openPinSheet);
+  $('btnCancelledBack').addEventListener('click', renderHome);
   $('btnPinCancel').addEventListener('click', closePinSheet);
 
   async function submitCancel() {
@@ -458,7 +545,7 @@
         clearIncident();
       }
       show('scrCancelled');
-      setTimeout(renderHome, 3000);
+      setTimeout(() => { if (!$('scrCancelled').hidden) renderHome(); }, 5000);
     } catch (e) {
       pinBuffer = ''; renderPinDots();
       $('errPinSheet').textContent = e.status === 0 ? 'Sem conexão. Tente de novo.' : e.message;

@@ -1,0 +1,24 @@
+{
+  "_sobre": "APK do Alerta com a marca da RADS Gestao em Seguranca (radsgestao.com.br). Cores tiradas do logo oficial.",
+  "appId": "br.com.radsgestao.alerta",
+  "appName": "RADS Alerta",
+  "versionCode": 1,
+  "versionName": "1.0.0",
+  "apiBase": "https://sightops.easytecnologias.com.br/v3-api",
+  "marca": {
+    "nome": "RADS Alerta",
+    "empresa": "RADS",
+    "logo": "marca/logo-branco.svg",
+    "cor": "#3E4095",
+    "destaque": "#2493DD",
+    "alerta": "#B3261E",
+    "fonte": "Montserrat"
+  },
+  "fontes": [
+    { "arquivo": "fontes/montserrat-500.ttf", "familia": "Montserrat", "peso": 500 },
+    { "arquivo": "fontes/montserrat-600.ttf", "familia": "Montserrat", "peso": 600 },
+    { "arquivo": "fontes/montserrat-700.ttf", "familia": "Montserrat", "peso": 700 },
+    { "arquivo": "fontes/montserrat-800.ttf", "familia": "Montserrat", "peso": 800 }
+  ],
+  "slogan": "Soluções inteligentes para sua segurança"
+}

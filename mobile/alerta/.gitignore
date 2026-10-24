@@ -1,0 +1,14 @@
+node_modules/
+www/
+android/app/build/
+android/build/
+android/.gradle/
+android/local.properties
+android/app/src/main/assets/public/
+*.apk
+*.keystore
+
+# Assinatura e marca gerada por cliente (nunca no git)
+android/keystore.properties
+android/cliente.properties
+*.jks
