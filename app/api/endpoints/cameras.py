@@ -523,7 +523,16 @@ def api_cameras_save(req: CamerasSaveRequest, mode: str = Query(default="olt")) 
         if cam.status is not None:
             row["status"] = cam.status
         if cam.local is not None:
+            antes = str(row.get("local") or "").strip()
             row["local"] = cam.local
+            # O site_id do banco sai do campo "site" da linha (vem antes do
+            # "local" em _site_name_from_row). Trocar so o local deixava o site
+            # velho para tras: em 24/10/2026, 4 cameras do Jardins I/II e Reserva
+            # seguiam no site PERUCABA. Onde site e local andavam juntos, andam
+            # juntos; onde sao diferentes de proposito, o site fica.
+            for k in ("site", "site_name"):
+                if str(row.get(k) or "").strip() == antes and antes:
+                    row[k] = cam.local
         # A tela manda os campos de ONU vazios quando a leitura ja os limpou
         # (camera caida). Antes de gravar vazio por cima, guarda onde ela estava.
         novos = {"pon": cam.pon, "onu_id": cam.onu_id, "onu_serial": cam.onu_serial}

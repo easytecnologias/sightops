@@ -27,6 +27,7 @@ from app.services.alert_store import (
     salvar_protocolo,
     live_summary,
     cameras_do_mapa,
+    locais_monitorados,
     connector_cameras,
     nearby_cameras,
     nearest_camera,
@@ -92,6 +93,7 @@ class AlertMemberRequest(BaseModel):
     role_title: str = ""
     unit_name: str = ""
     unit_connector_id: str = ""
+    unit_site: str = ""  # site dentro do conector (um conector atende varios)
     unit_lat: Optional[Any] = None
     unit_lon: Optional[Any] = None
     phone: str = ""
@@ -298,11 +300,18 @@ def api_alert_map_cameras() -> Dict[str, Any]:
     return {"ok": True, "count": len(cams), "cameras": cams}
 
 
+@router.get("/locais")
+def api_alert_locais() -> Dict[str, Any]:
+    """Sites (com o conector que alcanca as cameras) para o local monitorado."""
+    return {"ok": True, "locais": locais_monitorados()}
+
+
 @router.get("/unit-cameras")
 def api_alert_unit_cameras(
-    connector_id: str = Query(...), lat: Optional[float] = Query(None), lon: Optional[float] = Query(None)
+    connector_id: str = Query(...), lat: Optional[float] = Query(None), lon: Optional[float] = Query(None),
+    site: str = Query(""),
 ) -> Dict[str, Any]:
-    cams = permissions.filtrar_por_site(connector_cameras(connector_id, lat, lon))
+    cams = permissions.filtrar_por_site(connector_cameras(connector_id, lat, lon, site=site))
     return {"ok": True, "count": len(cams), "cameras": cams}
 
 

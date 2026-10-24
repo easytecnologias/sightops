@@ -1562,13 +1562,13 @@ async function alertLoadNearby() {
   const p = alertPoint(_alertDetail);
   const cid = _alertDetail.member?.unit_connector_id || '';
   // So refaz a busca quando a pessoa andou ~50 m (3 casas decimais de lat/lon).
-  const key = `${_alertDetail.id}:${cid}:${p ? `${p.lat.toFixed(3)}:${p.lon.toFixed(3)}` : '-'}`;
+  const key = `${_alertDetail.id}:${cid}:${_alertDetail.member?.unit_site || ''}:${p ? `${p.lat.toFixed(3)}:${p.lon.toFixed(3)}` : '-'}`;
   if (key === _alertNearbyKey && _alertNearbyHtml) { box.innerHTML = _alertNearbyHtml; if (window.lucide) lucide.createIcons(); return; }
   const qs = p ? `lat=${p.lat}&lon=${p.lon}${p.acc != null ? `&accuracy_m=${encodeURIComponent(p.acc)}` : ''}` : '';
   try {
     await alertLoadConnectors();
     const [unit, near] = await Promise.all([
-      cid ? alertApiJson(`/api/alert/unit-cameras?connector_id=${encodeURIComponent(cid)}${qs ? `&${qs}` : ''}`) : Promise.resolve({ cameras: [] }),
+      cid ? alertApiJson(`/api/alert/unit-cameras?connector_id=${encodeURIComponent(cid)}&site=${encodeURIComponent(_alertDetail.member?.unit_site || '')}${qs ? `&${qs}` : ''}`) : Promise.resolve({ cameras: [] }),
       // Raio escolhido no cadastro da pessoa (0 = padrao do servidor, 20 m).
       p ? alertApiJson(`/api/alert/nearby-cameras?${qs}&limit=6${_alertDetail.member?.camera_radius_m ? `&radius_m=${_alertDetail.member.camera_radius_m}` : ''}`) : Promise.resolve({ cameras: [] }),
     ]);
@@ -1582,7 +1582,7 @@ async function alertLoadNearby() {
       const todas = _alertCamsTodas === _alertDetail.id;
       const mostrar = todas ? ordenadas : ordenadas.slice(0, ALERT_CAMS_MAX);
       const resto = ordenadas.length - mostrar.length;
-      html += `<h3>Cameras da lotacao — ${esc(alertConnectorName(cid))} <span class="alert-count">${unitCams.length}</span>${p && !todas && resto > 0 ? '<small class="alert-cams-nota">as mais proximas da pessoa</small>' : ''}</h3>
+      html += `<h3>Cameras da lotacao — ${esc(_alertDetail.member?.unit_site || alertConnectorName(cid))} <span class="alert-count">${unitCams.length}</span>${p && !todas && resto > 0 ? '<small class="alert-cams-nota">as mais proximas da pessoa</small>' : ''}</h3>
         ${unitCams.length ? `<div class="alert-nearby-grid">${mostrar.map(alertCameraCard).join('')}</div>` : '<div class="alert-nearby-grid"><div class="alert-live-empty">Nenhuma camera cadastrada neste local.</div></div>'}
         ${resto > 0 ? `<button type="button" class="link-action alert-cams-mais" data-cams="todas">Ver todas as ${unitCams.length} cameras do local</button>`
           : (todas && ordenadas.length > ALERT_CAMS_MAX ? '<button type="button" class="link-action alert-cams-mais" data-cams="menos">Mostrar so as mais proximas</button>' : '')}`;
@@ -1926,7 +1926,7 @@ function alertMemberRow(m) {
     : tick(m.activation_pending ? 'warn' : 'bad', 'App', m.activation_pending ? 'Codigo gerado, ainda nao ativou' : 'Nunca ativou o app');
   const senhas = m.pins_configured ? tick('ok', 'Senhas', 'Senha normal e de coacao criadas')
     : tick(m.app_devices ? 'bad' : 'off', 'Senhas', m.app_devices ? 'Ativou, mas nao criou as senhas' : 'Cria as senhas ao ativar');
-  const cams = m.unit_connector_id ? tick('ok', 'Cameras', `Local monitorado: ${alertConnectorName(m.unit_connector_id)}`)
+  const cams = m.unit_connector_id ? tick('ok', 'Cameras', `Site monitorado: ${m.unit_site || alertConnectorName(m.unit_connector_id)}`)
     : tick('warn', 'Cameras', 'Lotacao sem local monitorado (cameras)');
   let sinal = '<span class="alert-sinal off">nunca</span>';
   if (dev.last_seen_at) {
@@ -2216,16 +2216,36 @@ function alertRenderReadiness(lista) {
     : '<b class="ok">0</b><small>Nenhuma pendencia: todos os celulares conseguem pedir ajuda.</small>'}`;
 }
 
-async function alertFillConnectorSelect(selected) {
+// Local monitorado = um SITE (com o conector que alcanca as cameras dele). Um
+// conector atende varios sites (condominios): listar conectores mostrava "EASY"
+// e misturava as cameras de todos. Valor da opcao: "conector|site".
+let _alertLocais = { at: 0, lista: null };
+async function alertCarregarLocais() {
+  if (!_alertLocais.lista || Date.now() - _alertLocais.at > 60000) {
+    try { _alertLocais = { at: Date.now(), lista: (await alertApiJson('/api/alert/locais')).locais || [] }; } catch { _alertLocais.lista = _alertLocais.lista || []; }
+  }
+  return _alertLocais.lista;
+}
+
+async function alertFillConnectorSelect(selCid, selSite = '') {
   const sel = document.getElementById('alertMemberConnector');
   if (!sel) return;
-  const list = await alertLoadConnectors();
+  const [locais] = await Promise.all([alertCarregarLocais(), alertLoadConnectors()]);
   // Restrito a sites: sem local monitorado a pessoa nao teria site e o backend recusa.
-  const vazio = _alertMeusSites ? 'Escolha o local monitorado' : 'Nenhum';
-  sel.innerHTML = `<option value="">${vazio}</option>` + list.map((c) =>
-    `<option value="${esc(c.id)}"${c.id === selected ? ' selected' : ''}>${esc(c.name)}</option>`).join('');
-  if (selected && !list.some((c) => c.id === selected)) {
-    sel.insertAdjacentHTML('beforeend', `<option value="${esc(selected)}" selected>(conector removido)</option>`);
+  const vazio = _alertMeusSites ? 'Escolha o site monitorado' : 'Nenhum';
+  const alvo = `${selCid || ''}|${selSite || ''}`;
+  const porConector = new Map();
+  locais.forEach((l) => { if (!porConector.has(l.connector_id)) porConector.set(l.connector_id, []); porConector.get(l.connector_id).push(l); });
+  const opcao = (l) => { const v = `${l.connector_id}|${l.site}`; return `<option value="${esc(v)}"${v === alvo ? ' selected' : ''}>${esc(l.site)} · ${l.cameras} camera${l.cameras === 1 ? '' : 's'}</option>`; };
+  // Varios conectores: agrupa pelo nome do conector; um so, lista direto.
+  const corpo = porConector.size > 1
+    ? [...porConector.entries()].map(([cid, ls]) => `<optgroup label="${esc(alertConnectorName(cid))}">${ls.map(opcao).join('')}</optgroup>`).join('')
+    : locais.map(opcao).join('');
+  sel.innerHTML = `<option value="">${vazio}</option>${corpo}`;
+  if (selCid && !locais.some((l) => `${l.connector_id}|${l.site}` === alvo)) {
+    // Cadastro antigo (so conector) ou site que sumiu: mostra o que esta gravado.
+    const rot = selSite ? `${selSite} (sem cameras agora)` : `Todos os sites de ${alertConnectorName(selCid)} (escolha o site)`;
+    sel.insertAdjacentHTML('beforeend', `<option value="${esc(alvo)}" selected>${esc(rot)}</option>`);
   }
 }
 
@@ -2251,7 +2271,7 @@ function alertOpenMember(m) {
   _alertCpfDono = null;
   const dup = document.getElementById('alertMemberCpfDup');
   if (dup) { dup.hidden = true; dup.innerHTML = ''; }
-  alertFillConnectorSelect(m?.unit_connector_id || '');
+  alertFillConnectorSelect(m?.unit_connector_id || '', m?.unit_site || '');
   _alertEditPonto = m?.ponto && m.ponto.origem === 'cameras' ? m.ponto : null;
   const bc = document.getElementById('btnAlertCoordCams');
   if (bc) bc.hidden = !_alertEditPonto || m?.unit_lat != null;
@@ -2454,7 +2474,7 @@ async function alertConferirCpf() {
 let _alertEditConector = '';
 
 async function alertSaveMember() {
-  const novoConector = document.getElementById('alertMemberConnector').value;
+  const novoConector = document.getElementById('alertMemberConnector').value.split('|')[0];
   if (_alertEditConector && !novoConector && !(await showConfirm({
     eyebrow: 'Pessoas do Alerta', title: 'Tirar o local monitorado?', label: 'Tirar e salvar', danger: false,
     msg: `Esta pessoa estava em ${alertConnectorName(_alertEditConector)}. Sem local monitorado, as cameras dela nao aparecem no alerta. Salvar assim mesmo?`,
@@ -2467,7 +2487,8 @@ async function alertSaveMember() {
     role_title: g('alertMemberRole'),
     phone: g('alertMemberPhone'),
     unit_name: g('alertMemberUnit'),
-    unit_connector_id: document.getElementById('alertMemberConnector').value,
+    unit_connector_id: document.getElementById('alertMemberConnector').value.split('|')[0],
+    unit_site: document.getElementById('alertMemberConnector').value.split('|')[1] || '',
     unit_lat: g('alertMemberLat') || null,
     unit_lon: g('alertMemberLon') || null,
     notes: g('alertMemberNotes'),

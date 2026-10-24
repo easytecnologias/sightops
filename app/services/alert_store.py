@@ -149,7 +149,7 @@ def haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
 # --------------------------------------------------------------------------
 
 _MEMBER_PUBLIC_COLS = (
-    "id, tenant_slug, full_name, document_id, role_title, unit_name, unit_lat, unit_lon, unit_connector_id, "
+    "id, tenant_slug, full_name, document_id, role_title, unit_name, unit_lat, unit_lon, unit_connector_id, unit_site, "
     "phone, notes, active, camera_radius_m, pin_hash, activation_code_hash, activation_expires_at, created_at, updated_at"
 )
 
@@ -254,6 +254,7 @@ def _member_public(row: Dict[str, Any], active_sessions: int = 0) -> Dict[str, A
         "unit_lat": row.get("unit_lat"),
         "unit_lon": row.get("unit_lon"),
         "unit_connector_id": row.get("unit_connector_id") or "",
+        "unit_site": row.get("unit_site") or "",
         "phone": row.get("phone") or "",
         "notes": row.get("notes") or "",
         "active": bool(int(row.get("active") or 0)),
@@ -305,6 +306,10 @@ def site_do_membro(m: Optional[Dict[str, Any]]) -> str:
     livre) quando a leitura falha poderia mostrar a pessoa ao site errado."""
     m = m or {}
     cid = str(m.get("unit_connector_id") or "").strip()
+    site = str(m.get("unit_site") or "").strip()
+    if cid and site:
+        # Conector com varios sites (condominios): vale o site escolhido.
+        return site
     if cid:
         return _site_do_conector(cid)
     return str(m.get("unit_name") or "").strip()
@@ -333,7 +338,7 @@ def _exigir_membro_liberado(c: Any, tenant: str, member_id: str) -> Dict[str, An
     conta que existe em outro site)."""
     row = _row(
         c,
-        "SELECT id, active, unit_name, unit_connector_id FROM alert_members WHERE tenant_slug=? AND id=?",
+        "SELECT id, active, unit_name, unit_connector_id, unit_site FROM alert_members WHERE tenant_slug=? AND id=?",
         (tenant, member_id),
     )
     if not row or not _membro_liberado(row, _sites_liberados()):
@@ -414,8 +419,10 @@ def _cameras_com_coordenada() -> List[Dict[str, Any]]:
     return lista
 
 
-def _centro_do_conector(cid: str) -> Optional[Tuple[float, float, int]]:
-    pts = [(c["lat"], c["lon"]) for c in _cameras_com_coordenada() if c["connector"] == cid]
+def _centro_do_conector(cid: str, site: str = "") -> Optional[Tuple[float, float, int]]:
+    s = str(site or "").strip().upper()
+    pts = [(c["lat"], c["lon"]) for c in _cameras_com_coordenada()
+           if c["connector"] == cid and (not s or str(c.get("site") or "").strip().upper() == s)]
     if not pts:
         return None
     # Mediana, nao media: uma camera com coordenada errada (outra cidade) nao
@@ -432,10 +439,27 @@ def _ponto_do_membro(m: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     cid = str(m.get("unit_connector_id") or "").strip()
     if not cid:
         return None
-    c = _centro_do_conector(cid)
+    c = _centro_do_conector(cid, m.get("unit_site") or "")
     if not c:
         return None
     return {"lat": c[0], "lon": c[1], "origem": "cameras", "cameras": c[2]}
+
+
+def locais_monitorados() -> List[Dict[str, Any]]:
+    """Sites que podem ser o local monitorado de uma pessoa: cada (conector,
+    site) com cameras no inventario, com a contagem. Um conector atende varios
+    sites (condominios): escolher so o conector misturava as cameras de todos."""
+    from app.core import permissions
+
+    conta: Dict[Tuple[str, str], int] = {}
+    for _mode, r in _inventory_cameras():
+        cid = _text(r.get("remote_connector_id") or r.get("connector_id"), 80)
+        site = _text(r.get("site") or r.get("site_name") or r.get("local") or r.get("LOCAL"), 160)
+        if cid and site:
+            conta[(cid, site)] = conta.get((cid, site), 0) + 1
+    locais = [{"connector_id": cid, "site": site, "cameras": n} for (cid, site), n in conta.items()]
+    locais = permissions.filtrar_por_site(locais, ("site",))
+    return sorted(locais, key=lambda x: (x["connector_id"], x["site"].lower()))
 
 
 def cameras_do_mapa(limite: int = 1500) -> List[Dict[str, Any]]:
@@ -528,6 +552,7 @@ def save_member(payload: Dict[str, Any]) -> Dict[str, Any]:
         "unit_lat": unit_lat,
         "unit_lon": unit_lon,
         "unit_connector_id": _text(payload.get("unit_connector_id"), 80),
+        "unit_site": _text(payload.get("unit_site"), 160) if _text(payload.get("unit_connector_id"), 80) else "",
         "phone": _phone(payload.get("phone")),
         "notes": _text(payload.get("notes"), 1000),
         "active": 0 if payload.get("active") is False else 1,
@@ -547,7 +572,7 @@ def save_member(payload: Dict[str, Any]) -> Dict[str, Any]:
         )
         if dup:
             if liberados is not None:
-                dono = _row(c, "SELECT unit_name, unit_connector_id FROM alert_members WHERE tenant_slug=? AND id=?",
+                dono = _row(c, "SELECT unit_name, unit_connector_id, unit_site FROM alert_members WHERE tenant_slug=? AND id=?",
                             (tenant, dup["id"]))
                 if not _membro_liberado(dono, liberados):
                     # Nao revela quem esta cadastrado em site que ele nao ve.
@@ -556,7 +581,7 @@ def save_member(payload: Dict[str, Any]) -> Dict[str, Any]:
         if member_id:
             _exigir_membro_liberado(c, tenant, member_id)
             c.execute(
-                "UPDATE alert_members SET full_name=?, document_id=?, role_title=?, unit_name=?, unit_lat=?, unit_lon=?, unit_connector_id=?, "
+                "UPDATE alert_members SET full_name=?, document_id=?, role_title=?, unit_name=?, unit_lat=?, unit_lon=?, unit_connector_id=?, unit_site=?, "
                 "phone=?, notes=?, active=?, camera_radius_m=?, updated_at=? WHERE tenant_slug=? AND id=?",
                 (*values.values(), now, tenant, member_id),
             )
@@ -570,7 +595,7 @@ def save_member(payload: Dict[str, Any]) -> Dict[str, Any]:
             member_id = uuid.uuid4().hex
             c.execute(
                 "INSERT INTO alert_members(id, tenant_slug, full_name, document_id, role_title, unit_name, unit_lat, unit_lon, "
-                "unit_connector_id, phone, notes, active, camera_radius_m, created_at, updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                "unit_connector_id, unit_site, phone, notes, active, camera_radius_m, created_at, updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (member_id, tenant, *values.values(), now, now),
             )
         row = _row(c, f"SELECT {_MEMBER_PUBLIC_COLS} FROM alert_members WHERE tenant_slug = ? AND id = ?", (tenant, member_id))
@@ -875,6 +900,7 @@ def _incident_view(inc: Dict[str, Any], member: Optional[Dict[str, Any]]) -> Dic
             "unit_lat": m.get("unit_lat"),
             "unit_lon": m.get("unit_lon"),
             "unit_connector_id": m.get("unit_connector_id") or "",
+            "unit_site": m.get("unit_site") or "",
             "phone": m.get("phone") or "",
             "notes": m.get("notes") or "",
             "camera_radius_m": int(m.get("camera_radius_m") or 0),
@@ -889,7 +915,7 @@ def _members_by_id(c: Any, tenant: str, ids: List[str]) -> Dict[str, Dict[str, A
         return {}
     rows = _rows(
         c,
-        f"SELECT id, full_name, document_id, role_title, unit_name, unit_lat, unit_lon, unit_connector_id, phone, notes, camera_radius_m FROM alert_members "
+        f"SELECT id, full_name, document_id, role_title, unit_name, unit_lat, unit_lon, unit_connector_id, unit_site, phone, notes, camera_radius_m FROM alert_members "
         f"WHERE tenant_slug=? AND id IN ({','.join('?' * len(ids))})",
         (tenant, *ids),
     )
@@ -1340,16 +1366,21 @@ def nearest_camera(lat: float, lon: float,
     return melhor
 
 
-def connector_cameras(connector_id: str, lat: Optional[float] = None, lon: Optional[float] = None, limit: int = 64) -> List[Dict[str, Any]]:
-    """Todas as cameras do conector da lotacao (escola/predio), com ou sem
-    coordenada. Dentro de predio o GPS erra; a lotacao nao."""
+def connector_cameras(connector_id: str, lat: Optional[float] = None, lon: Optional[float] = None, limit: int = 64,
+                      site: str = "") -> List[Dict[str, Any]]:
+    """Todas as cameras do local monitorado (conector e, se escolhido, o site
+    dentro dele), com ou sem coordenada. Dentro de predio o GPS erra; a lotacao nao."""
     cid = _text(connector_id, 80)
     if not cid:
         return []
+    s = _text(site, 160).upper()
     found = [
-        _camera_card(mode, r, lat, lon)
-        for mode, r in _inventory_cameras()
-        if _text(r.get("remote_connector_id") or r.get("connector_id"), 80) == cid
+        card for card in (
+            _camera_card(mode, r, lat, lon)
+            for mode, r in _inventory_cameras()
+            if _text(r.get("remote_connector_id") or r.get("connector_id"), 80) == cid
+        )
+        if not s or card["site"].strip().upper() == s
     ]
     found.sort(key=lambda x: (x["titulo"] or x["ip"]).lower())
     return found[: max(1, min(int(limit or 64), 200))]
@@ -1388,6 +1419,8 @@ def _site_do_alerta(inc: Dict[str, Any]) -> str:
     """Site do alerta: o do conector da lotacao do membro, senao o nome da lotacao."""
     m = inc.get("member") or {}
     cid = str(m.get("unit_connector_id") or "").strip()
+    if cid and str(m.get("unit_site") or "").strip():
+        return str(m.get("unit_site")).strip()
     if cid:
         try:
             from app.api.endpoints.maintenance import _site_do_conector
