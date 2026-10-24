@@ -42,7 +42,12 @@ const ALERT_CIRCULO_MAX_M = 100;   // acima disso nao desenha o circulo de erro 
 const ALERT_CAMS_MAX = 8;          // cameras da lotacao mostradas de cara (as mais proximas)
 let _alertCamsTodas = '';          // id do alerta em que pediram "ver todas"
 const ALERT_ESCALATION_S = 60; // igual a ESCALATION_AFTER_S em alert_store.py
+// O app so manda posicao quando ela muda (watchPosition): parada ou sem sinal
+// parecem iguais daqui. Acima disso o mapa avisa que a posicao esta velha.
+const ALERT_POS_VELHA_S = 120;
 let _alertTickTimer = null;
+let _alertAba = '';       // aba aberta no painel do atendimento
+let _alertAbaInc = '';    // alerta em que a aba foi escolhida
 
 const ALERT_STATUS = {
   new: { label: 'sem atendimento', pill: 'danger' },
@@ -749,7 +754,7 @@ function alertRenderChips() {
   const box = document.getElementById('alertChipsMais');
   if (!box) return;
   const somOn = alertSoundOn();
-  const aviso = !('Notification' in window) ? '' : (Notification.permission === 'granted' ? 'Windows: ativo' : 'Windows: desligado');
+  const aviso = !('Notification' in window) ? '' : (Notification.permission === 'granted' ? 'notificacao do computador ativa' : 'notificacao do computador desligada');
   const cfg = alertSoundCfg();
   const somTxt = somOn ? `Som: ${alertSomDescricao().toLowerCase()}` : 'Som desligado';
   const postos = typeof _alertPostos === 'number'
@@ -771,11 +776,26 @@ async function alertCarregarHoje() {
 }
 
 function alertRenderContadores() {
-  const abertos = _alertIncidents.filter(alertOpen).length;
-  const a = document.getElementById('alertCntOpen');
-  const h = document.getElementById('alertCntHoje');
-  if (a) { a.textContent = `Abertos ${abertos}`; a.classList.toggle('is-hot', abertos > 0); }
-  if (h) h.textContent = `Hoje ${Math.max(_alertHoje.lista.length, 0)}`;
+  const abertos = _alertIncidents.filter(alertOpen);
+  const novos = abertos.filter((i) => i.status === 'new').length;
+  const atend = abertos.length - novos;
+  const n = document.getElementById('alertCntNovo');
+  const a = document.getElementById('alertCntAtend');
+  if (n) { n.querySelector('b').textContent = novos; n.classList.toggle('is-hot', novos > 0); }
+  if (a) { a.querySelector('b').textContent = atend; a.classList.toggle('is-atend', atend > 0); }
+  const dia = document.getElementById('alertFilaDia');
+  if (dia) {
+    const hoje = _alertHoje.lista || [];
+    // Media do disparo ate alguem assumir, so de quem foi assumido hoje.
+    const esperas = hoje
+      .map((i) => (alertDate(i.acknowledged_at)?.getTime() || 0) - (alertDate(i.opened_at)?.getTime() || 0))
+      .filter((ms) => ms > 0);
+    const media = esperas.length
+      ? alertTimer(new Date(0).toISOString(), new Date(esperas.reduce((s, x) => s + x, 0) / esperas.length).toISOString())
+      : '-';
+    dia.innerHTML = `<div><b>${hoje.length}</b><span>alerta${hoje.length === 1 ? '' : 's'} hoje</span></div>
+      <div><b>${esc(media)}</b><span>media para assumir</span></div>`;
+  }
   const foot = document.getElementById('alertFilaFoot');
   if (foot) {
     foot.hidden = !_alertMeusSites;
@@ -820,7 +840,10 @@ function alertRenderMapaInfo() {
     let andou = 0;
     if (pos.length > 1) andou = alertDistM([pos[0].lat, pos[0].lon], [pos[pos.length - 1].lat, pos[pos.length - 1].lon]);
     const itens = [];
-    if (p && p.gps) {
+    const idadeS = inc.last_position_at ? (Date.now() - (alertDate(inc.last_position_at)?.getTime() || Date.now())) / 1000 : 0;
+    if (p && p.gps && alertOpen(inc) && idadeS > ALERT_POS_VELHA_S) {
+      itens.push(`<span class="alert-map-chip is-warn" title="O celular nao manda posicao nova: a pessoa pode estar parada ou sem sinal. Confira pelas cameras.">Posicao de ha ${esc(alertAgo(inc.last_position_at))} · parada ou sem sinal</span>`);
+    } else if (p && p.gps) {
       const prec = inc.last_accuracy != null ? ` ~${Math.round(inc.last_accuracy)} m` : '';
       const quando = inc.last_position_at ? ` · atualizado ha ${esc(alertAgo(inc.last_position_at))}` : '';
       const ruim = inc.last_accuracy != null && inc.last_accuracy > ALERT_CIRCULO_MAX_M;
@@ -923,6 +946,9 @@ function alertRenderBanner() {
   const escala = inc.escalated_at
     ? '<span>Aviso enviado ao Telegram do site</span>'
     : `<span data-alert-escala="${esc(inc.opened_at)}"></span>`;
+  // Chegou outro pedido enquanto a central atende um: deixa claro que o atual nao some.
+  const atual = inc.id !== _alertSelectedId
+    ? _alertIncidents.find((i) => i.id === _alertSelectedId && alertOpen(i) && i.status !== 'new') : null;
   box.hidden = false;
   box.classList.toggle('is-duress', inc.kind === 'duress');
   box.innerHTML = `
@@ -931,6 +957,7 @@ function alertRenderBanner() {
       <small>${inc.kind === 'duress' ? 'COACAO · NINGUEM ASSUMIU' : 'PEDIDO DE AJUDA · NINGUEM ASSUMIU'}</small>
       <strong>${esc(m.full_name || '')}${onde ? ` <span>— ${esc(onde)}</span>` : ''}</strong>
       <p>${esc(gps)} · ${escala}${novos.length > 1 ? ` · <b>+${novos.length - 1} outro${novos.length > 2 ? 's' : ''} sem atendimento</b>` : ''}</p>
+      ${atual ? `<p class="alert-banner-segue">O atendimento de ${esc(atual.member?.full_name || '')} continua aberto no painel. "Ver" so troca o que aparece, nao encerra nada.</p>` : ''}
     </div>
     <div class="alert-banner-timer" data-alert-tick="${esc(inc.opened_at)}">${esc(alertTimer(inc.opened_at))}</div>
     <div class="alert-banner-actions">
@@ -1211,8 +1238,39 @@ function alertRenderDetail() {
       <li><span>${esc(alertClock(l.created_at))}</span><div><b>${esc(ALERT_LOG_LABEL[l.action] || l.action)}</b>
       ${l.actor ? `<small>${esc(l.actor)}</small>` : ''}${l.note && l.action !== 'opened' ? `<p>${esc(l.note)}</p>` : ''}</div></li>`).join('');
   const fone = m.phone
-    ? (inc.kind === 'duress' ? `<b class="is-riscado" title="Coacao: nao ligue">${esc(alertPhone(m.phone))}</b>` : `<b><a href="tel:${esc(m.phone)}">${esc(alertPhone(m.phone))}</a></b>`)
-    : '<b>-</b>';
+    ? (inc.kind === 'duress' ? `<b class="is-riscado" title="Coacao: nao ligue">${esc(alertPhone(m.phone))}</b>` : `<b>${esc(alertPhone(m.phone))}</b>`)
+    : '<b>sem telefone</b>';
+  const sinal = [
+    inc.last_battery != null ? `Bateria ${inc.last_battery}%` : '',
+    inc.last_accuracy != null ? `GPS ~${Math.round(inc.last_accuracy)} m` : (p && !p.gps ? 'sem GPS (lotacao)' : ''),
+    inc.last_position_at ? `ha ${alertAgo(inc.last_position_at)}` : '',
+  ].filter(Boolean).join(' · ');
+  // Coacao: sem botao de ligar -- alguem pode estar junto da pessoa.
+  const ligar = m.phone && inc.kind !== 'duress'
+    ? `<a class="alert-case-ligar" href="tel:${esc(m.phone)}"><i data-lucide="phone"></i> Ligar</a>` : '';
+  const dica = !open ? ''
+    : inc.status === 'new'
+      ? (inc.escalated_at ? 'Aviso ja enviado ao Telegram do site' : `<span data-alert-escala="${esc(inc.opened_at)}"></span>`)
+      : !inc.dispatched_at
+        ? `Assumido${inc.acknowledged_by ? ` por ${esc(inc.acknowledged_by)}` : ''} as ${esc(alertClock(inc.acknowledged_at).slice(0, 5))}`
+        : !inc.arrived_at
+          ? `Equipe saiu as ${esc(alertClock(inc.dispatched_at).slice(0, 5))} · marque quando chegar`
+          : `Equipe no local desde ${esc(alertClock(inc.arrived_at).slice(0, 5))}`;
+
+  // Abas: o painel redesenha a cada 3 s, entao a aba escolhida fica guardada.
+  const passos = inc.protocolo || [];
+  const abas = [
+    ['passos', passos.length ? `Passos ${passos.filter((x) => x.feito).length}/${passos.length}` : 'Passos'],
+    ...(open ? [['nota', 'Observacao']] : []),
+    ['tempo', 'Linha do tempo'],
+    ['dados', 'Dados'],
+  ];
+  if (_alertAbaInc !== inc.id) {
+    _alertAbaInc = inc.id;
+    _alertAba = !open ? 'tempo' : (passos.length ? 'passos' : 'nota');
+  }
+  if (!abas.some(([k]) => k === _alertAba)) _alertAba = abas[0][0];
+  const oculta = (k) => (k === _alertAba ? '' : ' hidden');
 
   panel.hidden = false;
   panel.classList.remove('is-calm');
@@ -1233,28 +1291,31 @@ function alertRenderDetail() {
       ${duress}
     </div>
     <div class="alert-case-body">
-      ${principal ? `<div class="alert-case-actions">${principal}</div>` : ''}
-      <div class="alert-case-section"><div class="alert-case-label">Etapas</div>${alertStepsHtml(inc)}</div>
-      ${alertProtocoloHtml(inc, open)}
-      ${open ? `<div class="alert-case-section">
-        <div class="alert-case-label">Observacao</div>
+      ${principal ? `<div class="alert-case-actions">${principal}${dica ? `<small class="alert-case-dica">${dica}</small>` : ''}</div>` : ''}
+      ${alertStepsHtml(inc)}
+      <div class="alert-case-contato">
+        <div>${fone}${sinal ? `<small>${esc(sinal)}</small>` : ''}</div>${ligar}
+      </div>
+      <nav class="alert-case-tabs" aria-label="Detalhes do atendimento">${abas.map(([k, t]) =>
+        `<button type="button" data-alert-aba="${k}" aria-pressed="${k === _alertAba}">${esc(t)}</button>`).join('')}</nav>
+      <div class="alert-case-tab"${oculta('passos')}>${alertProtocoloHtml(inc, open) || '<div class="alert-live-empty">Este site nao tem passos de atendimento definidos.</div>'}</div>
+      ${open ? `<div class="alert-case-tab"${oculta('nota')}>
         ${alertQuickNotesHtml()}
         <div class="alert-case-note">
           <input id="alertNoteInput" data-inc="${esc(inc.id)}" maxlength="2000" placeholder="Escreva e tecle Enter — entra na linha do tempo" value="${esc(nota)}">
           <button class="secondary-action" data-alert-act="note-send" type="button" aria-label="Registrar observacao"><i data-lucide="send"></i></button>
         </div>
       </div>` : ''}
-      <div class="alert-case-section alert-case-facts">
-        <span><small>Telefone</small>${fone}</span>
+      <div class="alert-case-tab alert-timeline"${oculta('tempo')}><ul>${log || '<li><div>Sem registros.</div></li>'}</ul></div>
+      <div class="alert-case-tab alert-case-facts"${oculta('dados')}>
         <span><small>CPF</small><b>${esc(alertCpf(m.document_id)) || '-'}</b></span>
+        <span><small>Disparo</small><b>${esc(alertClock(inc.opened_at))}</b></span>
         <span><small>Ultima posicao</small><b>${esc(posAge)}</b></span>
         <span><small>Precisao GPS</small><b>${inc.last_accuracy != null ? `~${Math.round(inc.last_accuracy)} m` : (p && !p.gps ? 'sem GPS (lotacao)' : '-')}</b></span>
-        <span><small>Bateria</small><b>${inc.last_battery != null ? `${inc.last_battery}%` : '-'}</b></span>
-        <span><small>Disparo</small><b>${esc(alertClock(inc.opened_at))}</b></span>
+        ${m.notes ? `<span class="wide"><small>Observacoes do cadastro</small><b>${esc(m.notes)}</b></span>` : ''}
         ${inc.close_note ? `<span class="wide"><small>Encerramento</small><b>${esc(inc.close_note)}</b></span>` : ''}
         ${mapsUrl ? `<span class="wide"><a class="link-action" href="${esc(mapsUrl)}" target="_blank" rel="noopener"><i data-lucide="map-pin"></i> Abrir no Google Maps</a></span>` : ''}
       </div>
-      <details class="alert-case-section alert-timeline"${open ? ' open' : ''}><summary class="alert-case-label">Linha do tempo <span>${(inc.log || []).length}</span></summary><ul>${log || '<li><div>Sem registros.</div></li>'}</ul></details>
       ${open ? `<div class="alert-case-foot">
         ${inc.status !== 'new' && !inc.dispatched_at ? '<button class="secondary-action" data-alert-act="arrive" type="button"><i data-lucide="map-pin-check"></i> Equipe chegou</button>' : ''}
         ${inc.arrived_at ? '' : '<button class="secondary-action" data-alert-act="close" type="button"><i data-lucide="check-circle-2"></i> Encerrar</button>'}
@@ -1262,6 +1323,10 @@ function alertRenderDetail() {
     </div>`;
   const notaDepois = document.getElementById('alertNoteInput');
   if (notaDepois && notaFoco) { notaDepois.focus(); notaDepois.setSelectionRange(nota.length, nota.length); }
+  panel.querySelectorAll('[data-alert-escala]').forEach((el) => {
+    const falta = ALERT_ESCALATION_S - Math.floor((Date.now() - (alertDate(el.dataset.alertEscala)?.getTime() || 0)) / 1000);
+    el.textContent = falta > 0 ? `Telegram do site avisa em ${alertTimer(new Date(Date.now() - falta * 1000).toISOString())}` : 'Aviso enviado ao Telegram do site';
+  });
   if (window.lucide) lucide.createIcons();
 }
 
@@ -1314,7 +1379,7 @@ async function alertRenderCalm() {
       ${linha(somOn, somOn ? 'volume-2' : 'volume-x', somOn ? 'Este posto vai tocar' : 'Som desligado neste posto',
         somOn ? `${alertSomDescricao()}.` : 'Ligue o som para nao perder alerta.',
         '<button type="button" class="link-action" data-calm="som">Testar</button>')}
-      ${linha(aviso === 'ativo', 'bell-ring', `Aviso do Windows ${aviso}`,
+      ${linha(aviso === 'ativo', 'bell-ring', `Notificacao do computador: ${aviso}`,
         aviso === 'ativo' ? 'Balao aparece mesmo com o SightOps minimizado.' : 'Ative para ser avisado com o navegador em outra aba.',
         aviso === 'ativo' ? '' : '<button type="button" class="link-action" data-calm="aviso">Ativar</button>')}
       ${pr ? linha(pend === 0, 'smartphone', `${pr.prontas} de ${pr.total} pessoas prontas`,
@@ -1435,6 +1500,13 @@ async function alertLoadNearby() {
 }
 
 async function alertDetailClick(ev) {
+  const aba = ev.target.closest('[data-alert-aba]')?.dataset.alertAba;
+  if (aba) {
+    _alertAba = aba;
+    alertRenderDetail();
+    if (aba === 'nota') document.getElementById('alertNoteInput')?.focus();
+    return;
+  }
   const cam = ev.target.closest('[data-alert-cam]');
   if (cam) { alertOpenCamera(cam.dataset); return; }
   const calm = ev.target.closest('[data-calm]')?.dataset.calm;
@@ -1556,6 +1628,10 @@ async function loadAlertMembers() {
     });
     document.getElementById('btnAlertMemberNew')?.addEventListener('click', () => alertOpenMember(null));
     document.getElementById('btnAlertMemberSave')?.addEventListener('click', alertSaveMember);
+    document.getElementById('alertMemberCpf')?.addEventListener('input', alertConferirCpf);
+    document.getElementById('alertMemberCpfDup')?.addEventListener('click', (ev) => {
+      if (ev.target.closest('[data-cpf-abrir]') && _alertCpfDono) alertOpenMember(_alertCpfDono);
+    });
     document.getElementById('btnAlertAppOpen')?.addEventListener('click', () => {
       window.open(new URL('alerta/', window.location.href).href, '_blank', 'noopener');
     });
@@ -1890,12 +1966,42 @@ function alertOpenMember(m) {
   v('alertMemberLon', m?.unit_lon);
   v('alertMemberNotes', m?.notes);
   document.getElementById('alertMemberActive').checked = m ? !!m.active : true;
+  _alertCpfDono = null;
+  const dup = document.getElementById('alertMemberCpfDup');
+  if (dup) { dup.hidden = true; dup.innerHTML = ''; }
   alertFillConnectorSelect(m?.unit_connector_id || '');
   _alertEditPonto = m?.ponto && m.ponto.origem === 'cameras' ? m.ponto : null;
   const bc = document.getElementById('btnAlertCoordCams');
   if (bc) bc.hidden = !_alertEditPonto || m?.unit_lat != null;
   document.getElementById('modalAlertMember').classList.remove('hidden');
   setTimeout(() => document.getElementById('alertMemberName')?.focus(), 50);
+}
+
+// CPF ja cadastrado: avisa ao digitar, antes do Salvar (o backend recusa de
+// qualquer jeito). A busca so devolve pessoas dos sites que o usuario ve.
+let _alertCpfDono = null;
+let _alertCpfSeq = 0;
+async function alertConferirCpf() {
+  const box = document.getElementById('alertMemberCpfDup');
+  if (!box) return;
+  const cpf = document.getElementById('alertMemberCpf').value.replace(/\D/g, '');
+  const meuId = document.getElementById('alertMemberId').value;
+  const seq = ++_alertCpfSeq;
+  _alertCpfDono = null;
+  box.hidden = true;
+  if (cpf.length !== 11) return;
+  let dono = null;
+  try {
+    const data = await alertApiJson(`/api/alert/members?search=${encodeURIComponent(cpf)}`);
+    dono = (data.members || []).find((x) => String(x.document_id || '').replace(/\D/g, '') === cpf && x.id !== meuId) || null;
+  } catch { return; }
+  if (seq !== _alertCpfSeq || !dono) return;
+  _alertCpfDono = dono;
+  box.innerHTML = `<i data-lucide="alert-triangle"></i><div><b>Ja existe uma pessoa com este CPF</b>
+    <span>${esc([dono.full_name, dono.role_title, dono.site || dono.unit_name].filter(Boolean).join(' · '))}</span></div>
+    <button type="button" class="secondary-action" data-cpf-abrir>Abrir o cadastro</button>`;
+  box.hidden = false;
+  if (window.lucide) lucide.createIcons();
 }
 
 async function alertSaveMember() {

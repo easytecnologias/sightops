@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=1792600353">
+  <link rel="stylesheet" href="styles.css?v=1792803102">
   <link rel="stylesheet" href="acesso/acesso.css?v=1792600213">
 </head>
 <body>
@@ -1619,11 +1619,15 @@
           <section class="panel alert-live-list-panel">
             <div class="panel-header alert-fila-head">
               <div><h2 id="alertListTitle">Fila</h2><p id="alertListSub">Abertos e encerrados recentes.</p></div>
-              <div class="alert-fila-cnt"><span class="pill" id="alertCntOpen">Abertos 0</span><span class="pill neutral" id="alertCntHoje">Hoje 0</span></div>
+            </div>
+            <div class="alert-fila-nums">
+              <div class="alert-fila-num" id="alertCntNovo"><b>0</b><span>sem atendimento</span></div>
+              <div class="alert-fila-num" id="alertCntAtend"><b>0</b><span>em atendimento</span></div>
             </div>
             <div class="alert-live-list" id="alertLiveList">
               <div class="alert-live-empty">Carregando alertas.</div>
             </div>
+            <div class="alert-fila-dia" id="alertFilaDia"></div>
             <div class="alert-fila-foot" id="alertFilaFoot" hidden></div>
             <div class="alert-fila-state"><span id="alertLiveState">aguardando</span></div>
           </section>
@@ -1697,6 +1701,7 @@
                 <div class="form-group"><label for="alertMemberName">Nome completo</label><input id="alertMemberName" maxlength="160"></div>
                 <div class="form-group"><label for="alertMemberCpf">CPF</label><input id="alertMemberCpf" inputmode="numeric" maxlength="14" placeholder="000.000.000-00"></div>
               </div>
+              <div class="alert-cpf-dup" id="alertMemberCpfDup" role="alert" hidden></div>
               <div class="form-row">
                 <div class="form-group"><label for="alertMemberRole">Cargo</label><input id="alertMemberRole" maxlength="120" placeholder="Professora, merendeira, vigia..."></div>
                 <div class="form-group"><label for="alertMemberPhone">Telefone</label><input id="alertMemberPhone" maxlength="20" placeholder="(82) 99999-0000"></div>
@@ -7797,7 +7802,7 @@
   <script src="acesso/acesso.js?v=1792600205"></script>
   <script src="js/messenger.js?v=1791000212"></script>
   <script src="https://unpkg.com/qrcode-generator@1.4.4/qrcode.js"></script>
-  <script src="js/alert.js?v=1792600267"></script>
+  <script src="js/alert.js?v=1792803101"></script>
   <script src="js/controleRotas.js?v=1792600341"></script>
   <script src="js/tr069.js?v=1791000212"></script>
   <script src="js/bootstrap.js?v=1792600207"></script>
