@@ -34,6 +34,7 @@ let _alertEditPonto = null;   // centro das cameras do local (botao no editar)
 let _alertPostos = null;      // postos online (vem do /summary)
 let _alertSeguir = true;       // mapa acompanha a pessoa
 let _alertUnits = null;        // camada com as lotacoes (tela calma)
+let _alertCamsAlerta = null;   // camada com as cameras e o raio (com alerta)
 let _alertHoje = { at: 0, lista: [] };
 
 const ALERT_REFRESH_MS = 3000;
@@ -600,6 +601,7 @@ function alertInitMap() {
   _alertMarkers = L.layerGroup().addTo(_alertMap);
   _alertTrail = L.layerGroup().addTo(_alertMap);
   _alertUnits = L.layerGroup().addTo(_alertMap);
+  _alertCamsAlerta = L.layerGroup().addTo(_alertMap);
   // O mapa estica com a coluna: muda de altura quando a faixa ou as cameras
   // aparecem, sem a janela mudar. Sem isso o Leaflet deixa faixa cinza.
   if (window.ResizeObserver) new ResizeObserver(() => _alertMap?.invalidateSize()).observe(document.getElementById('alertLiveMap'));
@@ -875,7 +877,11 @@ function alertRenderMapaInfo() {
     chips.innerHTML = itens.join('');
     const maps = p ? `<a class="alert-map-btn" href="https://www.google.com/maps?q=${p.lat},${p.lon}" target="_blank" rel="noopener"><i data-lucide="external-link"></i> Google Maps</a>` : '';
     tools.innerHTML = `${p ? `<button type="button" class="alert-map-btn${_alertSeguir ? ' is-on' : ''}" data-map="seguir"><i data-lucide="locate-fixed"></i> ${_alertSeguir ? 'Seguindo a pessoa' : 'Seguir a pessoa'}</button>` : ''}${maps}`;
-    if (legenda) legenda.innerHTML = '<span><i class="lg-pessoa"></i> pessoa</span><span><i class="lg-disparo"></i> ponto do disparo</span><span><i class="lg-rastro"></i> trajeto</span>';
+    if (legenda) {
+      legenda.innerHTML = '<span><i class="lg-pessoa"></i> pessoa</span><span><i class="lg-camera"></i> camera</span>'
+        + `${_alertRaioMapa ? `<span><i class="lg-raio"></i> raio de busca ${esc(alertDistLabel(_alertRaioMapa))}</span>` : ''}`
+        + '<span><i class="lg-disparo"></i> disparo</span><span><i class="lg-rastro"></i> trajeto</span>';
+    }
   } else {
     tools.innerHTML = '';
     alertDesenharLotacoes();
@@ -885,6 +891,38 @@ function alertRenderMapaInfo() {
 
 let _alertLotKey = '';
 let _alertMapCams = { at: 0, lista: null };
+// Cameras com coordenada dos sites do usuario: 1 busca por minuto (o backend tambem guarda 60 s).
+async function alertCamsDoMapa() {
+  if (!_alertMapCams.lista || Date.now() - _alertMapCams.at > 60000) {
+    _alertMapCams.at = Date.now();
+    try { _alertMapCams.lista = (await alertApiJson('/api/alert/map-cameras')).cameras || []; } catch { _alertMapCams.lista = _alertMapCams.lista || []; }
+  }
+  return _alertMapCams.lista || [];
+}
+
+// No alerta: os pontos das cameras e o circulo do raio de busca em volta da
+// pessoa -- a central ve com os proprios olhos se "nenhuma camera no raio" e verdade.
+let _alertCamsAlertaKey = '';
+async function alertDesenharCamsDoAlerta(raio) {
+  if (!_alertCamsAlerta || !_alertDetail) return;
+  const p = alertPoint(_alertDetail);
+  const cams = await alertCamsDoMapa();
+  const key = `${_alertDetail.id}:${p ? `${p.lat.toFixed(5)},${p.lon.toFixed(5)}` : '-'}:${raio}:${cams.length}`;
+  if (key === _alertCamsAlertaKey || !_alertDetail) return;
+  _alertCamsAlertaKey = key;
+  _alertCamsAlerta.clearLayers();
+  const render = L.canvas ? L.canvas({ padding: 0.3 }) : undefined;
+  cams.forEach((c) => {
+    const dentro = p && raio ? alertDistM([p.lat, p.lon], [c.lat, c.lon]) <= raio : false;
+    L.circleMarker([c.lat, c.lon], { renderer: render, radius: dentro ? 6 : 4, weight: dentro ? 2 : 1, color: '#ffffff', fillColor: '#1971c2', fillOpacity: dentro ? 1 : 0.75 })
+      .bindTooltip(`${esc(c.titulo || '')}${c.site ? `<br><small>${esc(c.site)}</small>` : ''}`).addTo(_alertCamsAlerta);
+  });
+  if (p && raio) {
+    L.circle([p.lat, p.lon], { radius: raio, color: '#1971c2', weight: 2, dashArray: '6 6', fill: true, fillOpacity: 0.05, interactive: false }).addTo(_alertCamsAlerta);
+  }
+}
+let _alertRaioMapa = 0;  // raio que valeu na ultima busca de cameras (legenda do mapa)
+
 async function alertDesenharLotacoes() {
   const chips = document.getElementById('alertMapChips');
   const legenda = document.getElementById('alertMapLegend');
@@ -892,13 +930,8 @@ async function alertDesenharLotacoes() {
   if (!membros) {
     try { membros = (await alertApiJson('/api/alert/members')).members || []; } catch { membros = []; }
   }
-  // Cameras dos locais monitorados: 1 busca por minuto (o backend tambem guarda 60 s).
-  if (!_alertMapCams.lista || Date.now() - _alertMapCams.at > 60000) {
-    _alertMapCams.at = Date.now();
-    try { _alertMapCams.lista = (await alertApiJson('/api/alert/map-cameras')).cameras || []; } catch { _alertMapCams.lista = _alertMapCams.lista || []; }
-  }
+  const cams = await alertCamsDoMapa();
   if (_alertDetail) return; // chegou alerta enquanto buscava
-  const cams = _alertMapCams.lista || [];
   const locais = new Map();
   membros.filter((m) => m.active && m.ponto).forEach((m) => {
     const k = `${Number(m.ponto.lat).toFixed(4)},${Number(m.ponto.lon).toFixed(4)}`;
@@ -1198,6 +1231,9 @@ async function alertLoadDetail() {
   if (!panel) return;
   if (!_alertSelectedId) {
     _alertTrail?.clearLayers();
+    _alertCamsAlerta?.clearLayers();
+    _alertCamsAlertaKey = '';
+    _alertRaioMapa = 0;
     _alertDetail = null;
     alertMostrarCameras(false);
     alertRenderCalm();
@@ -1516,6 +1552,9 @@ async function alertLoadNearby() {
     // Sem camera no raio, diz isso com todas as letras -- e informa a
     // distancia da mais proxima, que muda a decisao de quem atende.
     const raio = Math.round(near.radius_m || 20);
+    _alertRaioMapa = p ? raio : 0;
+    alertDesenharCamsDoAlerta(_alertRaioMapa);
+    alertRenderMapaInfo();
     let vazio;
     if (!p) {
       vazio = 'Sem localizacao para buscar cameras.';
@@ -2095,6 +2134,7 @@ function alertOpenMember(m) {
   v('alertMemberRaio', m?.camera_radius_m || '');
   _alertFotoNova = null;
   _alertFotoAtual = alertFotoUrl(m);
+  _alertEditConector = m?.unit_connector_id || '';
   alertFichaPrevia();
   document.getElementById('alertMemberActive').checked = m ? !!m.active : true;
   _alertCpfDono = null;
@@ -2207,7 +2247,16 @@ async function alertConferirCpf() {
   if (window.lucide) lucide.createIcons();
 }
 
+// Local monitorado que a pessoa tinha quando o cadastro abriu: tirar sem querer
+// some com as cameras dela no alerta (e no mapa), entao confirma antes.
+let _alertEditConector = '';
+
 async function alertSaveMember() {
+  const novoConector = document.getElementById('alertMemberConnector').value;
+  if (_alertEditConector && !novoConector && !(await showConfirm({
+    eyebrow: 'Pessoas do Alerta', title: 'Tirar o local monitorado?', label: 'Tirar e salvar', danger: false,
+    msg: `Esta pessoa estava em ${alertConnectorName(_alertEditConector)}. Sem local monitorado, as cameras dela nao aparecem no alerta. Salvar assim mesmo?`,
+  }))) return;
   const g = (id) => document.getElementById(id).value.trim();
   const payload = {
     id: g('alertMemberId'),

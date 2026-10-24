@@ -439,16 +439,13 @@ def _ponto_do_membro(m: Dict[str, Any]) -> Optional[Dict[str, Any]]:
 
 
 def cameras_do_mapa(limite: int = 1500) -> List[Dict[str, Any]]:
-    """Cameras com coordenada dos locais monitorados das pessoas que o usuario
-    ve. So o necessario para desenhar um ponto (sem IP, sem credencial)."""
+    """Todas as cameras com coordenada dos sites que o usuario ve -- nao so as
+    dos locais monitorados: a central confere no mapa se "nenhuma camera no
+    raio" e verdade (pessoa sem local monitorado sumia com todos os pontos).
+    So o necessario para desenhar um ponto (sem IP, sem credencial)."""
     from app.core import permissions
 
-    cids = {str(m.get("unit_connector_id") or "") for m in list_members() if m.get("active")}
-    cids.discard("")
-    if not cids:
-        return []
-    cams = [c for c in _cameras_com_coordenada() if c["connector"] in cids]
-    cams = permissions.filtrar_por_site(cams, ("site",))
+    cams = permissions.filtrar_por_site(_cameras_com_coordenada(), ("site",))
     return [{k: c[k] for k in ("lat", "lon", "titulo", "site", "status")} for c in cams[: max(1, int(limite))]]
 
 

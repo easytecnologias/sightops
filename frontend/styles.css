@@ -10244,6 +10244,7 @@ button.alert-chip { cursor: pointer; }
 .alert-map-legend .lg-local { background: var(--primary); }
 .alert-map-legend .lg-local-warn { background: var(--amber); }
 .alert-map-legend .lg-camera { width: 8px; height: 8px; background: var(--blue); box-shadow: 0 0 0 1px #fff; }
+.alert-map-legend .lg-raio { width: 12px; height: 12px; border-radius: 50%; border: 2px dashed #74b4f0; background: transparent; box-sizing: border-box; }
 .alert-lot { display: grid; place-items: center; width: 26px; height: 26px; border-radius: 50%; background: var(--primary); color: #fff; font: 700 11px Inter, Arial, sans-serif; border: 3px solid #fff; box-shadow: 0 2px 8px rgba(23,32,38,.3); }
 .alert-lot.warn { background: var(--amber); }
 
