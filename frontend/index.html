@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=1792804402">
+  <link rel="stylesheet" href="styles.css?v=1792804602">
   <link rel="stylesheet" href="acesso/acesso.css?v=1792600213">
 </head>
 <body>
@@ -1692,11 +1692,18 @@
               <aside class="alert-ficha-lado">
                 <div class="alert-ficha-foto">
                   <div class="alert-ficha-fotobox" id="alertMemberFotoBox"><span>?</span></div>
+                  <div class="alert-ficha-ajuste" id="alertMemberFotoAjuste" hidden>
+                    <span>Arraste a foto para enquadrar o rosto</span>
+                    <label><i data-lucide="zoom-out"></i><input type="range" id="alertMemberFotoZoom" min="1" max="4" step="0.01" value="1" aria-label="Zoom da foto"><i data-lucide="zoom-in"></i></label>
+                  </div>
                   <div class="alert-ficha-fotobtns">
                     <label class="primary-action"><i data-lucide="upload"></i> Enviar foto<input type="file" accept="image/*" id="alertMemberFotoArq" hidden></label>
                     <label class="secondary-action"><i data-lucide="camera"></i> Tirar foto<input type="file" accept="image/*" capture="user" id="alertMemberFotoCam" hidden></label>
                   </div>
-                  <button type="button" class="link-action alert-ficha-fototira" id="btnAlertFotoTirar" hidden>Remover foto</button>
+                  <div class="alert-ficha-fotolinks">
+                    <button type="button" class="link-action" id="btnAlertFotoAjustar" hidden>Ajustar enquadramento</button>
+                    <button type="button" class="link-action alert-ficha-fototira" id="btnAlertFotoTirar" hidden>Remover foto</button>
+                  </div>
                   <ul class="alert-ficha-dicas"><li>Rosto de frente e bem iluminado</li><li>Sem oculos escuros, bone ou mascara</li></ul>
                 </div>
                 <span class="alert-ficha-rot">Previa: assim a central ve no alerta</span>
@@ -7841,7 +7848,7 @@
   <script src="acesso/acesso.js?v=1792600205"></script>
   <script src="js/messenger.js?v=1791000212"></script>
   <script src="https://unpkg.com/qrcode-generator@1.4.4/qrcode.js"></script>
-  <script src="js/alert.js?v=1792804501"></script>
+  <script src="js/alert.js?v=1792804601"></script>
   <script src="js/controleRotas.js?v=1792600341"></script>
   <script src="js/tr069.js?v=1791000212"></script>
   <script src="js/bootstrap.js?v=1792600207"></script>

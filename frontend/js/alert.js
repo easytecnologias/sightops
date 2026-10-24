@@ -1836,7 +1836,13 @@ async function loadAlertMembers() {
       document.getElementById(id)?.addEventListener('input', alertFichaPrevia));
     document.getElementById('alertMemberFotoArq')?.addEventListener('change', alertEscolherFoto);
     document.getElementById('alertMemberFotoCam')?.addEventListener('change', alertEscolherFoto);
-    document.getElementById('btnAlertFotoTirar')?.addEventListener('click', () => { _alertFotoNova = ''; alertFichaFoto(); });
+    document.getElementById('btnAlertFotoTirar')?.addEventListener('click', () => { alertFotoEditFim(); _alertFotoNova = ''; alertFichaFoto(); });
+    document.getElementById('btnAlertFotoAjustar')?.addEventListener('click', () => {
+      const url = _alertFotoNova !== null ? _alertFotoNova : _alertFotoAtual;
+      if (url) alertFotoEditar(url);
+    });
+    document.getElementById('alertMemberFotoBox')?.addEventListener('pointerdown', alertFotoEditArrastar);
+    document.getElementById('alertMemberFotoZoom')?.addEventListener('input', (ev) => alertFotoEditZoom(ev.target.value));
     document.getElementById('alertMemberRaioAtalhos')?.addEventListener('click', (ev) => {
       const b = ev.target.closest('[data-raio]');
       if (!b) return;
@@ -2236,6 +2242,7 @@ function alertOpenMember(m) {
   v('alertMemberLon', m?.unit_lon);
   v('alertMemberNotes', m?.notes);
   v('alertMemberRaio', m?.camera_radius_m || '');
+  alertFotoEditFim();
   _alertFotoNova = null;
   _alertFotoAtual = alertFotoUrl(m);
   _alertEditConector = m?.unit_connector_id || '';
@@ -2267,12 +2274,99 @@ function alertAvatarHtml(m) {
 let _alertFotoNova = null;
 let _alertFotoAtual = '';
 
+// Enquadramento: a foto e arrastada e aproximada dentro do quadro; ao salvar
+// vai o quadrado do jeito que esta na tela. {img, zoom, x, y} em px do quadro.
+let _alertFotoEdit = null;
+
+function alertFotoEditAplicar() {
+  const e = _alertFotoEdit;
+  const box = document.getElementById('alertMemberFotoBox');
+  if (!e || !box) return;
+  const lado = box.clientWidth || 200;
+  const base = Math.max(lado / e.img.naturalWidth, lado / e.img.naturalHeight);
+  const w = e.img.naturalWidth * base * e.zoom;
+  const h = e.img.naturalHeight * base * e.zoom;
+  // A foto sempre cobre o quadro inteiro: sem borda vazia no recorte.
+  e.x = Math.min(0, Math.max(lado - w, e.x));
+  e.y = Math.min(0, Math.max(lado - h, e.y));
+  Object.assign(e.img.style, { left: `${e.x}px`, top: `${e.y}px`, width: `${w}px`, height: `${h}px` });
+  e.lado = lado; e.w = w; e.h = h;
+}
+
+function alertFotoEditar(url) {
+  const img = new Image();
+  img.alt = 'Foto da pessoa';
+  img.className = 'alert-ficha-fotoedit';
+  img.draggable = false;
+  img.onload = () => {
+    const box = document.getElementById('alertMemberFotoBox');
+    const lado = box.clientWidth || 200;
+    const base = Math.max(lado / img.naturalWidth, lado / img.naturalHeight);
+    // Comeca centralizado.
+    _alertFotoEdit = { img, zoom: 1, x: (lado - img.naturalWidth * base) / 2, y: (lado - img.naturalHeight * base) / 2 };
+    box.innerHTML = '';
+    box.appendChild(img);
+    box.classList.add('tem-foto', 'ajustando');
+    document.getElementById('alertMemberFotoZoom').value = '1';
+    document.getElementById('alertMemberFotoAjuste').hidden = false;
+    document.getElementById('btnAlertFotoAjustar').hidden = true;
+    alertFotoEditAplicar();
+  };
+  img.onerror = () => showToast('Nao consegui abrir a foto para ajustar.', true);
+  img.src = url;
+}
+
+function alertFotoEditArrastar(ev) {
+  const e = _alertFotoEdit;
+  if (!e || ev.button > 0) return;
+  const box = ev.currentTarget;
+  const x0 = ev.clientX - e.x, y0 = ev.clientY - e.y;
+  box.setPointerCapture?.(ev.pointerId);
+  const mover = (m) => { e.x = m.clientX - x0; e.y = m.clientY - y0; alertFotoEditAplicar(); };
+  const soltar = () => { box.removeEventListener('pointermove', mover); box.removeEventListener('pointerup', soltar); box.removeEventListener('pointercancel', soltar); };
+  box.addEventListener('pointermove', mover);
+  box.addEventListener('pointerup', soltar);
+  box.addEventListener('pointercancel', soltar);
+  ev.preventDefault();
+}
+
+function alertFotoEditZoom(z) {
+  const e = _alertFotoEdit;
+  if (!e) return;
+  // Aproxima mantendo o centro do quadro no mesmo ponto da foto.
+  const c = (e.lado || 200) / 2;
+  const k = Number(z) / e.zoom;
+  e.x = c - (c - e.x) * k;
+  e.y = c - (c - e.y) * k;
+  e.zoom = Number(z);
+  alertFotoEditAplicar();
+}
+
+// O quadrado enquadrado, em 640 px (o tamanho que o servidor guarda).
+function alertFotoRecorte() {
+  const e = _alertFotoEdit;
+  if (!e || !e.lado) return null;
+  const cv = document.createElement('canvas');
+  cv.width = cv.height = 640;
+  const k = 640 / e.lado;
+  cv.getContext('2d').drawImage(e.img, e.x * k, e.y * k, e.w * k, e.h * k);
+  return cv.toDataURL('image/jpeg', 0.88);
+}
+
+function alertFotoEditFim() {
+  _alertFotoEdit = null;
+  document.getElementById('alertMemberFotoBox')?.classList.remove('ajustando');
+  const aj = document.getElementById('alertMemberFotoAjuste');
+  if (aj) aj.hidden = true;
+}
+
 function alertFichaFoto() {
   const url = _alertFotoNova !== null ? _alertFotoNova : _alertFotoAtual;
   const nome = (document.getElementById('alertMemberName')?.value || '').trim();
   const ini = esc(nome ? alertIniciais(nome) : '?');
   const box = document.getElementById('alertMemberFotoBox');
-  if (box) {
+  // Ajustando: o quadro e da ferramenta de enquadrar, nao redesenha.
+  if (box && !_alertFotoEdit) {
     box.classList.toggle('tem-foto', !!url);
     box.innerHTML = url ? `<img src="${esc(url)}" alt="Foto da pessoa">` : `<span>${ini}</span>`;
   }
@@ -2280,6 +2374,8 @@ function alertFichaFoto() {
   if (prev) prev.innerHTML = url ? `<img src="${esc(url)}" alt="">` : ini;
   const tira = document.getElementById('btnAlertFotoTirar');
   if (tira) tira.hidden = !url;
+  const ajustar = document.getElementById('btnAlertFotoAjustar');
+  if (ajustar) ajustar.hidden = !url || !!_alertFotoEdit;
 }
 
 // Reduz no navegador antes de mandar (foto de celular tem 4-12 MB).
@@ -2307,7 +2403,9 @@ async function alertEscolherFoto(ev) {
   if (!arq) return;
   try {
     _alertFotoNova = await alertReduzirFoto(arq);
+    alertFotoEditFim();
     alertFichaFoto();
+    alertFotoEditar(_alertFotoNova);  // foto nova ja abre para enquadrar
   } catch (err) {
     showToast(err.message, true);
   }
@@ -2377,6 +2475,11 @@ async function alertSaveMember() {
     camera_radius_m: g('alertMemberRaio') || null,
   };
   try {
+    // Enquadrando: vai o quadrado do jeito que esta na tela.
+    if (_alertFotoEdit) {
+      const recorte = alertFotoRecorte();
+      if (recorte) _alertFotoNova = recorte;
+    }
     const out = await alertApiJson('/api/alert/members', { method: 'POST', body: JSON.stringify(payload) });
     // Foto depois do cadastro: pessoa nova so tem id depois de salvar.
     let fotoErro = '';
