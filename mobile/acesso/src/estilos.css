@@ -408,3 +408,4 @@ svg { flex: none; }
 .item-pct { align-items: center; }
 .item-porta .botoes-porta { width: 100%; }
 .item-porta .bp { flex: 1; justify-content: center; min-height: 44px; }
+.item-porta .ic-local { background: var(--primary-soft); color: var(--primary); }

@@ -16,6 +16,7 @@ import { Inicio } from './telas/Inicio';
 import { Pessoas } from './telas/Pessoas';
 import { CadastroDados, CadastroFoto, CadastroPortas, CadastroPronto } from './telas/Cadastro';
 import { Relatorios } from './telas/Relatorio';
+import { Portas } from './telas/Portas';
 import { Visitante } from './telas/Visitante';
 
 type Etapa = 'abertura' | 'apresentacao' | 'login' | 'pin' | 'criar-pin' | 'permissoes' | 'local' | 'dentro';
@@ -37,6 +38,7 @@ function Dentro({ aoSair, aoTrocarPin }: { aoSair: () => void; aoTrocarPin: () =
             <Route path="/" element={<Inicio />} />
             <Route path="/pessoas" element={<Pessoas />} />
             <Route path="/relatorio" element={<Relatorios />} />
+            <Route path="/portas" element={<Portas />} />
             <Route path="/visitante" element={<Visitante />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>

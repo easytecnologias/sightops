@@ -7,7 +7,7 @@ import { useVisaoGeral } from '../lib/dados';
 import { vocab } from '../lib/vocab';
 import { Carregando, Icone, Logo, Vazio } from '../ui/pecas';
 
-export const VERSAO = '1.1.0';
+export const VERSAO = '1.2.0';
 
 /* ─────────────────────────── B · Abertura ─────────────────────────── */
 export function Abertura() {

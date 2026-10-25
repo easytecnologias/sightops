@@ -1,7 +1,7 @@
 {
   "name": "sightops-acesso",
   "private": true,
-  "version": "1.1.0",
+  "version": "1.2.0",
   "type": "module",
   "description": "SightOps Acesso — cadastro de pessoas, triagem e visitante pelo celular (Android via Capacitor)",
   "scripts": {

@@ -53,7 +53,8 @@ export function Shell(
           <span className="mais">{Icone.mais}</span>Cadastrar
         </a>
         <NavLink to="/relatorio" className={({ isActive }) => (isActive ? 'ativo' : '')}>{Icone.grafico}Relatório</NavLink>
-        <NavLink to="/visitante" className={({ isActive }) => (isActive ? 'ativo' : '')}>{Icone.cracha}Visitante</NavLink>
+        <NavLink to="/portas" className={({ isActive }) => (isActive ? 'ativo' : '')}>{Icone.porta}Portas</NavLink>
+
       </nav>
 
       {folha === 'local' ? (

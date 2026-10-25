@@ -5,9 +5,7 @@ import { pegar, salvar } from '../lib/storage';
 import { tipoDoLocal, useAoVivo, usePessoas, useVisaoGeral } from '../lib/dados';
 import { nomeTipo, vocab } from '../lib/vocab';
 import { useCadastro } from '../lib/cadastro';
-import { desde } from '../lib/tempo';
 import { Avatar, Carregando, Icone, Vazio, hora } from '../ui/pecas';
-import { BotoesPorta } from '../ui/Porta';
 
 /** Leitor escolhido no "ao vivo", guardado por local (a portaria de cada um). */
 function usePortaEscolhida(site: string): [string, (id: string) => void] {
@@ -35,7 +33,6 @@ export function Inicio() {
   const semFoto = (pessoas.data?.pessoas ?? []).filter((p) => p.ativo && !p.tem_foto).length;
   const passagens = vivo.data?.passagens ?? [];
   const num = (n?: number) => (n === undefined ? '—' : n.toLocaleString('pt-BR'));
-  const leitoresPorta = porta ? leitores.filter((l) => l.id === porta) : leitores;
 
   return (
     <>
@@ -56,6 +53,15 @@ export function Inicio() {
         </span>
       </button>
 
+      <button type="button" className="cartao-link" onClick={() => ir('/visitante')}>
+        <span className="ic" style={{ background: 'var(--blue-soft)', color: '#174f86' }}>{Icone.cracha}</span>
+        <span className="corpo">
+          <span className="t">{v.nomes.visitor || 'Visitante'} rápido</span>
+          <span className="s">Cadastro de quem vem uma vez</span>
+        </span>
+        <span className="seta">{Icone.seta}</span>
+      </button>
+
       {leitores.length > 1 ? (
         <div className="chips" role="group" aria-label="Leitor do ao vivo">
           <button type="button" className="chip" aria-pressed={!porta} onClick={() => escolher('')}>Todos</button>
@@ -65,24 +71,6 @@ export function Inicio() {
             </button>
           ))}
         </div>
-      ) : null}
-
-      {leitoresPorta.length ? (
-        <section className="cartao">
-          <h2>{porta ? 'Porta' : 'Portas'}<span className="selo cinza">dois toques</span></h2>
-          {leitoresPorta.map((l) => {
-            const on = l.status.toLowerCase() === 'online';
-            return (
-              <div key={l.id} className="item item-porta">
-                <span className="corpo">
-                  <span className="t">{l.nome}</span>
-                  <span className="s">{on ? 'no ar' : `fora do ar${l.visto ? ` · visto ${desde(l.visto)}` : ''}`}</span>
-                </span>
-                <BotoesPorta leitor={l} />
-              </div>
-            );
-          })}
-        </section>
       ) : null}
 
       <section className="cartao">
