@@ -19,19 +19,22 @@ export type Rascunho = {
   responsavel: string;
   telefone: string;
   whatsapp: boolean;
+  email: string;
+  avisaEmail: boolean;
   notas: string;
   grupos: string[];
 };
 
 export const RASCUNHO_VAZIO: Rascunho = {
   tipo: '', nome: '', cpf: '', matricula: '', turma: '', responsavel: '', telefone: '',
-  whatsapp: true, notas: '', grupos: [],
+  whatsapp: true, email: '', avisaEmail: true, notas: '', grupos: [],
 };
 
 export function rascunhoDe(p: Pessoa): Rascunho {
   return {
     existente: p, tipo: p.tipo, nome: p.nome, cpf: p.cpf, matricula: p.matricula, turma: p.turma,
-    responsavel: p.responsavel, telefone: p.telefone, whatsapp: p.whatsapp, notas: p.notas, grupos: [...p.grupos],
+    responsavel: p.responsavel, telefone: p.telefone, whatsapp: p.whatsapp,
+    email: p.email, avisaEmail: p.avisa_email, notas: p.notas, grupos: [...p.grupos],
   };
 }
 
@@ -70,6 +73,7 @@ export function conferir(r: Rascunho, cpfOpcional: boolean): Record<string, stri
   if (!cpf && !semCpfOk) e.cpf = 'Informe o CPF.';
   else if (cpf && !cpfValido(cpf)) e.cpf = 'CPF inválido. Confira os 11 dígitos.';
   if (r.tipo === 'student' && !r.matricula.trim()) e.matricula = 'Informe a matrícula do aluno.';
+  if (r.email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(r.email.trim())) e.email = 'E-mail inválido.';
   return e;
 }
 
@@ -117,9 +121,9 @@ export async function salvar(r: Rascunho, site: string): Promise<Resultado> {
     active: p ? p.ativo : true,
     notes: r.notas.trim(),
   };
-  // O servidor faz UPDATE de tudo: o que o app nao mostra volta como estava.
-  // E-mail ausente (pessoa nova) = o servidor mantem/deixa vazio.
-  if (p) { corpo.guardian_email = p.email; corpo.email_enabled = p.avisa_email; }
+  // E-mail vai sempre: o servidor faz UPDATE de tudo, e o campo esta na tela.
+  corpo.guardian_email = r.email.trim();
+  corpo.email_enabled = r.avisaEmail;
 
   const salvo = await enviar<{ person?: { id?: string } }>('/api/access-control/people', corpo);
   const id = salvo.person?.id;

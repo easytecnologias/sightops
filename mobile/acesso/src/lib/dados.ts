@@ -7,7 +7,7 @@ import { useLocal } from './local';
    /api/access-control/painel/visao-geral  -> {perfil, leitores, pessoas, fotos}  (access_control_painel.visao_geral)
    /api/access-control/painel/ao-vivo      -> {resumo, passagens}                 (access_control_painel.ao_vivo)
    /api/access-control/painel/pessoas      -> {pessoas, grupos, perfil, sites}    (access_control_pessoas.pessoas)
-   /api/access-control/whatsapp/triage     -> {items, summary}                    (access_control_whatsapp_inbound) */
+   /api/access-control/painel/relatorios/catalogo -> {relatorios, grupos, quem}  (access_control_relatorios.catalogo) */
 
 export type Usuario = { username?: string; full_name?: string; role?: string; tenant_name?: string };
 
@@ -45,15 +45,11 @@ export type Grupo = {
 };
 export type ListaPessoas = { pessoas: Pessoa[]; grupos: Grupo[]; perfil: Perfil; sites: string[] };
 
-export type ItemTriagem = {
-  id: string; status: string; reasons: string[]; from_name: string; from_number: string;
-  raw_text: string; photo_base64?: string; photo_url?: string; created_at: string;
-  suggested: {
-    full_name?: string; person_type?: string; document_id?: string; enrollment_code?: string;
-    class_name?: string; site?: string; guardian_name?: string; guardian_phone?: string; group_name?: string;
-  };
+export type Catalogo = {
+  site: string; modo: string; vocab: { grupo: string; grupos: string; pessoa: string; pessoas: string };
+  relatorios: { id: string; nome: string; pergunta: string; motor: string }[];
+  grupos: string[]; quem: { id: string; nome: string }[];
 };
-export type Triagem = { items: ItemTriagem[]; summary: { ready: number; review: number; duplicate: number } };
 
 const q = (site: string) => (site ? `?site=${encodeURIComponent(site)}` : '');
 
@@ -73,12 +69,13 @@ export function useVisaoGeral(site = '') {
   });
 }
 
-export function useAoVivo() {
+/** `porta` = id de um leitor: so as passagens dele (quem esta dentro continua do local inteiro). */
+export function useAoVivo(porta = '') {
   const site = useLocal();
   return useQuery({
-    queryKey: ['aovivo', site],
-    queryFn: () => obter<AoVivo>(
-      `/api/access-control/painel/ao-vivo?limit=15${site ? `&site=${encodeURIComponent(site)}` : ''}`),
+    queryKey: ['aovivo', site, porta],
+    queryFn: () => obter<AoVivo>(`/api/access-control/painel/ao-vivo?limit=15`
+      + `${site ? `&site=${encodeURIComponent(site)}` : ''}${porta ? `&portas=${encodeURIComponent(porta)}` : ''}`),
     refetchInterval: 20_000,
     staleTime: 10_000,
   });
@@ -92,20 +89,13 @@ export function usePessoas() {
   });
 }
 
-export function useTriagem() {
+export function useCatalogo() {
+  const site = useLocal();
   return useQuery({
-    queryKey: ['triagem'],
-    queryFn: () => obter<Triagem>('/api/access-control/whatsapp/triage'),
-    staleTime: 30_000,
-    refetchInterval: 60_000,
+    queryKey: ['catalogo', site],
+    queryFn: () => obter<Catalogo>(`/api/access-control/painel/relatorios/catalogo${q(site)}`),
+    enabled: !!site,
   });
-}
-
-/** Itens que ainda pedem decisao, do local escolhido (ou sem local definido). */
-export function pendentes(t: Triagem | undefined, site: string): ItemTriagem[] {
-  return (t?.items ?? []).filter((i) =>
-    ['ready', 'review', 'duplicate'].includes(i.status)
-    && (!site || !i.suggested?.site || i.suggested.site.toUpperCase() === site.toUpperCase()));
 }
 
 export function tipoDoLocal(perfil: Perfil | undefined, site: string): string {

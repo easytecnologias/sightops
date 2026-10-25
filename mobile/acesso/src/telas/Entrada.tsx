@@ -7,7 +7,7 @@ import { useVisaoGeral } from '../lib/dados';
 import { vocab } from '../lib/vocab';
 import { Carregando, Icone, Logo, Vazio } from '../ui/pecas';
 
-export const VERSAO = '1.0.0';
+export const VERSAO = '1.1.0';
 
 /* ─────────────────────────── B · Abertura ─────────────────────────── */
 export function Abertura() {
@@ -50,26 +50,19 @@ const SLIDES: { titulo: string; texto: string; vitrine: ReactNode }[] = [
     ),
   },
   {
-    titulo: 'Aprove as fotos do WhatsApp',
-    texto: 'Responsáveis mandam a foto pelo WhatsApp. Você confere e envia aos leitores com um toque.',
+    titulo: 'Frequência na mão',
+    texto: 'Quem veio, quem faltou e em que dias, por turma. Mande o PDF pelo WhatsApp ou e-mail.',
     vitrine: (
       <>
-        <div className="mini" style={{ alignItems: 'flex-start' }}>
-          <span style={{ width: 54, height: 54, borderRadius: 12, background: '#2c4a56', display: 'grid', placeItems: 'center', color: '#a9bcc4' }}>
-            <span style={{ width: 30, height: 30 }}>{Icone.pessoa}</span>
-          </span>
-          <span style={{ flex: 1, minWidth: 0 }}>
-            <b>Foto do Lucas</b>
-            <span className="s">enviada pela mãe · 07:12</span>
-          </span>
-        </div>
-        <Mini titulo="Aprovada" sub="vai para os leitores agora" desloca={18} />
+        <Mini titulo="5º Ano · 96%" sub="31 alunos · 4 faltas" />
+        <Mini titulo="8º Ano · 91%" sub="28 alunos · 2 com 3+ faltas" desloca={18} />
+        <Mini titulo="PDF da frequência" sub="pronto para enviar" desloca={36} selo="PDF" />
       </>
     ),
   },
   {
-    titulo: 'Veja quem está passando',
-    texto: 'Entradas e saídas ao vivo, quem está dentro agora e quem ainda está sem foto no leitor.',
+    titulo: 'Portaria ao vivo',
+    texto: 'Veja quem passa em cada leitor e abra ou feche a porta pelo celular.',
     vitrine: (
       <>
         <Mini titulo="Entrou · Catraca 1" sub="07:42" />

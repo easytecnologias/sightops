@@ -4,7 +4,7 @@ import { Folha, Icone } from './pecas';
 import { ListaLocais, VERSAO } from '../telas/Entrada';
 import { useOnline } from '../lib/rede';
 import { escolherLocal, useLocal } from '../lib/local';
-import { pendentes, useEu, useTriagem, useVisaoGeral } from '../lib/dados';
+import { useEu, useVisaoGeral } from '../lib/dados';
 import { iniciais } from '../lib/cpf';
 import { useCadastro } from '../lib/cadastro';
 
@@ -16,14 +16,12 @@ export function Shell(
   const local = useLocal();
   const eu = useEu();
   const visao = useVisaoGeral(local);
-  const triagem = useTriagem();
   const { zerar } = useCadastro();
   const ir = useNavigate();
   const [folha, setFolha] = useState<'' | 'local' | 'conta'>('');
 
   const nome = eu.data?.full_name || eu.data?.username || '';
   const lt = visao.data?.leitores;
-  const fila = pendentes(triagem.data, local).length;
   const lado = !online ? 'Sem sinal' : lt ? (lt.total ? `${lt.online} de ${lt.total} leitores` : 'sem leitor') : '…';
   const tudoNoAr = online && (!lt || !lt.total || lt.online === lt.total);
 
@@ -54,10 +52,7 @@ export function Shell(
            onClick={(e) => { e.preventDefault(); zerar(); ir('/cadastro/foto'); }}>
           <span className="mais">{Icone.mais}</span>Cadastrar
         </a>
-        <NavLink to="/triagem" className={({ isActive }) => (isActive ? 'ativo' : '')}>
-          {fila > 0 ? <span className="contador">{fila > 99 ? '99+' : fila}</span> : null}
-          {Icone.conversa}Triagem
-        </NavLink>
+        <NavLink to="/relatorio" className={({ isActive }) => (isActive ? 'ativo' : '')}>{Icone.grafico}Relatório</NavLink>
         <NavLink to="/visitante" className={({ isActive }) => (isActive ? 'ativo' : '')}>{Icone.cracha}Visitante</NavLink>
       </nav>
 

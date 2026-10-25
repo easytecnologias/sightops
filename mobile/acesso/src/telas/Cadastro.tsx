@@ -180,6 +180,20 @@ export function CadastroDados() {
           <input type="checkbox" className="chave" checked={r.whatsapp} onChange={(e) => mudar({ whatsapp: e.target.checked })} />
         </label>
 
+        <div className={campo('email')}>
+          <label htmlFor="email">E-mail {tipoLocal === 'escola' ? 'do responsável' : 'para avisos'}</label>
+          <div className="caixa">
+            <input id="email" type="email" inputMode="email" autoCapitalize="none" spellCheck={false} value={r.email}
+                   placeholder="nome@exemplo.com" onChange={(e) => mudar({ email: e.target.value })} />
+          </div>
+          {erros.email ? <span className="ajuda">{erros.email}</span> : null}
+        </div>
+        <label className="chave-linha">
+          <span>Avisar por e-mail, com a foto da passagem</span>
+          <input type="checkbox" className="chave" checked={r.avisaEmail && !!r.email.trim()} disabled={!r.email.trim()}
+                 onChange={(e) => mudar({ avisaEmail: e.target.checked })} />
+        </label>
+
         {dup ? <AvisoDuplicado erro={dup} aoAbrir={() => { zerar(rascunhoDe(dup.pessoa)); setDup(null); }} /> : null}
         {falha ? <div className="aviso vermelho">{Icone.aviso}<span>{falha}</span></div> : null}
 
@@ -362,9 +376,11 @@ export function CadastroPronto() {
           ))}
       </section>
 
-      {p && p.whatsapp && p.telefone ? (
+      {p && ((p.whatsapp && p.telefone) || (p.avisa_email && p.email)) ? (
         <div className="aviso neutro">{Icone.conversa}
-          <span>{p.responsavel || 'O contato'} vai receber as entradas e saídas no WhatsApp.</span>
+          <span>{p.responsavel || 'O contato'} vai receber as entradas e saídas
+            {p.whatsapp && p.telefone ? ' no WhatsApp' : ''}{p.whatsapp && p.telefone && p.avisa_email && p.email ? ' e' : ''}
+            {p.avisa_email && p.email ? ` por e-mail (${p.email})` : ''}.</span>
         </div>
       ) : null}
 

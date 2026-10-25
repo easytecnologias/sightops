@@ -382,15 +382,29 @@ svg { flex: none; }
 .estado.falhou svg { width: 15px; height: 15px; stroke-width: 3; }
 @keyframes girar { to { transform: rotate(360deg); } }
 
-/* Triagem */
-.foto-triagem { position: relative; height: 280px; border-radius: 16px; background: var(--escuro-card); overflow: hidden; display: grid; place-items: center; color: var(--escuro-txt); }
-.foto-triagem img { width: 100%; height: 100%; object-fit: cover; }
-.ficha-triagem { background: #fff; border: 1px solid var(--border); border-radius: 14px; padding: 12px 14px; display: flex; flex-direction: column; gap: 2px; }
-.ficha-triagem b.n { font-size: 17px; }
-.ficha-triagem span { font-size: 13px; color: var(--muted); }
-.ficha-triagem .texto { margin-top: 6px; padding: 8px 10px; border-radius: 10px; background: var(--soft); font-size: 13px; color: var(--muted2); white-space: pre-wrap; max-height: 110px; overflow-y: auto; }
 .acoes-duplas { display: grid; grid-template-columns: 1fr 1.4fr; gap: 10px; }
 .contador-pag { font-size: 13px; color: var(--muted); padding-top: 6px; }
 
 .toast { position: fixed; left: 16px; right: 16px; bottom: calc(90px + env(safe-area-inset-bottom, 0px)); z-index: 80; padding: 12px 14px; border-radius: 12px; background: var(--escuro); color: #fff; font-size: 13.5px; box-shadow: 0 8px 24px rgba(19, 37, 45, .3); }
 .toast.erro { background: var(--danger-escuro); }
+
+/* Portas: abrir/fechar com dois toques */
+.item-porta { flex-wrap: wrap; row-gap: 8px; }
+.botoes-porta { display: flex; gap: 6px; flex: none; }
+.bp { display: inline-flex; align-items: center; gap: 6px; min-height: 40px; padding: 0 12px; border-radius: 10px; border: 1px solid var(--border); background: #fff; font-size: 13px; font-weight: 600; color: var(--text); }
+.bp svg { width: 16px; height: 16px; }
+.bp.abrir { border-color: var(--primary-borda); color: var(--primary-escuro); }
+.bp.armado { background: var(--amber-soft); border-color: var(--amber); color: var(--amber-txt); }
+.bp[disabled] { opacity: .6; }
+.pt-chip { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--primary); margin-right: 6px; vertical-align: 1px; }
+.pt-chip.off { background: var(--amber); }
+.chip[aria-pressed="true"] .pt-chip { box-shadow: 0 0 0 2px #fff; }
+
+/* Relatorio */
+.periodo { font-size: 12.5px; color: var(--muted); }
+.pct { font-weight: 700; font-variant-numeric: tabular-nums; flex: none; }
+.barra-pct { display: block; height: 6px; border-radius: 3px; background: var(--divisor); margin-top: 6px; overflow: hidden; }
+.barra-pct span { display: block; height: 100%; border-radius: 3px; }
+.item-pct { align-items: center; }
+.item-porta .botoes-porta { width: 100%; }
+.item-porta .bp { flex: 1; justify-content: center; min-height: 44px; }
