@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { enviar, obter } from '../lib/api';
-import { detalhe, mesmoSite, siteDoConector, useConectores, useEntidades } from '../lib/dados';
+import { detalhe, ipDaOlt, mesmoSite, siteDoConector, useConectores, useEntidades, useOlts } from '../lib/dados';
 import { useFiltroSite } from '../lib/monitor';
 import { useOnline } from '../lib/rede';
 import { useSite } from '../lib/site';
@@ -64,6 +64,8 @@ export function InstalarCamera() {
   const [conId, setConId] = useState('');
   const conector = conectores.find((c) => c.id === conId) ?? conectores.find((c) => c.online) ?? conectores[0];
   const cid = conector?.id ?? '';
+  const oltsQ = useOlts();
+  const oltsDoSite = (oltsQ.data ?? []).filter((o) => filtro(o.site, o.connector_id));
 
   // 1 · achar
   const [busca, setBusca] = useState(veio.mac || veio.ip || '');
@@ -77,6 +79,10 @@ export function InstalarCamera() {
   // 3 · configurar
   const [titulo, setTitulo] = useState('');
   const [nomeOk, setNomeOk] = useState(false);
+  // Como a camera chega a rede: e o inventario em que ela entra (o mesmo
+  // seletor da Implantacao da web). Fibra pode dizer a OLT.
+  const [modo, setModo] = useState<'basic' | 'olt' | 'switch'>('basic');
+  const [oltId, setOltId] = useState('');
   // Posicao: "lat, lon" (o formato do commit-camera). E ela que poe a camera no mapa.
   const [posicao, setPosicao] = useState('');
   const [precisao, setPrecisao] = useState<number | null>(null);
@@ -201,7 +207,8 @@ export function InstalarCamera() {
     const base = {
       connector_id: cid, site: site ?? '', camera_mac: mac, camera_ip: ip, camera_title: t,
       camera_model: leitura?.equipamento?.modelo ?? '', camera_manufacturer: leitura?.equipamento?.fabricante ?? '',
-      camera_user: usuario.trim() || 'admin', camera_password: senha, inventory_mode: 'basic',
+      camera_user: usuario.trim() || 'admin', camera_password: senha, inventory_mode: modo,
+      olt_id: modo === 'olt' && oltId ? Number(oltId) : null,
       location: posValida ? posicao.trim() : '',
       ...(semGravador || !gravHost ? {} : {
         recorder_type: 'nvr', recorder_host: gravHost, recorder_http_port: portaGrav ?? '', recorder_channel: canal,
@@ -283,9 +290,25 @@ export function InstalarCamera() {
         </Cartao>
       ) : null}
 
-      <Passo n={3} titulo="Configurar" aberto={aberto(3)} onEditar={() => setVendoPasso(3)} feito={nomeOk && titulo.trim() ? `${titulo.trim()} · ${ip}${posValida ? ' · com posição' : ' · sem posição'}` : undefined}>
+      <Passo n={3} titulo="Configurar" aberto={aberto(3)} onEditar={() => setVendoPasso(3)} feito={nomeOk && titulo.trim() ? `${titulo.trim()} · ${ip} · ${modo === 'olt' ? 'fibra' : modo === 'switch' ? 'switch' : 'cabo direto'}${posValida ? ' · com posição' : ' · sem posição'}` : undefined}>
         <div className="campo"><label htmlFor="tit">Nome da câmera (vai na imagem, no gravador e no inventário)</label>
           <div className="caixa"><input id="tit" value={titulo} maxLength={40} onChange={(e) => setTitulo(e.target.value)} placeholder="Ex.: Portaria · Entrada" /></div></div>
+        <div className="campo"><span className="lb">Como ela chega na rede</span>
+          <div className="seg seg-3">
+            <button type="button" aria-pressed={modo === 'basic'} onClick={() => setModo('basic')}>Cabo direto</button>
+            <button type="button" aria-pressed={modo === 'olt'} onClick={() => setModo('olt')}>Fibra (ONU)</button>
+            <button type="button" aria-pressed={modo === 'switch'} onClick={() => setModo('switch')}>Switch</button>
+          </div>
+          <span className="ajuda">{modo === 'olt' ? 'A câmera fica atrás de uma ONU: entra no inventário da fibra.'
+            : modo === 'switch' ? 'Tem um switch no meio do caminho.' : 'Cabo de rede direto até o equipamento.'}</span>
+        </div>
+        {modo === 'olt' && oltsDoSite.length ? (
+          <div className="campo"><label htmlFor="olt">OLT (opcional)</label>
+            <select id="olt" className="caixa-sel" value={oltId} onChange={(e) => setOltId(e.target.value)}>
+              <option value="">Não sei / deixar o SightOps achar</option>
+              {oltsDoSite.map((o) => <option key={o.id} value={o.id}>{o.name || ipDaOlt(o)}</option>)}
+            </select></div>
+        ) : null}
         <div className="campo"><label htmlFor="pos">Onde ela fica (põe a câmera no mapa)</label>
           <div className="caixa"><input id="pos" className="mono" inputMode="decimal" value={posicao}
                  onChange={(e) => { setPosicao(e.target.value); setPrecisao(null); }} placeholder="-9.66, -35.73" /></div>
@@ -344,7 +367,7 @@ export function InstalarCamera() {
             <div className="lista-num">
               <span><i>1</i>Grava o nome “{titulo.trim()}” na câmera</span>
               {!semGravador ? <span><i>2</i>Põe a câmera no canal {n2(canal)} do {grav?.nome || gravHost}</span> : null}
-              <span><i>{semGravador ? 2 : 3}</i>Registra no inventário e no Zabbix</span>
+              <span><i>{semGravador ? 2 : 3}</i>Registra no inventário ({modo === 'olt' ? 'fibra' : modo === 'switch' ? 'switch' : 'cabo direto'}) e no Zabbix</span>
             </div>
           </Cartao>
           <button type="button" className={`btn${regArmado ? ' armado' : ''}`} disabled={indo === 'registrar' || !online} onClick={registrar}>
