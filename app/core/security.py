@@ -41,6 +41,9 @@ class ApiAuthMiddleware(BaseHTTPMiddleware):
             "/api/auth/status",
             "/api/auth/login",
             "/api/auth/bootstrap-admin",
+            # auth_request do video: confere sessao OU bilhete curto dentro da
+            # propria rota (app instalado nao tem cookie). Ver video_ticket.
+            "/api/auth/video-ok",
             "/api/system/health/live",
             "/api/system/health/ready",
             "/api/windows/agent/report",

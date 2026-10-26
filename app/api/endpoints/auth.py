@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 import time
-from typing import Any, Dict
+from typing import Optional, Any, Dict
 
 from fastapi import APIRouter, Body, Depends, Header, HTTPException, Request, Response
 from pydantic import BaseModel
@@ -399,21 +399,58 @@ def api_auth_agent_token(user: Dict[str, Any] = Depends(current_user)) -> Dict[s
     return {"ok": True, "token": str(tok.get("access_token") or tok.get("token") or "")}
 
 
+def _usuario_opcional(request: Request, authorization: str = Header(default="")) -> Optional[Dict[str, Any]]:
+    """Usuario da sessao (cookie ou Bearer), ou None -- sem levantar 401."""
+    try:
+        return current_user(_extract_bearer_token(request, authorization))
+    except HTTPException:
+        return None
+
+
 @router.get("/video-ok")
-def api_auth_video_ok(request: Request, user: Dict[str, Any] = Depends(current_user)) -> Response:
+def api_auth_video_ok(request: Request, user: Optional[Dict[str, Any]] = Depends(_usuario_opcional)) -> Response:
     """O nginx pergunta aqui (auth_request) antes de abrir o WebSocket do
-    player (/go2rtc/api/ws?src=<stream>): so passa sessao logada do MESMO
-    cliente que registrou o stream. Sem sessao: 401 (current_user)."""
+    player (/go2rtc/api/ws?src=<stream>): so passa quem e do MESMO cliente
+    que registrou o stream -- pela sessao (navegador) ou por um bilhete curto
+    `t=` emitido em /api/auth/video-ticket (app instalado, que nao tem cookie).
+    Sem sessao e sem bilhete: 401. Rota publica no middleware por isso."""
     from urllib.parse import parse_qs, urlsplit
 
     from app.services.live_stream_service import dono_do_stream
 
     uri = request.headers.get("x-original-uri") or ""
-    src = (parse_qs(urlsplit(uri).query).get("src") or [""])[0]
-    cliente = str(user.get("effective_tenant_slug") or user.get("tenant_slug") or "").strip().lower()
-    if src and dono_do_stream(src) == cliente:
+    query = parse_qs(urlsplit(uri).query)
+    src = (query.get("src") or [""])[0]
+    if user:
+        cliente = str(user.get("effective_tenant_slug") or user.get("tenant_slug") or "").strip().lower()
+    else:
+        from app.services.video_ticket import validar
+
+        bilhete = (query.get("t") or [""])[0]
+        if not bilhete:
+            raise HTTPException(status_code=401, detail="authorization ausente")
+        cliente = validar(src, bilhete) or ""
+    if src and cliente and dono_do_stream(src) == cliente:
         return Response(status_code=204)
     raise HTTPException(status_code=403, detail="video de outro cliente ou nao registrado")
+
+
+@router.get("/video-ticket")
+def api_auth_video_ticket(src: str = "", user: Dict[str, Any] = Depends(current_user)) -> Dict[str, Any]:
+    """Bilhete de 60 s para o app abrir o WebSocket do video (ver video_ticket).
+    So para stream que este cliente registrou."""
+    from app.services.live_stream_service import dono_do_stream
+    from app.services.video_ticket import VALIDADE_S, emitir
+
+    cliente = str(user.get("effective_tenant_slug") or user.get("tenant_slug") or "").strip().lower()
+    src = str(src or "").strip()
+    if not src or dono_do_stream(src) != cliente:
+        raise HTTPException(status_code=403, detail="video de outro cliente ou nao registrado")
+    try:
+        bilhete = emitir(src, cliente)
+    except ValueError:
+        raise HTTPException(status_code=403, detail="cliente sem video disponivel")
+    return {"ok": True, "ticket": bilhete, "validade_s": VALIDADE_S}
 
 
 @router.post("/act-as")
