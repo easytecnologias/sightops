@@ -1595,6 +1595,18 @@ def api_deployments_commit_camera(payload: Dict[str, Any]) -> Dict[str, Any]:
             save_inventory_json(filtered, mode="olt")
 
     recorder_link = _upsert_recorder_channel(payload, row)
+
+    # Camera com coordenada vai para o mapa: o mapa so desenha camera que e
+    # ponto de camada, e sem isto ela ficava "sem coordenada no mapa".
+    mapa: Dict[str, Any] = {"acao": "sem coordenada"}
+    if lat and lon:
+        try:
+            from app.api.endpoints.tools import marcar_camera_no_mapa
+            mapa = marcar_camera_no_mapa(titulo=title, ip=ip, lat=lat, lon=lon, site=site, modo=inv_mode)
+        except Exception as exc:  # o cadastro da camera ja foi gravado; o mapa nao derruba a instalacao
+            logging.getLogger(__name__).exception("commit-camera: falha ao marcar %s no mapa", ip)
+            mapa = {"acao": "falhou", "erro": str(exc)}
+
     saved = api_deployments_save({
         **payload,
         "status": "camera_registered",
@@ -1609,6 +1621,7 @@ def api_deployments_commit_camera(payload: Dict[str, Any]) -> Dict[str, Any]:
         "recorder_link": recorder_link,
         "deployment": saved.get("deployment"),
         "inventory_mode": inv_mode,
+        "mapa": mapa,
     }
 
 
