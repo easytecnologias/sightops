@@ -220,7 +220,7 @@ function Cftv() {
           return (
             <Item key={e.entity_key} ponto={e.status !== 'up' ? 'vermelho' : sem ? 'ambar' : 'verde'} titulo={nomeEntidade(e)}
                   sub={[d.host, e.status !== 'up' ? 'fora do ar' : sem ? `${sem} canais sem vídeo` : 'todos os canais com vídeo'].filter(Boolean).join(' · ')}
-                  onClick={d.host ? () => ir(`/implantar/gravador/${encodeURIComponent(d.host!)}`) : undefined}
+                  onClick={d.host ? () => ir(`/implantar/gravador/${encodeURIComponent(d.host!)}?c=${encodeURIComponent(e.connector_id ?? '')}`) : undefined}
                   direita={d.host ? Icone.seta : undefined} />
           );
         })}

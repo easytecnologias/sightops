@@ -95,26 +95,40 @@ function BotaoArmado({ rotulo, armar, indo, desab, onConfirmar, classe = 'btn' }
 export function GravadorCanais() {
   const { host = '' } = useParams();
   const [param] = useSearchParams();
-  const conector = param.get('c') ?? '';
   const online = useOnline();
   const { site } = useSite();
-  const lista = useGravadoresDoSite().grupos.flatMap((g) => g.itens);
+  const doSite = useGravadoresDoSite();
+  const lista = doSite.grupos.flatMap((g) => g.itens);
   const toast = useToast();
   const ir = useNavigate();
   const ent: Entidade | undefined = lista.find((e) => detalhe<DetalheNvr>(e).host === host);
+  // Sem ?c= (atalho do Inicio, da ficha da camera...) vale o conector do
+  // cadastro do gravador: sem conector o servidor nao chega pelo IP virtual.
+  const conector = param.get('c') || ent?.connector_id || '';
   const dn = ent ? detalhe<DetalheNvr>(ent) : {};
 
   const [cred, setCred] = useState<{ user: string; senha: string } | null>(null);
   const [tentativa, setTentativa] = useState(0);
   const [userIn, setUserIn] = useState('admin');
   const [senhaIn, setSenhaIn] = useState('');
+  // Porta HTTP do gravador: os NVD 7132 do PERUCABA respondem em 8081..8088,
+  // nao na 80. Sem ela todo pedido ia para a 80, era recusado, e a tela dizia
+  // "o gravador respondeu, mas nao devolveu nada util" em todos eles.
+  const creds = useQuery({
+    queryKey: ['credenciais-gravador'],
+    queryFn: async () => (await obter<{ credenciais?: { host: string; port?: number | string }[] }>('/api/deployments/recorder-credenciais')).credenciais ?? [],
+    staleTime: 5 * 60_000,
+  });
+  const porta = creds.data?.find((c) => c.host === host)?.port;
   const base = () => ({ recorder_host: host, connector_id: conector, site: site ?? '',
+    ...(porta ? { recorder_http_port: porta } : {}),
     ...(cred ? { recorder_user: cred.user, recorder_password: cred.senha } : {}) });
 
   const rx = useQuery({
     // Senha NUNCA na chave: o cache do app e gravado no aparelho.
-    queryKey: ['raiox', host, conector, tentativa],
+    queryKey: ['raiox', host, conector, porta ?? '', tentativa],
     queryFn: () => enviar<RaioX>('/api/deployments/recorder-xray', { ...base(), fase: 'essencial' }),
+    enabled: !creds.isPending && (!!param.get('c') || !doSite.isPending),
     retry: false,
     staleTime: 60_000,
   });
