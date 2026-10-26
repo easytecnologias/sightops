@@ -75,6 +75,10 @@ export function InstalarCamera() {
   // 3 · configurar
   const [titulo, setTitulo] = useState('');
   const [nomeOk, setNomeOk] = useState(false);
+  // Posicao: "lat, lon" (o formato do commit-camera). E ela que poe a camera no mapa.
+  const [posicao, setPosicao] = useState('');
+  const [precisao, setPrecisao] = useState<number | null>(null);
+  const [pegandoGps, setPegandoGps] = useState(false);
   const [novoIp, setNovoIp] = useState('');
   const [ipArmado, armarIp] = useArmado();
   // 4 · gravador
@@ -136,6 +140,20 @@ export function InstalarCamera() {
     } catch (e) { setErro((e as Error).message); } finally { setIndo(''); }
   }
 
+  function usarMinhaPosicao() {
+    if (!navigator.geolocation) { setErro('Este aparelho não dá a localização.'); return; }
+    setPegandoGps(true); setErro('');
+    navigator.geolocation.getCurrentPosition((p) => {
+      setPosicao(`${p.coords.latitude.toFixed(7)}, ${p.coords.longitude.toFixed(7)}`);
+      setPrecisao(Math.round(p.coords.accuracy));
+      setPegandoGps(false);
+    }, (e) => {
+      setPegandoGps(false);
+      setErro(e.code === 1 ? 'A localização não foi liberada: libere nos ajustes do celular.' : 'Não consegui a posição agora. Tente de novo a céu aberto.');
+    }, { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 });
+  }
+  const posValida = /^-?\d{1,2}(\.\d+)?\s*,\s*-?\d{1,3}(\.\d+)?$/.test(posicao.trim());
+
   async function trocarIp() {
     const alvo = novoIp.trim();
     if (!/^\d{1,3}(\.\d{1,3}){3}$/.test(alvo)) { setErro('IP inválido.'); return; }
@@ -182,6 +200,7 @@ export function InstalarCamera() {
       connector_id: cid, site: site ?? '', camera_mac: mac, camera_ip: ip, camera_title: t,
       camera_model: leitura?.equipamento?.modelo ?? '', camera_manufacturer: leitura?.equipamento?.fabricante ?? '',
       camera_user: usuario.trim() || 'admin', camera_password: senha, inventory_mode: 'basic',
+      location: posValida ? posicao.trim() : '',
       ...(semGravador || !gravHost ? {} : {
         recorder_type: 'nvr', recorder_host: gravHost, recorder_http_port: portaGrav ?? '', recorder_channel: canal,
         recorder_camera_ip: ip, recorder_title: t, recorder_channel_total: canais?.length || 32,
@@ -202,6 +221,9 @@ export function InstalarCamera() {
       try {
         await enviar('/api/deployments/commit-camera', base);
         passos.push({ ok: true, t: 'Registrada no inventário: aparece em Câmeras' });
+        passos.push(posValida
+          ? { ok: true, t: `Posição gravada: aparece no mapa${precisao ? ` (±${precisao} m)` : ''}` }
+          : { ok: false, t: 'Sem posição: não aparece no mapa' });
         passos.push({ ok: true, t: 'Entra no Zabbix na próxima leitura do site (alguns minutos)' });
       } catch (e) { passos.push({ ok: false, t: `Não registrou no inventário: ${(e as Error).message}` }); }
       setResultado(passos);
@@ -259,9 +281,18 @@ export function InstalarCamera() {
         </Cartao>
       ) : null}
 
-      <Passo n={3} titulo="Configurar" aberto={aberto(3)} onEditar={() => setVendoPasso(3)} feito={nomeOk && titulo.trim() ? `${titulo.trim()} · ${ip}` : undefined}>
+      <Passo n={3} titulo="Configurar" aberto={aberto(3)} onEditar={() => setVendoPasso(3)} feito={nomeOk && titulo.trim() ? `${titulo.trim()} · ${ip}${posValida ? ' · com posição' : ' · sem posição'}` : undefined}>
         <div className="campo"><label htmlFor="tit">Nome da câmera (vai na imagem, no gravador e no inventário)</label>
           <div className="caixa"><input id="tit" value={titulo} maxLength={40} onChange={(e) => setTitulo(e.target.value)} placeholder="Ex.: Portaria · Entrada" /></div></div>
+        <div className="campo"><label htmlFor="pos">Onde ela fica (põe a câmera no mapa)</label>
+          <div className="caixa"><input id="pos" className="mono" inputMode="decimal" value={posicao}
+                 onChange={(e) => { setPosicao(e.target.value); setPrecisao(null); }} placeholder="-9.66, -35.73" /></div>
+          {precisao !== null ? <span className="ajuda" style={precisao > 30 ? { color: 'var(--amber-txt)' } : undefined}>
+            {precisao > 30 ? `Precisão de ±${precisao} m: chegue mais perto da câmera e pegue de novo.` : `Precisão de ±${precisao} m.`}</span>
+            : <span className="ajuda">Fique embaixo da câmera e toque em “Usar minha posição”.</span>}
+          {posicao.trim() && !posValida ? <span className="ajuda" style={{ color: 'var(--danger)' }}>Use o formato “latitude, longitude”.</span> : null}
+        </div>
+        <button type="button" className="btn2" disabled={pegandoGps} onClick={usarMinhaPosicao}>{Icone.pin}{pegandoGps ? 'Pegando o GPS…' : 'Usar minha posição'}</button>
         <details className="avancado">
           <summary>Trocar o IP da câmera (agora: {ip})</summary>
           <div className="form-cartao">
@@ -325,7 +356,10 @@ export function InstalarCamera() {
           <h2>{resultado.every((r) => r.ok) ? 'Câmera instalada' : 'Instalada com pendências'}</h2>
           <div className="lista-quebra">{resultado.map((r, i) => <Item key={i} ponto={r.ok ? 'verde' : 'vermelho'} titulo={r.t} />)}</div>
           <div className="form-cartao">
-            <button type="button" className="btn" onClick={() => ir('/cameras')}>Ver em Câmeras</button>
+            {posValida ? (
+              <button type="button" className="btn" onClick={() => ir('/mapa', { state: { centro: posicao.split(',').map((x) => Number(x.trim())) } })}>{Icone.mapa}Ver no mapa</button>
+            ) : null}
+            <button type="button" className={posValida ? 'btn2' : 'btn'} onClick={() => ir('/cameras')}>Ver em Câmeras</button>
             <button type="button" className="btn2" onClick={() => ir('/implantar/instalar', { replace: true, state: {} })}>Instalar outra</button>
           </div>
         </Cartao>

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -30,6 +30,8 @@ export function Mapa() {
   const toast = useToast();
   const qc = useQueryClient();
   const ir = useNavigate();
+  // Vindo do Instalar: abre centrado na camera recem-registrada.
+  const pedido = (useLocation().state as { centro?: number[] } | null)?.centro;
 
   const divMapa = useRef<HTMLDivElement>(null);
   const mapa = useRef<L.Map | null>(null);
@@ -97,9 +99,9 @@ export function Mapa() {
   useEffect(() => {
     const m = mapa.current;
     if (!m || centrado.current) return;
-    const alvo = centro ?? (doSite[0] ? Object.values(doSite[0].caixas).map((cx) => posicaoDaCaixa(cx, doSite[0])).find(Boolean) : null);
-    if (alvo) { m.setView(alvo, 17); centrado.current = true; }
-  }, [centro, doSite]);
+    const alvo = (pedido && pedido.length === 2 && pedido.every(Number.isFinite) ? [pedido[0], pedido[1]] as Ponto : null) ?? centro ?? (doSite[0] ? Object.values(doSite[0].caixas).map((cx) => posicaoDaCaixa(cx, doSite[0])).find(Boolean) : null);
+    if (alvo) { m.setView(alvo, pedido ? 19 : 17); centrado.current = true; }
+  }, [centro, doSite, pedido]);
 
   // Desenha tudo. Refaz quando os dados, a selecao ou o cabo em desenho mudam.
   useEffect(() => {
