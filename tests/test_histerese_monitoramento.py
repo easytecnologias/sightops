@@ -99,3 +99,11 @@ def test_gravador_so_publica_canais_sem_imagem_com_instavel_confirmado(monkeypat
     d = json.loads(gravado["detail"])
     assert r["status"] == "unknown" and d["canais_sem_imagem"] == 0 and d["canais_sem_imagem_lista"] == []
     assert d["canais_sem_imagem_lido"] == [3, 7] and "motivo" not in d
+
+
+def test_site_do_gravador_e_o_da_maioria_dos_canais():
+    # NVD RESERVA 01: canal 1 com local PERUCABA levava o gravador inteiro para la.
+    canais = [{"channel": 1, "local": "PERUCABA", "site": "RESERVA"}] + [{"channel": i, "local": "RESERVA", "site": "RESERVA"} for i in range(2, 33)]
+    assert M._site_do_gravador(canais) == "RESERVA"
+    assert M._site_do_gravador([{"local": "PERUCABA"}] + [{"local": "RESERVA"}] * 3) == "RESERVA"
+    assert M._site_do_gravador([{}]) == ""

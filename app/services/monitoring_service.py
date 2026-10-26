@@ -110,6 +110,21 @@ OK_PARA_VOLTAR = 2       # leituras boas seguidas para sair de "down"
 INSTAVEL_SEGUIDAS = 2    # "unstable" vindo da fonte (gravador) precisa repetir
 
 
+def _site_do_gravador(canais: List[Dict[str, Any]]) -> str:
+    """Site do gravador = o mais comum entre os canais (site; sem site, local).
+
+    Antes era o `local` do PRIMEIRO canal: o NVD RESERVA 01 (10.10.9.120) tem
+    31 canais RESERVA e o canal 1 ("01 - PONTE") com local PERUCABA -- e o
+    gravador inteiro aparecia no site PERUCABA no app e no Zabbix.
+    """
+    from collections import Counter
+    for campo in ("site", "local"):
+        votos = Counter(_text(c.get(campo)) for c in canais if _text(c.get(campo)))
+        if votos:
+            return votos.most_common(1)[0][0]
+    return ""
+
+
 def _so_cameras_estaveis(medidas: Dict[str, Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
     """Medidas por IP com "online" so para camera cujo estado gravado e "up"."""
     tenant = _tenant()
@@ -693,7 +708,7 @@ def refresh_from_inventory() -> Dict[str, Any]:
                    for host, ls in canais_por_host.items()}
         counts[source] = _observe_many(({
             "entity_key": f"{source}:{ls[0].get('remote_connector_id') or ls[0].get('connector_id') or 'local'}:{host}",
-            "entity_type": source, "entity_id": host, "site": ls[0].get("local"),
+            "entity_type": source, "entity_id": host, "site": _site_do_gravador(ls),
             "connector_id": ls[0].get("remote_connector_id") or ls[0].get("connector_id"),
             "display_name": ls[0].get("recorder_name") or ls[0].get("nvr_name") or host, "status": resumos[host]["status"],
             "detail": {"host": host, "model": ls[0].get("recorder_model") or ls[0].get("nvr_model"),
