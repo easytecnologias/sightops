@@ -154,6 +154,26 @@ def test_job_antigo_de_leitura_perde_o_conteudo_mas_nao_o_registro():
     assert r["3"]["result"] == {"diag": "ok"}                                 # diagnostico fica inteiro
 
 
+def test_job_novo_com_arquivo_no_teto_continua_visivel_para_quem_espera(monkeypatch, tmp_path):
+    """Arquivo no teto: a poda punha o job em andamento no comeco do arquivo e
+    o list_jobs (mais novo primeiro, limite 50) nunca o via pronto."""
+    from datetime import datetime, timedelta, timezone
+    from app.services import connector_service as CS
+    agora = datetime.now(timezone.utc)
+    jobs = [{"id": f"v{i}", "connector_id": "c1", "type": "ping_many", "status": "done",
+             "created_at": (agora - timedelta(minutes=60 - i * 0.01)).isoformat(),
+             "finished_at": (agora - timedelta(minutes=60 - i * 0.01)).isoformat(), "result": None}
+            for i in range(CS.JOBS_MAXIMO)]
+    novo = {"id": "novo", "connector_id": "c1", "type": "mac_lookup", "status": "queued",
+            "created_at": agora.isoformat(), "picked_at": "", "finished_at": "", "result": None}
+    salvos = CS._podar_jobs(jobs + [novo])
+    salvos = CS._podar_jobs([{**j, "status": "done", "finished_at": agora.isoformat()} if j["id"] == "novo" else j for j in salvos])
+    monkeypatch.setattr(CS, "_load_jobs", lambda: salvos)
+    monkeypatch.setattr(CS, "get_connector", lambda *a, **k: {"id": "c1"})
+    vistos = CS.list_jobs("c1")["jobs"]
+    assert vistos[0]["id"] == "novo" and vistos[0]["status"] == "done"
+
+
 def test_erro_do_leitor_nao_sai_como_502_no_controle_de_acesso():
     """Cloudflare troca 502 da origem pela pagina dele e o motivo sumia."""
     import asyncio

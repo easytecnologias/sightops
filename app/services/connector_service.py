@@ -405,8 +405,20 @@ def _podar_jobs(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         recentes.sort(key=momento)
         sobra = max(0, JOBS_MAXIMO - len(vivos))
         recentes = recentes[-sobra:] if sobra else []
-        return vivos + recentes
+        # Devolve em ordem de criacao. Antes era `vivos + recentes`: com o
+        # arquivo no teto, todo job novo ia para o COMECO e la ficava depois
+        # de pronto; list_jobs le do fim (mais novo primeiro, limite 50) e
+        # quem esperava o resultado nunca o via. Em 26/10/2026 a consulta ao
+        # vivo do MAC esgotava os 40 s com o job pronto em 3 s.
+        return sorted(vivos + recentes, key=_criado_em)
     return rows
+
+
+def _criado_em(job: Dict[str, Any]) -> float:
+    try:
+        return datetime.fromisoformat(_text(job.get("created_at")).replace("Z", "+00:00")).timestamp()
+    except Exception:
+        return 0.0
 
 
 def _save_jobs(rows: List[Dict[str, Any]]) -> None:
