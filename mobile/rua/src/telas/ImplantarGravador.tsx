@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { ErroApi, enviar, obter } from '../lib/api';
-import { chaveDa, detalhe, useCameras, useEntidades, useEu, type Entidade } from '../lib/dados';
+import { chaveDa, detalhe, estadoDa, useCameras, useEntidades, useEu, type Entidade } from '../lib/dados';
 import { gravadoresPorLocal, useFiltroSite } from '../lib/monitor';
 import { useOnline } from '../lib/rede';
 import { useSite } from '../lib/site';
@@ -161,8 +161,20 @@ export function GravadorCanais() {
     return Array.from({ length: total }, (_, i) => por.get(i + 1) ?? { canal: i + 1 });
   }, [rx.data, dn.canais_total]);
   const semLista = new Set((dn.canais_sem_imagem_lista ?? []).map(Number));
-  const estado = (c: Canal): 'livre' | 'sem' | 'ok' | '?' =>
-    !c.ip ? 'livre' : (c.online === false || semLista.has(c.canal) || c.perda_video === true) ? 'sem' : c.online === true ? 'ok' : '?';
+  // Estado do canal. O Hikvision diz se a camera do canal esta no ar; o
+  // Intelbras nao diz (o raio-x so traz nome, IP e codec), e todo canal dele
+  // virava "sem leitura". Sem a resposta do gravador vale a camera daquele IP
+  // no inventario -- a mesma da tela Cameras e dos alertas. `perda_video` do
+  // Intelbras e a CONFIGURACAO do alarme de perda de video, nao perda de
+  // video agora: ja nao conta como "sem imagem".
+  const estadoInventario = useMemo(() => new Map((cams.data ?? []).filter((x) => x.ip).map((x) => [x.ip!, estadoDa(x)])), [cams.data]);
+  const estado = (c: Canal): 'livre' | 'sem' | 'ok' | '?' => {
+    if (!c.ip) return 'livre';
+    if (c.online === false || semLista.has(c.canal)) return 'sem';
+    if (c.online === true) return 'ok';
+    const inv = estadoInventario.get(c.ip);
+    return inv === 'online' ? 'ok' : inv === 'offline' ? 'sem' : '?';
+  };
   const livres = canais.filter((c) => !c.ip);
   const { lista: canaisVistos, barra: barraCanais } = useFiltro(canais, {
     texto: (c) => [c.nome, c.ip, `canal ${c.canal}`, n2(c.canal)], dica: 'Nome, IP ou número do canal',
