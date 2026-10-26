@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { chaveDa, detalhe, mesmoSite, siteDa, useCameras, type Entidade } from '../lib/dados';
 import {
-  TIPO_NOME, horaCurta, nomeEntidade, rxDa, sinalBaixo, useSiteMonitor, type DetalheCamera, type DetalheOnu,
+  TIPO_NOME, estadoGravador, horaCurta, nomeEntidade, rxDa, sinalBaixo, useSiteMonitor, type DetalheCamera, type DetalheOnu,
 } from '../lib/monitor';
 import { useOnline } from '../lib/rede';
 import { useSite } from '../lib/site';
@@ -43,8 +43,11 @@ export function subEntidade(e: Entidade): string {
     if (e.status === 'down') return [d.offline_reason || 'fora do ar', e.last_changed_at ? `desde ${horaCurta(e.last_changed_at)}` : ''].filter(Boolean).join(' · ');
     return [rx !== null ? `RX ${fmtRx(rx)}` : '', d.pon ? `PON ${d.pon}` : ''].filter(Boolean).join(' · ');
   }
-  const d = detalhe<DetalheCamera>(e);
-  return [TIPO_NOME[e.entity_type] || e.entity_type, d.ip,
+  const d = detalhe<DetalheCamera & { host?: string; canais_sem_imagem?: number }>(e);
+  if (e.entity_type === 'nvr' || e.entity_type === 'dvr') {
+    return [estadoGravador(e, Number(d.canais_sem_imagem ?? 0)), e.last_changed_at ? `desde ${horaCurta(e.last_changed_at)}` : ''].filter(Boolean).join(' · ');
+  }
+  return [TIPO_NOME[e.entity_type] || e.entity_type, e.status === 'unstable' ? 'instável' : e.status === 'down' ? 'fora do ar' : '', d.ip,
     e.last_changed_at ? `desde ${horaCurta(e.last_changed_at)} · ${desde(e.last_changed_at)}` : ''].filter(Boolean).join(' · ');
 }
 
@@ -81,7 +84,7 @@ export function Inicio() {
   const fora = (l: Entidade[]) => l.filter((e) => e.status === 'down').length;
   const onuBaixo = m.onus.filter(sinalBaixo).length;
   const redeFora = fora(m.onus) + fora(m.olts) + fora(m.switches) + fora(m.conectores);
-  const camFora = m.cameras.filter((e) => e.status !== 'up').length + fora(m.nvrs);
+  const camFora = fora(m.cameras) + fora(m.nvrs);
   const acFora = fora(m.acessos);
   const roms = rompimentos(m.onus);
   const nomesOlt = new Map(m.olts.map((o) => [String(detalhe<{ host?: string }>(o).host ?? ''), nomeEntidade(o)]));
@@ -110,7 +113,7 @@ export function Inicio() {
         <Cartao>
           <h2>Encontrados</h2>
           {!achados.length ? <Vazio>Nada com “{busca.trim()}” neste site.</Vazio> : achados.map((e) => (
-            <Item key={e.entity_key} ponto={e.status === 'up' ? (sinalBaixo(e) ? 'ambar' : 'verde') : 'vermelho'}
+            <Item key={e.entity_key} ponto={e.status === 'down' ? 'vermelho' : e.status === 'up' && !sinalBaixo(e) ? 'verde' : 'ambar'}
                   titulo={nomeEntidade(e)} sub={subEntidade(e)} onClick={() => abrir(e)} direita={Icone.seta} />
           ))}
         </Cartao>
@@ -164,7 +167,7 @@ export function Inicio() {
       {atencao.length ? (
         <Cartao>
           {atencao.slice(0, 3).map((e) => (
-            <Item key={e.entity_key} ponto={e.status === 'up' ? 'ambar' : 'vermelho'}
+            <Item key={e.entity_key} ponto={e.status === 'down' ? 'vermelho' : 'ambar'}
                   titulo={e.entity_type === 'onu' && e.status === 'up' ? `${nomeEntidade(e)} · sinal baixo` : nomeEntidade(e)}
                   sub={subEntidade(e)} onClick={() => abrir(e)} direita={Icone.seta} />
           ))}

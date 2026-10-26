@@ -37,7 +37,7 @@ export function ListaOnus() {
   const { lista, barra } = useFiltro(daPon, {
     texto: (e) => [e.display_name, detalhe<DetalheOnu>(e).serial], dica: 'Serial ou nome', buscaInicial: param.get('q') ?? '',
     local: (e) => String(e.site ?? '').trim().toUpperCase(),
-    situacao: (e) => (e.status !== 'up' ? 'fora' : sinalBaixo(e) ? 'atencao' : 'ok'), nomes: { atencao: 'Sinal baixo', ok: 'Normal' },
+    situacao: (e) => (e.status === 'down' ? 'fora' : e.status !== 'up' || sinalBaixo(e) ? 'atencao' : 'ok'), nomes: { atencao: 'Sinal baixo ou instável', ok: 'Normal' },
     extra: olt ? undefined : { rotulo: 'OLT', todos: 'Todas as OLTs', de: (e) => nomeOlt(partesOnu(e.entity_key).oltIp) },
   });
 
@@ -57,9 +57,9 @@ export function ListaOnus() {
           const d = detalhe<DetalheOnu>(e);
           const rx = rxDa(e);
           return (
-            <Item key={e.entity_key} ponto={e.status !== 'up' ? 'vermelho' : sinalBaixo(e) ? 'ambar' : 'verde'}
+            <Item key={e.entity_key} ponto={e.status === 'down' ? 'vermelho' : e.status !== 'up' || sinalBaixo(e) ? 'ambar' : 'verde'}
                   titulo={nomeEntidade(e)}
-                  sub={[d.serial, e.status !== 'up' ? (d.offline_reason || 'fora do ar') : rx !== null ? `RX ${dbm(rx)}` : ''].filter(Boolean).join(' · ')}
+                  sub={[d.serial, e.status === 'down' ? (d.offline_reason || 'fora do ar') : rx !== null ? `RX ${dbm(rx)}` : ''].filter(Boolean).join(' · ')}
                   onClick={() => ir(`/onu/${encodeURIComponent(e.entity_key)}`)} direita={Icone.seta} />
           );
         })}
@@ -155,9 +155,9 @@ export function ConsultarOnu() {
     ...(con ? [{ tipo: 'conector' as const, titulo: `Conector ${nomeEntidade(con)}`, estado: con.status === 'up' ? 'ok' as const : 'ruim' as const }] : []),
     { tipo: 'olt', titulo: <>{olt?.name || `OLT ${p.oltIp}`} · PON <span className="mono">{p.pon}</span></>,
       onClick: () => ir(`/pon?olt=${encodeURIComponent(p.oltIp)}&pon=${encodeURIComponent(p.pon)}`) },
-    { tipo: 'onu', titulo: `Esta ONU · ${p.onu}`, aqui: true, falha: e.status !== 'up',
+    { tipo: 'onu', titulo: `Esta ONU · ${p.onu}`, aqui: true, falha: e.status === 'down',
       sub: num(d.distance_km) !== null ? `a ${String(num(d.distance_km)!.toFixed(1)).replace('.', ',')} km da OLT` : undefined,
-      estado: e.status !== 'up' ? 'ruim' : baixo ? 'atencao' : 'ok' },
+      estado: e.status === 'down' ? 'ruim' : e.status !== 'up' || baixo ? 'atencao' : 'ok' },
     ...atras.slice(0, 6).map((c) => ({
       tipo: (c.switch_ip ? 'switch' : 'camera') as Elo['tipo'],
       titulo: c.switch_ip ? `${c.switch_name || c.switch_ip} › ${tituloDa(c)}` : tituloDa(c),
@@ -215,8 +215,8 @@ export function ConsultarOnu() {
           <h1 className="titulo-tela">{nomeEntidade(e)}</h1>
           <p className="sub-tela mono">{[d.serial, e.site].filter(Boolean).join(' · ')}</p>
         </div>
-        <span className={`selo ${e.status !== 'up' ? 'ambar' : baixo ? 'ambar' : 'verde'}`}>
-          {e.status !== 'up' ? 'fora do ar' : baixo ? 'sinal baixo' : 'sinal bom'}
+        <span className={`selo ${e.status === 'down' ? 'vermelho' : e.status !== 'up' || baixo ? 'ambar' : 'verde'}`}>
+          {e.status === 'down' ? 'fora do ar' : e.status === 'unstable' ? 'instável' : baixo ? 'sinal baixo' : 'sinal bom'}
         </span>
       </div>
 
@@ -242,9 +242,9 @@ export function ConsultarOnu() {
       <Cartao>
         <div className="ficha">
           <div className="ficha-linha"><span className="ficha-rot">OLT · posição</span><span className="ficha-val mono">{olt?.name || p.oltIp} · PON {p.pon} · ONU {p.onu}</span></div>
-          {e.status !== 'up' && d.offline_reason ? <div className="ficha-linha"><span className="ficha-rot">Motivo</span><span className="ficha-val">{d.offline_reason}</span></div> : null}
+          {e.status === 'down' && d.offline_reason ? <div className="ficha-linha"><span className="ficha-rot">Motivo</span><span className="ficha-val">{d.offline_reason}</span></div> : null}
           {num(d.temperatura) !== null ? <div className="ficha-linha"><span className="ficha-rot">Temperatura</span><span className="ficha-val">{d.temperatura} °C</span></div> : null}
-          <div className="ficha-linha"><span className="ficha-rot">Zabbix</span><span className="ficha-val">{e.status === 'up' ? (baixo ? 'no ar, sinal abaixo de −27 dBm' : 'no ar') : 'fora do ar'}{e.last_checked_at ? ` · lido ${desde(e.last_checked_at)}` : ''}</span></div>
+          <div className="ficha-linha"><span className="ficha-rot">Zabbix</span><span className="ficha-val">{e.status === 'up' ? (baixo ? 'no ar, sinal abaixo de −27 dBm' : 'no ar') : e.status === 'unstable' ? 'instável (caiu e voltou mais de uma vez na última hora)' : e.status === 'down' ? 'fora do ar' : 'sem leitura'}{e.last_checked_at ? ` · lido ${desde(e.last_checked_at)}` : ''}</span></div>
         </div>
       </Cartao>
 

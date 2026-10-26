@@ -41,7 +41,7 @@ export function Gravadores() {
     local: (x) => x.local,
     situacao: ({ e }) => {
       const d = detalhe<DetalheNvr>(e);
-      return e.status !== 'up' ? 'fora' : Number(d.canais_sem_imagem ?? 0) + Number(d.canais_offline ?? 0) ? 'atencao' : 'ok';
+      return e.status === 'down' ? 'fora' : e.status !== 'up' || Number(d.canais_sem_imagem ?? 0) + Number(d.canais_offline ?? 0) ? 'atencao' : 'ok';
     },
     nomes: { atencao: 'Com câmera sem vídeo', ok: 'Tudo ok' },
   });
@@ -61,11 +61,12 @@ export function Gravadores() {
             const d = detalhe<DetalheNvr>(e);
             const sem = Number(d.canais_sem_imagem ?? 0) + Number(d.canais_offline ?? 0);
             return (
-              <Item key={e.entity_key} ponto={e.status !== 'up' ? 'vermelho' : sem ? 'ambar' : 'verde'} icone={Icone.gravador}
+              <Item key={e.entity_key} ponto={e.status === 'down' ? 'vermelho' : e.status !== 'up' || sem ? 'ambar' : 'verde'} icone={Icone.gravador}
                     titulo={String(e.display_name ?? d.host)}
                     sub={[d.host, d.model, d.canais_total ? `${d.canais_total} canais` : ''].filter(Boolean).join(' · ')}
                     onClick={() => ir(`/implantar/gravador/${encodeURIComponent(d.host ?? '')}?c=${encodeURIComponent(e.connector_id ?? '')}`)}
-                    direita={e.status !== 'up' ? <span className="selo vermelho">fora</span>
+                    direita={e.status === 'down' ? <span className="selo vermelho">fora</span>
+                      : e.status === 'unstable' ? <span className="selo ambar">instável</span>
                       : sem ? <span className="selo ambar">{sem} sem vídeo</span> : <span className="selo verde">ok</span>} />
             );
           })}

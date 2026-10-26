@@ -25,12 +25,12 @@ export function Pon() {
   }), [m.onus, olt, pon]);
   const { lista, barra } = useFiltro(todas, {
     texto: (e) => [e.display_name, detalhe<DetalheOnu>(e).serial, `onu ${partesOnu(e.entity_key).onu}`], dica: 'Serial, nome ou número da ONU',
-    situacao: (e) => (e.status !== 'up' ? 'fora' : sinalBaixo(e) ? 'atencao' : 'ok'), nomes: { atencao: 'Sinal baixo', ok: 'Normal' },
+    situacao: (e) => (e.status === 'down' ? 'fora' : e.status !== 'up' || sinalBaixo(e) ? 'atencao' : 'ok'), nomes: { atencao: 'Sinal baixo ou instável', ok: 'Normal' },
   });
 
   if (m.carregando) return <Carregando />;
 
-  const fora = todas.filter((e) => e.status !== 'up');
+  const fora = todas.filter((e) => e.status === 'down');
   const baixo = todas.filter(sinalBaixo);
   const rxs = todas.map(rxDa).filter((v): v is number => v !== null);
   const media = rxs.length ? rxs.reduce((a, b) => a + b, 0) / rxs.length : null;
@@ -70,13 +70,13 @@ export function Pon() {
           const rx = rxDa(e);
           const dist = num(d.distance_km);
           return (
-            <Item key={e.entity_key} ponto={e.status !== 'up' ? 'vermelho' : sinalBaixo(e) ? 'ambar' : 'verde'}
+            <Item key={e.entity_key} ponto={e.status === 'down' ? 'vermelho' : e.status !== 'up' || sinalBaixo(e) ? 'ambar' : 'verde'}
                   titulo={`${nomeEntidade(e)} · ONU ${partesOnu(e.entity_key).onu}`}
-                  sub={e.status !== 'up'
+                  sub={e.status === 'down'
                     ? [d.offline_reason || 'fora do ar', e.last_changed_at ? desde(e.last_changed_at) : ''].filter(Boolean).join(' · ')
                     : [d.serial, dist !== null ? `${dist.toFixed(1).replace('.', ',')} km` : ''].filter(Boolean).join(' · ')}
                   onClick={() => ir(`/onu/${encodeURIComponent(e.entity_key)}`)}
-                  direita={e.status !== 'up' ? <b className="pon-fora">fora</b>
+                  direita={e.status === 'down' ? <b className="pon-fora">fora</b>
                     : <span className={`mono ${sinalBaixo(e) ? 'pon-baixo' : 'pon-n'}`}>{dbm(rx)}</span>} />
           );
         })}

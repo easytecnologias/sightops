@@ -7,6 +7,7 @@ import { useSite } from '../lib/site';
 import { desde } from '../lib/tempo';
 import { Carregando, Cartao, Icone, Item, Vazio } from '../ui/pecas';
 import { situacaoDoStatus, useFiltro, type Situacao } from '../ui/Filtros';
+import { estadoGravador } from '../lib/monitor';
 import { sitCamera, useCamerasDoSite } from '../screens/Cameras';
 
 type Familia = 'rede' | 'cftv' | 'acesso';
@@ -186,7 +187,7 @@ function Cftv() {
 
   const sitNvr = (e: Entidade): Situacao => {
     const d = detalhe<{ canais_sem_imagem?: number; canais_offline?: number }>(e);
-    return e.status !== 'up' ? 'fora' : Number(d.canais_sem_imagem ?? 0) + Number(d.canais_offline ?? 0) ? 'atencao' : 'ok';
+    return e.status === 'down' ? 'fora' : e.status !== 'up' || Number(d.canais_sem_imagem ?? 0) + Number(d.canais_offline ?? 0) ? 'atencao' : 'ok';
   };
   const { lista: nvrs, barra } = useFiltro(m.nvrs, {
     texto: (e) => [nomeEntidade(e), detalhe<{ host?: string }>(e).host], dica: 'Gravador: nome ou IP', unidade: 'gravadores',
@@ -218,8 +219,8 @@ function Cftv() {
           const d = detalhe<{ host?: string; canais_sem_imagem?: number; canais_offline?: number; canais_total?: number }>(e);
           const sem = Number(d.canais_sem_imagem ?? 0) + Number(d.canais_offline ?? 0);
           return (
-            <Item key={e.entity_key} ponto={e.status !== 'up' ? 'vermelho' : sem ? 'ambar' : 'verde'} titulo={nomeEntidade(e)}
-                  sub={[d.host, e.status !== 'up' ? 'fora do ar' : sem ? `${sem} canais sem vídeo` : 'todos os canais com vídeo'].filter(Boolean).join(' · ')}
+            <Item key={e.entity_key} ponto={e.status === 'down' ? 'vermelho' : e.status !== 'up' || sem ? 'ambar' : 'verde'} titulo={nomeEntidade(e)}
+                  sub={[d.host, estadoGravador(e, sem)].filter(Boolean).join(' · ')}
                   onClick={d.host ? () => ir(`/implantar/gravador/${encodeURIComponent(d.host!)}?c=${encodeURIComponent(e.connector_id ?? '')}`) : undefined}
                   direita={d.host ? Icone.seta : undefined} />
           );

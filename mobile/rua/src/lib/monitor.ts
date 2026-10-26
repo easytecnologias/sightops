@@ -106,6 +106,22 @@ function semGravadorRepetido(lista: Entidade[]) {
   });
 }
 
+/**
+ * Estado do gravador em palavras. "unstable" NAO e fora do ar: o gravador
+ * respondeu, mas ha canal sem video com a camera no ar (ou a camera oscila).
+ * O app chamava de "fora do ar" tudo que nao era "up" (26/10/2026: JARDINS I 02).
+ */
+export function estadoGravador(e: Entidade, semVideo = 0): string {
+  const d = detalhe<{ canais_sem_imagem_lista?: number[] }>(e);
+  const canais = d.canais_sem_imagem_lista ?? [];
+  if (e.status === 'down') return 'gravador fora do ar';
+  if (e.status === 'unstable') {
+    return canais.length ? `instável: canal ${canais.join(', ')} sem vídeo com a câmera no ar` : 'instável';
+  }
+  if (e.status !== 'up') return 'sem leitura';
+  return semVideo ? `${semVideo} canais sem vídeo` : 'todos os canais com vídeo';
+}
+
 /** Entidades do site, por tipo, e o que precisa de atencao. */
 export function useSiteMonitor(site: string | null) {
   const doSiteFn = useFiltroSite(site);
