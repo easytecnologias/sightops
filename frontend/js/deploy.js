@@ -3538,6 +3538,8 @@ async function onuConfirmDelete() {
 }
 
 
+let _deployLookupSeq = 0;
+
 async function deployLookupMac() {
   if (!deployEnsureStepUnlocked('cftvStep2', 'Escolha o site na barra de cima antes de procurar a camera.')) return;
   const p = deployPayload();
@@ -3547,11 +3549,42 @@ async function deployLookupMac() {
     return;
   }
   if (!p.camera_mac) { showToast('Digite o MAC ou IP da camera.', true); return; }
+  const seq = ++_deployLookupSeq;
+  // MAC inteiro: alem do inventario (que o agente corta em 500 linhas de ARP,
+  // sem estado), pergunta AGORA ao MikroTik so por este MAC. Caso PERUCABA
+  // 26/10: a camera estava em .186 e a lista so mostrava o lease velho .10.
+  const porMac = String(p.camera_mac).replace(/[^0-9a-f]/gi, '').length === 12 && /^[0-9a-f:\-. ]+$/i.test(String(p.camera_mac).trim());
   deploySetResult('Consultando DHCP, ARP e neighbors do MikroTik...');
+  const vivoPromessa = porMac
+    ? apiJson(`/api/deployments/lookup-live?connector_id=${encodeURIComponent(p.connector_id)}&mac=${encodeURIComponent(p.camera_mac)}`).catch(() => null)
+    : null;
   const data = await apiJson(`/api/deployments/lookup?connector_id=${encodeURIComponent(p.connector_id)}&query=${encodeURIComponent(p.camera_mac)}`);
-  const matches = Array.isArray(data?.matches) ? data.matches : [];
+  if (seq !== _deployLookupSeq) return;
+  const rapidos = Array.isArray(data?.matches) ? data.matches : [];
+  if (!porMac) { deployRenderLookup(rapidos, ''); return; }
+  deployRenderLookup(rapidos, '<div style="margin-bottom:8px;font-size:12.5px;color:var(--muted)">Confirmando com o MikroTik agora qual IP responde (ate ~30 s)... '
+    + 'Esta lista vem do inventario e pode ter IP antigo.</div>', true);
+  const vivo = await vivoPromessa;
+  if (seq !== _deployLookupSeq) return;
+  if (!vivo?.respondeu) {
+    deployRenderLookup(rapidos, `<div style="margin-bottom:8px;font-size:12.5px;color:var(--amber)"><b>Nao deu para confirmar com o MikroTik</b> (${esc(vivo?.detail || 'sem resposta')}). `
+      + 'A lista abaixo vem do inventario e pode ter IP antigo.</div>');
+    return;
+  }
+  const lista = Array.isArray(vivo.matches) ? vivo.matches : [];
+  if (!lista.length) {
+    deploySetResult('O MikroTik nao conhece esse MAC agora (nem ARP nem DHCP). A camera esta ligada e no cabo?', true);
+    return;
+  }
+  const respondeu = lista.find(m => m.responde);
+  deployRenderLookup(lista, respondeu
+    ? `<div style="margin-bottom:8px;font-size:12.5px;color:var(--primary)"><b>O MikroTik confirmou:</b> ${esc(respondeu.ip)} responde agora.</div>`
+    : '<div style="margin-bottom:8px;font-size:12.5px;color:var(--amber)"><b>O MikroTik ve esse MAC, mas nenhum IP respondeu ao ping.</b> Confira se a camera esta ligada.</div>');
+}
+
+function deployRenderLookup(matches, cabecalho, aguardando = false) {
   if (!matches.length) {
-    deploySetResult('Nenhum dispositivo encontrado no conector para esse MAC/IP.', true);
+    deploySetResult((cabecalho || '') + (aguardando ? '' : 'Nenhum dispositivo encontrado no conector para esse MAC/IP.'), !aguardando && !cabecalho);
     return;
   }
   const first = matches[0];
@@ -3561,11 +3594,14 @@ async function deployLookupMac() {
     ? '<div style="margin-bottom:8px;font-size:12.5px;color:var(--amber)"><b>Atencao:</b> o mesmo IP aparece com MACs diferentes. '
       + 'Ou ha conflito de endereco na rede, ou a reserva de DHCP ficou velha. Confira o MAC na etiqueta antes de escolher.</div>'
     : '';
-  deploySetResult(aviso + matches.slice(0, 8).map(m => `
-    <div class="deploy-match deploy-cam-pick${m.conflito_ip ? ' conflito' : ''}" data-ip="${esc(m.ip || '')}" data-mac="${esc(m.mac || '')}" role="button" tabindex="0" aria-label="Selecionar IP ${esc(m.ip || '')}">
+  const estadoVivo = m => !m.ao_vivo ? ''
+    : m.responde ? ' <span style="color:var(--primary);font-weight:600">- responde agora</span>'
+      : ` <span style="color:var(--danger);font-weight:600">- ${m.antigo ? 'IP antigo (failed no ARP)' : 'nao responde'}</span>`;
+  deploySetResult((cabecalho || '') + aviso + matches.slice(0, 8).map(m => `
+    <div class="deploy-match deploy-cam-pick${m.conflito_ip ? ' conflito' : ''}" data-ip="${esc(m.ip || '')}" data-mac="${esc(m.mac || '')}" role="button" tabindex="0" aria-label="Selecionar IP ${esc(m.ip || '')}"${m.ao_vivo && !m.responde ? ' style="opacity:.6"' : ''}>
       <b>${esc(m.ip || '-')}${m.conflito_ip ? '<span class="marca-conflito">!</span>' : ''}</b>
       <span>${esc(m.mac || '-')}</span>
-      <small><span class="deploy-pick-source">${esc(m.source || '-')} ${m.host ? `- ${esc(m.host)}` : ''}</span><strong class="deploy-pick-action">Clique para selecionar</strong></small>
+      <small><span class="deploy-pick-source">${esc(m.source || '-')} ${m.host ? `- ${esc(m.host)}` : ''}${m.estado ? ` (${esc(m.estado)})` : ''}${estadoVivo(m)}</span><strong class="deploy-pick-action">Clique para selecionar</strong></small>
     </div>
   `).join(''));
   document.querySelectorAll('#deployLookupResult .deploy-cam-pick').forEach(el => {
