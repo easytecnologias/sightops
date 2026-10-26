@@ -191,7 +191,7 @@ A câmera reinicia e volta em 1 a 2 minutos.`)) return;
               // "Abrir no mapa" fica no app: o Mapa do SightOps centrado na
               // camera, com caixas e cabos. O Google Maps so para a rota.
               <>
-                <button type="button" className="item" onClick={() => ir('/mapa', { state: { centro: [Number(cam.lat), Number(cam.lon)] } })}>
+                <button type="button" className="item" onClick={() => ir('/mapa', { state: { centro: [Number(cam.lat), Number(cam.lon)], camera: chaveDa(cam), nome: tituloDa(cam) } })}>
                   <span className="ic">{Icone.pin}</span>
                   <span className="corpo"><span className="t">Abrir no mapa</span><span className="s">Mapa do SightOps, com caixas e cabos</span></span>
                   {Icone.seta}

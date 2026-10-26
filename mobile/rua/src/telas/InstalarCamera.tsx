@@ -522,7 +522,7 @@ export function InstalarCamera() {
           <div className="lista-quebra">{resultado.map((r, i) => <Item key={i} ponto={r.ok ? 'verde' : 'vermelho'} titulo={r.t} />)}</div>
           <div className="form-cartao">
             {posValida ? (
-              <button type="button" className="btn" onClick={() => ir('/mapa', { state: { centro: posicao.split(',').map((x) => Number(x.trim())) } })}>{Icone.mapa}Ver no mapa</button>
+              <button type="button" className="btn" onClick={() => ir('/mapa', { state: { centro: posicao.split(',').map((x) => Number(x.trim())), nome: titulo.trim() } })}>{Icone.mapa}Ver no mapa</button>
             ) : null}
             <button type="button" className={posValida ? 'btn2' : 'btn'} onClick={() => ir('/cameras')}>Ver em Câmeras</button>
             <button type="button" className="btn2" onClick={() => ir('/implantar/instalar', { replace: true, state: {} })}>Instalar outra</button>

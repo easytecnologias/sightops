@@ -11,7 +11,10 @@ import {
 } from '../lib/mapa';
 import { useOnline } from '../lib/rede';
 import { useSite } from '../lib/site';
-import { Carregando, Icone, useToast } from '../ui/pecas';
+import { Carregando, Icone, Item, Vazio, useToast } from '../ui/pecas';
+import { useFiltro } from '../ui/Filtros';
+import { pegar, salvar } from '../lib/storage';
+import { ordemNatural } from '../lib/ordem';
 
 /* 8 · Mapa do site, 9 · caixa CFTV, 10 · desenhar cabo */
 
@@ -30,8 +33,9 @@ export function Mapa() {
   const toast = useToast();
   const qc = useQueryClient();
   const ir = useNavigate();
-  // Vindo do Instalar: abre centrado na camera recem-registrada.
-  const pedido = (useLocation().state as { centro?: number[] } | null)?.centro;
+  // Vindo da ficha da camera ou do Instalar: abre centrado nela e a marca.
+  const vindo = (useLocation().state as { centro?: number[]; camera?: string; nome?: string } | null) ?? null;
+  const pedido = vindo?.centro;
 
   const divMapa = useRef<HTMLDivElement>(null);
   const mapa = useRef<L.Map | null>(null);
@@ -48,6 +52,23 @@ export function Mapa() {
   const [ver, setVer] = useState({ cabos: true, caixas: true, cameras: true, rotas: true });
   const alternar = (k: keyof typeof ver) => setVer((v) => ({ ...v, [k]: !v[k] }));
   const centrado = useRef(false);
+  // Para onde o mapa deve olhar enquanto a tela ainda se ajusta (o cabecalho
+  // encolhe ao abrir o Mapa). Sem isto o setView era calculado com o tamanho
+  // errado e a camera pedida ficava fora do lugar. Arrastar o mapa solta.
+  const alvo = useRef<{ p: Ponto; z: number } | null>(null);
+  const [destaque, setDestaque] = useState<{ p: Ponto; nome: string } | null>(
+    pedido && pedido.length === 2 && pedido.every(Number.isFinite) ? { p: [pedido[0], pedido[1]], nome: vindo?.nome ?? '' } : null);
+  const [painel, setPainel] = useState<'' | 'camadas' | 'procurar'>('');
+  // Mapas (KMZ) escondidos do site e de fora do site mostrados, por site, guardados no aparelho.
+  const [ocultas, setOcultas] = useState<string[]>([]);
+  const [extras, setExtras] = useState<string[]>([]);
+  const chaveCamadas = `rua.mapa.camadas.${site ?? ''}`;
+  useEffect(() => {
+    void pegar(chaveCamadas).then((v) => {
+      try { const d = JSON.parse(v ?? '{}'); setOcultas(d.ocultas ?? []); setExtras(d.extras ?? []); } catch { /* sem escolha guardada */ }
+    });
+  }, [chaveCamadas]);
+  const guardarCamadas = (o: string[], x: string[]) => { setOcultas(o); setExtras(x); void salvar(chaveCamadas, JSON.stringify({ ocultas: o, extras: x })); };
 
   // Cameras do site com coordenada (o inventario guarda lat/lon).
   const camerasSite = useMemo(() => (cams.data ?? []).filter((c) => filtro(siteDa(c), c.remote_connector_id || c.connector_id)
@@ -65,13 +86,30 @@ export function Mapa() {
     return pts.some((p) => distancia(p, centro) < 3000);
   }), [camadas.data, centro]);
 
+  const outras = useMemo(() => (camadas.data ?? []).filter((c) => !doSite.includes(c)).sort((a, b) => ordemNatural(a.label, b.label)), [camadas.data, doSite]);
+  const visiveis = useMemo(() => [...doSite.filter((c) => !ocultas.includes(c.id)), ...outras.filter((c) => extras.includes(c.id))],
+    [doSite, outras, ocultas, extras]);
+  const conta = useMemo(() => ({
+    cabos: visiveis.reduce((a, c) => a + Object.keys(c.cabos ?? {}).length, 0),
+    caixas: visiveis.reduce((a, c) => a + Object.keys(c.caixas ?? {}).length + Object.keys(c.ctos ?? {}).length, 0),
+    cameras: camerasSite.length,
+    rotas: visiveis.reduce((a, c) => a + linhasDa(c).length, 0),
+  }), [visiveis, camerasSite]);
+
   // Liga o mapa uma vez.
   useEffect(() => {
     if (!divMapa.current || mapa.current) return;
     const m = L.map(divMapa.current, { zoomControl: false, attributionControl: true }).setView([-9.76, -36.67], 15);
     mapa.current = m;
     grupo.current = L.layerGroup().addTo(m);
-    return () => { m.remove(); mapa.current = null; };
+    // A tela muda de tamanho depois de criada: recalcula e volta ao alvo.
+    const ro = new ResizeObserver(() => {
+      m.invalidateSize({ animate: false });
+      if (alvo.current) m.setView(alvo.current.p, alvo.current.z, { animate: false });
+    });
+    ro.observe(divMapa.current);
+    m.on('dragstart', () => { alvo.current = null; });
+    return () => { ro.disconnect(); m.remove(); mapa.current = null; };
   }, []);
 
   // Fundo: mapa ou satelite (os mesmos servidores do mapa da web).
@@ -102,9 +140,17 @@ export function Mapa() {
   useEffect(() => {
     const m = mapa.current;
     if (!m || centrado.current) return;
-    const alvo = (pedido && pedido.length === 2 && pedido.every(Number.isFinite) ? [pedido[0], pedido[1]] as Ponto : null) ?? centro ?? (doSite[0] ? Object.values(doSite[0].caixas).map((cx) => posicaoDaCaixa(cx, doSite[0])).find(Boolean) : null);
-    if (alvo) { m.setView(alvo, pedido ? 19 : 17); centrado.current = true; }
-  }, [centro, doSite, pedido]);
+    const ponto = (pedido && pedido.length === 2 && pedido.every(Number.isFinite) ? [pedido[0], pedido[1]] as Ponto : null) ?? centro ?? (doSite[0] ? Object.values(doSite[0].caixas).map((cx) => posicaoDaCaixa(cx, doSite[0])).find(Boolean) : null);
+    if (ponto) { olharPara(ponto, pedido ? 19 : 17); centrado.current = true; }
+  }, [centro, doSite, pedido]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  function olharPara(p: Ponto, z: number) {
+    const m = mapa.current;
+    if (!m) return;
+    alvo.current = { p, z };
+    m.invalidateSize({ animate: false });
+    m.setView(p, z, { animate: false });
+  }
 
   // Desenha tudo. Refaz quando os dados, a selecao ou o cabo em desenho mudam.
   useEffect(() => {
@@ -112,7 +158,7 @@ export function Mapa() {
     const g = grupo.current;
     if (!m || !g) return;
     g.clearLayers();
-    for (const c of doSite) {
+    for (const c of visiveis) {
       if (ver.rotas) for (const l of linhasDa(c)) L.polyline(l, { color: '#7a8790', weight: 2, opacity: 0.6, dashArray: '6 6', interactive: false }).addTo(g);
       for (const k of ver.cabos ? Object.values(c.cabos ?? {}) : []) {
         if (!k.caminho || k.caminho.length < 2) continue;
@@ -145,11 +191,17 @@ export function Mapa() {
         .bindTooltip(tituloDa(cam), { direction: 'top', offset: [0, -8] })
         .addTo(g);
     }
+    if (destaque) {
+      L.circleMarker(destaque.p, { radius: 19, color: '#d9480f', weight: 3, fill: false, interactive: false }).addTo(g);
+      if (destaque.nome) {
+        L.marker(destaque.p, { icon: L.divIcon({ className: '', html: `<span class="mk-destaque">${destaque.nome.replace(/</g, '&lt;')}</span>`, iconSize: [0, 0], iconAnchor: [0, 42] }), interactive: false }).addTo(g);
+      }
+    }
     if (desenho && desenho.caminho.length) {
       L.polyline(desenho.caminho, { color: '#d9480f', weight: 3.5 }).addTo(g);
       desenho.caminho.forEach((p, i) => { if (i > 0) L.circleMarker(p, { radius: 5, color: '#d9480f', weight: 2.5, fillColor: '#fff', fillOpacity: 1, interactive: false }).addTo(g); });
     }
-  }, [doSite, camerasSite, sel, desenho, ir, ver]);
+  }, [visiveis, camerasSite, sel, desenho, ir, ver, destaque]);
 
   // Toque no mapa durante o desenho = nova curva (antes da camera escolhida).
   useEffect(() => {
@@ -167,8 +219,28 @@ export function Mapa() {
     return () => { m.off('click', clique); };
   }, []);
 
+  type Achado = { tipo: 'Câmera' | 'Caixa'; nome: string; ip: string; p: Ponto; estado?: string };
+  const achaveis = useMemo<Achado[]>(() => [
+    ...camerasSite.map((c) => ({ tipo: 'Câmera' as const, nome: tituloDa(c), ip: c.ip ?? '', p: [Number(c.lat), Number(c.lon)] as Ponto, estado: estadoDa(c) })),
+    ...visiveis.flatMap((c) => Object.values(c.caixas ?? {}).flatMap((cx): Achado[] => {
+      const p = posicaoDaCaixa(cx, c);
+      return p ? [{ tipo: 'Caixa', nome: cx.nome || cx.ponto || 'Caixa', ip: '', p }] : [];
+    })),
+  ].sort((a, b) => ordemNatural(a.nome, b.nome)), [camerasSite, visiveis]);
+  const busca = useFiltro(achaveis, {
+    texto: (x) => [x.nome, x.ip], dica: 'Nome ou IP da câmera, nome da caixa', unidade: 'no mapa',
+    extra: { rotulo: 'Tipo', todos: 'Câmeras e caixas', de: (x) => x.tipo },
+    situacao: (x) => (x.tipo === 'Caixa' ? 'livre' : x.estado === 'online' ? 'ok' : x.estado === 'offline' ? 'fora' : 'atencao'),
+    nomes: { livre: 'Caixas', ok: 'Câmera no ar', fora: 'Câmera fora', atencao: 'Sem leitura' },
+  });
+  function irPara(x: { p: Ponto; nome: string }) {
+    setDestaque({ p: x.p, nome: x.nome });
+    olharPara(x.p, 19);
+    setPainel('');
+  }
+
   function centrarEmMim() {
-    if (minhaPos) mapa.current?.setView(minhaPos, 18);
+    if (minhaPos) { alvo.current = null; mapa.current?.setView(minhaPos, 18); }
     else toast('Sem localização: libere a localização do app nos ajustes do celular.', true);
   }
 
@@ -223,10 +295,14 @@ export function Mapa() {
       {camadas.isPending ? <div className="mapa-carregando"><Carregando texto="Baixando o mapa do site…" /></div> : null}
 
       {!desenho ? (
-        <div className="camadas-mapa" role="group" aria-label="Camadas do mapa">
-          {([['cabos', 'Cabos'], ['caixas', 'Caixas'], ['cameras', 'Câmeras'], ['rotas', 'Rotas']] as [keyof typeof ver, string][]).map(([k, n]) => (
-            <button key={k} type="button" aria-pressed={ver[k]} onClick={() => alternar(k)}>{n}</button>
-          ))}
+        <div className="camadas-mapa" role="group" aria-label="Mapa">
+          <button type="button" className="com-icone" aria-expanded={painel === 'camadas'} onClick={() => setPainel(painel === 'camadas' ? '' : 'camadas')}>
+            {Icone.camadas}Camadas{ocultas.length || extras.length || Object.values(ver).some((v) => !v) ? ' •' : ''}
+          </button>
+          <button type="button" className="com-icone" aria-expanded={painel === 'procurar'} onClick={() => setPainel(painel === 'procurar' ? '' : 'procurar')}>
+            {Icone.busca}Procurar
+          </button>
+          {destaque ? <button type="button" className="com-icone" onClick={() => olharPara(destaque.p, 19)}>{Icone.pin}{destaque.nome ? destaque.nome.slice(0, 18) : 'Ponto'}</button> : null}
         </div>
       ) : (
         <button type="button" className="pilula-mapa" style={{ left: 12, top: 12 }} onClick={() => { setDesenho(null); setAberta(true); }}>{Icone.x}Cancelar</button>
@@ -239,12 +315,86 @@ export function Mapa() {
         <button type="button" className="fab" aria-label={satelite ? 'Mapa' : 'Satélite'} aria-pressed={satelite} onClick={() => setSatelite(!satelite)}>{Icone.mapa}</button>
       </div>
 
+      {painel ? <div className="fundo-mapa" onClick={() => setPainel('')} aria-hidden="true" /> : null}
+      {painel === 'camadas' ? (
+        <section className="folha-mapa alta" aria-label="Camadas do mapa">
+          <span className="alca" aria-hidden="true" />
+          <div className="cab-folha">
+            <b className="tit-folha" style={{ flex: 1 }}>Camadas</b>
+            <button type="button" className="fechar" aria-label="Fechar" onClick={() => setPainel('')}>{Icone.x}</button>
+          </div>
+          <span className="rot-secao">Fundo</span>
+          <div className="seg">
+            <button type="button" aria-pressed={!satelite} onClick={() => setSatelite(false)}>Mapa</button>
+            <button type="button" aria-pressed={satelite} onClick={() => setSatelite(true)}>Satélite</button>
+          </div>
+          <span className="rot-secao">Mostrar</span>
+          <div className="lista-camadas">
+            {([['cameras', 'Câmeras'], ['caixas', 'Caixas e CTOs'], ['cabos', 'Cabos'], ['rotas', 'Rotas e traçados']] as [keyof typeof ver, string][]).map(([k, n]) => (
+              <label key={k} className="linha-camada">
+                <input type="checkbox" checked={ver[k]} onChange={() => alternar(k)} />
+                <span className="corpo">{n}</span><span className="mono sub-tela">{conta[k]}</span>
+              </label>
+            ))}
+          </div>
+          <span className="rot-secao">Mapas deste site · {doSite.length}</span>
+          <div className="lista-camadas">
+            {!doSite.length ? <span className="sub-tela">Nenhum mapa (KMZ) perto das câmeras deste site.</span> : doSite.map((c) => (
+              <label key={c.id} className="linha-camada">
+                <input type="checkbox" checked={!ocultas.includes(c.id)}
+                       onChange={() => guardarCamadas(ocultas.includes(c.id) ? ocultas.filter((x) => x !== c.id) : [...ocultas, c.id], extras)} />
+                <span className="corpo">{c.label || 'Mapa sem nome'}
+                <span className="mono sub-tela linha-sub">{[
+                  `${pontosDa(c).length} pontos`,
+                  Object.keys(c.caixas ?? {}).length ? `${Object.keys(c.caixas ?? {}).length} cx` : '',
+                  Object.keys(c.cabos ?? {}).length ? `${Object.keys(c.cabos ?? {}).length} cabos` : '',
+                ].filter(Boolean).join(' · ')}</span></span>
+              </label>
+            ))}
+          </div>
+          {outras.length ? (
+            <details className="outros-mapas">
+              <summary>Mapas de outros lugares · {outras.length}{extras.length ? ` (${extras.length} ligados)` : ''}</summary>
+              <div className="lista-camadas">
+                {outras.map((c) => (
+                  <label key={c.id} className="linha-camada">
+                    <input type="checkbox" checked={extras.includes(c.id)}
+                           onChange={() => guardarCamadas(ocultas, extras.includes(c.id) ? extras.filter((x) => x !== c.id) : [...extras, c.id])} />
+                    <span className="corpo">{c.label || 'Mapa sem nome'}</span>
+                  </label>
+                ))}
+              </div>
+            </details>
+          ) : null}
+        </section>
+      ) : null}
+      {painel === 'procurar' ? (
+        <section className="folha-mapa alta" aria-label="Procurar no mapa">
+          <span className="alca" aria-hidden="true" />
+          <div className="cab-folha">
+            <b className="tit-folha" style={{ flex: 1 }}>Procurar no mapa</b>
+            <button type="button" className="fechar" aria-label="Fechar" onClick={() => setPainel('')}>{Icone.x}</button>
+          </div>
+          {!achaveis.length ? <Vazio>Nenhuma câmera com coordenada nem caixa nos mapas ligados.</Vazio> : busca.barra}
+          <div>
+            {busca.lista.slice(0, 80).map((x, i) => (
+              <Item key={`${x.tipo}-${x.nome}-${i}`} icone={x.tipo === 'Câmera' ? Icone.camera : Icone.pin}
+                    ponto={x.tipo === 'Câmera' ? (x.estado === 'online' ? 'verde' : x.estado === 'offline' ? 'vermelho' : 'ambar') : undefined}
+                    titulo={x.nome} sub={[x.tipo, x.ip, minhaPos ? `a ${fmtM(distancia(minhaPos, x.p))} de você` : ''].filter(Boolean).join(' · ')}
+                    onClick={() => irPara(x)} direita={Icone.seta} />
+            ))}
+            {busca.lista.length > 80 ? <p className="sub-tela">Mostrando 80 de {busca.lista.length}: refine a busca.</p> : null}
+          </div>
+        </section>
+      ) : null}
+
       {desenho ? (
         <div className="dica-mapa" role="status">Toque no mapa para fazer uma curva. Toque na câmera para terminar.</div>
       ) : null}
 
-      {!camadas.isPending && !doSite.length ? (
-        <div className="folha-mapa"><b>Nenhum mapa neste site.</b><span className="sub-tela">O mapa (KMZ) é importado no SightOps pelo navegador.</span></div>
+      {!camadas.isPending && !visiveis.length && !painel && !sel ? (
+        <div className="folha-mapa"><b>{doSite.length ? 'Todos os mapas deste site estão desligados.' : 'Nenhum mapa neste site.'}</b>
+          <span className="sub-tela">{doSite.length ? 'Ligue em Camadas.' : 'O mapa (KMZ) é importado no SightOps pelo navegador. Em Camadas dá para ligar mapas de outros lugares.'}</span></div>
       ) : null}
 
       {sel && !desenho ? (

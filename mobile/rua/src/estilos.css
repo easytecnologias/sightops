@@ -645,3 +645,16 @@ body.com-tela-cheia { overflow: hidden; }
 /* Barra de filtro comum (ui/Filtros.tsx) */
 .filtros { display: flex; flex-direction: column; gap: 8px; }
 .limpar-aba { color: var(--primary-escuro); border-color: var(--primary); }
+
+/* Mapa: botoes Camadas/Procurar, paineis e o ponto destacado */
+.camadas-mapa .com-icone { display: inline-flex; align-items: center; gap: 6px; }
+.camadas-mapa .com-icone svg { width: 16px; height: 16px; }
+.camadas-mapa button[aria-expanded="true"] { background: var(--escuro); border-color: var(--escuro); color: #fff; }
+.fundo-mapa { position: absolute; inset: 0; z-index: 640; background: rgba(19,37,45,.25); }
+.lista-camadas { display: flex; flex-direction: column; }
+.linha-camada { display: flex; align-items: center; gap: 12px; min-height: 48px; border-bottom: 1px solid var(--divisor); }
+.linha-camada input { width: 22px; height: 22px; accent-color: var(--primary); flex: none; }
+.linha-camada .corpo { flex: 1; min-width: 0; font-size: 14.5px; }
+.outros-mapas summary { min-height: 44px; display: flex; align-items: center; font-weight: 600; color: var(--primary-escuro); cursor: pointer; }
+.mk-destaque { position: absolute; transform: translateX(-50%); white-space: nowrap; background: #d9480f; color: #fff; font-size: 12px; font-weight: 700; padding: 3px 8px; border-radius: 6px; box-shadow: 0 1px 4px rgba(0,0,0,.25); }
+.linha-camada .linha-sub { display: block; font-size: 12px; margin-top: 2px; }
