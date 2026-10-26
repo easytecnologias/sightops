@@ -1,74 +1,144 @@
 import { useEffect, useState } from 'react';
 import { HashRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
-import { carregarToken, obter, sair as sairDaApi } from './lib/api';
-import { useEu } from './lib/dados';
+import { carregarToken, ErroApi, obter, sair as sairDaApi } from './lib/api';
+import { apagar, pegar, salvar } from './lib/storage';
+import { apagarPin, temPin } from './lib/pin';
+import { useSite } from './lib/site';
+import type { Usuario } from './lib/dados';
 import { Shell } from './ui/Shell';
-import { Carregando } from './ui/pecas';
-import { Login } from './screens/Login';
-import { Inicio } from './screens/Inicio';
+import { ProvedorToast } from './ui/pecas';
+import { Abertura, Apresentacao, CriarPin, EscolherSite, Login, Pin } from './telas/Entrada';
+import { Inicio } from './telas/Inicio';
+import { Alertas } from './telas/Alertas';
+import { Rede } from './telas/Rede';
+import { ConsultarOnu, ListaOnus } from './telas/ConsultarOnu';
+import { Conta } from './telas/Conta';
 import { Cameras } from './screens/Cameras';
 import { CameraDetalhe } from './screens/CameraDetalhe';
 import { Implantar } from './screens/Implantar';
-import { Alertas } from './screens/Alertas';
-import { Rede } from './screens/Rede';
 
-function Dentro({ aoSair }: { aoSair: () => void }) {
-  const eu = useEu();
-  const operador = eu.data?.full_name || eu.data?.username || '';
+type Etapa = 'abertura' | 'apresentacao' | 'login' | 'pin' | 'criar-pin' | 'site' | 'dentro';
 
+const VISTA_APRESENTACAO = 'rua.apresentacao';
+
+function Dentro(
+  { aoSair, aoTrocarPin, aoVerApresentacao }:
+  { aoSair: () => void; aoTrocarPin: () => void; aoVerApresentacao: () => void },
+) {
   return (
-    <Shell operador={operador} onSair={aoSair}>
-      <Routes>
-        <Route path="/" element={<Inicio />} />
-        <Route path="/cameras" element={<Cameras />} />
-        <Route path="/cameras/:chave" element={<CameraDetalhe />} />
-        <Route path="/implantar" element={<Implantar />} />
-        <Route path="/alertas" element={<Alertas />} />
-        <Route path="/rede" element={<Rede />} />
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
-    </Shell>
+    <Routes>
+      <Route path="/conta" element={<Conta aoSair={aoSair} aoTrocarPin={aoTrocarPin} aoVerApresentacao={aoVerApresentacao} />} />
+      <Route path="*" element={
+        <Shell>
+          <Routes>
+            <Route path="/" element={<Inicio />} />
+            <Route path="/cameras" element={<Cameras />} />
+            <Route path="/cameras/:chave" element={<CameraDetalhe />} />
+            <Route path="/implantar" element={<Implantar />} />
+            <Route path="/alertas" element={<Alertas />} />
+            <Route path="/rede" element={<Rede />} />
+            <Route path="/onu" element={<ListaOnus />} />
+            <Route path="/onu/:chave" element={<ConsultarOnu />} />
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+        </Shell>
+      } />
+    </Routes>
   );
 }
 
 export function App() {
-  // 'checando' existe porque ler o token e assincrono (Preferences no app
-  // nativo). Sem esse estado a tela de login pisca antes de o app descobrir
-  // que a sessao ja estava viva.
-  const [estado, setEstado] = useState<'checando' | 'fora' | 'dentro'>('checando');
+  const [etapa, setEtapa] = useState<Etapa>('abertura');
+  const [nome, setNome] = useState('');
   const qc = useQueryClient();
+  const { escolher } = useSite();
+
+  const buscarEu = () => qc.fetchQuery({
+    queryKey: ['eu'], staleTime: 0,
+    queryFn: async () => (await obter<{ user?: Usuario }>('/api/auth/me')).user ?? {},
+  });
+
+  /** Depois de entrar (ou desbloquear): os passos que faltam, em ordem. */
+  async function seguir(depoisDoLogin = false, querPin = false) {
+    if (depoisDoLogin && querPin && !(await temPin())) { setEtapa('criar-pin'); return; }
+    if (!(await pegar('rua.site'))) { setEtapa('site'); return; }
+    setEtapa('dentro');
+  }
 
   useEffect(() => {
     (async () => {
-      await carregarToken();
-      try {
-        await qc.fetchQuery({
-          queryKey: ['eu'],
-          queryFn: async () => (await obter<{ user?: unknown }>('/api/auth/me')).user ?? {},
-        });
-        setEstado('dentro');
-      } catch {
-        // Sem rede o /me falha mesmo com sessao boa. Havendo copia guardada o
-        // app abre offline: e exatamente para isso que o cache existe.
-        const temCache = qc.getQueryData(['resumo']) || qc.getQueryData(['cameras']);
-        setEstado(temCache ? 'dentro' : 'fora');
+      const comeco = Date.now();
+      const espera = () => new Promise((ok) => setTimeout(ok, Math.max(0, 900 - (Date.now() - comeco))));
+      const token = await carregarToken();
+      if (!token) {
+        await espera();
+        setEtapa((await pegar(VISTA_APRESENTACAO)) ? 'login' : 'apresentacao');
+        return;
       }
+      try {
+        const eu = await buscarEu();
+        setNome(eu.full_name || eu.username || '');
+      } catch (e) {
+        if (e instanceof ErroApi && e.status === 401) {
+          await sairDaApi();
+          await espera();
+          setEtapa('login');
+          return;
+        }
+        // Sem rede: abre com a copia guardada; as telas dizem de quando e o dado.
+      }
+      await espera();
+      if (await temPin()) setEtapa('pin');
+      else await seguir();
     })();
-  }, [qc]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function sair() {
     await sairDaApi();
+    await apagarPin();
     qc.clear();
-    setEstado('fora');
+    setEtapa('login');
   }
 
-  if (estado === 'checando') return <Carregando />;
-  if (estado === 'fora') return <Login aoEntrar={() => setEstado('dentro')} />;
+  // Sessao vencida no meio do uso: volta ao login.
+  useEffect(() => qc.getQueryCache().subscribe((ev) => {
+    const erro = ev.query.state.error;
+    if (etapa === 'dentro' && erro instanceof ErroApi && erro.status === 401) {
+      void sairDaApi().then(() => { qc.clear(); setEtapa('login'); });
+    }
+  }), [qc, etapa]);
+
+  if (etapa === 'abertura') return <Abertura />;
+  if (etapa === 'apresentacao') {
+    return <Apresentacao aoTerminar={() => { void salvar(VISTA_APRESENTACAO, '1'); void temToken().then((t) => setEtapa(t ? 'dentro' : 'login')); }} />;
+  }
+  if (etapa === 'login') {
+    return (
+      <Login aoEntrar={async (querPin) => {
+        try { const eu = await buscarEu(); setNome(eu.full_name || eu.username || ''); } catch { /* nome e enfeite */ }
+        await seguir(true, querPin);
+      }} />
+    );
+  }
+  if (etapa === 'pin') return <Pin nome={nome} aoAbrir={() => void seguir()} aoEsquecer={() => void sair()} />;
+  if (etapa === 'criar-pin') return <CriarPin aoTerminar={() => void seguir()} />;
+  if (etapa === 'site') return <EscolherSite aoEscolher={(s) => { escolher(s); setEtapa('dentro'); }} />;
 
   return (
     <HashRouter>
-      <Dentro aoSair={sair} />
+      <ProvedorToast>
+        <Dentro
+          aoSair={() => void sair()}
+          aoTrocarPin={() => { void apagarPin().then(() => setEtapa('criar-pin')); }}
+          aoVerApresentacao={() => { void apagar(VISTA_APRESENTACAO).then(() => setEtapa('apresentacao')); }}
+        />
+      </ProvedorToast>
     </HashRouter>
   );
+}
+
+async function temToken(): Promise<boolean> {
+  return !!(await carregarToken());
 }

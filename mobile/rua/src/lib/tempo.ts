@@ -7,15 +7,15 @@ export function desde(ms: number | string | null | undefined): string {
   if (!t || Number.isNaN(t)) return '—';
   const min = Math.floor((Date.now() - t) / 60000);
   if (min < 1) return 'agora';
-  if (min < 60) return `ha ${min} min`;
+  if (min < 60) return `há ${min} min`;
   const h = Math.floor(min / 60);
-  if (h < 24) return `ha ${h} h`;
+  if (h < 24) return `há ${h} h`;
   const d = Math.floor(h / 24);
-  return `ha ${d} d`;
+  return `há ${d} d`;
 }
 
 /** Forma curta para badge: "6 d", "2 h", "12 min". */
 export function curto(ms: number | string | null | undefined): string {
   const s = desde(ms);
-  return s.startsWith('ha ') ? s.slice(3) : s;
+  return s.startsWith('há ') ? s.slice(3) : s;
 }

@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { chaveDa, estadoDa, siteDa, tituloDa, useCameras, type Camera, type Estado } from '../lib/dados';
 import { useOnline } from '../lib/rede';
 import { useSite } from '../lib/site';
@@ -12,7 +12,8 @@ export function Cameras() {
   const { site, pronto } = useSite();
   const q = useCameras();
   const [filtro, setFiltro] = useState<Filtro>('todas');
-  const [busca, setBusca] = useState('');
+  const [param] = useSearchParams();
+  const [busca, setBusca] = useState(param.get('q') ?? '');
   const ir = useNavigate();
 
   const doSite = useMemo(() => {
@@ -55,7 +56,7 @@ export function Cameras() {
   return (
     <>
       <div className="linha-topo">
-        <Titulo titulo="Cameras" sub={`${site ?? 'Todos os sites'} · ${doSite.length} no projeto`} />
+        <Titulo titulo="Câmeras" sub={`${site ?? 'Todos os sites'} · ${doSite.length} no projeto`} />
         <span style={{ marginLeft: 'auto' }}>
           <Procedencia buscando={q.isFetching} atualizadoEm={q.dataUpdatedAt} online={online} />
         </span>
@@ -65,7 +66,7 @@ export function Cameras() {
         {Icone.busca}
         <label htmlFor="q" className="so-leitor">Procurar</label>
         <input id="q" value={busca} onChange={(e) => setBusca(e.target.value)}
-               placeholder="Titulo, IP, MAC ou canal" autoCapitalize="none" spellCheck={false} />
+               placeholder="Título, IP, MAC ou canal" autoCapitalize="none" spellCheck={false} />
       </div>
 
       <div className="abas">
@@ -82,7 +83,7 @@ export function Cameras() {
       ) : grupos.map(([host, cams]) => (
         <Cartao key={host}>
           <h2>{host === '\u0000sem' ? 'Sem gravador' : host}</h2>
-          <p className="sub-h2">{cams.length} camera{cams.length === 1 ? '' : 's'}</p>
+          <p className="sub-h2">{cams.length} câmera{cams.length === 1 ? '' : 's'}</p>
           {cams.map((c, i) => {
             const e = estadoDa(c);
             return (

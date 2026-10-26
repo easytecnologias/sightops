@@ -26,7 +26,7 @@ export function CameraDetalhe() {
   if (!cam) {
     return (
       <Cartao>
-        <Vazio>Camera nao encontrada no projeto baixado.</Vazio>
+        <Vazio>Câmera não encontrada no projeto baixado.</Vazio>
       </Cartao>
     );
   }
@@ -47,13 +47,13 @@ export function CameraDetalhe() {
       <Cartao>
         <div className="foto-caixa">
           {foto.estado === 'pronta' && foto.url ? (
-            <img src={foto.url} alt={`Ultima imagem de ${tituloDa(cam)}`} />
+            <img src={foto.url} alt={`Última imagem de ${tituloDa(cam)}`} />
           ) : (
             <div className="foto-vazia">
               {foto.estado === 'carregando' ? 'Carregando a imagem…'
-                : foto.estado === 'sem-sinal' ? 'A foto precisa de sinal — ela nao cabe na copia do aparelho.'
-                : foto.estado === 'sem-foto' ? 'Esta camera ainda nao tem foto no inventario.'
-                : 'Nao consegui trazer a imagem agora.'}
+                : foto.estado === 'sem-sinal' ? 'A foto precisa de sinal — ela não cabe na cópia do aparelho.'
+                : foto.estado === 'sem-foto' ? 'Esta câmera ainda não tem foto no inventário.'
+                : 'Não consegui trazer a imagem agora.'}
             </div>
           )}
         </div>
@@ -62,14 +62,14 @@ export function CameraDetalhe() {
             {e === 'online' ? 'respondendo' : e === 'offline' ? 'fora do ar' : 'sem leitura'}
           </span>
           <span className="foto-quando">
-            {cam.status_checked_at ? `medido ${desde(cam.status_checked_at)}` : 'sem data de medicao'}
+            {cam.status_checked_at ? `medido ${desde(cam.status_checked_at)}` : 'sem data de medição'}
           </span>
         </div>
       </Cartao>
 
       {cam.ocorrencia ? (
         <Cartao>
-          <h2>Ocorrencia</h2>
+          <h2>Ocorrência</h2>
           <div className="ocorrencia">
             {cam.ocorrencia}
             {cam.ocorrencia_em ? (
@@ -82,7 +82,7 @@ export function CameraDetalhe() {
       ) : null}
 
       <Cartao>
-        <h2>Identificacao</h2>
+        <h2>Identificação</h2>
         <div className="ficha">
           <Ficha rot="IP" val={cam.ip} mono />
           <Ficha rot="MAC" val={cam.mac} mono />
@@ -95,7 +95,7 @@ export function CameraDetalhe() {
         <h2>Onde ela entra</h2>
         <div className="ficha">
           <Ficha rot="Site" val={siteDa(cam)} />
-          <Ficha rot="Gravador" val={cam.recorder_host || 'nao vinculada'} mono={!!cam.recorder_host} />
+          <Ficha rot="Gravador" val={cam.recorder_host || 'não vinculada'} mono={!!cam.recorder_host} />
           <Ficha rot="Canal" val={cam.recorder_channel ?? '—'} mono />
           <Ficha rot="Chegada" val={
             cam.inventory_mode === 'olt' ? 'Fibra (ONU)'
@@ -106,7 +106,7 @@ export function CameraDetalhe() {
       </Cartao>
 
       <Cartao>
-        <h2>Localizacao</h2>
+        <h2>Localização</h2>
         {coord ? (
           <>
             <div className="ficha">
@@ -124,7 +124,7 @@ export function CameraDetalhe() {
             )}
           </>
         ) : (
-          <Vazio>Sem coordenada registrada.<br />Ela e capturada na instalacao.</Vazio>
+          <Vazio>Sem coordenada registrada.<br />Ela é capturada na instalação.</Vazio>
         )}
       </Cartao>
     </>

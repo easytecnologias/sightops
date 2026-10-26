@@ -168,3 +168,100 @@ export function useAlertas() {
     refetchInterval: 60_000,
   });
 }
+
+/* ───────────────────────── monitoramento (o mesmo dado do Zabbix) ─────────────────────────
+   /api/monitoring/entities?entity_type=X -> {entities:[...]}  (monitoring_service.list_entities)
+   /api/monitoring/summary                -> {types, events}   (ultimos 20 eventos)
+   /api/monitoring/onu-signals?entity_key -> {samples:[...]}    (historico de sinal da ONU) */
+
+export type Entidade = {
+  entity_key: string;
+  entity_type: string;
+  site?: string;
+  display_name?: string;
+  status?: string;          // up | down | unstable | unknown | maintenance
+  last_checked_at?: string;
+  last_changed_at?: string;
+  detail_json?: string;
+  connector_id?: string;
+};
+
+export type EventoMon = {
+  entity_key: string; entity_type: string; from_status: string; to_status: string; message: string; created_at: string;
+};
+
+export function detalhe<T = Record<string, unknown>>(e: Entidade): T {
+  try { return (e.detail_json ? JSON.parse(e.detail_json) : {}) as T; } catch { return {} as T; }
+}
+
+export const mesmoSite = (a?: string | null, b?: string | null) =>
+  String(a ?? '').trim().toUpperCase() === String(b ?? '').trim().toUpperCase();
+
+/** Entidades de um tipo. 2000 e o teto do servidor (camera passa de 1600 no parque). */
+export function useEntidades(tipo: string) {
+  return useQuery({
+    queryKey: ['entidades', tipo],
+    queryFn: async () => (await obter<{ entities?: Entidade[] }>(
+      `/api/monitoring/entities?entity_type=${encodeURIComponent(tipo)}&limit=2000`)).entities ?? [],
+    staleTime: 60_000,
+  });
+}
+
+export function useEventos() {
+  return useQuery({
+    queryKey: ['eventos'],
+    queryFn: async () => (await obter<{ events?: EventoMon[] }>('/api/monitoring/summary')).events ?? [],
+    staleTime: 60_000,
+  });
+}
+
+export type AmostraSinal = { onu_rx?: number | string | null; olt_rx?: number | string | null; captured_at?: string; oper_status?: string };
+
+export function useSinalOnu(entityKey?: string) {
+  return useQuery({
+    queryKey: ['sinal', entityKey],
+    queryFn: async () => (await obter<{ samples?: AmostraSinal[] }>(
+      `/api/monitoring/onu-signals?entity_key=${encodeURIComponent(entityKey!)}&limit=288`)).samples ?? [],
+    enabled: !!entityKey,
+  });
+}
+
+/* ───────────────────────── OLT ───────────────────────── */
+
+export type Olt = {
+  id: number; name?: string; ip?: string; vendor?: string; model?: string; site?: string; active?: boolean;
+  status?: string; last_test_status?: string; last_tested_at?: string; capability_label?: string; connector_id?: string;
+};
+
+export function useOlts() {
+  return useQuery({
+    queryKey: ['olts'],
+    queryFn: async () => (await obter<{ items?: Olt[] }>('/api/olt/registry')).items ?? [],
+    staleTime: 5 * 60_000,
+  });
+}
+
+/* ───────────────────────── panico (so contagem e lista; NUNCA o campo de coacao) ───────────────────────── */
+
+export type Incidente = {
+  id: string; kind: string; status: string; opened_at: string; closed_at?: string; site?: string;
+  member?: { full_name?: string; unit_name?: string };
+};
+
+export function useIncidentes(escopo: 'live' | 'history', ativo = true) {
+  return useQuery({
+    enabled: ativo,
+    queryKey: ['incidentes', escopo],
+    queryFn: async () => {
+      const d = await obter<{ incidents?: (Incidente & Record<string, unknown>)[] }>(
+        `/api/alert/incidents?scope=${escopo}&limit=100`);
+      // So os campos que a tela usa: coacao (duress_at) nao entra nem na memoria do app.
+      return (d.incidents ?? []).map((i) => ({
+        id: i.id, kind: i.kind, status: i.status, opened_at: i.opened_at, closed_at: i.closed_at, site: i.site,
+        member: { full_name: i.member?.full_name, unit_name: i.member?.unit_name },
+      }) as Incidente);
+    },
+    staleTime: 30_000,
+    refetchInterval: 60_000,
+  });
+}
