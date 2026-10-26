@@ -70,6 +70,9 @@ export function InstalarCamera() {
   // 1 · achar
   const [busca, setBusca] = useState(veio.mac || veio.ip || '');
   const [achados, setAchados] = useState<Achado[] | null>(null);
+  // Mesmo MAC com mais de um IP: o ARP do MikroTik guarda o IP velho ("failed")
+  // e o agente nao manda esse status. Quem decide e o ping de agora.
+  const [vivos, setVivos] = useState<Record<string, 'testando' | 'responde' | 'nao'>>({});
   const [ip, setIp] = useState(veio.ip ?? '');
   const [mac, setMac] = useState(veio.mac ?? '');
   // 2 · ler
@@ -127,10 +130,34 @@ export function InstalarCamera() {
     setIndo('procurar'); setErro(''); setAchados(null);
     try {
       const d = await obter<{ matches?: Achado[] }>(`/api/deployments/lookup?connector_id=${encodeURIComponent(cid)}&query=${encodeURIComponent(q.trim())}`);
-      setAchados(d.matches ?? []);
-      if ((d.matches ?? []).length === 1 && !d.matches![0].conflito_ip) escolher(d.matches![0]);
+      const lista = d.matches ?? [];
+      setAchados(lista);
+      setVivos({});
+      if (lista.length === 1 && !lista[0].conflito_ip) escolher(lista[0]);
+      else if (lista.length > 1) testarVivos(lista);
     } catch (e) { setErro((e as Error).message); } finally { setIndo(''); }
   }
+  /** Pinga cada IP candidato pelo conector; o primeiro que responde e escolhido. */
+  function testarVivos(lista: Achado[]) {
+    const ips = [...new Set(lista.map((a) => a.ip || a.address || '').filter(Boolean))];
+    setVivos(Object.fromEntries(ips.map((x) => [x, 'testando' as const])));
+    let escolhido = false;
+    for (const alvo of ips) {
+      obter<{ online?: boolean; reachable?: boolean }>(
+        `/api/cameras/ping?ip=${encodeURIComponent(alvo)}&remote_connector_id=${encodeURIComponent(cid)}&force=1&timeout=2`)
+        .then((r) => {
+          const ok = !!(r.online || r.reachable);
+          setVivos((v) => ({ ...v, [alvo]: ok ? 'responde' : 'nao' }));
+          if (ok && !escolhido) {
+            escolhido = true;
+            const a = lista.find((x) => (x.ip || x.address) === alvo);
+            if (a) escolher(a);
+          }
+        })
+        .catch(() => setVivos((v) => ({ ...v, [alvo]: 'nao' })));
+    }
+  }
+
   function escolher(a: Achado) {
     setIp(a.ip || a.address || ''); setMac(a.mac || ''); setLeitura(null); setVendoPasso(0);
   }
@@ -261,11 +288,20 @@ export function InstalarCamera() {
         <button type="button" className="btn" disabled={!busca.trim() || indo === 'procurar' || !online} onClick={() => void procurar()}>
           {Icone.busca}{indo === 'procurar' ? 'Procurando no MikroTik…' : 'Procurar'}
         </button>
-        {achados ? (!achados.length ? <Vazio>Nada com esse MAC/IP no conector.</Vazio> : achados.slice(0, 8).map((a, i) => (
-          <Item key={`${a.ip}-${a.mac}-${i}`} ponto={a.conflito_ip ? 'ambar' : undefined} icone={Icone.camera}
-                titulo={a.ip || a.address || '—'} sub={[a.mac, a.source, a.conflito_ip ? 'mesmo IP com outro MAC' : ''].filter(Boolean).join(' · ')}
-                onClick={() => escolher(a)} direita={ip === (a.ip || a.address) ? <span className="selo verde">escolhida</span> : Icone.seta} />
-        ))) : null}
+        {achados && achados.length > 1 && Object.keys(vivos).length ? (
+          <p className="sub-tela">O mesmo MAC aparece com mais de um IP (o MikroTik guarda o antigo). {Object.values(vivos).includes('testando') ? 'Testando qual responde agora…' : Object.values(vivos).includes('responde') ? 'Ficou o IP que respondeu ao ping.' : 'Nenhum respondeu: confira a câmera e escolha na mão.'}</p>
+        ) : null}
+        {achados ? (!achados.length ? <Vazio>Nada com esse MAC/IP no conector.</Vazio> : achados.slice(0, 8).map((a, i) => {
+          const alvo = a.ip || a.address || '';
+          const v = vivos[alvo];
+          return (
+            <Item key={`${a.ip}-${a.mac}-${i}`} ponto={v === 'responde' ? 'verde' : v === 'nao' ? 'vermelho' : a.conflito_ip ? 'ambar' : undefined} icone={Icone.camera}
+                  titulo={alvo || '—'}
+                  sub={[a.mac, a.source, a.conflito_ip ? 'mesmo IP com outro MAC' : '', v === 'testando' ? 'testando ping…' : v === 'responde' ? 'responde agora' : v === 'nao' ? 'não responde (IP antigo?)' : ''].filter(Boolean).join(' · ')}
+                  onClick={() => escolher(a)}
+                  direita={ip === alvo ? <span className="selo verde">escolhida</span> : v === 'nao' ? <span className="selo vermelho">sem resposta</span> : Icone.seta} />
+          );
+        })) : null}
       </Passo>
 
       <Passo n={2} titulo="Ler a câmera" aberto={aberto(2)} onEditar={() => setVendoPasso(2)}
