@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { ErroApi, enviar, obter } from '../lib/api';
@@ -7,7 +7,7 @@ import { gravadoresPorLocal, useFiltroSite } from '../lib/monitor';
 import { useOnline } from '../lib/rede';
 import { useSite } from '../lib/site';
 import { desde } from '../lib/tempo';
-import { Carregando, Cartao, Icone, Item, Vazio, useToast } from '../ui/pecas';
+import { BotaoArmado, Carregando, Cartao, Icone, Item, Vazio, useToast } from '../ui/pecas';
 import { useFiltro, type Situacao } from '../ui/Filtros';
 import { ordenar } from '../lib/ordem';
 
@@ -73,22 +73,6 @@ export function Gravadores() {
         </>
       )}
     </>
-  );
-}
-
-function BotaoArmado({ rotulo, armar, indo, desab, onConfirmar, classe = 'btn' }:
-  { rotulo: string; armar: string; indo?: boolean; desab?: boolean; onConfirmar: () => void; classe?: string }) {
-  const [armado, setArmado] = useState(false);
-  const t = useRef<number>();
-  useEffect(() => () => window.clearTimeout(t.current), []);
-  return (
-    <button type="button" className={`${classe}${armado ? ' armado' : ''}`} disabled={indo || desab}
-            onClick={() => {
-              if (!armado) { setArmado(true); window.clearTimeout(t.current); t.current = window.setTimeout(() => setArmado(false), 6000); return; }
-              window.clearTimeout(t.current); setArmado(false); onConfirmar();
-            }}>
-      {indo ? 'Enviando ao gravador…' : armado ? armar : rotulo}
-    </button>
   );
 }
 

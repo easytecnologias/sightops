@@ -42,6 +42,10 @@ export function MenuImplantar({ aoEscolher }: { aoEscolher: () => void }) {
       <Cartao>
         <Item icone={Icone.onu} titulo="Ativar ONU" sub="Achar na PON, escolher serviço, autorizar"
               onClick={() => { zerar(); vai('/implantar/onu'); }} direita={Icone.seta} />
+        <Item icone={Icone.busca} titulo="Procurar ONU" sub="Pelo serial em todas as OLTs: sinal, reiniciar, remover"
+              onClick={() => vai('/implantar/onu/procurar')} direita={Icone.seta} />
+        <Item icone={Icone.onu} titulo="ONUs do site" sub="Lista com filtro: fora do ar, sinal baixo, por OLT"
+              onClick={() => vai('/onu')} direita={Icone.seta} />
         <Item icone={Icone.switch} titulo="Switch" sub="Portas, PoE e o que está ligado"
               onClick={() => vai('/equipamentos?f=rede')} direita={Icone.seta} />
       </Cartao>
@@ -114,6 +118,8 @@ export function Implantar() {
         <p className="sub-h2">Todas exigem sinal no momento do toque</p>
         <Item icone={Icone.onu} titulo="Ativar ONU" sub="Autorizar ONU nova na PON"
               onClick={() => { zerar(); ir('/implantar/onu'); }} direita={Icone.seta} />
+        <Item icone={Icone.busca} titulo="Procurar ONU" sub="Pelo serial: sinal, reiniciar, remover"
+              onClick={() => ir('/implantar/onu/procurar')} direita={Icone.seta} />
         <Item icone={Icone.raio} titulo="Ativar câmera" sub="Câmera de fábrica, sem senha"
               onClick={() => ir('/implantar/camera')} direita={Icone.seta} />
         <Item icone={Icone.camera} titulo="Instalar câmera" sub="Ler, nomear e pôr no gravador"

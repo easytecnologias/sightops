@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useRef, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 
 /* Pecas do desenho "SightOps Mobile": cartao de 14px, mosaico de numeros sem
    icone, item de lista com ponto de estado e pilula de contagem. */
@@ -202,3 +202,23 @@ export function ProvedorToast({ children }: { children: ReactNode }) {
   );
 }
 export const useToast = () => useContext(CtxToast);
+
+/**
+ * Botao de equipamento vivo: o 1o toque so mostra o que vai acontecer
+ * ("Toque de novo: ..."), o 2o executa; desarma sozinho em 6 s.
+ */
+export function BotaoArmado({ rotulo, armar, indo, desab, onConfirmar, classe = 'btn', enviando = 'Enviando…' }:
+  { rotulo: ReactNode; armar: string; indo?: boolean; desab?: boolean; onConfirmar: () => void; classe?: string; enviando?: string }) {
+  const [armado, setArmado] = useState(false);
+  const t = useRef<number>();
+  useEffect(() => () => window.clearTimeout(t.current), []);
+  return (
+    <button type="button" className={`${classe}${armado ? ' armado' : ''}`} disabled={indo || desab}
+            onClick={() => {
+              if (!armado) { setArmado(true); window.clearTimeout(t.current); t.current = window.setTimeout(() => setArmado(false), 6000); return; }
+              window.clearTimeout(t.current); setArmado(false); onConfirmar();
+            }}>
+      {indo ? enviando : armado ? armar : rotulo}
+    </button>
+  );
+}

@@ -29,6 +29,7 @@ function InstalarRota() {
 }
 import { Implantar } from './telas/Implantar';
 import { OnuConfigurar, OnuEscolher, OnuPronta } from './telas/ImplantarOnu';
+import { ProcurarOnu } from './telas/ProcurarOnu';
 import { CameraAtivar } from './telas/ImplantarCamera';
 import { GravadorCanais, Gravadores } from './telas/ImplantarGravador';
 import { ProvedorImplantar } from './lib/implantar';
@@ -54,6 +55,7 @@ function Dentro(
             <Route path="/implantar" element={<Implantar />} />
             <Route path="/mapa" element={<Mapa />} />
             <Route path="/implantar/onu" element={<OnuEscolher />} />
+            <Route path="/implantar/onu/procurar" element={<ProcurarOnu />} />
             <Route path="/implantar/onu/configurar" element={<OnuConfigurar />} />
             <Route path="/implantar/onu/pronta" element={<OnuPronta />} />
             <Route path="/implantar/camera" element={<CameraAtivar />} />

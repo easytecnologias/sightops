@@ -6,9 +6,15 @@ import { Caminho, type Elo } from '../ui/Caminho';
 import { LIMITE_RX, num, nomeEntidade, partesOnu, quando, rxDa, sinalBaixo, useSiteMonitor, type DetalheOnu } from '../lib/monitor';
 import { useSite } from '../lib/site';
 import { desde } from '../lib/tempo';
-import { Carregando, Cartao, Icone, Item, Vazio, useToast } from '../ui/pecas';
+import { BotaoArmado, Carregando, Cartao, Icone, Item, Vazio, useToast } from '../ui/pecas';
+import { useAcoes } from '../lib/implantar';
+import { useEu } from '../lib/dados';
 import { useFiltro } from '../ui/Filtros';
 
+const NOME_ACAO: Record<string, string> = {
+  add_onu: 'ONU autorizada', add_onu_bridge: 'Serviço e VLAN configurados', reboot_onu: 'ONU reiniciada',
+  delete_onu: 'Removida da OLT', find_onu: 'Procurada na OLT', onu_signal: 'Sinal lido na OLT',
+};
 const dbm = (v: number | null) => (v === null ? '—' : `${v.toFixed(1).replace('.', ',').replace('-', '−')} dBm`);
 
 /* Lista de ONUs do site, com busca e filtro por OLT/PON (vem da Rede). */
@@ -125,6 +131,11 @@ export function ConsultarOnu() {
   const toast = useToast();
   const [lendo, setLendo] = useState(false);
   const [leitura, setLeitura] = useState<Leitura | null>(null);
+  // Hooks das acoes ANTES dos returns abaixo (a ONU pode chegar depois).
+  const eu = useEu();
+  const podeRemover = ['admin', 'owner'].includes(String(eu.data?.role ?? '').toLowerCase());
+  const [fazendo, setFazendo] = useState('');
+  const acoes = useAcoes(partesOnu(key).oltIp);
 
   const e: Entidade | undefined = m.onus.find((x) => x.entity_key === key);
   if (m.carregando) return <Carregando />;
@@ -155,6 +166,27 @@ export function ConsultarOnu() {
       onClick: () => ir(`/cameras/${chaveDa(c)}`),
     })),
   ];
+
+  // Acoes na ONU. EQUIPAMENTO VIVO: reiniciar derruba o que esta atras dela
+  // por ~1 min; remover desautoriza na OLT (so admin/dono, regra e_exclusao).
+  const destaOnu = (acoes.data ?? []).filter((a) => String(a.pon ?? '') === p.pon && String(a.onu ?? '') === p.onu).slice(0, 5);
+  const posicao = () => ({ olt_id: olt!.id, pon: Number(p.pon) || 0, onu: Number(p.onu) || 0, serial: d.serial || '',
+    site: e!.site || site || '', olt_name: olt!.name || '', connector_id: olt!.connector_id || '', remote_connector_id: olt!.connector_id || '' });
+  async function naOlt(qual: 'reboot' | 'delete') {
+    if (!olt) { toast('Esta OLT não está cadastrada no SightOps.', true); return; }
+    setFazendo(qual);
+    try {
+      const r = await enviar<{ ok?: boolean; error?: string; detail?: string }>(`/api/olt/${qual === 'reboot' ? 'reboot-onu' : 'delete-onu'}`, posicao());
+      if (r.ok === false) throw new Error(String(r.error || r.detail || 'A OLT recusou.'));
+      toast(qual === 'reboot' ? 'ONU reiniciando: volta em ~1 min.' : 'ONU removida da OLT.');
+      void acoes.refetch();
+      if (qual === 'delete') ir(-1);
+    } catch (err) {
+      toast(`${qual === 'reboot' ? 'Não reiniciou' : 'Não removeu'}: ${(err as Error).message}`, true);
+    } finally {
+      setFazendo('');
+    }
+  }
 
   async function lerAgora() {
     if (!olt) { toast('Esta OLT não está cadastrada no SightOps: não dá para ler ao vivo.', true); return; }
@@ -232,6 +264,30 @@ export function ConsultarOnu() {
         {Icone.atualizar}{lendo ? 'Lendo na OLT…' : 'Ler de novo na OLT'}
       </button>
       <p className="sub-tela" style={{ textAlign: 'center' }}>A leitura só consulta a OLT pelo conector; não muda nada na ONU.</p>
+
+      <Cartao>
+        <h2>Ações na ONU</h2>
+        <div className="form-cartao">
+          <BotaoArmado classe="btn2" rotulo={<>{Icone.atualizar}Reiniciar ONU</>} enviando="Mandando à OLT…"
+                       armar={`Toque de novo: reiniciar a ONU ${p.onu} da PON ${p.pon}${atras.length ? ` (${atras.length} câmera${atras.length === 1 ? '' : 's'} caem por ~1 min)` : ''}`}
+                       indo={fazendo === 'reboot'} desab={!olt || !!fazendo} onConfirmar={() => void naOlt('reboot')} />
+          {podeRemover ? (
+            <BotaoArmado classe="btn2 perigo" rotulo="Remover da OLT" enviando="Mandando à OLT…"
+                         armar={`Toque de novo: desautorizar ${d.serial || `ONU ${p.onu}`}${atras.length ? ` — ${atras.length} câmera${atras.length === 1 ? '' : 's'} param` : ''}`}
+                         indo={fazendo === 'delete'} desab={!olt || !!fazendo} onConfirmar={() => void naOlt('delete')} />
+          ) : <span className="sub-tela">Remover da OLT: só administrador ou dono.</span>}
+          {!olt ? <span className="sub-tela">Esta OLT não está cadastrada no SightOps: as ações não estão disponíveis.</span> : null}
+        </div>
+        {destaOnu.length ? (
+          <>
+            <span className="rot-secao" style={{ padding: '0 14px' }}>Feito nesta ONU</span>
+            {destaOnu.map((a, i) => (
+              <Item key={i} ponto={a.ok ? 'verde' : 'vermelho'} titulo={NOME_ACAO[String(a.action || '')] ?? String(a.action || '').replace(/_/g, ' ')}
+                    sub={[a.created_at ? desde(a.created_at) : '', a.vlan ? `VLAN ${a.vlan}` : '', a.ok ? '' : (a.detail || 'falhou')].filter(Boolean).join(' · ')} />
+            ))}
+          </>
+        ) : null}
+      </Cartao>
     </>
   );
 }
