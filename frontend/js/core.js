@@ -424,7 +424,9 @@ function applyModuleVisibility() {
     const key = btn.dataset.view;
     const restricted = Array.isArray(enabled);
     const accessAddon = restricted && (key === 'access-live' || key === 'access-painel') && enabled.includes('access-control');
-    let visible = !DISABLED_VIEWS.has(key) && !isStaffOnlyView(key) && !semAcesso.has(key) && (!restricted || enabled.includes(key) || accessAddon);
+    // Usuario ONVIF nao e modulo de plano: vem com Ativacao de Cameras / Implantar CFTV.
+    const onvifAddon = restricted && key === 'deploy-onvif' && (enabled.includes('deploy-activation') || enabled.includes('deploy-new'));
+    let visible = !DISABLED_VIEWS.has(key) && !isStaffOnlyView(key) && !semAcesso.has(key) && (!restricted || enabled.includes(key) || accessAddon || onvifAddon);
     // Submenus do Controle de Acesso (abas do Painel): aparecem para quem tem
     // qualquer uma das telas que ele substituiu.
     if (key === 'access-painel') {
@@ -642,6 +644,7 @@ const VIEW_META = {
   'deploy-recorder': { title: 'Implantacao - Gravadores', sub: 'Cadastro de DVR/NVR' },
   'deploy-new':    { title: 'Implantacao - CFTV', sub: 'Assistente de campo' },
   'deploy-activation': { title: 'Ativacao de Cameras', sub: 'Cameras de fabrica, ativadas pelo tunel do conector' },
+  'deploy-onvif': { title: 'Usuario ONVIF', sub: 'Camera Hikvision em gravador de outra marca' },
   'deploy-tr069':  { title: 'TR-069',            sub: 'ONUs gerenciadas pelo servidor de gerência' },
   olt:             { title: 'OLT',               sub: 'Coleta de MACs da OLT' },
   switch:          { title: 'Switch',            sub: 'Coleta de MACs do switch' },
@@ -693,6 +696,7 @@ const VIEW_ID_MAP = {
   'deploy-recorder':'viewDeployRecorder',
   'deploy-new':     'viewDeployNew',
   'deploy-activation': 'viewDeployActivation',
+  'deploy-onvif': 'viewDeployOnvif',
   'deploy-tr069':   'viewDeployTr069',
   olt:              'viewOlt',
   switch:           'viewSwitch',
@@ -821,6 +825,7 @@ function loadView(view) {
     case 'deploy-recorder': loadDeployRecorder(); break;
     case 'deploy-new':  loadDeployNew();    break;
     case 'deploy-activation': loadDeployActivation(); break;
+    case 'deploy-onvif': loadDeployOnvif(); break;
     case 'deploy-tr069': loadTr069(); break;
     case 'connectors':  loadConnectors();   break;
     case 'monitoring':  loadMonitoring();   break;

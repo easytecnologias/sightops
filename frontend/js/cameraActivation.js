@@ -535,6 +535,7 @@ function activationCopyIps() {
 }
 
 function bindCameraActivation() {
+  bindCameraOnvif();
   document.getElementById('btnActivationScan')?.addEventListener('click', activationScan);
   document.getElementById('btnActivationRescan')?.addEventListener('click', activationScan);
   document.getElementById('btnActivationCopyIps')?.addEventListener('click', activationCopyIps);
@@ -567,4 +568,207 @@ function bindCameraActivation() {
   document.getElementById('btnActivationConfirm')?.addEventListener('click', activationConfirm);
   document.getElementById('btnActivationCancel')?.addEventListener('click', closeActivationModal);
   document.getElementById('btnActivationCloseModal')?.addEventListener('click', closeActivationModal);
+}
+
+// ---------------------------------------------------------------------------
+// Implantacao > Usuario ONVIF (camera Hikvision em gravador de outra marca).
+//
+// O gravador Intelbras (e afins) puxa camera Hikvision por ONVIF: ela precisa
+// do ONVIF ligado e de um usuario ONVIF proprio. O backend
+// (/api/deployments/camera-onvif, app/services/camera_onvif.py) fala ISAPI
+// pelo conector e confere cada escrita relendo a camera. EQUIPAMENTO VIVO:
+// aplicar e apagar mudam a camera do cliente.
+
+let _onvifCameras = [];              // inventario (dedup por IP)
+let _onvifMarcadas = new Set();      // IPs
+let _onvifEstado = {};               // ip -> {onvif_ligado, usuarios, erro, lendo}
+
+function onvifLocal(c) { return String(c.local || c.site || c.site_name || '').trim().toUpperCase(); }
+function onvifEhHik(c) { return /hik/i.test(String(c.fabricante || c.vendor || '')); }
+const onvifOrdem = (a, b) => String(a).localeCompare(String(b), 'pt-BR', { numeric: true });
+
+async function loadDeployOnvif(forcar = false) {
+  const tb = document.getElementById('onvifLista');
+  if (!tb) return;
+  if (_onvifCameras.length && !forcar) { onvifRender(); return; }
+  tb.innerHTML = '<tr><td colspan="7" style="padding:24px;color:var(--muted)">Carregando...</td></tr>';
+  const vistas = new Map();
+  for (const modo of ['olt', 'basico', 'switch']) {
+    const d = await apiJson(`/api/cameras?mode=${modo}`, { forceRefresh: forcar });
+    for (const c of (d?.cameras || [])) if (c.ip && !vistas.has(c.ip)) vistas.set(c.ip, c);
+  }
+  _onvifCameras = [...vistas.values()].sort((a, b) => onvifOrdem(onvifLocal(a), onvifLocal(b))
+    || onvifOrdem(a.titulo || a.title || '', b.titulo || b.title || ''));
+  const locais = [...new Set(_onvifCameras.map(onvifLocal).filter(Boolean))].sort(onvifOrdem);
+  const gravs = [...new Set(_onvifCameras.map(c => String(c.recorder_host || '').trim()).filter(Boolean))].sort(onvifOrdem);
+  const sel = (id, itens) => {
+    const el = document.getElementById(id);
+    const atual = el.value;
+    el.innerHTML = '<option value="">Todos</option>' + itens.map(v => `<option value="${esc(v)}">${esc(v)}</option>`).join('');
+    el.value = itens.includes(atual) ? atual : '';
+  };
+  sel('onvifSite', locais);
+  sel('onvifGravador', gravs);
+  onvifRender();
+}
+
+function onvifVisiveis() {
+  const site = document.getElementById('onvifSite')?.value || '';
+  const grav = document.getElementById('onvifGravador')?.value || '';
+  const soHik = (document.getElementById('onvifMarca')?.value || '') === 'hik';
+  const t = (document.getElementById('onvifBusca')?.value || '').trim().toLowerCase();
+  return _onvifCameras.filter(c => (!site || onvifLocal(c) === site)
+    && (!grav || String(c.recorder_host || '') === grav)
+    && (!soHik || onvifEhHik(c))
+    && (!t || [c.titulo, c.title, c.ip].some(v => String(v || '').toLowerCase().includes(t))));
+}
+
+function onvifCelulas(ip) {
+  const e = _onvifEstado[ip];
+  if (!e) return ['<span style="color:var(--muted)">nao lido</span>', ''];
+  if (e.lendo) return ['<span style="color:var(--muted)">lendo...</span>', ''];
+  if (e.erro) {
+    return [`<span class="badge badge-red" title="${esc(e.erro)}">erro</span>`,
+            `<span style="color:var(--danger);font-size:12px">${esc(e.erro)}</span>`];
+  }
+  const us = (e.usuarios || []).map(u => `<span class="badge badge-gray" style="margin:1px">${esc(u.nome)} · ${esc(u.perfil)}`
+    + ` <a href="#" data-onvif-apagar="${esc(ip)}|${esc(u.id)}|${esc(u.nome)}" title="Apagar este usuario" style="color:var(--danger)">x</a></span>`).join(' ');
+  return [e.onvif_ligado ? '<span class="badge badge-green">ligado</span>' : '<span class="badge badge-amber">desligado</span>',
+          us || '<span style="color:var(--muted)">nenhum</span>'];
+}
+
+function onvifResumo() {
+  const el = document.getElementById('onvifResumo');
+  if (el) el.textContent = `${onvifVisiveis().length} camera(s) com este filtro · ${_onvifMarcadas.size} marcada(s)`;
+}
+
+function onvifRender() {
+  const tb = document.getElementById('onvifLista');
+  const lista = onvifVisiveis();
+  onvifResumo();
+  if (!lista.length) {
+    tb.innerHTML = '<tr><td colspan="7" style="padding:24px;color:var(--muted)">Nenhuma camera com este filtro. Sem a marca cadastrada? Troque "Marca" para "Todas".</td></tr>';
+    return;
+  }
+  tb.innerHTML = lista.map(c => {
+    const [estado, usuarios] = onvifCelulas(c.ip);
+    return `<tr>
+      <td><input type="checkbox" class="onvif-check" data-ip="${esc(c.ip)}" ${_onvifMarcadas.has(c.ip) ? 'checked' : ''}></td>
+      <td>${esc(c.titulo || c.title || '-')}<div style="font-size:11px;color:var(--muted)">${esc([c.fabricante, c.modelo].filter(Boolean).join(' '))}</div></td>
+      <td class="mono">${esc(c.ip)}</td><td>${esc(onvifLocal(c))}</td><td>${estado}</td><td>${usuarios}</td>
+      <td><button class="secondary-action" type="button" data-onvif-ler="${esc(c.ip)}" style="padding:5px 10px;font-size:12px">Ler</button></td>
+    </tr>`;
+  }).join('');
+}
+
+function onvifCorpo(c, extra) {
+  const adminSenha = document.getElementById('onvifAdminSenha')?.value || '';
+  return {
+    ip: c.ip, mac: c.mac || '', site: c.site || c.local || '',
+    connector_id: c.remote_connector_id || c.connector_id || '',
+    ...(adminSenha ? { usuario: 'admin', senha: adminSenha } : {}),
+    ...extra,
+  };
+}
+
+async function onvifChamar(c, extra) {
+  const res = await api('/api/deployments/camera-onvif', { method: 'POST', body: JSON.stringify(onvifCorpo(c, extra)) });
+  if (!res) throw new Error('sem resposta do servidor');
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const det = String(d.detail || `HTTP ${res.status}`);
+    throw new Error(det.startsWith('SEM_SENHA_CAMERA') ? 'sem senha de admin salva: preencha "Senha de admin da camera"' : det);
+  }
+  return d;
+}
+
+async function onvifLer(ips) {
+  for (const ip of ips) {
+    const c = _onvifCameras.find(x => x.ip === ip);
+    if (!c) continue;
+    _onvifEstado[ip] = { lendo: true };
+    onvifRender();
+    try { _onvifEstado[ip] = await onvifChamar(c, { acao: 'ler' }); } catch (e) { _onvifEstado[ip] = { erro: e.message }; }
+    onvifRender();
+  }
+}
+
+async function onvifAplicar() {
+  const ips = [..._onvifMarcadas];
+  const nome = (document.getElementById('onvifNome')?.value || '').trim();
+  const senha = document.getElementById('onvifSenha')?.value || '';
+  const perfil = document.getElementById('onvifPerfil')?.value || 'administrator';
+  if (!ips.length) { showToast('Marque as cameras na lista.', true); return; }
+  if (!/^[A-Za-z0-9_.\-@]{1,32}$/.test(nome)) { showToast('Usuario ONVIF: 1 a 32 letras, numeros ou _ . - @', true); return; }
+  if (!senha || senha.length > 16) { showToast('Senha do usuario ONVIF: 1 a 16 caracteres.', true); return; }
+  const aviso = `Aplicar em ${ips.length} camera(s)?\n\nLiga o ONVIF (se estiver desligado) e cria o usuario "${nome}" (${perfil}); `
+    + 'se ele ja existe, troca a senha e o perfil.\nMuda a camera do cliente na hora.';
+  if (!confirm(aviso)) return;
+  const prog = document.getElementById('onvifProgresso');
+  let ok = 0;
+  const falhas = [];
+  for (const [i, ip] of ips.entries()) {
+    const c = _onvifCameras.find(x => x.ip === ip);
+    if (!c) continue;
+    prog.textContent = `Aplicando ${i + 1} de ${ips.length}: ${c.titulo || c.title || ip}...`;
+    _onvifEstado[ip] = { lendo: true };
+    onvifRender();
+    try {
+      _onvifEstado[ip] = await onvifChamar(c, { acao: 'preparar', nome, senha_onvif: senha, perfil });
+      ok += 1;
+    } catch (e) {
+      _onvifEstado[ip] = { erro: e.message };
+      falhas.push(`${c.titulo || ip}: ${e.message}`);
+    }
+    onvifRender();
+  }
+  prog.textContent = `Pronto: ${ok} de ${ips.length} com o usuario "${nome}".` + (falhas.length ? ` Falharam: ${falhas.join(' | ')}` : '');
+  showToast(falhas.length ? `${ok} ok, ${falhas.length} com erro (veja a lista)` : `Usuario ONVIF aplicado em ${ok} camera(s).`, !!falhas.length);
+}
+
+async function onvifApagar(ip, id, nome) {
+  const c = _onvifCameras.find(x => x.ip === ip);
+  if (!c) return;
+  if (!confirm(`Apagar o usuario ONVIF "${nome}" da camera ${c.titulo || ip}?\nO gravador que entra com ele perde a camera.`)) return;
+  try {
+    _onvifEstado[ip] = await onvifChamar(c, { acao: 'apagar', id });
+    showToast(`Usuario ${nome} apagado.`);
+  } catch (e) {
+    showToast(e.message, true);
+  }
+  onvifRender();
+}
+
+function bindCameraOnvif() {
+  ['onvifSite', 'onvifGravador', 'onvifMarca'].forEach(id => document.getElementById(id)?.addEventListener('change', onvifRender));
+  document.getElementById('onvifBusca')?.addEventListener('input', onvifRender);
+  document.getElementById('btnOnvifRecarregar')?.addEventListener('click', () => loadDeployOnvif(true));
+  document.getElementById('btnOnvifLer')?.addEventListener('click', () => {
+    if (!_onvifMarcadas.size) { showToast('Marque as cameras na lista.', true); return; }
+    onvifLer([..._onvifMarcadas]);
+  });
+  document.getElementById('btnOnvifAplicar')?.addEventListener('click', onvifAplicar);
+  document.getElementById('onvifCheckAll')?.addEventListener('change', (e) => {
+    for (const c of onvifVisiveis()) {
+      if (e.target.checked) _onvifMarcadas.add(c.ip); else _onvifMarcadas.delete(c.ip);
+    }
+    onvifRender();
+  });
+  const tb = document.getElementById('onvifLista');
+  tb?.addEventListener('click', (e) => {
+    const ler = e.target.closest('[data-onvif-ler]');
+    if (ler) { onvifLer([ler.dataset.onvifLer]); return; }
+    const ap = e.target.closest('[data-onvif-apagar]');
+    if (ap) {
+      e.preventDefault();
+      const [ip, id, nome] = ap.dataset.onvifApagar.split('|');
+      onvifApagar(ip, id, nome);
+    }
+  });
+  tb?.addEventListener('change', (e) => {
+    const ck = e.target.closest('.onvif-check');
+    if (!ck) return;
+    if (ck.checked) _onvifMarcadas.add(ck.dataset.ip); else _onvifMarcadas.delete(ck.dataset.ip);
+    onvifResumo();
+  });
 }

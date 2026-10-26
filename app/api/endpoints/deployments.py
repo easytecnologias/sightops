@@ -1892,6 +1892,83 @@ def _quem(request: Request | None) -> str:
     return str(u.get("username") or "") if isinstance(u, dict) else ""
 
 
+def _ip_no_pool_virtual(ip: str) -> bool:
+    """IP do pool de IPs virtuais dos conectores (10.208.0.0/12) ou o bloqueio."""
+    import ipaddress
+    try:
+        end = ipaddress.ip_address(_text(ip))
+    except ValueError:
+        return False
+    return end in ipaddress.ip_network("10.208.0.0/12") or str(end) == "240.0.0.1"
+
+
+@router.post("/camera-onvif")
+def api_deployments_camera_onvif(payload: Dict[str, Any], request: Request) -> Dict[str, Any]:
+    """Usuario ONVIF de camera Hikvision (app/services/camera_onvif.py).
+
+    acao: ler | ligar | desligar | criar | apagar | preparar (ONVIF ligado +
+    usuario, o que gravador de outra marca precisa; e o que o lote usa).
+    Senha de admin da camera: a digitada, ou a salva pelo MAC / do site.
+    EQUIPAMENTO VIVO em tudo menos `ler`; apagar so admin/dono.
+    """
+    from app.services import camera_onvif as O
+    from app.services.recorder_canais import senha_da_camera
+
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="payload invalido")
+    acao = _text(payload.get("acao")).lower() or "ler"
+    if acao not in ("ler", "ligar", "desligar", "criar", "apagar", "preparar"):
+        raise HTTPException(status_code=400, detail="acao invalida")
+    if acao == "apagar" and not permissions.pode_excluir():
+        raise permissions.erro_exige_admin()
+    ip = _text(payload.get("ip"))
+    if not ip:
+        raise HTTPException(status_code=400, detail="ip da camera obrigatorio")
+    # So camera do inventario DESTE cliente, e conector/MAC/site vem do
+    # inventario, nunca do pedido. Sem isso (revisor de isolamento, 26/10/2026),
+    # pedido sem connector_id ia direto ao IP informado -- inclusive o IP
+    # virtual (10.208.0.0/12) da camera de OUTRO cliente -- e criava usuario
+    # ONVIF administrador nela; e a senha salva do site saia para qualquer IP.
+    from app.api.endpoints.cameras import _camera_row_for_ip
+    linha = _camera_row_for_ip(ip, _text(payload.get("connector_id")))
+    if not linha:
+        raise HTTPException(status_code=404, detail="esta camera nao esta no inventario deste cliente")
+    conector = _text(linha.get("remote_connector_id") or linha.get("connector_id"))
+    if not conector and _ip_no_pool_virtual(ip):
+        raise HTTPException(status_code=400, detail="IP virtual de conector: use a camera pelo inventario")
+    user, senha = senha_da_camera(_text(linha.get("mac")), _text(linha.get("site") or linha.get("local")),
+                                  _text(payload.get("usuario")), _text(payload.get("senha")))
+    if not senha:
+        raise HTTPException(status_code=428, detail="SEM_SENHA_CAMERA: informe a senha de admin da camera (nao ha senha salva para ela nem para o site)")
+    porta = None  # ISAPI na porta web padrao; a porta nao vem do pedido
+    try:
+        if acao == "ler":
+            r = O.ler(ip, user, senha, conector, porta)
+        elif acao in ("ligar", "desligar"):
+            r = O.ligar(ip, user, senha, acao == "ligar", conector, porta)
+        elif acao == "criar":
+            r = O.criar_usuario(ip, user, senha, _text(payload.get("nome")), _text(payload.get("senha_onvif")),
+                                _text(payload.get("perfil")) or "administrator", conector, porta)
+        elif acao == "apagar":
+            r = O.apagar_usuario(ip, user, senha, _text(payload.get("id")), conector, porta)
+        else:
+            r = O.preparar_para_gravador(ip, user, senha, _text(payload.get("nome")), _text(payload.get("senha_onvif")),
+                                         _text(payload.get("perfil")) or "administrator", conector, porta)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("Erro no ONVIF da camera %s", ip)
+        raise HTTPException(status_code=500, detail=f"Erro ao falar com a camera: {exc}") from exc
+    if acao != "ler":
+        logger.info("ONVIF camera %s: %s por %s (%s)", ip, acao, _quem(request) or "?",
+                    "; ".join(r.get("passos") or []) or _text(payload.get("nome")) or _text(payload.get("id")))
+    r.pop("_ns", None)
+    r["ok"] = True
+    return r
+
+
 @router.post("/recorder-edit")
 def api_deployments_recorder_edit(payload: Dict[str, Any], request: Request) -> Dict[str, Any]:
     """Adicionar, editar, excluir ou renomear um canal do gravador.

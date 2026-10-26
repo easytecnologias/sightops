@@ -80,6 +80,7 @@
           </button>
           <div class="nav-sub">
             <button class="nav-item nav-sub-item" data-view="deploy-activation"><i data-lucide="key-round"></i><span>Ativacao de Cameras</span></button>
+            <button class="nav-item nav-sub-item" data-view="deploy-onvif"><i data-lucide="user-cog"></i><span>Usuario ONVIF</span></button>
             <button class="nav-item nav-sub-item" data-view="deploy-new"><i data-lucide="camera"></i><span>Cameras IP</span></button>
             <button class="nav-item nav-sub-item" data-view="deploy-recorder"><i data-lucide="hard-drive-upload"></i><span>Gravadores</span></button>
           </div>
@@ -5836,6 +5837,62 @@
         </div>
       </section>
 
+
+      <!-- --- VIEW: USUARIO ONVIF (camera Hikvision em gravador de outra marca) --- -->
+      <section class="workspace hidden" id="viewDeployOnvif">
+        <div class="page-heading">
+          <div>
+            <p class="eyebrow">Implantacao</p>
+            <h1>Usuario ONVIF</h1>
+            <p>Camera Hikvision em gravador de outra marca (Intelbras e afins) entra por ONVIF: a camera precisa do ONVIF ligado e de um usuario ONVIF proprio -- o admin dela nao serve. Aqui voce le, cria, troca a senha e apaga, numa camera ou em varias de uma vez.</p>
+          </div>
+          <div class="page-heading-actions">
+            <button class="secondary-action" id="btnOnvifRecarregar" type="button"><i data-lucide="refresh-cw"></i> Recarregar cameras</button>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-header"><div><h2>Cameras</h2><p>Do inventario. Marque as que vao receber o usuario.</p></div></div>
+          <div class="activation-body">
+            <div class="activation-filters">
+              <div><label for="onvifSite">Site / local</label><select id="onvifSite"><option value="">Todos</option></select></div>
+              <div><label for="onvifGravador">Gravador</label><select id="onvifGravador"><option value="">Todos</option></select></div>
+              <div><label for="onvifMarca">Marca</label>
+                <select id="onvifMarca"><option value="hik">So Hikvision</option><option value="">Todas (marca nao cadastrada)</option></select></div>
+              <div><label for="onvifBusca">Procurar</label><input id="onvifBusca" placeholder="Nome ou IP"></div>
+            </div>
+            <p class="activation-hint" id="onvifResumo" style="margin:10px 0 6px"></p>
+            <div class="table-wrap" style="max-height:calc(100vh - 470px);overflow:auto">
+              <table class="data-table" style="width:100%">
+                <thead><tr>
+                  <th style="width:34px"><input type="checkbox" id="onvifCheckAll" aria-label="Marcar todas"></th>
+                  <th>Camera</th><th>IP</th><th>Local</th><th>ONVIF</th><th>Usuarios ONVIF</th><th style="width:150px"></th>
+                </tr></thead>
+                <tbody id="onvifLista"><tr><td colspan="7" style="padding:24px;color:var(--muted)">Carregando...</td></tr></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-header"><div><h2>Aplicar nas marcadas</h2><p>Liga o ONVIF (se estiver desligado) e cria o usuario; se ele ja existe, troca senha e perfil. Uma camera por vez, com o resultado de cada uma.</p></div></div>
+          <div class="activation-body">
+            <div class="activation-filters">
+              <div><label for="onvifNome">Usuario ONVIF</label><input id="onvifNome" value="onvif" autocomplete="off"></div>
+              <div><label for="onvifSenha">Senha do usuario ONVIF (ate 16)</label><input id="onvifSenha" type="password" maxlength="16" autocomplete="new-password"></div>
+              <div><label for="onvifPerfil">Perfil</label>
+                <select id="onvifPerfil"><option value="administrator">Administrador (o que gravador costuma pedir)</option><option value="operator">Operador</option><option value="mediaUser">So video</option></select></div>
+              <div><label for="onvifAdminSenha">Senha de admin da camera</label><input id="onvifAdminSenha" type="password" placeholder="vazio = a salva da camera / do site" autocomplete="off"></div>
+            </div>
+            <div style="display:flex;gap:10px;margin-top:14px;flex-wrap:wrap">
+              <button class="secondary-action" id="btnOnvifLer" type="button"><i data-lucide="search"></i> Ler marcadas</button>
+              <button class="primary-action" id="btnOnvifAplicar" type="button"><i data-lucide="user-plus"></i> Aplicar nas marcadas</button>
+            </div>
+            <p class="activation-hint" id="onvifProgresso" style="margin-top:10px"></p>
+          </div>
+        </div>
+      </section>
+
       <!-- --- VIEW: IMPLANTACAO --- -->
       <section class="workspace hidden" id="viewDeployNew">
         <div class="page-heading">
@@ -7974,7 +8031,7 @@
        trechos do app.js original na sequencia em que estavam, entao carregar
        fora de ordem muda o comportamento. Ao adicionar um arquivo novo, entre
        antes de bootstrap.js, que e quem liga os botoes no DOMContentLoaded. -->
-  <script src="js/core.js?v=1792805033"></script>
+  <script src="js/core.js?v=1792900010"></script>
   <script src="js/licencas.js?v=1792600103"></script>
   <script src="js/configuracoes.js?v=1792600138"></script>
   <script src="js/notificacoes.js?v=1792600139"></script>
@@ -8000,7 +8057,7 @@
   <script src="js/gravador-rede.js?v=1792000182"></script>
   <script src="js/gravador-rede-leitura.js?v=1792000203"></script>
   <script src="js/gravador-rede-editar.js?v=1792000202"></script>
-  <script src="js/cameraActivation.js?v=1791000212"></script>
+  <script src="js/cameraActivation.js?v=1792900011"></script>
   <script src="js/deployOlt.js?v=1791000212"></script>
   <script src="js/connectors.js?v=1792500007"></script>
   <script src="js/monitoring.js?v=1792500002"></script>
