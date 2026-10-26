@@ -22,6 +22,17 @@ if (!m.includes('android.permission.CAMERA')) {
   fs.writeFileSync(manif, m);
 }
 
+// Mapa: "onde estou" e a distancia ate a caixa (so com o app aberto).
+m = fs.readFileSync(manif, 'utf8');
+if (!m.includes('ACCESS_FINE_LOCATION')) {
+  m = m.replace('<uses-permission android:name="android.permission.INTERNET" />',
+    '<uses-permission android:name="android.permission.INTERNET" />\n'
+    + '    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />\n'
+    + '    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />\n'
+    + '    <uses-feature android:name="android.hardware.location.gps" android:required="false" />');
+  fs.writeFileSync(manif, m);
+}
+
 fs.writeFileSync(path.join(res, 'values', 'ic_launcher_background.xml'),
   `<?xml version="1.0" encoding="utf-8"?>\n<resources>\n    <color name="ic_launcher_background">${ESCURO}</color>\n</resources>\n`);
 

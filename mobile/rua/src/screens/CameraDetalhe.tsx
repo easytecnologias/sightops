@@ -84,6 +84,12 @@ export function CameraDetalhe() {
         </Cartao>
       ) : null}
 
+      {cam.ip ? (
+        <button type="button" className="btn" onClick={() => ir(`/cameras/${chaveDa(cam)}/aovivo`)}>
+          {Icone.camera}Ver ao vivo
+        </button>
+      ) : null}
+
       <AjustarCamera cam={cam} />
 
       <Cartao>

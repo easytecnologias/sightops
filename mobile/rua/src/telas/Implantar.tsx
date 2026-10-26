@@ -37,6 +37,7 @@ export function Implantar() {
           <h1 className="titulo-tela">Implantar</h1>
           <p className="sub-tela">Comandos em equipamento vivo, pelo túnel do conector.</p>
         </div>
+        <button type="button" className="btn2 botao-mapa" onClick={() => ir('/mapa')}>{Icone.mapa}Mapa</button>
       </div>
 
       {!online ? (

@@ -16,6 +16,8 @@ import { ConsultarOnu, ListaOnus } from './telas/ConsultarOnu';
 import { Conta } from './telas/Conta';
 import { Cameras } from './screens/Cameras';
 import { CameraDetalhe } from './screens/CameraDetalhe';
+import { AoVivo } from './telas/AoVivo';
+import { Mapa } from './telas/Mapa';
 import { Implantar } from './telas/Implantar';
 import { OnuConfigurar, OnuEscolher, OnuPronta } from './telas/ImplantarOnu';
 import { CameraAtivar } from './telas/ImplantarCamera';
@@ -39,7 +41,9 @@ function Dentro(
             <Route path="/" element={<Inicio />} />
             <Route path="/cameras" element={<Cameras />} />
             <Route path="/cameras/:chave" element={<CameraDetalhe />} />
+            <Route path="/cameras/:chave/aovivo" element={<AoVivo />} />
             <Route path="/implantar" element={<Implantar />} />
+            <Route path="/mapa" element={<Mapa />} />
             <Route path="/implantar/onu" element={<OnuEscolher />} />
             <Route path="/implantar/onu/configurar" element={<OnuConfigurar />} />
             <Route path="/implantar/onu/pronta" element={<OnuPronta />} />

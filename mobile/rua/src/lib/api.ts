@@ -72,6 +72,7 @@ async function pedir<T>(metodo: string, caminho: string, corpo?: unknown): Promi
 export const obter = <T,>(c: string) => pedir<T>('GET', c);
 export const enviar = <T,>(c: string, corpo: unknown = {}) => pedir<T>('POST', c, corpo);
 export const trocar = <T,>(c: string, corpo: unknown) => pedir<T>('PUT', c, corpo);
+export const remendar = <T,>(c: string, corpo: unknown) => pedir<T>('PATCH', c, corpo);
 
 /** Imagem protegida: `<img src>` nao manda o Bearer, entao vem por fetch. */
 export async function imagem(caminho: string): Promise<Blob> {
