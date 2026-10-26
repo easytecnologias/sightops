@@ -73,7 +73,10 @@ def ler(host: str, user: str, senha: str, connector_id: str = "", porta: Any = N
     ns = re.search(r'xmlns="([^"]+)"', lista or integ or "")
     usuarios: List[Dict[str, str]] = []
     if cod == 200:
-        for bloco in re.findall(r"<User>(.*?)</User>", lista or "", re.S):
+        # <User version="2.0" xmlns="..."> -- COM atributos na IPC-B121H-L real.
+        # O padrao antigo (<User> puro) lia a lista vazia: o usuario era criado e
+        # a tela dizia "nao aparece na lista" (26/10/2026, 172.16.45.101/102).
+        for bloco in re.findall(r"<User\b[^>]*>(.*?)</User>", lista or "", re.S):
             usuarios.append({"id": _tag(bloco, "id"), "nome": _tag(bloco, "userName"),
                              "perfil": _tag(bloco, "userType")})
     cod, cap = _pedir(f"{base}/ISAPI/Security/ONVIF/users/capabilities", user, senha, timeout=8.0)

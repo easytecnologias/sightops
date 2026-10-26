@@ -23,7 +23,9 @@ class CameraFalsa:
                 f'<ONVIF>\n<enable>{str(self.onvif).lower()}</enable>\n</ONVIF>\n<ISAPI>\n<enable>true</enable>\n</ISAPI>\n</Integrate>\n')
 
     def lista(self):
-        corpo = "".join(f"<User><id>{i}</id><userName>{n}</userName><userType>{p}</userType></User>"
+        # Como a camera real responde: <User> COM version e xmlns.
+        corpo = "".join(f'<User version="2.0" xmlns="{NS}">\n<id>{i}</id>\n<userName>{n}</userName>\n'
+                        f'<userType>{p}</userType>\n</User>\n'
                         for i, (n, p) in sorted(self.usuarios.items()))
         return f'<?xml version="1.0" encoding="UTF-8"?>\n<UserList version="2.0" xmlns="{NS}">\n{corpo}</UserList>\n'
 
