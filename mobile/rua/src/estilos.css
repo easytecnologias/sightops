@@ -668,3 +668,11 @@ button.canal-linha[aria-expanded="true"] > svg { transform: rotate(90deg); }
 .acoes-menu .btn2 { min-height: 44px; }
 .form-menu { display: flex; flex-direction: column; gap: 10px; }
 .btn2.perigo { color: var(--danger); border-color: var(--danger); }
+
+/* Puxar para atualizar (ui/Puxar) e selo de procedencia que atualiza */
+.puxar { display: flex; align-items: center; justify-content: center; gap: 8px; overflow: hidden; color: var(--muted); font-size: 13px; font-weight: 600; margin-bottom: -6px; transition: height .15s; }
+.puxar svg { width: 18px; height: 18px; }
+.puxar .girando svg { animation: girar .8s linear infinite; }
+@keyframes girar { to { transform: rotate(360deg); } }
+.selo-botao { display: inline-flex; align-items: center; gap: 5px; border: 0; cursor: pointer; font-family: inherit; }
+.selo-botao svg { width: 13px; height: 13px; }

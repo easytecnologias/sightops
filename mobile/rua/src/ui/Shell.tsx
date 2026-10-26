@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from 'react';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { Folha, Icone, iniciais } from './pecas';
+import { AreaPuxar } from './Puxar';
 import { useOnline } from '../lib/rede';
 import { mesmoSite, siteDoConector, useConectores, useEu, useIncidentes } from '../lib/dados';
 import { useSiteMonitor } from '../lib/monitor';
@@ -72,7 +73,7 @@ export function Shell({ children }: { children: ReactNode }) {
         ) : null}
       </header>
 
-      <main className="conteudo">{children}</main>
+      <AreaPuxar desligado={noMapa}>{children}</AreaPuxar>
 
       <nav className="barra-baixo" aria-label="Navegação principal">
         {ABAS_ESQ.map(aba)}

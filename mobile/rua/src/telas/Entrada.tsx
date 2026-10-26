@@ -5,7 +5,7 @@ import { mesmoSite, siteDoConector, useConectores, useEntidades } from '../lib/d
 import { Carregando, Icone, Logo, Vazio, iniciais } from '../ui/pecas';
 import { ordemNatural } from '../lib/ordem';
 
-export const VERSAO = '2.0.11';
+export const VERSAO = '2.0.12';
 
 /* ─────────────────────────── B · Abertura ─────────────────────────── */
 export function Abertura() {

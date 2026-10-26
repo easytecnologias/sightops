@@ -1,3 +1,4 @@
+import { useQueryClient } from '@tanstack/react-query';
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 
 /* Pecas do desenho "SightOps Mobile": cartao de 14px, mosaico de numeros sem
@@ -139,13 +140,24 @@ export function Procedencia(
   { buscando, atualizadoEm, online }:
   { buscando: boolean; atualizadoEm?: number; online: boolean },
 ) {
-  if (buscando) return <span className="selo cinza">buscando…</span>;
-  if (!atualizadoEm) return <span className="selo cinza">sem dados</span>;
-  if (online && Date.now() - atualizadoEm < 120_000) return <span className="selo verde">agora</span>;
-  const q = new Date(atualizadoEm).toLocaleString('pt-BR', {
-    hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit',
-  });
-  return <span className="selo ambar">{online ? `de ${q}` : `no aparelho · ${q}`}</span>;
+  // Tocar no selo busca tudo de novo (o mesmo de puxar a tela para baixo).
+  const qc = useQueryClient();
+  const atualizar = () => { void qc.invalidateQueries({ refetchType: 'active' }); };
+  let classe = 'selo ambar';
+  let texto: string;
+  if (buscando) { classe = 'selo cinza'; texto = 'buscando…'; }
+  else if (!atualizadoEm) { classe = 'selo cinza'; texto = 'sem dados'; }
+  else if (online && Date.now() - atualizadoEm < 120_000) { classe = 'selo verde'; texto = 'agora'; }
+  else {
+    const q = new Date(atualizadoEm).toLocaleString('pt-BR', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' });
+    texto = online ? `de ${q}` : `no aparelho · ${q}`;
+  }
+  return (
+    <button type="button" className={`${classe} selo-botao`} onClick={atualizar} disabled={buscando || !online}
+            aria-label={`${texto}. Tocar para atualizar`}>
+      {texto}{!buscando && online ? Icone.atualizar : null}
+    </button>
+  );
 }
 
 /** Lente com o ponto verde de "no ar": o icone do app. */
