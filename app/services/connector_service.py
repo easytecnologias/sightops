@@ -1197,6 +1197,7 @@ def create_job(payload: Dict[str, Any]) -> Dict[str, Any]:
     if job_type not in {
         "ping_many",
         "lan_inventory",
+        "mac_lookup",
         "wireguard_install",
         "wireguard_probe",
         "wireguard_diagnose",
@@ -1397,6 +1398,14 @@ def _routeros_safe_target(value: Any) -> str:
     return text if re.fullmatch(r"[A-Za-z0-9_.:-]+", text) else ""
 
 
+def _routeros_safe_mac(value: Any) -> str:
+    """MAC no formato do RouterOS (AA:BB:CC:DD:EE:FF) ou vazio: vai cru no script."""
+    hexa = re.sub(r"[^0-9A-Fa-f]", "", _text(value)).upper()
+    if len(hexa) != 12:
+        return ""
+    return ":".join(hexa[i:i + 2] for i in range(0, 12, 2))
+
+
 def _routeros_string(value: Any, limit: int = 1200) -> str:
     text = _text(value)[:limit]
     return text.replace("\\", "\\\\").replace('"', '\\"')
@@ -1565,6 +1574,23 @@ def _routeros_job_script_template(base_url: str, connector_id: str, token: str, 
 }} on-error={{:set ok "0"; :set result "fetch_error"}};
 /tool fetch url="{base_url}/api/connectors/agent/routeros/jobs/{job_id}/result-text" http-method=post http-header-field="x-sightops-connector-id:{connector_id},x-sightops-connector-token:{token},Content-Type:text/plain" http-data=$result dst-path=sightops-job-result.json;
 :put ("SightOps access_http_post {job_id}: " . $result);
+"""
+    if job_type == "mac_lookup":
+        # So leitura: ARP e DHCP de UM MAC, com o estado da entrada e um ping
+        # saindo do proprio MikroTik. O inventario periodico do agente manda
+        # so as 500 primeiras linhas do ARP e sem estado -- num site com 2 mil
+        # entradas a camera recem-ligada nao aparece e o lease velho aparece.
+        mac = _routeros_safe_mac((job.get("payload") or {}).get("mac") if isinstance(job.get("payload"), dict) else "")
+        if not mac:
+            return f""":local result "mac_lookup:invalido";
+/tool fetch url="{base_url}/api/connectors/agent/routeros/jobs/{job_id}/result-text" http-method=post http-header-field="x-sightops-connector-id:{connector_id},x-sightops-connector-token:{token},Content-Type:text/plain" http-data=$result dst-path=sightops-job-result.json;
+"""
+        return f""":local result "mac_lookup;";
+:local alvo "{mac}";
+:foreach i in=[/ip arp find where mac-address=$alvo] do={{:local ip [/ip arp get $i address]; :local st ""; :do {{:set st [:tostr [/ip arp get $i status]]}} on-error={{}}; :do {{:if ([/ip arp get $i invalid]) do={{:set st ($st . " invalid")}}}} on-error={{}}; :local vivo "0"; :do {{:if ([/ping address=$ip count=1] > 0) do={{:set vivo "1"}}}} on-error={{}}; :set result ($result . "arp|" . $ip . "|" . $alvo . "|" . $st . "|" . $vivo . ";")}};
+:foreach i in=[/ip dhcp-server lease find where mac-address=$alvo] do={{:local ip [/ip dhcp-server lease get $i address]; :local st ""; :do {{:set st [:tostr [/ip dhcp-server lease get $i status]]}} on-error={{}}; :local vivo "0"; :do {{:if ([/ping address=$ip count=1] > 0) do={{:set vivo "1"}}}} on-error={{}}; :set result ($result . "dhcp|" . $ip . "|" . $alvo . "|" . $st . "|" . $vivo . ";")}};
+/tool fetch url="{base_url}/api/connectors/agent/routeros/jobs/{job_id}/result-text" http-method=post http-header-field="x-sightops-connector-id:{connector_id},x-sightops-connector-token:{token},Content-Type:text/plain" http-data=$result dst-path=sightops-job-result.json;
+:put ("SightOps mac_lookup {job_id}: " . $result);
 """
     if job_type != "ping_many":
         return f""":local result "unsupported:0,";

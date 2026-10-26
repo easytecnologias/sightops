@@ -8,6 +8,8 @@ import { useOnline } from '../lib/rede';
 import { useSite } from '../lib/site';
 import { Cartao, Icone, Item, Vazio } from '../ui/pecas';
 import { OndeProcurar } from '../ui/OndeProcurar';
+import { LerEtiqueta } from '../ui/LerEtiqueta';
+import { ehMac } from '../lib/etiqueta';
 
 /*
  * 6 · Instalar camera: achar na rede, ler, configurar, por no gravador e
@@ -17,7 +19,8 @@ import { OndeProcurar } from '../ui/OndeProcurar';
  * Senhas ficam so na memoria desta tela (nunca no cache do aparelho).
  */
 
-type Achado = { ip?: string; address?: string; mac?: string; source?: string; host?: string; conflito_ip?: boolean };
+type Achado = { ip?: string; address?: string; mac?: string; source?: string; host?: string; conflito_ip?: boolean;
+  responde?: boolean; antigo?: boolean; estado?: string; ao_vivo?: boolean };
 type Leitura = {
   titulo?: string;
   equipamento?: { fabricante?: string; modelo?: string; serial?: string; firmware?: string; mac?: string };
@@ -73,6 +76,13 @@ export function InstalarCamera() {
   // Mesmo MAC com mais de um IP: o ARP do MikroTik guarda o IP velho ("failed")
   // e o agente nao manda esse status. Quem decide e o ping de agora.
   const [vivos, setVivos] = useState<Record<string, 'testando' | 'responde' | 'nao'>>({});
+  // Busca por MAC tambem pergunta AGORA ao MikroTik (ARP+DHCP so desse MAC):
+  // o inventario que o agente manda corta o ARP em 500 linhas.
+  const [aoVivo, setAoVivo] = useState<'' | 'perguntando' | 'ok' | 'sem'>('');
+  const [aoVivoMsg, setAoVivoMsg] = useState('');
+  const buscaId = useRef(0);
+  const rapidos = useRef<Achado[]>([]);
+  const vivoFalhou = useRef(false);
   const [ip, setIp] = useState(veio.ip ?? '');
   const [mac, setMac] = useState(veio.mac ?? '');
   // 2 · ler
@@ -127,18 +137,55 @@ export function InstalarCamera() {
 
   async function procurar(q = busca) {
     if (!cid || !q.trim()) return;
-    setIndo('procurar'); setErro(''); setAchados(null);
+    const id = ++buscaId.current;
+    const porMac = ehMac(q);
+    rapidos.current = []; vivoFalhou.current = false;
+    setIndo('procurar'); setErro(''); setAchados(null); setVivos({}); setAoVivo(porMac ? 'perguntando' : ''); setAoVivoMsg('');
+    if (porMac) void perguntarAoMikrotik(q.trim(), id);
     try {
       const d = await obter<{ matches?: Achado[] }>(`/api/deployments/lookup?connector_id=${encodeURIComponent(cid)}&query=${encodeURIComponent(q.trim())}`);
+      if (id !== buscaId.current) return;
       const lista = d.matches ?? [];
-      setAchados(lista);
+      rapidos.current = lista;
+      setAchados((atual) => atual ?? lista);   // a resposta ao vivo, se ja chegou, manda
+      // Por MAC quem decide e a pergunta ao vivo (o ping daqui entraria na mesma
+      // fila de jobs do MikroTik e a atrasaria); so pinga se ela falhar.
+      if (porMac && !vivoFalhou.current) return;
       setVivos({});
-      if (lista.length === 1 && !lista[0].conflito_ip) escolher(lista[0]);
-      else if (lista.length > 1) testarVivos(lista);
+      if (!porMac && lista.length === 1 && !lista[0].conflito_ip) escolher(lista[0]);
+      else if (lista.length) testarVivos(lista, id);
     } catch (e) { setErro((e as Error).message); } finally { setIndo(''); }
   }
+
+  async function perguntarAoMikrotik(q: string, id: number) {
+    try {
+      const d = await obter<{ respondeu?: boolean; matches?: Achado[]; detail?: string }>(
+        `/api/deployments/lookup-live?connector_id=${encodeURIComponent(cid)}&mac=${encodeURIComponent(q)}`);
+      if (id !== buscaId.current) return;
+      if (!d.respondeu) { semAoVivo(d.detail || 'o MikroTik não respondeu', id); return; }
+      const lista = d.matches ?? [];
+      setAoVivo('ok');
+      if (!lista.length) { setAoVivoMsg('O MikroTik não conhece esse MAC agora: a câmera está ligada e no cabo?'); setAchados([]); return; }
+      setAchados(lista);
+      setVivos(Object.fromEntries(lista.map((a) => [a.ip || a.address || '', a.responde ? 'responde' : 'nao'])));
+      const vivo = lista.find((a) => a.responde);
+      setAoVivoMsg(vivo ? `O MikroTik confirmou: ${vivo.ip} responde agora.` : 'O MikroTik vê esse MAC, mas nenhum IP respondeu ao ping.');
+      if (vivo) escolher(vivo);
+      else setIp('');
+    } catch (e) {
+      if (id === buscaId.current) semAoVivo((e as Error).message, id);
+    }
+  }
+
+  /** Sem resposta ao vivo: volta ao inventario e testa cada IP pelo ping. */
+  function semAoVivo(motivo: string, id: number) {
+    vivoFalhou.current = true;
+    setAoVivo('sem');
+    setAoVivoMsg(`Sem consulta ao vivo (${motivo}). Testando os IPs que o SightOps já conhecia.`);
+    if (rapidos.current.length) testarVivos(rapidos.current, id);
+  }
   /** Pinga cada IP candidato pelo conector; o primeiro que responde e escolhido. */
-  function testarVivos(lista: Achado[]) {
+  function testarVivos(lista: Achado[], id: number) {
     const ips = [...new Set(lista.map((a) => a.ip || a.address || '').filter(Boolean))];
     setVivos(Object.fromEntries(ips.map((x) => [x, 'testando' as const])));
     let escolhido = false;
@@ -147,14 +194,15 @@ export function InstalarCamera() {
         `/api/cameras/ping?ip=${encodeURIComponent(alvo)}&remote_connector_id=${encodeURIComponent(cid)}&force=1&timeout=2`)
         .then((r) => {
           const ok = !!(r.online || r.reachable);
-          setVivos((v) => ({ ...v, [alvo]: ok ? 'responde' : 'nao' }));
+          if (id !== buscaId.current) return;
+          setVivos((v) => (v[alvo] === 'testando' ? { ...v, [alvo]: ok ? 'responde' : 'nao' } : v));
           if (ok && !escolhido) {
             escolhido = true;
             const a = lista.find((x) => (x.ip || x.address) === alvo);
             if (a) escolher(a);
           }
         })
-        .catch(() => setVivos((v) => ({ ...v, [alvo]: 'nao' })));
+        .catch(() => { if (id === buscaId.current) setVivos((v) => (v[alvo] === 'testando' ? { ...v, [alvo]: 'nao' } : v)); });
     }
   }
 
@@ -284,12 +332,15 @@ export function InstalarCamera() {
           <form className="caixa" onSubmit={(e) => { e.preventDefault(); void procurar(); }}>
             <input id="bq" className="mono" value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="aa:bb:cc:dd:ee:ff" autoCapitalize="none" spellCheck={false} enterKeyHint="search" />
           </form>
-          <span className="ajuda">Procura no DHCP, ARP e vizinhos do MikroTik do site.</span></div>
+          <span className="ajuda">Por MAC, pergunta na hora ao MikroTik do site (ARP e DHCP) e testa qual IP responde.</span></div>
+        <LerEtiqueta aoErro={setErro} aoLer={(m) => { setBusca(m); void procurar(m); }} />
         <button type="button" className="btn" disabled={!busca.trim() || indo === 'procurar' || !online} onClick={() => void procurar()}>
           {Icone.busca}{indo === 'procurar' ? 'Procurando no MikroTik…' : 'Procurar'}
         </button>
-        {achados && achados.length > 1 && Object.keys(vivos).length ? (
-          <p className="sub-tela">O mesmo MAC aparece com mais de um IP (o MikroTik guarda o antigo). {Object.values(vivos).includes('testando') ? 'Testando qual responde agora…' : Object.values(vivos).includes('responde') ? 'Ficou o IP que respondeu ao ping.' : 'Nenhum respondeu: confira a câmera e escolha na mão.'}</p>
+        {aoVivo === 'perguntando' ? <p className="sub-tela">Perguntando ao MikroTik agora (até ~30 s)…</p> : null}
+        {aoVivoMsg ? <div className={`aviso ${aoVivo === 'ok' && achados?.some((a) => a.responde) ? 'verde' : 'ambar'}`}>{Icone.aviso}<span>{aoVivoMsg}</span></div> : null}
+        {aoVivo !== 'ok' && achados && achados.length > 1 && Object.keys(vivos).length ? (
+          <p className="sub-tela">O mesmo MAC aparece com mais de um IP (o MikroTik guarda o antigo). {Object.values(vivos).includes('testando') ? 'Testando qual responde agora…' : Object.values(vivos).includes('responde') ? 'Ficou o IP que respondeu ao ping.' : 'Nenhum respondeu ainda.'}</p>
         ) : null}
         {achados ? (!achados.length ? <Vazio>Nada com esse MAC/IP no conector.</Vazio> : achados.slice(0, 8).map((a, i) => {
           const alvo = a.ip || a.address || '';
@@ -297,7 +348,7 @@ export function InstalarCamera() {
           return (
             <Item key={`${a.ip}-${a.mac}-${i}`} ponto={v === 'responde' ? 'verde' : v === 'nao' ? 'vermelho' : a.conflito_ip ? 'ambar' : undefined} icone={Icone.camera}
                   titulo={alvo || '—'}
-                  sub={[a.mac, a.source, a.conflito_ip ? 'mesmo IP com outro MAC' : '', v === 'testando' ? 'testando ping…' : v === 'responde' ? 'responde agora' : v === 'nao' ? 'não responde (IP antigo?)' : ''].filter(Boolean).join(' · ')}
+                  sub={[a.mac, a.source, a.estado, a.conflito_ip ? 'mesmo IP com outro MAC' : '', v === 'testando' ? 'testando ping…' : v === 'responde' ? 'responde agora' : v === 'nao' ? (a.antigo ? 'IP antigo (o MikroTik marcou failed)' : 'não responde (IP antigo?)') : ''].filter(Boolean).join(' · ')}
                   onClick={() => escolher(a)}
                   direita={ip === alvo ? <span className="selo verde">escolhida</span> : v === 'nao' ? <span className="selo vermelho">sem resposta</span> : Icone.seta} />
           );

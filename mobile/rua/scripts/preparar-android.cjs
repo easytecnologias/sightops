@@ -33,6 +33,14 @@ if (!m.includes('ACCESS_FINE_LOCATION')) {
   fs.writeFileSync(manif, m);
 }
 
+// Leitor de etiqueta (ML Kit, tela pronta do Google): o Play Services baixa o
+// modulo junto com o app em vez de na primeira leitura.
+m = fs.readFileSync(manif, 'utf8');
+if (!m.includes('com.google.mlkit.vision.DEPENDENCIES')) {
+  m = m.replace(/(<application[^>]*>)/, '$1\n        <meta-data android:name="com.google.mlkit.vision.DEPENDENCIES" android:value="barcode_ui" />');
+  fs.writeFileSync(manif, m);
+}
+
 fs.writeFileSync(path.join(res, 'values', 'ic_launcher_background.xml'),
   `<?xml version="1.0" encoding="utf-8"?>\n<resources>\n    <color name="ic_launcher_background">${ESCURO}</color>\n</resources>\n`);
 
