@@ -7,6 +7,65 @@ import { useSite } from '../lib/site';
 import { useOltsDoSite } from './ImplantarOnu';
 import { Cartao, Icone, Item, Vazio } from '../ui/pecas';
 
+/** Estado do tunel do site: e por ele que todo comando chega ao equipamento. */
+function AvisoTunel() {
+  const online = useOnline();
+  const { site } = useSite();
+  const cons = useConectores();
+  const doSite = (cons.data ?? []).filter((c) => site && mesmoSite(siteDoConector(c), site));
+  const tunel = doSite.some((c) => c.online);
+  if (!online) return <div className="aviso ambar">{Icone.aviso}<span><b>Sem sinal</b> · nada aqui funciona agora, e não dá para deixar na fila.</span></div>;
+  if (!doSite.length) return <div className="aviso ambar">{Icone.aviso}<span>Este site não tem conector: os comandos não têm por onde chegar ao equipamento.</span></div>;
+  if (tunel) return <div className="aviso verde">{Icone.onu}<span><b>{site}</b> · túnel ativo, os comandos chegam agora</span></div>;
+  return <div className="aviso vermelho">{Icone.aviso}<span><b>Conector fora do ar</b> · os comandos não chegam até ele voltar.</span></div>;
+}
+
+/**
+ * Menu do botao (+): tudo o que o tecnico implanta, nos mesmos grupos do
+ * menu da web (Redes, CFTV) e o mapa.
+ */
+export function MenuImplantar({ aoEscolher }: { aoEscolher: () => void }) {
+  const { site } = useSite();
+  const m = useSiteMonitor(site);
+  const { zerar } = useRascunhoOnu();
+  const ir = useNavigate();
+  const semVideo = m.nvrs.reduce((n, e) => {
+    const d = detalhe<{ canais_sem_imagem?: number; canais_offline?: number }>(e);
+    return n + Number(d.canais_sem_imagem ?? 0) + Number(d.canais_offline ?? 0);
+  }, 0);
+  const vai = (para: string) => { aoEscolher(); ir(para); };
+
+  return (
+    <div className="menu-implantar">
+      <AvisoTunel />
+      <span className="rot-grupo">Rede</span>
+      <Cartao>
+        <Item icone={Icone.onu} titulo="Ativar ONU" sub="Achar na PON, escolher serviço, autorizar"
+              onClick={() => { zerar(); vai('/implantar/onu'); }} direita={Icone.seta} />
+        <Item icone={Icone.switch} titulo="Switch" sub="Portas, PoE e o que está ligado"
+              onClick={() => vai('/equipamentos?f=rede')} direita={Icone.seta} />
+      </Cartao>
+      <span className="rot-grupo">CFTV</span>
+      <Cartao>
+        <Item icone={Icone.camera} titulo="Instalar câmera" sub="Ler etiqueta, nomear, pôr no gravador"
+              onClick={() => vai('/implantar/instalar')} direita={Icone.seta} />
+        <Item icone={Icone.raio} titulo="Ativar câmera de fábrica" sub="Câmera nova, ainda sem senha"
+              onClick={() => vai('/implantar/camera')} direita={Icone.seta} />
+        <Item icone={Icone.gravador} titulo="Gravador" sub="Canais e troca de câmera de canal"
+              onClick={() => vai('/implantar/gravador')}
+              direita={semVideo ? <span className="selo vermelho">{semVideo} sem vídeo</span> : Icone.seta} />
+      </Cartao>
+      <span className="rot-grupo">Mapa</span>
+      <Cartao>
+        <Item icone={Icone.rota} titulo="Ligar câmera a uma caixa" sub="Toque na caixa no mapa e desenhe o cabo"
+              onClick={() => vai('/mapa')} direita={Icone.seta} />
+        <Item icone={Icone.atualizar} titulo="Feito hoje" sub="O que o SightOps mandou aos equipamentos"
+              onClick={() => vai('/implantar')} direita={Icone.seta} />
+      </Cartao>
+    </div>
+  );
+}
+
 /* 1 · Hub Implantar: comandos em equipamento vivo, pelo tunel do conector. */
 export function Implantar() {
   const online = useOnline();

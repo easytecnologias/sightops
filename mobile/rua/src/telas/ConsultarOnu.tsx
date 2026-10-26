@@ -1,7 +1,8 @@
 import { useMemo, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { enviar } from '../lib/api';
-import { detalhe, ipDaOlt, useOlts, useSinalOnu, type AmostraSinal, type Entidade } from '../lib/dados';
+import { chaveDa, detalhe, estadoDa, ipDaOlt, tituloDa, useCameras, useOlts, useSinalOnu, type AmostraSinal, type Entidade } from '../lib/dados';
+import { Caminho, type Elo } from '../ui/Caminho';
 import { LIMITE_RX, num, nomeEntidade, partesOnu, quando, rxDa, sinalBaixo, useSiteMonitor, type DetalheOnu } from '../lib/monitor';
 import { useSite } from '../lib/site';
 import { desde } from '../lib/tempo';
@@ -124,6 +125,7 @@ export function ConsultarOnu() {
   const m = useSiteMonitor(null);
   const olts = useOlts();
   const sinal = useSinalOnu(key);
+  const cams = useCameras();
   const ir = useNavigate();
   const toast = useToast();
   const [lendo, setLendo] = useState(false);
@@ -138,6 +140,26 @@ export function ConsultarOnu() {
   const olt = (olts.data ?? []).find((o) => ipDaOlt(o) === p.oltIp);
   const rx = rxDa(e);
   const baixo = sinalBaixo(e);
+  const serial = String(d.serial ?? '').toUpperCase();
+  // Cameras atras desta ONU: pelo serial gravado na camera ou pela posicao PON/ONU.
+  const atras = (cams.data ?? []).filter((c) => (serial && String(c.onu_serial ?? '').toUpperCase() === serial)
+    || (c.pon && c.onu_id && String(c.pon).split('/').pop() === p.pon && String(c.onu_id) === p.onu && (!e.site || !c.site || c.site === e.site)));
+  const con = m.conectores.find((c) => e.connector_id && c.connector_id === e.connector_id);
+  const elos: Elo[] = [
+    ...(con ? [{ tipo: 'conector' as const, titulo: `Conector ${nomeEntidade(con)}`, estado: con.status === 'up' ? 'ok' as const : 'ruim' as const }] : []),
+    { tipo: 'olt', titulo: <>{olt?.name || `OLT ${p.oltIp}`} · PON <span className="mono">{p.pon}</span></>,
+      onClick: () => ir(`/pon?olt=${encodeURIComponent(p.oltIp)}&pon=${encodeURIComponent(p.pon)}`) },
+    { tipo: 'onu', titulo: `Esta ONU · ${p.onu}`, aqui: true, falha: e.status !== 'up',
+      sub: num(d.distance_km) !== null ? `a ${String(num(d.distance_km)!.toFixed(1)).replace('.', ',')} km da OLT` : undefined,
+      estado: e.status !== 'up' ? 'ruim' : baixo ? 'atencao' : 'ok' },
+    ...atras.slice(0, 6).map((c) => ({
+      tipo: (c.switch_ip ? 'switch' : 'camera') as Elo['tipo'],
+      titulo: c.switch_ip ? `${c.switch_name || c.switch_ip} › ${tituloDa(c)}` : tituloDa(c),
+      sub: c.switch_port ? `porta ${c.switch_port}` : undefined,
+      estado: (estadoDa(c) === 'online' ? 'ok' : estadoDa(c) === 'offline' ? 'ruim' : 'sem') as Elo['estado'],
+      onClick: () => ir(`/cameras/${chaveDa(c)}`),
+    })),
+  ];
 
   async function lerAgora() {
     if (!olt) { toast('Esta OLT não está cadastrada no SightOps: não dá para ler ao vivo.', true); return; }
@@ -182,6 +204,8 @@ export function ConsultarOnu() {
           <span className="num mono" style={{ fontSize: 19 }}>{e.last_changed_at ? desde(e.last_changed_at) : '—'}</span>
         </div>
       </div>
+
+      <Caminho elos={elos} />
 
       <Cartao>
         <h2>Sinal nas últimas 24 h</h2>

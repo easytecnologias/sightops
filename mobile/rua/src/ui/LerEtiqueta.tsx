@@ -9,7 +9,7 @@ import { Icone } from './pecas';
  * pedir permissao de camera) e devolve o MAC lido. Na primeira vez o Android
  * baixa o modulo do leitor -- avisamos em vez de parecer travado.
  */
-export function LerEtiqueta({ aoLer, aoErro }: { aoLer: (mac: string) => void; aoErro: (msg: string) => void }) {
+export function useLeitorEtiqueta(aoLer: (mac: string) => void, aoErro: (msg: string) => void) {
   const [estado, setEstado] = useState<'' | 'baixando' | 'lendo'>('');
 
   async function garantirModulo() {
@@ -44,6 +44,11 @@ export function LerEtiqueta({ aoLer, aoErro }: { aoLer: (mac: string) => void; a
     } finally { setEstado(''); }
   }
 
+  return { estado, ler };
+}
+
+export function LerEtiqueta({ aoLer, aoErro }: { aoLer: (mac: string) => void; aoErro: (msg: string) => void }) {
+  const { estado, ler } = useLeitorEtiqueta(aoLer, aoErro);
   return (
     <button type="button" className="btn2" disabled={!!estado} onClick={() => void ler()}>
       {Icone.camera}{estado === 'baixando' ? 'Baixando o leitor (só na 1ª vez)…' : estado === 'lendo' ? 'Lendo…' : 'Ler etiqueta da câmera'}

@@ -507,3 +507,114 @@ a { color: var(--primary); text-decoration: none; }
 .onde-procurar .corpo .s:first-child { font-size: 11.5px; text-transform: uppercase; letter-spacing: .04em; font-family: 'IBM Plex Sans', sans-serif; }
 .onde-procurar .link { padding: 0; min-height: 0; }
 .seg-3 button { font-size: 12.5px; }
+
+/* ───────────────────────── redesenho 2.0 (canvas "SightOps Rua — redesenho") ───────────────────────── */
+/* Barra de baixo: (+) no meio e numero de alertas no sino. */
+.barra-baixo { align-items: center; }
+.barra-baixo .sino-num { position: absolute; top: 0; left: 54%; min-width: 17px; height: 17px; padding: 0 4px; border-radius: 9px; background: var(--danger); color: #fff; font-size: 10px; font-weight: 700; display: grid; place-items: center; border: 2px solid #fff; }
+.botao-mais { flex: 1; display: grid; place-items: center; background: none; border: 0; padding: 0; min-height: 46px; }
+.botao-mais > span { width: 50px; height: 50px; border-radius: 15px; background: var(--primary); color: #fff; display: grid; place-items: center; box-shadow: 0 6px 16px rgba(8,127,91,.30); }
+.botao-mais svg { width: 26px; height: 26px; }
+.botao-mais:active > span { background: var(--primary-escuro); }
+
+/* No mapa o cabecalho fica numa linha so. */
+.cabecalho.fino { padding-bottom: 10px; gap: 0; }
+.seletor-curto { flex: 1; min-width: 0; margin: 0 10px; display: flex; align-items: center; justify-content: center; gap: 6px; background: var(--escuro-card); border: 0; color: #fff; border-radius: 10px; min-height: 36px; padding: 0 10px; font-size: 13.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.seletor-curto svg { width: 15px; height: 15px; flex: none; }
+.seletor-curto .ponto { width: 8px; height: 8px; border-radius: 50%; background: var(--mint); flex: none; }
+.seletor-curto .ponto.off { background: var(--amber); }
+
+/* Busca com o botao de ler etiqueta. */
+.busca { padding-right: 5px; }
+.busca-etiqueta { flex: none; width: 38px; height: 38px; border-radius: 9px; border: 0; background: var(--primary-soft); color: var(--primary); display: grid; place-items: center; padding: 0; }
+.busca .busca-etiqueta svg { color: var(--primary); width: 20px; height: 20px; }
+
+/* Familias (Rede, CFTV, Acesso). */
+.familia { width: 100%; display: flex; align-items: center; gap: 12px; padding: 12px 14px; min-height: 60px; background: none; border: 0; text-align: left; color: var(--text); }
+.familia + .familia { border-top: 1px solid var(--divisor); }
+.familia > svg { width: 18px; height: 18px; color: #8a979f; flex: none; }
+.familia .corpo { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.familia .t { font-weight: 700; font-size: 15px; }
+.familia .s { font-size: 12.5px; color: var(--muted); }
+.familia.solta { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; }
+.fam-ic { width: 36px; height: 36px; border-radius: 9px; display: grid; place-items: center; flex: none; }
+.fam-ic svg { width: 20px; height: 20px; }
+.fam-ic.rede { background: #e3fafc; color: #0b7285; }
+.fam-ic.cftv { background: var(--blue-soft); color: var(--blue); }
+.fam-ic.acesso, .fam-ic.ok { background: var(--primary-soft); color: var(--primary); }
+.item .s.rot-mini { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; font-family: "IBM Plex Sans", sans-serif; }
+.titulo-secao { margin: 4px 0 0; font-size: 16px; font-weight: 700; }
+.ver-todos { justify-content: center; color: var(--primary); font-weight: 600; font-size: 14px; }
+
+/* Provavel rompimento. */
+.cartao-rompimento { width: 100%; display: flex; flex-direction: column; gap: 6px; text-align: left; background: var(--surface); border: 1px solid #f1c9c9; border-radius: 14px; padding: 12px 14px; color: var(--text); }
+.cartao-rompimento.estatico { background: var(--danger-soft); }
+.cartao-rompimento b { font-size: 15px; line-height: 1.3; }
+.cartao-rompimento .s { font-size: 13px; color: var(--muted2); line-height: 1.4; }
+.rot-rompimento { display: flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 700; color: var(--danger); text-transform: uppercase; letter-spacing: .04em; }
+.rot-rompimento svg { width: 16px; height: 16px; }
+
+/* Equipamentos: Rede | CFTV | Acesso. */
+.seg-familia { display: flex; gap: 4px; background: var(--escuro); border-radius: 12px; padding: 4px; }
+.seg-familia button { flex: 1; min-height: 40px; border: 0; border-radius: 9px; background: none; color: #cfe0e6; font-size: 14px; font-weight: 600; }
+.seg-familia button[aria-selected="true"] { background: #fff; color: var(--escuro); }
+.ramo { display: flex; flex-direction: column; gap: 12px; margin-left: 17px; padding-left: 15px; border-left: 2px solid #c9d3d9; }
+.pon-linha.com-problema { background: #fffbf0; }
+.pon-fora { font-size: 12.5px; color: var(--danger); white-space: nowrap; }
+.pon-baixo { font-size: 12.5px; color: var(--amber-txt); font-weight: 700; white-space: nowrap; }
+.pon-n { font-size: 12.5px; color: var(--muted); }
+
+/* Tres numeros no alto de PON e switch. */
+.numeros-3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.numeros-3 > div { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.numeros-3 span { font-size: 11.5px; color: var(--muted); }
+.numeros-3 b { font-size: 19px; }
+.numeros-3 small { font-size: 13px; color: var(--muted); font-weight: 500; }
+
+/* Portas do switch. */
+.portas-sw { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; padding: 0 14px 10px; }
+.porta-sw { min-height: 54px; border-radius: 10px; border: 2px solid transparent; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; padding: 4px; min-width: 0; }
+.porta-sw .n { font: 700 13px "IBM Plex Mono", monospace; }
+.porta-sw .l { font-size: 10.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.porta-sw.up { background: var(--primary-soft); color: var(--primary-escuro); }
+.porta-sw.caiu { background: var(--danger-soft); color: var(--danger-escuro); }
+.porta-sw.vazia { background: var(--bg); color: var(--muted); }
+.porta-sw[aria-pressed="true"] { border-color: var(--escuro); }
+.ficha-link { width: 100%; background: none; border: 0; text-align: left; color: var(--text); }
+.ficha-link .ficha-val { color: var(--primary); font-weight: 600; }
+
+/* Caminho ate o equipamento. */
+.caminho { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 12px 14px; display: flex; flex-direction: column; gap: 6px; }
+.caminho-tit { font-size: 12.5px; color: var(--muted); font-weight: 600; }
+.caminho-lista { position: relative; display: flex; flex-direction: column; gap: 2px; }
+.caminho-fio { position: absolute; left: 14px; top: 16px; bottom: 16px; width: 2px; background: var(--border); }
+.elo { position: relative; display: flex; align-items: center; gap: 10px; min-height: 44px; background: none; border: 0; padding: 0; text-align: left; color: var(--text); width: 100%; }
+.elo.falha { background: var(--danger-soft); border-radius: 10px; margin: 0 -6px; padding: 0 6px; width: calc(100% + 12px); }
+.elo-no { width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center; flex: none; z-index: 1; background: var(--bg); color: var(--muted); }
+.elo-no svg { width: 16px; height: 16px; }
+.elo-no.conector { background: var(--primary-soft); color: var(--primary); }
+.elo-no.olt, .elo-no.onu { background: #e3fafc; color: #0b7285; }
+.elo-no.switch, .elo-no.camera { background: var(--blue-soft); color: var(--blue); }
+.elo-no.aqui { background: var(--escuro); color: #fff; }
+.elo-no.falha { background: var(--danger); color: #fff; }
+.elo-corpo { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.elo-t { font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.elo-t.forte { font-weight: 700; }
+.elo-s { font-size: 12px; color: var(--muted); }
+.elo.falha .elo-s { color: var(--danger-escuro); font-weight: 600; }
+.elo-ponto { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+.elo-ponto.ok { background: var(--primary); }
+.elo-ponto.ruim { background: var(--danger); }
+.elo-ponto.atencao { background: var(--amber); }
+.elo-ponto.sem { background: #b7c2c9; }
+
+/* Menu do (+). */
+.menu-implantar > * { flex: none; }
+.menu-implantar { display: flex; flex-direction: column; gap: 10px; padding: 0 16px 16px; overflow-y: auto; }
+.rot-grupo { font-size: 11.5px; color: var(--muted); font-weight: 700; text-transform: uppercase; letter-spacing: .05em; padding: 4px 2px 0; }
+
+/* Camadas do mapa. */
+.camadas-mapa { position: absolute; z-index: 600; left: 12px; right: 12px; top: 12px; display: flex; gap: 6px; overflow-x: auto; padding-bottom: 4px; }
+.camadas-mapa button { flex: none; min-height: 38px; padding: 0 13px; border-radius: 999px; border: 1px solid var(--border); background: #fff; color: var(--text); font-size: 13px; font-weight: 600; box-shadow: 0 1px 4px rgba(19,37,45,.16); }
+.camadas-mapa button[aria-pressed="true"] { background: var(--escuro); border-color: var(--escuro); color: #fff; }
+.fabs.abaixo { top: 62px; }

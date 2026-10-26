@@ -44,6 +44,9 @@ export function Mapa() {
   const [aberta, setAberta] = useState(false);
   const [desenho, setDesenho] = useState<Desenho | null>(null);
   const [gravando, setGravando] = useState(false);
+  // Camadas que o tecnico liga e desliga (ficam como estao ao trocar de aba).
+  const [ver, setVer] = useState({ cabos: true, caixas: true, cameras: true, rotas: true });
+  const alternar = (k: keyof typeof ver) => setVer((v) => ({ ...v, [k]: !v[k] }));
   const centrado = useRef(false);
 
   // Cameras do site com coordenada (o inventario guarda lat/lon).
@@ -110,17 +113,17 @@ export function Mapa() {
     if (!m || !g) return;
     g.clearLayers();
     for (const c of doSite) {
-      for (const l of linhasDa(c)) L.polyline(l, { color: '#7a8790', weight: 2, opacity: 0.6, dashArray: '6 6', interactive: false }).addTo(g);
-      for (const k of Object.values(c.cabos ?? {})) {
+      if (ver.rotas) for (const l of linhasDa(c)) L.polyline(l, { color: '#7a8790', weight: 2, opacity: 0.6, dashArray: '6 6', interactive: false }).addTo(g);
+      for (const k of ver.cabos ? Object.values(c.cabos ?? {}) : []) {
         if (!k.caminho || k.caminho.length < 2) continue;
         const destaque = sel && k.caixa === sel.caixa.id;
         L.polyline(k.caminho, { color: k.cto ? '#0b6fa4' : '#1971c2', weight: destaque ? 4 : 2.5, opacity: sel && !destaque ? 0.45 : 0.9, dashArray: k.cto ? '7 5' : undefined, interactive: false }).addTo(g);
       }
-      for (const cto of Object.values(c.ctos ?? {})) {
+      for (const cto of ver.caixas ? Object.values(c.ctos ?? {}) : []) {
         if (cto.lat == null || cto.lng == null) continue;
         L.marker([Number(cto.lat), Number(cto.lng)], { icon: L.divIcon({ className: '', html: `<span class="mk-cto" title="${cto.nome ?? cto.ponto ?? 'CTO'}"></span>`, iconSize: [16, 16] }), interactive: false }).addTo(g);
       }
-      for (const cx of Object.values(c.caixas ?? {})) {
+      for (const cx of ver.caixas || desenho ? Object.values(c.caixas ?? {}) : []) {
         const p = posicaoDaCaixa(cx, c);
         if (!p) continue;
         const ativa = sel?.caixa.id === cx.id;
@@ -130,14 +133,14 @@ export function Mapa() {
         }).on('click', () => { if (!desenho) { setSel({ camada: c, caixa: cx, pos: p }); setAberta(false); } }).addTo(g);
       }
     }
-    for (const cam of camerasSite) {
+    for (const cam of ver.cameras || desenho ? camerasSite : []) {
       const e = estadoDa(cam);
       const p: Ponto = [Number(cam.lat), Number(cam.lon)];
       L.circleMarker(p, { radius: 9, color: '#fff', weight: 2.5, fillColor: COR_ESTADO[e], fillOpacity: 1, bubblingMouseEvents: false })
         .on('click', () => {
           // Ja tinha camera: troca a ponta final; senao, a camera fecha o traçado.
           if (desenho) setDesenho((d) => (d ? { ...d, camera: cam, caminho: d.camera ? [...d.caminho.slice(0, -1), p] : [...d.caminho, p] } : d));
-          else ir(`/cameras/${chaveDa(cam)}/aovivo`);
+          else ir(`/cameras/${chaveDa(cam)}`);
         })
         .bindTooltip(tituloDa(cam), { direction: 'top', offset: [0, -8] })
         .addTo(g);
@@ -146,7 +149,7 @@ export function Mapa() {
       L.polyline(desenho.caminho, { color: '#d9480f', weight: 3.5 }).addTo(g);
       desenho.caminho.forEach((p, i) => { if (i > 0) L.circleMarker(p, { radius: 5, color: '#d9480f', weight: 2.5, fillColor: '#fff', fillOpacity: 1, interactive: false }).addTo(g); });
     }
-  }, [doSite, camerasSite, sel, desenho, ir]);
+  }, [doSite, camerasSite, sel, desenho, ir, ver]);
 
   // Toque no mapa durante o desenho = nova curva (antes da camera escolhida).
   useEffect(() => {
@@ -220,12 +223,16 @@ export function Mapa() {
       {camadas.isPending ? <div className="mapa-carregando"><Carregando texto="Baixando o mapa do site…" /></div> : null}
 
       {!desenho ? (
-        <button type="button" className="pilula-mapa" style={{ left: 12, top: 12 }} onClick={() => ir('/implantar')}>{Icone.volta}Implantar</button>
+        <div className="camadas-mapa" role="group" aria-label="Camadas do mapa">
+          {([['cabos', 'Cabos'], ['caixas', 'Caixas'], ['cameras', 'Câmeras'], ['rotas', 'Rotas']] as [keyof typeof ver, string][]).map(([k, n]) => (
+            <button key={k} type="button" aria-pressed={ver[k]} onClick={() => alternar(k)}>{n}</button>
+          ))}
+        </div>
       ) : (
         <button type="button" className="pilula-mapa" style={{ left: 12, top: 12 }} onClick={() => { setDesenho(null); setAberta(true); }}>{Icone.x}Cancelar</button>
       )}
 
-      <div className="fabs">
+      <div className={`fabs${desenho ? '' : ' abaixo'}`}>
         <button type="button" className="fab" aria-label="Centralizar em mim" onClick={centrarEmMim}>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" aria-hidden="true"><circle cx="12" cy="12" r="7" /><circle cx="12" cy="12" r="2.5" /><path d="M12 2v3M12 19v3M2 12h3M19 12h3" /></svg>
         </button>

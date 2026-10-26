@@ -30,6 +30,14 @@ export type Camera = {
   inventory_mode?: string;
   connector_id?: string;
   remote_connector_id?: string;
+  /* Por onde a camera chega: ONU (fibra) e/ou switch e porta. */
+  pon?: string;
+  onu_id?: string;
+  onu_name?: string;
+  onu_serial?: string;
+  switch_ip?: string;
+  switch_name?: string;
+  switch_port?: string;
 };
 
 /** Chave de uma camera na navegacao. IP sozinho repete entre sites; com o

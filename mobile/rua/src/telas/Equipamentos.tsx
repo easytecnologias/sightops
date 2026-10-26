@@ -1,0 +1,205 @@
+import { useMemo } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { detalhe, ipDaOlt, mesmoSite, siteDoConector, useConectores, useOlts, type Entidade } from '../lib/dados';
+import { nomeEntidade, partesOnu, rxDa, sinalBaixo, useSiteMonitor } from '../lib/monitor';
+import { rompimentos } from '../lib/rompimento';
+import { useSite } from '../lib/site';
+import { desde } from '../lib/tempo';
+import { Carregando, Cartao, Icone, Item, Vazio } from '../ui/pecas';
+import { subEntidade, useAbrirEntidade } from './Inicio';
+
+type Familia = 'rede' | 'cftv' | 'acesso';
+type Pon = { pon: string; total: number; up: number; down: number; baixo: number };
+
+const dbm = (v: number) => `${v.toFixed(1).replace('.', ',').replace('-', '−')} dBm`;
+
+/* Equipamentos do site em tres familias, como no menu da web. */
+export function Equipamentos() {
+  const [param, setParam] = useSearchParams();
+  const f = (param.get('f') as Familia) || 'rede';
+  const { site } = useSite();
+  const m = useSiteMonitor(site);
+  const trocar = (x: Familia) => setParam({ f: x }, { replace: true });
+
+  return (
+    <>
+      <div className="seg-familia" role="tablist" aria-label="Família">
+        {([['rede', 'Rede'], ['cftv', 'CFTV'], ['acesso', 'Acesso']] as [Familia, string][]).map(([k, n]) => (
+          <button key={k} type="button" role="tab" aria-selected={f === k} onClick={() => trocar(k)}>{n}</button>
+        ))}
+      </div>
+      {m.carregando ? <Carregando /> : f === 'rede' ? <Rede /> : f === 'cftv' ? <Cftv /> : <Acesso />}
+    </>
+  );
+}
+
+/* Rede: o caminho do sinal de cima para baixo -- conector, OLT e PONs, switches. */
+function Rede() {
+  const { site } = useSite();
+  const m = useSiteMonitor(site);
+  const cons = useConectores();
+  const olts = useOlts();
+  const ir = useNavigate();
+
+  const porOlt = useMemo(() => {
+    const mapa = new Map<string, Map<string, Pon>>();
+    for (const e of m.onus) {
+      const { oltIp, pon } = partesOnu(e.entity_key);
+      if (!mapa.has(oltIp)) mapa.set(oltIp, new Map());
+      const pons = mapa.get(oltIp)!;
+      const p = pons.get(pon) ?? { pon, total: 0, up: 0, down: 0, baixo: 0 };
+      p.total += 1;
+      if (e.status === 'up') p.up += 1; else p.down += 1;
+      if (sinalBaixo(e)) p.baixo += 1;
+      pons.set(pon, p);
+    }
+    return mapa;
+  }, [m.onus]);
+  const roms = rompimentos(m.onus);
+
+  const conectores = (cons.data ?? []).filter((c) => !site || mesmoSite(siteDoConector(c), site));
+  const oltsDoSite = (olts.data ?? []).filter((o) => porOlt.has(ipDaOlt(o)) || (site && mesmoSite(o.site, site)));
+  const semCadastro = [...porOlt.keys()].filter((ip) => !oltsDoSite.some((o) => ipDaOlt(o) === ip));
+
+  function mediaRx(ip: string): string {
+    const l = m.onus.filter((e) => partesOnu(e.entity_key).oltIp === ip).map(rxDa).filter((v): v is number => v !== null);
+    return l.length ? `média ${dbm(l.reduce((a, b) => a + b, 0) / l.length)}` : '';
+  }
+
+  function cartaoOlt(ip: string, nome: string, sub: string) {
+    const pons = [...(porOlt.get(ip)?.values() ?? [])].sort((a, b) => a.pon.localeCompare(b.pon, 'pt-BR', { numeric: true }));
+    const maior = Math.max(1, ...pons.map((p) => p.total));
+    const total = pons.reduce((a, p) => a + p.total, 0);
+    return (
+      <Cartao key={ip || nome}>
+        <div className="item">
+          <span className="fam-ic rede">{Icone.olt}</span>
+          <span className="corpo"><span className="s rot-mini">OLT</span><span className="t">{nome}</span></span>
+          <span className="mono" style={{ fontSize: 13, color: 'var(--muted)' }}>{total} ONUs</span>
+        </div>
+        {sub ? <p className="sub-h2" style={{ marginTop: 0 }}>{sub}</p> : null}
+        {!pons.length ? <Vazio>Nenhuma ONU deste site nesta OLT.</Vazio> : pons.map((p) => {
+          const rom = roms.some((r) => r.oltIp === ip && r.pon === p.pon);
+          return (
+            <button key={p.pon} type="button" className={`item pon-linha${p.baixo || p.down ? ' com-problema' : ''}`}
+                    onClick={() => ir(`/pon?olt=${encodeURIComponent(ip)}&pon=${encodeURIComponent(p.pon)}`)}>
+              <span className="pon mono">{p.pon}</span>
+              <span className="corpo">
+                <span className="barra-pon" aria-hidden="true">
+                  <span style={{ width: `${(100 * (p.up - p.baixo)) / maior}%`, background: 'var(--primary)' }} />
+                  <span style={{ width: `${(100 * p.baixo) / maior}%`, background: 'var(--amber)' }} />
+                  <span style={{ width: `${(100 * p.down) / maior}%`, background: 'var(--danger)' }} />
+                </span>
+              </span>
+              {p.down ? <b className="pon-fora">{rom ? 'rompimento?' : `${p.down} fora`}</b>
+                : p.baixo ? <b className="pon-baixo">{p.baixo} baixo</b>
+                  : <span className="mono pon-n">{p.total}</span>}
+              {Icone.seta}
+            </button>
+          );
+        })}
+      </Cartao>
+    );
+  }
+
+  return (
+    <>
+      <p className="sub-tela">O caminho do sinal, de cima para baixo.</p>
+
+      <Cartao>
+        {!conectores.length ? <Vazio>Nenhum conector neste site.</Vazio> : conectores.map((c, i) => {
+          const ent: Entidade | undefined = m.conectores.find((e) => e.connector_id === c.id) ?? m.conectores[i];
+          return (
+            <div key={c.id ?? i} className="item">
+              <span className="fam-ic ok">{Icone.conector}</span>
+              <span className="corpo"><span className="s rot-mini">Conector</span><span className="t">{c.name || siteDoConector(c)}</span></span>
+              <span className={`selo ${c.online ? 'verde' : 'vermelho'}`}>
+                {c.online ? 'online' : 'fora'}{ent?.last_changed_at ? ` ${desde(ent.last_changed_at)}` : ''}
+              </span>
+            </div>
+          );
+        })}
+      </Cartao>
+
+      <div className="ramo">
+        {olts.isPending && !olts.data ? <Carregando /> : null}
+        {oltsDoSite.map((o) => cartaoOlt(ipDaOlt(o), o.name || ipDaOlt(o) || 'OLT',
+          [o.capability_label || [o.vendor, o.model].filter(Boolean).join(' '), mediaRx(ipDaOlt(o))].filter(Boolean).join(' · ')))}
+        {semCadastro.map((ip) => cartaoOlt(ip, `OLT ${ip}`, 'OLT sem cadastro no SightOps'))}
+
+        <Cartao>
+          <h2>Switches{m.switches.length ? ` · ${m.switches.length}` : ''}</h2>
+          {!m.switches.length ? <Vazio>Nenhum switch monitorado neste site.</Vazio> : m.switches.map((s) => {
+            const d = detalhe<{ ip?: string; model?: string; modelo?: string; ports_total?: number; ports_up?: number }>(s);
+            return (
+              <Item key={s.entity_key} icone={Icone.switch} titulo={nomeEntidade(s)}
+                    sub={[d.model || d.modelo, d.ports_total ? `${d.ports_up ?? 0}/${d.ports_total} portas ligadas` : ''].filter(Boolean).join(' · ')}
+                    onClick={() => ir(`/switch/${encodeURIComponent(s.entity_key)}`)}
+                    direita={s.status === 'up' ? Icone.seta : <span className="selo vermelho">fora</span>} />
+            );
+          })}
+        </Cartao>
+      </div>
+    </>
+  );
+}
+
+/* CFTV: gravadores e o que esta sem video. */
+function Cftv() {
+  const { site } = useSite();
+  const m = useSiteMonitor(site);
+  const ir = useNavigate();
+  const abrir = useAbrirEntidade();
+  const semVideo = m.cameras.filter((e) => e.status !== 'up');
+  const up = m.cameras.length - semVideo.length;
+
+  return (
+    <>
+      <button type="button" className="familia solta" onClick={() => ir('/cameras')}>
+        <span className="fam-ic cftv">{Icone.camera}</span>
+        <span className="corpo"><span className="t">Câmeras</span><span className="s">{up} de {m.cameras.length} no ar · buscar, filtrar, ao vivo</span></span>
+        {Icone.seta}
+      </button>
+
+      <Cartao>
+        <h2>Gravadores{m.nvrs.length ? ` · ${m.nvrs.length}` : ''}</h2>
+        {!m.nvrs.length ? <Vazio>Nenhum gravador neste site.</Vazio> : m.nvrs.map((e) => {
+          const d = detalhe<{ host?: string; canais_sem_imagem?: number; canais_offline?: number; canais_total?: number }>(e);
+          const sem = Number(d.canais_sem_imagem ?? 0) + Number(d.canais_offline ?? 0);
+          return (
+            <Item key={e.entity_key} ponto={e.status !== 'up' ? 'vermelho' : sem ? 'ambar' : 'verde'} titulo={nomeEntidade(e)}
+                  sub={[d.host, e.status !== 'up' ? 'fora do ar' : sem ? `${sem} canais sem vídeo` : 'todos os canais com vídeo'].filter(Boolean).join(' · ')}
+                  onClick={d.host ? () => ir(`/implantar/gravador/${encodeURIComponent(d.host!)}`) : undefined}
+                  direita={d.host ? Icone.seta : undefined} />
+          );
+        })}
+      </Cartao>
+
+      <Cartao>
+        <h2>Sem vídeo{semVideo.length ? ` · ${semVideo.length}` : ''}</h2>
+        {!semVideo.length ? <Vazio>Todas as câmeras no ar.</Vazio> : semVideo.slice(0, 20).map((e) => (
+          <Item key={e.entity_key} ponto={e.status === 'down' ? 'vermelho' : 'ambar'} titulo={nomeEntidade(e)}
+                sub={subEntidade(e)} onClick={() => abrir(e)} direita={Icone.seta} />
+        ))}
+      </Cartao>
+    </>
+  );
+}
+
+/* Acesso: leitores e portoes do site. */
+function Acesso() {
+  const { site } = useSite();
+  const m = useSiteMonitor(site);
+  return (
+    <Cartao>
+      <h2>Leitores{m.acessos.length ? ` · ${m.acessos.length}` : ''}</h2>
+      {!m.acessos.length ? <Vazio>Nenhum leitor de acesso neste site.</Vazio> : m.acessos.map((e) => {
+        const d = detalhe<{ host?: string; model?: string; last_seen_at?: string }>(e);
+        return (
+          <Item key={e.entity_key} ponto={e.status === 'up' ? 'verde' : 'vermelho'} titulo={nomeEntidade(e)}
+                sub={[d.model, d.host, e.status !== 'up' && d.last_seen_at ? `visto ${desde(d.last_seen_at)}` : ''].filter(Boolean).join(' · ')} />
+        );
+      })}
+    </Cartao>
+  );
+}

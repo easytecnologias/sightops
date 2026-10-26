@@ -4,7 +4,7 @@ import { conferirPin, criarPin, MAX_ERROS } from '../lib/pin';
 import { mesmoSite, siteDoConector, useConectores, useEntidades } from '../lib/dados';
 import { Carregando, Icone, Logo, Vazio, iniciais } from '../ui/pecas';
 
-export const VERSAO = '1.3.6';
+export const VERSAO = '2.0.0';
 
 /* ─────────────────────────── B · Abertura ─────────────────────────── */
 export function Abertura() {

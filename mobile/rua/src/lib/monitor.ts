@@ -64,15 +64,17 @@ export function useSiteMonitor(site: string | null) {
   const cons = useEntidades('connector');
   const sws = useEntidades('switch');
   const olts = useEntidades('olt');
+  const acessos = useEntidades('access_device');
+  const swp = useEntidades('switch_provedor');
   const eventos = useEventos();
 
   return useMemo(() => {
     const doSite = (l?: Entidade[]) => (l ?? []).filter((e) => doSiteFn(e.site, e.connector_id));
     const r = {
       cameras: doSite(cams.data), nvrs: doSite(nvrs.data), onus: doSite(onus.data),
-      conectores: doSite(cons.data), switches: doSite(sws.data), olts: doSite(olts.data),
+      conectores: doSite(cons.data), switches: doSite([...(sws.data ?? []), ...(swp.data ?? [])]), olts: doSite(olts.data), acessos: doSite(acessos.data),
     };
-    const todas = [...r.conectores, ...r.olts, ...r.nvrs, ...r.switches, ...r.cameras, ...r.onus];
+    const todas = [...r.conectores, ...r.olts, ...r.nvrs, ...r.switches, ...r.cameras, ...r.onus, ...r.acessos];
     const chaves = new Set(todas.map((e) => e.entity_key));
     const atencao = todas
       .filter((e) => e.status === 'down' || e.status === 'unstable' || (e.entity_type === 'onu' && sinalBaixo(e)))
@@ -83,7 +85,7 @@ export function useSiteMonitor(site: string | null) {
     const buscando = cams.isFetching || onus.isFetching || cons.isFetching;
     const recarregar = () => { void cams.refetch(); void nvrs.refetch(); void onus.refetch(); void cons.refetch(); void eventos.refetch(); };
     return { ...r, atencao, mudancas, carregando, atualizadoEm, buscando, recarregar };
-  }, [doSiteFn, cams, nvrs, onus, cons, sws, olts, eventos]);
+  }, [doSiteFn, cams, nvrs, onus, cons, sws, olts, acessos, swp, eventos]);
 }
 
 /** Quanto tempo desde um texto de data do servidor (com ou sem fuso). */

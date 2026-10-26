@@ -11,7 +11,9 @@ import { ProvedorToast } from './ui/pecas';
 import { Abertura, Apresentacao, CriarPin, EscolherSite, Login, Pin } from './telas/Entrada';
 import { Inicio } from './telas/Inicio';
 import { Alertas } from './telas/Alertas';
-import { Rede } from './telas/Rede';
+import { Equipamentos } from './telas/Equipamentos';
+import { Pon } from './telas/Pon';
+import { Switch } from './telas/Switch';
 import { ConsultarOnu, ListaOnus } from './telas/ConsultarOnu';
 import { Conta } from './telas/Conta';
 import { Cameras } from './screens/Cameras';
@@ -59,7 +61,10 @@ function Dentro(
             <Route path="/implantar/gravador" element={<Gravadores />} />
             <Route path="/implantar/gravador/:host" element={<GravadorCanais />} />
             <Route path="/alertas" element={<Alertas />} />
-            <Route path="/rede" element={<Rede />} />
+            <Route path="/equipamentos" element={<Equipamentos />} />
+            <Route path="/pon" element={<Pon />} />
+            <Route path="/switch/:chave" element={<Switch />} />
+            <Route path="/rede" element={<Navigate to="/equipamentos?f=rede" replace />} />
             <Route path="/onu" element={<ListaOnus />} />
             <Route path="/onu/:chave" element={<ConsultarOnu />} />
             <Route path="*" element={<Navigate to="/" replace />} />
