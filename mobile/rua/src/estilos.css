@@ -658,3 +658,13 @@ body.com-tela-cheia { overflow: hidden; }
 .outros-mapas summary { min-height: 44px; display: flex; align-items: center; font-weight: 600; color: var(--primary-escuro); cursor: pointer; }
 .mk-destaque { position: absolute; transform: translateX(-50%); white-space: nowrap; background: #d9480f; color: #fff; font-size: 12px; font-weight: 700; padding: 3px 8px; border-radius: 6px; box-shadow: 0 1px 4px rgba(0,0,0,.25); }
 .linha-camada .linha-sub { display: block; font-size: 12px; margin-top: 2px; }
+
+/* Menu do canal do gravador */
+button.canal-linha { width: 100%; background: none; border: 0; padding: 0; text-align: left; color: inherit; display: flex; align-items: center; gap: 10px; min-height: 44px; }
+button.canal-linha > svg { width: 16px; height: 16px; color: var(--muted); flex: none; }
+button.canal-linha[aria-expanded="true"] > svg { transform: rotate(90deg); }
+.menu-canal { display: flex; flex-direction: column; gap: 10px; padding: 6px 0 4px; }
+.acoes-menu { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.acoes-menu .btn2 { min-height: 44px; }
+.form-menu { display: flex; flex-direction: column; gap: 10px; }
+.btn2.perigo { color: var(--danger); border-color: var(--danger); }

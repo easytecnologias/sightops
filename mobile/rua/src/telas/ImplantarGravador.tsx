@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { ErroApi, enviar, obter } from '../lib/api';
-import { detalhe, useEntidades, type Entidade } from '../lib/dados';
+import { chaveDa, detalhe, useCameras, useEntidades, useEu, type Entidade } from '../lib/dados';
 import { gravadoresPorLocal, useFiltroSite } from '../lib/monitor';
 import { useOnline } from '../lib/rede';
 import { useSite } from '../lib/site';
@@ -123,8 +123,20 @@ export function GravadorCanais() {
   const [busca, setBusca] = useState<{ carregando: boolean; erro: string; cams: Achada[] } | null>(null);
   const [macs, setMacs] = useState<Record<string, string>>({});
   const [trabalhando, setTrabalhando] = useState('');
-  const [renomeando, setRenomeando] = useState(0);
-  const [novoNome, setNovoNome] = useState('');
+  // Menu do canal: o que o tecnico faz no campo (ver, renomear, trocar IP,
+  // cadastrar camera em canal livre, excluir). Tudo vai ao gravador de verdade.
+  const [menuCanal, setMenuCanal] = useState(0);
+  const [modo, setModo] = useState<'' | 'renomear' | 'ip' | 'cadastrar'>('');
+  const [form, setForm] = useState({ nome: '', ip: '', user: 'admin', senha: '' });
+  const eu = useEu();
+  const podeExcluir = ['admin', 'owner'].includes(String(eu.data?.role ?? '').toLowerCase());
+  const cams = useCameras();
+  const abrirMenu = (c: Canal) => {
+    setMenuCanal(menuCanal === c.canal ? 0 : c.canal);
+    setModo(c.ip ? '' : 'cadastrar');
+    setForm({ nome: c.nome || '', ip: c.ip || '', user: 'admin', senha: '' });
+  };
+  const ipValido = (v: string) => /^(\d{1,3})(\.\d{1,3}){3}$/.test(v.trim()) && v.trim().split('.').every((x) => Number(x) <= 255);
   const [senhaCam, setSenhaCam] = useState('');
   const [pedirSenhaCam, setPedirSenhaCam] = useState('');
 
@@ -288,34 +300,93 @@ export function GravadorCanais() {
             {!canaisVistos.length ? <Vazio>Nenhum canal com esse filtro.</Vazio> : null}
             {canaisVistos.map((c) => {
               const e = estado(c);
-              const chave = `ren-${c.canal}`;
               return (
                 <div key={c.canal} className={`item item-coluna${e === 'sem' ? ' linha-ruim' : ''}`}>
-                  <span className="canal-linha">
+                  <button type="button" className="canal-linha" aria-expanded={menuCanal === c.canal} onClick={() => abrirMenu(c)}>
                     <span className="mono canal-n">{n2(c.canal)}</span>
                     <span className="corpo">
                       <span className="t">{c.nome || (c.ip ? '(sem nome)' : 'livre')}</span>
                       <span className="s mono">{[c.ip, [c.codec, c.resolucao].filter(Boolean).join(' ')].filter(Boolean).join(' · ') || '—'}</span>
                     </span>
                     <span className={`selo ${e === 'ok' ? 'verde' : e === 'sem' ? 'vermelho' : 'cinza'}`}>{e === 'ok' ? 'ok' : e === 'sem' ? 'sem imagem' : e === 'livre' ? 'livre' : 'sem leitura'}</span>
-                  </span>
-                  {c.ip && renomeando === c.canal ? (
-                    <span className="renomear">
-                      <span className="caixa"><input aria-label={`Novo nome do canal ${c.canal}`} value={novoNome} maxLength={60} onChange={(ev) => setNovoNome(ev.target.value)} /></span>
-                      <button type="button" className="btn2" onClick={() => setRenomeando(0)}>Cancelar</button>
-                      <button type="button" className="btn" disabled={!!trabalhando || !novoNome.trim() || novoNome.trim() === c.nome}
-                              onClick={async () => { if (await editar(chave, { acao: 'renomear', canal: c.canal, nome: novoNome.trim(), antes: { nome: c.nome || '', ip: c.ip || '' } }, `Canal ${n2(c.canal)} renomeado`)) setRenomeando(0); }}>
-                        {trabalhando === chave ? 'Salvando…' : 'Salvar'}
-                      </button>
-                    </span>
-                  ) : c.ip ? (
-                    <button type="button" className="link" style={{ alignSelf: 'flex-start' }} onClick={() => { setRenomeando(c.canal); setNovoNome(c.nome || ''); }}>Renomear</button>
+                    {Icone.seta}
+                  </button>
+                  {menuCanal === c.canal ? (
+                    <div className="menu-canal">
+                      {c.ip && !modo ? (
+                        <div className="acoes-menu">
+                          {(() => {
+                            const cam = (cams.data ?? []).find((x) => x.ip === c.ip);
+                            return cam ? <button type="button" className="btn2" onClick={() => ir(`/cameras/${chaveDa(cam)}/aovivo`)}>{Icone.olho}Ver ao vivo</button> : null;
+                          })()}
+                          <button type="button" className="btn2" onClick={() => setModo('renomear')}>Renomear</button>
+                          <button type="button" className="btn2" onClick={() => setModo('ip')}>Trocar IP</button>
+                          {podeExcluir ? (
+                            <BotaoArmado classe="btn2 perigo" rotulo="Excluir do gravador" armar={`Toque de novo: tirar ${c.ip} do canal ${n2(c.canal)}`}
+                                         indo={trabalhando === `exc-${c.canal}`} desab={!online}
+                                         onConfirmar={async () => { if (await editar(`exc-${c.canal}`, { acao: 'excluir', canal: c.canal, antes: { nome: c.nome || '', ip: c.ip || '' } }, `Canal ${n2(c.canal)} esvaziado`)) setMenuCanal(0); }} />
+                          ) : <span className="sub-tela">Excluir: só administrador ou dono.</span>}
+                        </div>
+                      ) : null}
+
+                      {modo === 'renomear' ? (
+                        <div className="form-menu">
+                          <div className="campo"><label htmlFor={`nm${c.canal}`}>Nome no gravador</label>
+                            <div className="caixa"><input id={`nm${c.canal}`} value={form.nome} maxLength={60} onChange={(ev) => setForm({ ...form, nome: ev.target.value })} /></div></div>
+                          <div className="acoes-duplas">
+                            <button type="button" className="btn2" onClick={() => setModo('')}>Voltar</button>
+                            <button type="button" className="btn" disabled={!!trabalhando || !online || !form.nome.trim() || form.nome.trim() === c.nome}
+                                    onClick={async () => { if (await editar(`ren-${c.canal}`, { acao: 'renomear', canal: c.canal, nome: form.nome.trim(), antes: { nome: c.nome || '', ip: c.ip || '' } }, `Canal ${n2(c.canal)} renomeado`)) setModo(''); }}>
+                              {trabalhando === `ren-${c.canal}` ? 'Salvando…' : 'Salvar nome'}
+                            </button>
+                          </div>
+                        </div>
+                      ) : null}
+
+                      {modo === 'ip' || modo === 'cadastrar' ? (
+                        <div className="form-menu">
+                          <span className="sub-tela">{modo === 'ip'
+                            ? `O canal ${n2(c.canal)} passa a buscar a câmera no IP novo. Use quando a câmera mudou de IP ou foi trocada.`
+                            : `Cadastrar uma câmera no canal ${n2(c.canal)}, que está livre.`}</span>
+                          <div className="campo"><label htmlFor={`ip${c.canal}`}>IP da câmera</label>
+                            <div className="caixa"><input id={`ip${c.canal}`} className="mono" inputMode="decimal" value={form.ip} onChange={(ev) => setForm({ ...form, ip: ev.target.value })} placeholder="10.10.9.50" /></div></div>
+                          {modo === 'cadastrar' ? (
+                            <div className="campo"><label htmlFor={`cn${c.canal}`}>Nome</label>
+                              <div className="caixa"><input id={`cn${c.canal}`} value={form.nome} maxLength={60} onChange={(ev) => setForm({ ...form, nome: ev.target.value })} placeholder={`Canal ${n2(c.canal)}`} /></div></div>
+                          ) : null}
+                          <div className="duas">
+                            <div className="campo"><label htmlFor={`cu${c.canal}`}>Usuário da câmera</label>
+                              <div className="caixa"><input id={`cu${c.canal}`} value={form.user} autoCapitalize="none" onChange={(ev) => setForm({ ...form, user: ev.target.value })} /></div></div>
+                            <div className="campo"><label htmlFor={`cs${c.canal}`}>Senha</label>
+                              <div className="caixa"><input id={`cs${c.canal}`} type="password" value={form.senha} autoComplete="off" onChange={(ev) => setForm({ ...form, senha: ev.target.value })} placeholder="a salva, se houver" /></div></div>
+                          </div>
+                          {form.ip.trim() && !ipValido(form.ip) ? <span className="sub-tela" style={{ color: 'var(--danger)' }}>IP inválido.</span> : null}
+                          {modo === 'ip' && form.ip.trim() === (c.ip || '') ? <span className="sub-tela">Digite o IP novo.</span> : null}
+                          <div className="acoes-duplas">
+                            <button type="button" className="btn2" onClick={() => (c.ip ? setModo('') : setMenuCanal(0))}>{c.ip ? 'Voltar' : 'Cancelar'}</button>
+                            <BotaoArmado rotulo={modo === 'ip' ? 'Trocar IP' : 'Cadastrar'}
+                                         armar={modo === 'ip' ? `Toque de novo: canal ${n2(c.canal)} → ${form.ip.trim()}` : `Toque de novo: ${form.ip.trim()} no canal ${n2(c.canal)}`}
+                                         indo={trabalhando === `ed-${c.canal}`}
+                                         desab={!online || !ipValido(form.ip) || (modo === 'ip' && form.ip.trim() === (c.ip || ''))}
+                                         onConfirmar={async () => {
+                                           const ok = await editar(`ed-${c.canal}`, {
+                                             acao: modo === 'ip' ? 'editar' : 'adicionar', canal: c.canal, camera_ip: form.ip.trim(),
+                                             nome: (form.nome.trim() || c.nome || `Canal ${n2(c.canal)}`),
+                                             camera_user: form.user.trim() || 'admin', ...(form.senha ? { camera_password: form.senha } : {}),
+                                             antes: { nome: c.nome || '', ip: c.ip || '' },
+                                           }, modo === 'ip' ? `Canal ${n2(c.canal)} agora em ${form.ip.trim()}` : `${form.ip.trim()} cadastrada no canal ${n2(c.canal)}`);
+                                           if (ok) { setModo(''); setMenuCanal(0); }
+                                         }} />
+                          </div>
+                        </div>
+                      ) : null}
+                    </div>
                   ) : null}
                 </div>
               );
             })}
           </Cartao>
-          <p className="sub-tela" style={{ textAlign: 'center' }}>Apontar, pôr câmera e renomear mudam o gravador do cliente na hora. Desfazer fica no Histórico do gravador, no SightOps pelo navegador.</p>
+          <p className="sub-tela" style={{ textAlign: 'center' }}>Toque no canal para ver, renomear, trocar IP, cadastrar ou excluir. Tudo muda o gravador do cliente na hora. Desfazer fica no Histórico do gravador, no SightOps pelo navegador.</p>
         </>
       ) : null}
     </>
