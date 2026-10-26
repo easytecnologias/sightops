@@ -10,6 +10,7 @@ import { Cartao, EscolhaLocal, Icone, Item, Vazio } from '../ui/pecas';
 import { OndeProcurar } from '../ui/OndeProcurar';
 import { LerEtiqueta } from '../ui/LerEtiqueta';
 import { ehMac } from '../lib/etiqueta';
+import { ordenar } from '../lib/ordem';
 
 /*
  * 6 · Instalar camera: achar na rede, ler, configurar, por no gravador e
@@ -288,7 +289,7 @@ export function InstalarCamera() {
         connector_id: gravadores.find((g) => g.host === host)?.conector || cid,
         ...(comSenha ? { recorder_user: gUser.trim() || 'admin', recorder_password: gSenha } : {}),
       });
-      const lista = d.channels ?? [];
+      const lista = ordenar(d.channels ?? [], (c) => c.channel);
       setCanais(lista); setPedeSenhaGrav(false);
       const livre = lista.find((c) => !c.used);
       setCanal(livre ? String(livre.channel) : '');

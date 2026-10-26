@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import { detalhe, mesmoSite, siteDoConector, useConectores, useEntidades, useEventos, type Entidade, type EventoMon } from './dados';
+import { ordemNatural } from './ordem';
 
 /* Leitura do monitoramento por site: o que o tecnico precisa ver ao chegar. */
 
@@ -55,7 +56,6 @@ export function useFiltroSite(site: string | null) {
   }, [cons.data, site]);
 }
 
-const ordemNatural = (a: string, b: string) => a.localeCompare(b, 'pt-BR', { numeric: true, sensitivity: 'base' });
 
 /**
  * Gravadores do site separados por local (o sub-site do cadastro: JARDINS I,

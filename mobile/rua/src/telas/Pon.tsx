@@ -23,10 +23,6 @@ export function Pon() {
   const todas = useMemo(() => m.onus.filter((e) => {
     const p = partesOnu(e.entity_key);
     return p.oltIp === olt && p.pon === pon;
-  }).sort((a, b) => {
-    const pa = a.status !== 'up' ? 0 : sinalBaixo(a) ? 1 : 2;
-    const pb = b.status !== 'up' ? 0 : sinalBaixo(b) ? 1 : 2;
-    return pa - pb || String(a.display_name).localeCompare(String(b.display_name), 'pt-BR', { numeric: true });
   }), [m.onus, olt, pon]);
 
   if (m.carregando) return <Carregando />;

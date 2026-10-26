@@ -29,10 +29,6 @@ export function ListaOnus() {
       if (!t) return true;
       const d = detalhe<DetalheOnu>(e);
       return [e.display_name, d.serial].some((v) => String(v ?? '').toLowerCase().includes(t));
-    }).sort((a, b) => {
-      const pa = a.status !== 'up' ? 0 : sinalBaixo(a) ? 1 : 2;
-      const pb = b.status !== 'up' ? 0 : sinalBaixo(b) ? 1 : 2;
-      return pa - pb || String(a.display_name).localeCompare(String(b.display_name), 'pt-BR', { numeric: true });
     });
   }, [m.onus, busca, olt, pon]);
 

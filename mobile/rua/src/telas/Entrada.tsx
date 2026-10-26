@@ -3,8 +3,9 @@ import { entrar } from '../lib/api';
 import { conferirPin, criarPin, MAX_ERROS } from '../lib/pin';
 import { mesmoSite, siteDoConector, useConectores, useEntidades } from '../lib/dados';
 import { Carregando, Icone, Logo, Vazio, iniciais } from '../ui/pecas';
+import { ordemNatural } from '../lib/ordem';
 
-export const VERSAO = '2.0.2';
+export const VERSAO = '2.0.3';
 
 /* ─────────────────────────── B · Abertura ─────────────────────────── */
 export function Abertura() {
@@ -278,7 +279,7 @@ export function ListaSites({ atual, aoEscolher }: { atual?: string | null; aoEsc
     const s = siteDoConector(c);
     if (s) porSite.set(s, (porSite.get(s) ?? false) || !!c.online);
   }
-  const todos = [...porSite.keys()].sort((a, b) => a.localeCompare(b, 'pt-BR'));
+  const todos = [...porSite.keys()].sort(ordemNatural);
   const lista = todos.filter((s) => s.toUpperCase().includes(busca.trim().toUpperCase()));
   if (!todos.length) return <Vazio>Nenhum site com conector.<br />Conecte uma vez para baixar a lista.</Vazio>;
   return (

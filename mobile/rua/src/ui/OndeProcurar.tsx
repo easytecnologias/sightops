@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { siteDoConector, useConectores, type Conector } from '../lib/dados';
 import { useSite } from '../lib/site';
 import { Cartao, Folha, Icone, Item, Vazio } from './pecas';
+import { ordemNatural } from '../lib/ordem';
 
 /**
  * "Onde procurar": o site e o conector (MikroTik) por onde a busca sai.
@@ -25,7 +26,7 @@ export function OndeProcurar(
     if (!s) continue;
     porSite.set(s, [...(porSite.get(s) ?? []), c]);
   }
-  const sites = [...porSite.keys()].sort((a, b) => a.localeCompare(b, 'pt-BR'));
+  const sites = [...porSite.keys()].sort(ordemNatural);
 
   return (
     <>

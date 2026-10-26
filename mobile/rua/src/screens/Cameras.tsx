@@ -5,6 +5,7 @@ import { useOnline } from '../lib/rede';
 import { useSite } from '../lib/site';
 import { useFiltroSite } from '../lib/monitor';
 import { Carregando, Cartao, Icone, Item, Procedencia, Titulo, Vazio } from '../ui/pecas';
+import { ordemNatural } from '../lib/ordem';
 
 type Filtro = 'todas' | 'offline' | 'sem';
 
@@ -50,7 +51,7 @@ export function Cameras() {
       if (!m.has(g)) m.set(g, []);
       m.get(g)!.push(c);
     }
-    return [...m.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+    return [...m.entries()].sort((a, b) => ordemNatural(a[0], b[0]));
   }, [lista]);
 
   if (!pronto || (q.isPending && !q.data)) return <Carregando />;

@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { obter } from './api';
+import { ordenar } from './ordem';
 
 /* Formas que a API devolve. Conferidas uma a uma no backend:
    /api/cameras -> {cameras:[...]} e aceita mode=basico (nao "basic")
@@ -114,7 +115,7 @@ export function useConectores() {
     queryKey: ['conectores'],
     queryFn: async () => {
       const d = await obter<{ connectors?: Conector[] }>('/api/connectors');
-      return (d.connectors ?? []).map((c) => ({ ...c, online: String(c.status ?? '').toLowerCase() === 'online' }));
+      return ordenar((d.connectors ?? []).map((c) => ({ ...c, online: String(c.status ?? '').toLowerCase() === 'online' })), (c) => c.name, (c) => c.id);
     },
   });
 }
@@ -144,7 +145,8 @@ export function useCameras() {
           if (!vistas.has(chave)) vistas.set(chave, c);
         }
       }
-      return [...vistas.values()];
+      // Por gravador e canal, como o tecnico ve no gravador; sem canal, pelo nome.
+      return ordenar([...vistas.values()], (c) => c.recorder_host, (c) => c.recorder_channel, tituloDa, (c) => c.ip);
     },
   });
 }
@@ -214,8 +216,9 @@ export const mesmoSite = (a?: string | null, b?: string | null) =>
 export function useEntidades(tipo: string) {
   return useQuery({
     queryKey: ['entidades', tipo],
-    queryFn: async () => (await obter<{ entities?: Entidade[] }>(
+    queryFn: async () => ordenar((await obter<{ entities?: Entidade[] }>(
       `/api/monitoring/entities?entity_type=${encodeURIComponent(tipo)}&limit=2000`)).entities ?? [],
+      (e) => e.display_name, (e) => e.entity_key),
     staleTime: 60_000,
   });
 }
@@ -252,7 +255,7 @@ export const ipDaOlt = (o?: Olt) => String(o?.host || o?.ip || '');
 export function useOlts() {
   return useQuery({
     queryKey: ['olts'],
-    queryFn: async () => (await obter<{ items?: Olt[] }>('/api/olt/registry')).items ?? [],
+    queryFn: async () => ordenar((await obter<{ items?: Olt[] }>('/api/olt/registry')).items ?? [], (o) => o.name, ipDaOlt),
     staleTime: 5 * 60_000,
   });
 }

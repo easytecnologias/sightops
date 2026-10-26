@@ -8,6 +8,7 @@ import { useOnline } from '../lib/rede';
 import { useSite } from '../lib/site';
 import { desde } from '../lib/tempo';
 import { Carregando, Cartao, EscolhaLocal, Icone, Item, Vazio, useToast } from '../ui/pecas';
+import { ordenar } from '../lib/ordem';
 
 /* 7 · Gravador — canais. Rotas da web (gravador-canais.js): recorder-xray (le),
    recorder-buscar-cameras (le), recorder-macs (le), recorder-edit (ESCREVE). */
@@ -141,7 +142,7 @@ export function GravadorCanais() {
         ips ? obter<{ macs?: Record<string, string> }>(`/api/deployments/recorder-macs?ips=${encodeURIComponent(ips)}`) : Promise.resolve({ macs: {} }),
       ]);
       setMacs(m.macs ?? {});
-      setBusca({ carregando: false, erro: '', cams: b.cameras ?? [] });
+      setBusca({ carregando: false, erro: '', cams: ordenar(b.cameras ?? [], (x) => x.ip) });
     } catch (e) {
       setBusca({ carregando: false, erro: (e as Error).message, cams: [] });
     }

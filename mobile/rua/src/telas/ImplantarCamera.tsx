@@ -7,6 +7,7 @@ import { useOnline } from '../lib/rede';
 import { useSite } from '../lib/site';
 import { Carregando, Cartao, Icone, Item, Vazio, useToast } from '../ui/pecas';
 import { OndeProcurar } from '../ui/OndeProcurar';
+import { ordenar } from '../lib/ordem';
 
 /* 5 · Ativar camera de fabrica — as mesmas rotas da web (cameraActivation.js). */
 
@@ -143,9 +144,9 @@ export function CameraAtivar() {
         for (const dev of d.devices ?? []) achados.set(dev.ip, dev);
         sondados += d.scanned ?? lotes[i].length;
         if (d.aviso) toast(d.aviso);
-        setLista([...achados.values()]);
+        setLista(ordenar([...achados.values()], (x) => x.ip));
       }
-      const devs = [...achados.values()];
+      const devs = ordenar([...achados.values()], (x) => x.ip);
       setVerTodas(!devs.some(podeAtivar));
       const pend = devs.filter(podeAtivar).length;
       setResumo(`${devs.length} responderam de ${sondados} endereços · ${pend} de fábrica · ${tipo === 'arp' ? 'pelo ARP/DHCP do MikroTik' : 'na faixa pedida'}`);
