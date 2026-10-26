@@ -18,6 +18,13 @@ import { Cameras } from './screens/Cameras';
 import { CameraDetalhe } from './screens/CameraDetalhe';
 import { AoVivo } from './telas/AoVivo';
 import { Mapa } from './telas/Mapa';
+import { InstalarCamera } from './telas/InstalarCamera';
+import { useLocation } from 'react-router-dom';
+
+/** Cada entrada nesta rota (inclusive "Instalar outra") comeca do zero. */
+function InstalarRota() {
+  return <InstalarCamera key={useLocation().key} />;
+}
 import { Implantar } from './telas/Implantar';
 import { OnuConfigurar, OnuEscolher, OnuPronta } from './telas/ImplantarOnu';
 import { CameraAtivar } from './telas/ImplantarCamera';
@@ -48,6 +55,7 @@ function Dentro(
             <Route path="/implantar/onu/configurar" element={<OnuConfigurar />} />
             <Route path="/implantar/onu/pronta" element={<OnuPronta />} />
             <Route path="/implantar/camera" element={<CameraAtivar />} />
+            <Route path="/implantar/instalar" element={<InstalarRota />} />
             <Route path="/implantar/gravador" element={<Gravadores />} />
             <Route path="/implantar/gravador/:host" element={<GravadorCanais />} />
             <Route path="/alertas" element={<Alertas />} />

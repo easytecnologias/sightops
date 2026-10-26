@@ -57,6 +57,8 @@ export function Implantar() {
               onClick={() => { zerar(); ir('/implantar/onu'); }} direita={Icone.seta} />
         <Item icone={Icone.raio} titulo="Ativar câmera" sub="Câmera de fábrica, sem senha"
               onClick={() => ir('/implantar/camera')} direita={Icone.seta} />
+        <Item icone={Icone.camera} titulo="Instalar câmera" sub="Ler, nomear e pôr no gravador"
+              onClick={() => ir('/implantar/instalar')} direita={Icone.seta} />
         <Item icone={Icone.gravador} titulo="Gravador" sub="Canais e troca de câmera de canal"
               onClick={() => ir('/implantar/gravador')}
               direita={semVideo ? <span className="selo vermelho">{semVideo} sem vídeo</span> : Icone.seta} />

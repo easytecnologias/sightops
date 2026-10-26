@@ -485,3 +485,20 @@ a { color: var(--primary); text-decoration: none; }
 .metros-linha b { font-size: 24px; }
 .metros-linha .limite { margin-left: auto; }
 .dica-mapa { right: 70px; }
+
+/* Instalar camera */
+.passo-instalar h2 { display: flex; align-items: center; gap: 10px; }
+.passo-instalar h2 .link { margin-left: auto; min-height: 32px; font-size: 13.5px; }
+.passo-instalar .n { width: 26px; height: 26px; border-radius: 50%; background: var(--divisor); color: var(--muted2); display: grid; place-items: center; font-size: 13px; font-weight: 700; flex: none; }
+.passo-instalar .n.ok { background: var(--primary); color: #fff; }
+.passo-instalar .n svg { width: 15px; height: 15px; stroke-width: 3; }
+.passo-instalar.aberto .n:not(.ok) { background: var(--escuro); color: #fff; }
+.passo-instalar .feito-txt { padding-left: 50px; font-family: 'IBM Plex Mono', monospace; font-size: 12.5px; }
+.canais-grade { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 6px; }
+.canal-bt { min-height: 42px; border-radius: 9px; border: 1px solid var(--border); background: #fff; font: 600 13px 'IBM Plex Mono', monospace; color: var(--text); }
+.canal-bt.usado { background: var(--divisor); color: #9aa7af; text-decoration: line-through; }
+.canal-bt[aria-pressed="true"] { background: var(--primary); border-color: var(--primary); color: #fff; }
+.lista-num { display: flex; flex-direction: column; gap: 8px; padding: 0 14px 14px; font-size: 13.5px; }
+.lista-num span { display: flex; align-items: center; gap: 10px; }
+.lista-num i { width: 22px; height: 22px; border-radius: 50%; background: var(--primary-soft); color: var(--primary-escuro); font: 700 12px 'IBM Plex Sans', sans-serif; display: grid; place-items: center; flex: none; font-style: normal; }
+.lista-quebra .item .t { white-space: normal; }

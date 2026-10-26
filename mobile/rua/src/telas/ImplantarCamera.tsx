@@ -66,6 +66,8 @@ export function CameraAtivar() {
   const [ativando, setAtivando] = useState(false);
   const [erro, setErro] = useState('');
   const [resultados, setResultados] = useState<ResultadoAtivacao[] | null>(null);
+  // A senha recem-criada segue (so em memoria) para o Instalar, sem redigitar.
+  const [senhaUsada, setSenhaUsada] = useState('');
 
   const visiveis = useMemo(() => (lista ?? []).filter((d) => verTodas || podeAtivar(d)), [lista, verTodas]);
 
@@ -110,7 +112,8 @@ export function CameraAtivar() {
         dhcp: hik && dhcp,
         targets: [{ ip: alvo.ip, mac: alvo.mac, model: alvo.model, vendor: alvo.vendor, pwd_reset_way: alvo.pwd_reset_way }],
       });
-      setResultados(d.results ?? []);
+      setResultados((d.results ?? []).map((r) => ({ ...r, mac: r.mac || alvo.mac })));
+      setSenhaUsada(senha);
       setAlvo(null);
       setSenha(''); setSenha2('');
     } catch (e) {
@@ -225,9 +228,13 @@ export function CameraAtivar() {
                         : r.error || 'falhou'}
                       direita={<span className={`selo ${r.ok ? 'verde' : 'vermelho'}`}>{r.ok ? 'ok' : 'erro'}</span>} />
               ))}
-              {resultados.some((r) => r.ok) ? (
-                <p className="sub-h2" style={{ paddingTop: 8 }}>Próximo passo: pôr a câmera num canal do gravador (Implantar › Gravador).</p>
-              ) : null}
+              {resultados.filter((r) => r.ok).map((r) => (
+                <div key={`i-${r.ip}`} className="form-cartao">
+                  <button type="button" className="btn" onClick={() => ir('/implantar/instalar', { state: { ip: r.ip, mac: r.mac, senha: senhaUsada } })}>
+                    {Icone.camera}Instalar {r.ip}: nome e gravador
+                  </button>
+                </div>
+              ))}
             </Cartao>
           ) : null}
 
