@@ -623,3 +623,11 @@ a { color: var(--primary); text-decoration: none; }
 .filtros-duplos { display: grid; grid-template-columns: 1fr; gap: 8px; }
 .filtros-duplos .caixa-sel { height: 44px; font-size: 14px; }
 .filtros-duplos .limpar { justify-self: end; }
+
+/* Titulo de secao com a ordenacao do lado */
+.linha-secao { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.abas-mini .aba { height: 30px; padding: 0 10px; font-size: 12px; }
+
+/* Barra de filtro comum (ui/Filtros.tsx) */
+.filtros { display: flex; flex-direction: column; gap: 8px; }
+.limpar-aba { color: var(--primary-escuro); border-color: var(--primary); }

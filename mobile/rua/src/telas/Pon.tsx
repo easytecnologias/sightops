@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { detalhe } from '../lib/dados';
 import { nomeEntidade, num, partesOnu, rxDa, sinalBaixo, useSiteMonitor, type DetalheOnu } from '../lib/monitor';
@@ -6,8 +6,8 @@ import { horaDe, rompimentos } from '../lib/rompimento';
 import { useSite } from '../lib/site';
 import { desde } from '../lib/tempo';
 import { Carregando, Cartao, Icone, Item, Vazio } from '../ui/pecas';
+import { useFiltro } from '../ui/Filtros';
 
-type Filtro = 'todas' | 'fora' | 'baixo';
 const dbm = (v: number | null) => (v === null ? '—' : v.toFixed(1).replace('.', ',').replace('-', '−'));
 
 /* OLT > PON: as ONUs de uma PON, problema primeiro. */
@@ -18,12 +18,15 @@ export function Pon() {
   const { site } = useSite();
   const m = useSiteMonitor(site);
   const ir = useNavigate();
-  const [filtro, setFiltro] = useState<Filtro>('todas');
 
   const todas = useMemo(() => m.onus.filter((e) => {
     const p = partesOnu(e.entity_key);
     return p.oltIp === olt && p.pon === pon;
   }), [m.onus, olt, pon]);
+  const { lista, barra } = useFiltro(todas, {
+    texto: (e) => [e.display_name, detalhe<DetalheOnu>(e).serial, `onu ${partesOnu(e.entity_key).onu}`], dica: 'Serial, nome ou número da ONU',
+    situacao: (e) => (e.status !== 'up' ? 'fora' : sinalBaixo(e) ? 'atencao' : 'ok'), nomes: { atencao: 'Sinal baixo', ok: 'Normal' },
+  });
 
   if (m.carregando) return <Carregando />;
 
@@ -33,7 +36,6 @@ export function Pon() {
   const media = rxs.length ? rxs.reduce((a, b) => a + b, 0) / rxs.length : null;
   const rom = rompimentos(todas)[0];
   const nomeOlt = m.olts.find((o) => String(detalhe<{ host?: string }>(o).host ?? '') === olt);
-  const lista = filtro === 'fora' ? fora : filtro === 'baixo' ? baixo : todas;
 
   return (
     <>
@@ -60,11 +62,7 @@ export function Pon() {
         </div>
       ) : null}
 
-      <div className="abas" role="group" aria-label="Mostrar">
-        <button type="button" className="aba" aria-pressed={filtro === 'todas'} onClick={() => setFiltro('todas')}>Todas {todas.length}</button>
-        <button type="button" className="aba" aria-pressed={filtro === 'fora'} onClick={() => setFiltro('fora')}>Fora {fora.length}</button>
-        <button type="button" className="aba" aria-pressed={filtro === 'baixo'} onClick={() => setFiltro('baixo')}>Sinal baixo {baixo.length}</button>
-      </div>
+      {barra}
 
       <Cartao>
         {!lista.length ? <Vazio>Nenhuma ONU aqui.</Vazio> : lista.slice(0, 200).map((e) => {

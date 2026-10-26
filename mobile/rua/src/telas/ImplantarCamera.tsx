@@ -6,6 +6,7 @@ import { useFiltroSite } from '../lib/monitor';
 import { useOnline } from '../lib/rede';
 import { useSite } from '../lib/site';
 import { Carregando, Cartao, Icone, Item, Vazio, useToast } from '../ui/pecas';
+import { useFiltro } from '../ui/Filtros';
 import { OndeProcurar } from '../ui/OndeProcurar';
 import { ordenar } from '../lib/ordem';
 
@@ -104,7 +105,11 @@ export function CameraAtivar() {
   // A senha recem-criada segue (so em memoria) para o Instalar, sem redigitar.
   const [senhaUsada, setSenhaUsada] = useState('');
 
-  const visiveis = useMemo(() => (lista ?? []).filter((d) => verTodas || podeAtivar(d)), [lista, verTodas]);
+  const doTipo = useMemo(() => (lista ?? []).filter((d) => verTodas || podeAtivar(d)), [lista, verTodas]);
+  const { lista: visiveis, barra: barraLista } = useFiltro(doTipo, {
+    texto: (d) => [d.ip, d.mac, d.model, d.vendor], dica: 'IP, MAC ou modelo',
+    extra: { rotulo: 'Fabricante', todos: 'Todos os fabricantes', de: (d) => d.vendor || 'sem fabricante' },
+  });
 
   const [progresso, setProgresso] = useState('');
   const [origem, setOrigem] = useState<'arp' | 'faixa' | ''>('');
@@ -277,7 +282,8 @@ export function CameraAtivar() {
                 <button type="button" className="link" onClick={() => setVerTodas(!verTodas)}>{verTodas ? 'só de fábrica' : 'ver todas'}</button>
               </h2>
               <p className="sub-h2">{resumo}</p>
-              {!visiveis.length ? <Vazio>Nenhuma câmera de fábrica.</Vazio> : visiveis.map((d) => {
+              {doTipo.length > 3 ? <div style={{ padding: '0 14px 10px' }}>{barraLista}</div> : null}
+              {!visiveis.length ? <Vazio>{doTipo.length ? 'Nenhuma com esse filtro.' : 'Nenhuma câmera de fábrica.'}</Vazio> : visiveis.map((d) => {
                 const [txt, cor] = estado(d);
                 return (
                   <Item key={d.mac || d.ip} icone={Icone.raio} titulo={d.ip}

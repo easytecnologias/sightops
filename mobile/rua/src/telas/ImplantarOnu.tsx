@@ -11,6 +11,7 @@ import {
   type OltCompleta, type OnuDescoberta, type Servico,
 } from '../lib/implantar';
 import { Carregando, Cartao, Icone, Item, Vazio } from '../ui/pecas';
+import { useFiltro } from '../ui/Filtros';
 
 function Passos({ n }: { n: number }) {
   return (
@@ -49,6 +50,10 @@ export function OnuEscolher() {
   const [buscando, setBuscando] = useState(false);
   const [erro, setErro] = useState('');
   const [achadas, setAchadas] = useState<OnuDescoberta[] | null>(null);
+  const { lista: achadasVistas, barra: barraAchadas } = useFiltro(achadas ?? [], {
+    texto: (o) => [serialDa(o), o.model, o.vendor, o.mac, o.onu_mac], dica: 'Serial, MAC ou modelo',
+    extra: { rotulo: 'PON', todos: 'Todas as PONs', de: (o) => `PON ${o.pon}` },
+  });
   const [livres, setLivres] = useState('');
   const [mac, setMac] = useState('');
   const [pon, setPon] = useState('');
@@ -136,8 +141,9 @@ export function OnuEscolher() {
                 <Cartao>
                   <h2>Não autorizadas</h2>
                   {livres ? <p className="sub-h2">{livres}</p> : null}
+                  {achadas.length > 3 ? <div style={{ padding: '0 14px 10px' }}>{barraAchadas}</div> : null}
                   {!achadas.length ? <Vazio>Nenhuma ONU nova na OLT.<br />Confira se a ONU está ligada e com a fibra conectada.</Vazio>
-                    : achadas.map((o, i) => (
+                    : !achadasVistas.length ? <Vazio>Nenhuma com esse filtro.</Vazio> : achadasVistas.map((o, i) => (
                       <Item key={`${serialDa(o)}-${i}`} icone={Icone.onu} titulo={serialDa(o) || '(sem serial)'}
                             sub={[`PON ${o.pon}`, [o.vendor, o.model].filter(Boolean).join(' '), o.time_discovered ? `vista ${o.time_discovered}` : ''].filter(Boolean).join(' · ')}
                             onClick={() => escolher(o)} direita={Icone.seta} />

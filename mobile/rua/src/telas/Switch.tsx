@@ -8,6 +8,7 @@ import { macNorm, ordemPorta, religarPoe, useSwitchPortas, type PortaSw } from '
 import { desde } from '../lib/tempo';
 import { Caminho, type Elo } from '../ui/Caminho';
 import { Carregando, Cartao, Icone, Vazio, useToast } from '../ui/pecas';
+import { useFiltro } from '../ui/Filtros';
 
 type DetSw = { ip?: string; model?: string; modelo?: string; firmware?: string; versao?: string; ports_total?: number; ports_up?: number; poe_watts?: number; last_poll?: string; lido_em?: string };
 
@@ -55,6 +56,12 @@ export function Switch() {
     for (const r of sw.data?.macs ?? []) if (r.switch_ip === ip && r.port) s.set(r.port, (s.get(r.port) ?? 0) + 1);
     return s;
   }, [sw.data, ip]);
+  const { lista: portasVistas, barra } = useFiltro(portas, {
+    texto: (x) => [`porta ${x.port}`, x.port, ...(camPorPorta.get(x.port ?? '') ?? []).flatMap((c) => [tituloDa(c), c.ip, c.mac])],
+    dica: 'Porta, câmera, IP ou MAC',
+    situacao: (x) => (x.up ? 'ok' : (camPorPorta.get(x.port ?? '') ?? []).length ? 'fora' : 'atencao'),
+    nomes: { todos: 'Todas', ok: 'Ligadas', fora: 'Caiu', atencao: 'Vazias' },
+  });
 
   if (m.carregando) return <Carregando />;
   if (!e) return <Cartao><Vazio>Switch não encontrado no monitoramento.</Vazio></Cartao>;
@@ -107,8 +114,10 @@ export function Switch() {
           <Vazio>Ainda não há leitura das portas deste switch. Rode “Coletar MACs” no SightOps web (Implantação › Switch).</Vazio>
         ) : (
           <>
+            <div style={{ padding: '0 14px 10px' }}>{barra}</div>
+            {!portasVistas.length ? <Vazio>Nenhuma porta com esse filtro.</Vazio> : null}
             <div className="portas-sw">
-              {portas.map((x) => {
+              {portasVistas.map((x) => {
                 const c = camPorPorta.get(x.port ?? '') ?? [];
                 const rot = (macsPorPorta.get(x.port ?? '') ?? 0) >= 32 ? 'uplink' : c.length ? (c.length > 1 ? `${c.length} cam` : 'câm') : x.up ? 'ligada' : 'vazia';
                 return (

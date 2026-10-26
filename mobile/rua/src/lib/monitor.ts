@@ -91,6 +91,16 @@ export function localPeloNome(locais: string[], nome: string) {
     .sort((a, b) => a.i - b.i || b.l.length - a.l.length)[0]?.l ?? '';
 }
 
+/** O mesmo gravador cadastrado duas vezes (uma so com o IP no nome) fica uma vez, a que tem nome. */
+function semGravadorRepetido(lista: Entidade[]) {
+  const nomeado = new Set(lista.filter((e) => e.display_name && e.display_name !== detalhe<{ host?: string }>(e).host)
+    .map((e) => detalhe<{ host?: string }>(e).host));
+  return lista.filter((e) => {
+    const host = detalhe<{ host?: string }>(e).host;
+    return !(host && e.display_name === host && nomeado.has(host));
+  });
+}
+
 /** Entidades do site, por tipo, e o que precisa de atencao. */
 export function useSiteMonitor(site: string | null) {
   const doSiteFn = useFiltroSite(site);
@@ -107,7 +117,7 @@ export function useSiteMonitor(site: string | null) {
   return useMemo(() => {
     const doSite = (l?: Entidade[]) => (l ?? []).filter((e) => doSiteFn(e.site, e.connector_id));
     const r = {
-      cameras: doSite(cams.data), nvrs: doSite(nvrs.data), onus: doSite(onus.data),
+      cameras: doSite(cams.data), nvrs: semGravadorRepetido(doSite(nvrs.data)), onus: doSite(onus.data),
       conectores: doSite(cons.data), switches: doSite([...(sws.data ?? []), ...(swp.data ?? [])]), olts: doSite(olts.data), acessos: doSite(acessos.data),
     };
     const todas = [...r.conectores, ...r.olts, ...r.nvrs, ...r.switches, ...r.cameras, ...r.onus, ...r.acessos];

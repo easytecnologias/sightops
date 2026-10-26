@@ -7,7 +7,8 @@ import { gravadoresPorLocal, useFiltroSite } from '../lib/monitor';
 import { useOnline } from '../lib/rede';
 import { useSite } from '../lib/site';
 import { desde } from '../lib/tempo';
-import { Carregando, Cartao, EscolhaLocal, Icone, Item, Vazio, useToast } from '../ui/pecas';
+import { Carregando, Cartao, Icone, Item, Vazio, useToast } from '../ui/pecas';
+import { useFiltro, type Situacao } from '../ui/Filtros';
 import { ordenar } from '../lib/ordem';
 
 /* 7 · Gravador — canais. Rotas da web (gravador-canais.js): recorder-xray (le),
@@ -34,9 +35,16 @@ function useGravadoresDoSite() {
 export function Gravadores() {
   const { grupos, isPending } = useGravadoresDoSite();
   const ir = useNavigate();
-  const [escolhido, setEscolhido] = useState('');
-  const local = grupos.some((g) => g.local === escolhido) ? escolhido : grupos.length === 1 ? grupos[0].local : '';
-  const lista = grupos.find((g) => g.local === local)?.itens ?? [];
+  const todos = useMemo(() => grupos.flatMap((g) => g.itens.map((e) => ({ e, local: g.local }))), [grupos]);
+  const { lista, barra } = useFiltro(todos, {
+    texto: ({ e }) => [e.display_name, detalhe<DetalheNvr>(e).host, detalhe<DetalheNvr>(e).model], dica: 'Nome, IP ou modelo',
+    local: (x) => x.local,
+    situacao: ({ e }) => {
+      const d = detalhe<DetalheNvr>(e);
+      return e.status !== 'up' ? 'fora' : Number(d.canais_sem_imagem ?? 0) + Number(d.canais_offline ?? 0) ? 'atencao' : 'ok';
+    },
+    nomes: { atencao: 'Com câmera sem vídeo', ok: 'Tudo ok' },
+  });
   return (
     <>
       <button type="button" className="volta-link" onClick={() => ir('/implantar')}>{Icone.volta}Implantar</button>
@@ -45,14 +53,11 @@ export function Gravadores() {
         <p className="sub-tela">Canais e troca de câmera de canal.</p>
       </div>
       {isPending ? <Carregando /> : (
+        <>
+        {barra}
         <Cartao>
-          {grupos.length > 1 ? (
-            <div className="form-cartao">
-              <EscolhaLocal locais={grupos.map((g) => ({ local: g.local, n: g.itens.length }))} valor={local} onEscolher={setEscolhido} />
-            </div>
-          ) : null}
           {!grupos.length ? <Vazio>Nenhum gravador monitorado neste site.</Vazio>
-            : !local ? <Vazio>Escolha o local para ver os gravadores.</Vazio> : lista.map((e) => {
+            : !lista.length ? <Vazio>Nada com esse filtro.</Vazio> : lista.map(({ e }) => {
             const d = detalhe<DetalheNvr>(e);
             const sem = Number(d.canais_sem_imagem ?? 0) + Number(d.canais_offline ?? 0);
             return (
@@ -65,6 +70,7 @@ export function Gravadores() {
             );
           })}
         </Cartao>
+        </>
       )}
     </>
   );
@@ -132,6 +138,11 @@ export function GravadorCanais() {
   const estado = (c: Canal): 'livre' | 'sem' | 'ok' | '?' =>
     !c.ip ? 'livre' : (c.online === false || semLista.has(c.canal) || c.perda_video === true) ? 'sem' : c.online === true ? 'ok' : '?';
   const livres = canais.filter((c) => !c.ip);
+  const { lista: canaisVistos, barra: barraCanais } = useFiltro(canais, {
+    texto: (c) => [c.nome, c.ip, `canal ${c.canal}`, n2(c.canal)], dica: 'Nome, IP ou número do canal',
+    situacao: (c): Situacao => ({ livre: 'livre', sem: 'fora', ok: 'ok', '?': 'atencao' } as const)[estado(c)],
+    nomes: { todos: 'Todos', fora: 'Sem imagem', ok: 'Com imagem', atencao: 'Sem leitura', livre: 'Livres' },
+  });
 
   async function procurar() {
     setBusca({ carregando: true, erro: '', cams: [] });
@@ -273,7 +284,9 @@ export function GravadorCanais() {
 
           <Cartao>
             <h2>Canais</h2>
-            {canais.map((c) => {
+            <div style={{ padding: '0 14px 10px' }}>{barraCanais}</div>
+            {!canaisVistos.length ? <Vazio>Nenhum canal com esse filtro.</Vazio> : null}
+            {canaisVistos.map((c) => {
               const e = estado(c);
               const chave = `ren-${c.canal}`;
               return (

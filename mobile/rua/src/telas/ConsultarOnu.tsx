@@ -7,6 +7,7 @@ import { LIMITE_RX, num, nomeEntidade, partesOnu, quando, rxDa, sinalBaixo, useS
 import { useSite } from '../lib/site';
 import { desde } from '../lib/tempo';
 import { Carregando, Cartao, Icone, Item, Vazio, useToast } from '../ui/pecas';
+import { useFiltro } from '../ui/Filtros';
 
 const dbm = (v: number | null) => (v === null ? '—' : `${v.toFixed(1).replace('.', ',').replace('-', '−')} dBm`);
 
@@ -15,22 +16,24 @@ export function ListaOnus() {
   const { site } = useSite();
   const m = useSiteMonitor(site);
   const [param] = useSearchParams();
-  const [busca, setBusca] = useState(param.get('q') ?? '');
   const olt = param.get('olt') ?? '';
   const pon = param.get('pon') ?? '';
   const ir = useNavigate();
 
-  const lista = useMemo(() => {
-    const t = busca.trim().toLowerCase();
-    return m.onus.filter((e) => {
-      const p = partesOnu(e.entity_key);
-      if (olt && p.oltIp !== olt) return false;
-      if (pon && p.pon !== pon) return false;
-      if (!t) return true;
-      const d = detalhe<DetalheOnu>(e);
-      return [e.display_name, d.serial].some((v) => String(v ?? '').toLowerCase().includes(t));
-    });
-  }, [m.onus, busca, olt, pon]);
+  const daPon = useMemo(() => m.onus.filter((e) => {
+    const p = partesOnu(e.entity_key);
+    return (!olt || p.oltIp === olt) && (!pon || p.pon === pon);
+  }), [m.onus, olt, pon]);
+  const nomeOlt = (ip: string) => {
+    const o = m.olts.find((x) => String(detalhe<{ host?: string }>(x).host ?? '') === ip);
+    return o ? nomeEntidade(o) : `OLT ${ip}`;
+  };
+  const { lista, barra } = useFiltro(daPon, {
+    texto: (e) => [e.display_name, detalhe<DetalheOnu>(e).serial], dica: 'Serial ou nome', buscaInicial: param.get('q') ?? '',
+    local: (e) => String(e.site ?? '').trim().toUpperCase(),
+    situacao: (e) => (e.status !== 'up' ? 'fora' : sinalBaixo(e) ? 'atencao' : 'ok'), nomes: { atencao: 'Sinal baixo', ok: 'Normal' },
+    extra: olt ? undefined : { rotulo: 'OLT', todos: 'Todas as OLTs', de: (e) => nomeOlt(partesOnu(e.entity_key).oltIp) },
+  });
 
   if (m.carregando) return <Carregando />;
   return (
@@ -42,11 +45,7 @@ export function ListaOnus() {
           <p className="sub-tela">{pon ? `PON ${pon} · ` : ''}{lista.length} de {m.onus.length} no site</p>
         </div>
       </div>
-      <label className="busca">
-        {Icone.busca}
-        <input type="search" value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Serial ou nome"
-               aria-label="Buscar ONU por serial ou nome" autoCapitalize="none" spellCheck={false} />
-      </label>
+      {barra}
       <Cartao>
         {!lista.length ? <Vazio>Nenhuma ONU encontrada.</Vazio> : lista.slice(0, 150).map((e) => {
           const d = detalhe<DetalheOnu>(e);

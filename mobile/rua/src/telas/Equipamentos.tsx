@@ -6,10 +6,12 @@ import { rompimentos } from '../lib/rompimento';
 import { useSite } from '../lib/site';
 import { desde } from '../lib/tempo';
 import { Carregando, Cartao, Icone, Item, Vazio } from '../ui/pecas';
+import { situacaoDoStatus, useFiltro, type Situacao } from '../ui/Filtros';
 import { subEntidade, useAbrirEntidade } from './Inicio';
 
 type Familia = 'rede' | 'cftv' | 'acesso';
 type Pon = { pon: string; total: number; up: number; down: number; baixo: number };
+const localDe = (site?: string | null) => String(site ?? '').trim().toUpperCase();
 
 const dbm = (v: number) => `${v.toFixed(1).replace('.', ',').replace('-', '−')} dBm`;
 
@@ -61,6 +63,26 @@ function Rede() {
   const oltsDoSite = (olts.data ?? []).filter((o) => porOlt.has(ipDaOlt(o)) || (site && mesmoSite(o.site, site)));
   const semCadastro = [...porOlt.keys()].filter((ip) => !oltsDoSite.some((o) => ipDaOlt(o) === ip));
 
+  // Um no por equipamento, para uma barra de filtro so na tela inteira.
+  type No = { tipo: 'Conector' | 'OLT' | 'Switch'; chave: string; nome: string; ip: string; local: string; sit: Situacao };
+  const sitOlt = (ip: string): Situacao => {
+    const ent = m.olts.find((e) => detalhe<{ host?: string }>(e).host === ip);
+    if (ent?.status === 'down') return 'fora';
+    const pons = [...(porOlt.get(ip)?.values() ?? [])];
+    return pons.some((p) => p.down || p.baixo) ? 'atencao' : 'ok';
+  };
+  const nos: No[] = [
+    ...conectores.map((c) => ({ tipo: 'Conector' as const, chave: `c:${c.id}`, nome: c.name || siteDoConector(c), ip: '', local: localDe(siteDoConector(c)), sit: (c.online ? 'ok' : 'fora') as Situacao })),
+    ...oltsDoSite.map((o) => ({ tipo: 'OLT' as const, chave: `o:${ipDaOlt(o)}`, nome: o.name || ipDaOlt(o), ip: ipDaOlt(o), local: localDe(o.site), sit: sitOlt(ipDaOlt(o)) })),
+    ...semCadastro.map((ip) => ({ tipo: 'OLT' as const, chave: `o:${ip}`, nome: `OLT ${ip}`, ip, local: '', sit: sitOlt(ip) })),
+    ...m.switches.map((e) => ({ tipo: 'Switch' as const, chave: `s:${e.entity_key}`, nome: nomeEntidade(e), ip: String(detalhe<{ ip?: string }>(e).ip ?? ''), local: localDe(e.site), sit: situacaoDoStatus(e.status) })),
+  ];
+  const { lista: vistos, barra, ativo } = useFiltro(nos, {
+    texto: (n) => [n.nome, n.ip], local: (n) => n.local, situacao: (n) => n.sit, dica: 'Nome ou IP',
+    nomes: { atencao: 'ONU com problema' }, extra: { rotulo: 'Tipo', todos: 'Todos os tipos', de: (n) => n.tipo },
+  });
+  const ve = new Set(vistos.map((n) => n.chave));
+
   function mediaRx(ip: string): string {
     const l = m.onus.filter((e) => partesOnu(e.entity_key).oltIp === ip).map(rxDa).filter((v): v is number => v !== null);
     return l.length ? `média ${dbm(l.reduce((a, b) => a + b, 0) / l.length)}` : '';
@@ -105,9 +127,12 @@ function Rede() {
   return (
     <>
       <p className="sub-tela">O caminho do sinal, de cima para baixo.</p>
+      {barra}
+      {ativo && !vistos.length ? <Cartao><Vazio>Nada com esse filtro.</Vazio></Cartao> : null}
 
+      {ativo && !conectores.some((c) => ve.has(`c:${c.id}`)) ? null : (
       <Cartao>
-        {!conectores.length ? <Vazio>Nenhum conector neste site.</Vazio> : conectores.map((c, i) => {
+        {!conectores.length ? <Vazio>Nenhum conector neste site.</Vazio> : conectores.filter((c) => ve.has(`c:${c.id}`)).map((c, i) => {
           const ent: Entidade | undefined = m.conectores.find((e) => e.connector_id === c.id) ?? m.conectores[i];
           return (
             <div key={c.id ?? i} className="item">
@@ -120,16 +145,18 @@ function Rede() {
           );
         })}
       </Cartao>
+      )}
 
       <div className="ramo">
         {olts.isPending && !olts.data ? <Carregando /> : null}
-        {oltsDoSite.map((o) => cartaoOlt(ipDaOlt(o), o.name || ipDaOlt(o) || 'OLT',
+        {oltsDoSite.filter((o) => ve.has(`o:${ipDaOlt(o)}`)).map((o) => cartaoOlt(ipDaOlt(o), o.name || ipDaOlt(o) || 'OLT',
           [o.capability_label || [o.vendor, o.model].filter(Boolean).join(' '), mediaRx(ipDaOlt(o))].filter(Boolean).join(' · ')))}
-        {semCadastro.map((ip) => cartaoOlt(ip, `OLT ${ip}`, 'OLT sem cadastro no SightOps'))}
+        {semCadastro.filter((ip) => ve.has(`o:${ip}`)).map((ip) => cartaoOlt(ip, `OLT ${ip}`, 'OLT sem cadastro no SightOps'))}
 
+        {ativo && !m.switches.some((x) => ve.has(`s:${x.entity_key}`)) ? null : (
         <Cartao>
           <h2>Switches{m.switches.length ? ` · ${m.switches.length}` : ''}</h2>
-          {!m.switches.length ? <Vazio>Nenhum switch monitorado neste site.</Vazio> : m.switches.map((s) => {
+          {!m.switches.length ? <Vazio>Nenhum switch monitorado neste site.</Vazio> : m.switches.filter((x) => ve.has(`s:${x.entity_key}`)).map((s) => {
             const d = detalhe<{ ip?: string; model?: string; modelo?: string; ports_total?: number; ports_up?: number }>(s);
             return (
               <Item key={s.entity_key} icone={Icone.switch} titulo={nomeEntidade(s)}
@@ -139,6 +166,7 @@ function Rede() {
             );
           })}
         </Cartao>
+        )}
       </div>
     </>
   );
@@ -150,8 +178,21 @@ function Cftv() {
   const m = useSiteMonitor(site);
   const ir = useNavigate();
   const abrir = useAbrirEntidade();
-  const semVideo = m.cameras.filter((e) => e.status !== 'up');
-  const up = m.cameras.length - semVideo.length;
+  const semVideoTodas = m.cameras.filter((e) => e.status !== 'up');
+  const up = m.cameras.length - semVideoTodas.length;
+  const sitNvr = (e: Entidade): Situacao => {
+    const d = detalhe<{ canais_sem_imagem?: number; canais_offline?: number }>(e);
+    return e.status !== 'up' ? 'fora' : Number(d.canais_sem_imagem ?? 0) + Number(d.canais_offline ?? 0) ? 'atencao' : 'ok';
+  };
+  const itens = [...m.nvrs, ...semVideoTodas];
+  const { lista, barra, ativo } = useFiltro(itens, {
+    texto: (e) => [nomeEntidade(e), detalhe<{ host?: string }>(e).host, detalhe<{ ip?: string }>(e).ip],
+    local: (e) => localDe(e.site), situacao: (e) => (e.entity_type === 'camera' ? situacaoDoStatus(e.status) : sitNvr(e)),
+    nomes: { atencao: 'Sem vídeo' }, dica: 'Nome ou IP',
+    extra: { rotulo: 'Tipo', todos: 'Gravadores e câmeras', de: (e) => (e.entity_type === 'camera' ? 'Câmera sem vídeo' : 'Gravador') },
+  });
+  const nvrs = lista.filter((e) => e.entity_type !== 'camera');
+  const semVideo = lista.filter((e) => e.entity_type === 'camera');
 
   return (
     <>
@@ -161,9 +202,11 @@ function Cftv() {
         {Icone.seta}
       </button>
 
+      {barra}
+      {ativo && !nvrs.length ? null : (
       <Cartao>
-        <h2>Gravadores{m.nvrs.length ? ` · ${m.nvrs.length}` : ''}</h2>
-        {!m.nvrs.length ? <Vazio>Nenhum gravador neste site.</Vazio> : m.nvrs.map((e) => {
+        <h2>Gravadores{nvrs.length ? ` · ${nvrs.length}` : ''}</h2>
+        {!nvrs.length ? <Vazio>Nenhum gravador neste site.</Vazio> : nvrs.map((e) => {
           const d = detalhe<{ host?: string; canais_sem_imagem?: number; canais_offline?: number; canais_total?: number }>(e);
           const sem = Number(d.canais_sem_imagem ?? 0) + Number(d.canais_offline ?? 0);
           return (
@@ -174,14 +217,18 @@ function Cftv() {
           );
         })}
       </Cartao>
+      )}
 
+      {ativo && !semVideo.length ? null : (
       <Cartao>
         <h2>Sem vídeo{semVideo.length ? ` · ${semVideo.length}` : ''}</h2>
-        {!semVideo.length ? <Vazio>Todas as câmeras no ar.</Vazio> : semVideo.slice(0, 20).map((e) => (
+        {!semVideo.length ? <Vazio>Todas as câmeras no ar.</Vazio> : semVideo.slice(0, ativo ? 200 : 20).map((e) => (
           <Item key={e.entity_key} ponto={e.status === 'down' ? 'vermelho' : 'ambar'} titulo={nomeEntidade(e)}
                 sub={subEntidade(e)} onClick={() => abrir(e)} direita={Icone.seta} />
         ))}
       </Cartao>
+      )}
+      {ativo && !lista.length ? <Cartao><Vazio>Nada com esse filtro.</Vazio></Cartao> : null}
     </>
   );
 }
@@ -190,10 +237,16 @@ function Cftv() {
 function Acesso() {
   const { site } = useSite();
   const m = useSiteMonitor(site);
+  const { lista, barra } = useFiltro(m.acessos, {
+    texto: (e) => [nomeEntidade(e), detalhe<{ host?: string }>(e).host, detalhe<{ model?: string }>(e).model],
+    local: (e) => localDe(e.site), situacao: (e) => situacaoDoStatus(e.status), dica: 'Nome, IP ou modelo',
+  });
   return (
+    <>
+    {barra}
     <Cartao>
-      <h2>Leitores{m.acessos.length ? ` · ${m.acessos.length}` : ''}</h2>
-      {!m.acessos.length ? <Vazio>Nenhum leitor de acesso neste site.</Vazio> : m.acessos.map((e) => {
+      <h2>Leitores{m.acessos.length ? ` · ${lista.length}${lista.length !== m.acessos.length ? ` de ${m.acessos.length}` : ''}` : ''}</h2>
+      {!m.acessos.length ? <Vazio>Nenhum leitor de acesso neste site.</Vazio> : !lista.length ? <Vazio>Nada com esse filtro.</Vazio> : lista.map((e) => {
         const d = detalhe<{ host?: string; model?: string; last_seen_at?: string }>(e);
         return (
           <Item key={e.entity_key} ponto={e.status === 'up' ? 'verde' : 'vermelho'} titulo={nomeEntidade(e)}
@@ -201,5 +254,6 @@ function Acesso() {
         );
       })}
     </Cartao>
+    </>
   );
 }
