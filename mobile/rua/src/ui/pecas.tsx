@@ -94,6 +94,20 @@ export function Item(
     : <div className="item">{miolo}</div>;
 }
 
+/** Escolha do local (sub-site) antes da lista, com quantos itens cada um tem. */
+export function EscolhaLocal({ locais, valor, onEscolher }:
+  { locais: { local: string; n: number }[]; valor: string; onEscolher: (l: string) => void }) {
+  return (
+    <div className="chips chips-quebra" role="group" aria-label="Local">
+      {locais.map(({ local, n }) => (
+        <button key={local} type="button" className="aba" aria-pressed={valor === local} onClick={() => onEscolher(local)}>
+          {local} · {n}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export function Pilula({ cor, children }: { cor: 'vermelha' | 'ambar' | 'verde' | 'cinza'; children: ReactNode }) {
   return <span className={`pilula ${cor}`}>{children}</span>;
 }

@@ -3,10 +3,10 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { enviar, obter } from '../lib/api';
 import { detalhe, ipDaOlt, mesmoSite, siteDoConector, useConectores, useEntidades, useOlts } from '../lib/dados';
-import { useFiltroSite } from '../lib/monitor';
+import { gravadoresPorLocal, localPeloNome, useFiltroSite } from '../lib/monitor';
 import { useOnline } from '../lib/rede';
 import { useSite } from '../lib/site';
-import { Cartao, Icone, Item, Vazio } from '../ui/pecas';
+import { Cartao, EscolhaLocal, Icone, Item, Vazio } from '../ui/pecas';
 import { OndeProcurar } from '../ui/OndeProcurar';
 import { LerEtiqueta } from '../ui/LerEtiqueta';
 import { ehMac } from '../lib/etiqueta';
@@ -122,10 +122,20 @@ export function InstalarCamera() {
     queryFn: async () => (await obter<{ credenciais?: { host: string; port?: number | string; username?: string }[] }>('/api/deployments/recorder-credenciais')).credenciais ?? [],
     staleTime: 5 * 60_000,
   });
-  const gravadores = useMemo(() => (nvrs.data ?? []).filter((e) => filtro(e.site, e.connector_id))
-    .map((e) => ({ nome: String(e.display_name ?? ''), host: String(detalhe<{ host?: string }>(e).host ?? ''), conector: e.connector_id ?? cid }))
-    .filter((g) => g.host), [nvrs.data, filtro, cid]);
+  const grupos = useMemo(() => gravadoresPorLocal((nvrs.data ?? []).filter((e) => filtro(e.site, e.connector_id)), site)
+    .map(({ local, itens }) => ({
+      local,
+      itens: itens.map((e) => ({ nome: String(e.display_name ?? ''), host: String(detalhe<{ host?: string }>(e).host ?? ''), conector: e.connector_id ?? cid })),
+    })), [nvrs.data, filtro, site, cid]);
+  const gravadores = useMemo(() => grupos.flatMap((g) => g.itens), [grupos]);
   const grav = gravadores.find((g) => g.host === gravHost);
+  // Local do gravador: o que o tecnico tocou; senao o do gravador ja escolhido,
+  // o unico que houver, ou o que aparece no nome da camera.
+  const [localEscolhido, setLocalEscolhido] = useState('');
+  const localGrav = localEscolhido
+    || grupos.find((g) => g.itens.some((i) => i.host === gravHost))?.local
+    || (grupos.length === 1 ? grupos[0].local : localPeloNome(grupos.map((g) => g.local), titulo));
+  const gravDoLocal = grupos.find((g) => g.local === localGrav)?.itens ?? [];
   const portaGrav = creds.data?.find((c) => c.host === gravHost)?.port;
 
   // Passo atual
@@ -420,11 +430,23 @@ export function InstalarCamera() {
 
       <Passo n={4} titulo="Gravador e canal" aberto={aberto(4)} onEditar={() => { setSemGravador(false); setVendoPasso(4); }}
              feito={semGravador ? 'sem gravador (só inventário)' : canal ? `${grav?.nome || gravHost} · canal ${n2(canal)}` : undefined}>
-        {!gravadores.length ? <Vazio>Nenhum gravador monitorado neste site.</Vazio> : gravadores.map((g) => (
-          <Item key={g.host} icone={Icone.gravador} titulo={g.nome || g.host} sub={g.host}
-                onClick={() => void entrarGravador(g.host)}
-                direita={gravHost === g.host ? <span className="selo verde">{indo === 'grav' ? 'entrando…' : 'escolhido'}</span> : Icone.seta} />
-        ))}
+        {!gravadores.length ? <Vazio>Nenhum gravador monitorado neste site.</Vazio> : (
+          <>
+            {grupos.length > 1 ? (
+              <div className="campo"><span className="lb">Local</span>
+                <EscolhaLocal locais={grupos.map((g) => ({ local: g.local, n: g.itens.length }))} valor={localGrav}
+                              onEscolher={(l) => {
+                                setLocalEscolhido(l);
+                                if (l !== localGrav) { setGravHost(''); setCanais(null); setCanal(''); setPedeSenhaGrav(false); }
+                              }} /></div>
+            ) : null}
+            {!localGrav ? <span className="ajuda">Escolha o local para ver os gravadores.</span> : gravDoLocal.map((g) => (
+              <Item key={g.host} icone={Icone.gravador} titulo={g.nome || g.host} sub={g.host}
+                    onClick={() => void entrarGravador(g.host)}
+                    direita={gravHost === g.host ? <span className="selo verde">{indo === 'grav' ? 'entrando…' : 'escolhido'}</span> : Icone.seta} />
+            ))}
+          </>
+        )}
         {pedeSenhaGrav ? (
           <div className="duas">
             <div className="campo"><label htmlFor="gu">Usuário do gravador</label><div className="caixa"><input id="gu" value={gUser} onChange={(e) => setGUser(e.target.value)} autoCapitalize="none" /></div></div>

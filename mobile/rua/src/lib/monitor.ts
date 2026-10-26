@@ -55,6 +55,42 @@ export function useFiltroSite(site: string | null) {
   }, [cons.data, site]);
 }
 
+const ordemNatural = (a: string, b: string) => a.localeCompare(b, 'pt-BR', { numeric: true, sensitivity: 'base' });
+
+/**
+ * Gravadores do site separados por local (o sub-site do cadastro: JARDINS I,
+ * RESERVA...), em ordem de nome. O mesmo host cadastrado duas vezes (uma so
+ * com o IP no nome) aparece uma vez, a que tem nome.
+ */
+export function gravadoresPorLocal(lista: Entidade[], site: string | null) {
+  const porHost = new Map<string, Entidade>();
+  for (const e of lista) {
+    const host = String(detalhe<{ host?: string }>(e).host ?? '');
+    if (!host) continue;
+    const ja = porHost.get(host);
+    const temNome = (x: Entidade) => !!x.display_name && x.display_name !== host;
+    if (!ja || (!temNome(ja) && temNome(e))) porHost.set(host, e);
+  }
+  const grupos = new Map<string, Entidade[]>();
+  for (const e of porHost.values()) {
+    const local = String(e.site || site || '').trim().toUpperCase() || 'SEM LOCAL';
+    grupos.set(local, [...(grupos.get(local) ?? []), e]);
+  }
+  return [...grupos.entries()].sort(([a], [b]) => ordemNatural(a, b))
+    .map(([local, itens]) => ({ local, itens: itens.sort((a, b) => ordemNatural(String(a.display_name ?? ''), String(b.display_name ?? ''))) }));
+}
+
+/**
+ * Local sugerido pelo nome da camera: o que aparece primeiro nele e, empatado,
+ * o mais longo ("JARDINS II - Q12" -> JARDINS II, nao JARDINS I;
+ * "RESERVA PERUCABA - 03" -> RESERVA).
+ */
+export function localPeloNome(locais: string[], nome: string) {
+  const n = nome.toUpperCase();
+  return locais.map((l) => ({ l, i: n.indexOf(l) })).filter((x) => x.i >= 0)
+    .sort((a, b) => a.i - b.i || b.l.length - a.l.length)[0]?.l ?? '';
+}
+
 /** Entidades do site, por tipo, e o que precisa de atencao. */
 export function useSiteMonitor(site: string | null) {
   const doSiteFn = useFiltroSite(site);

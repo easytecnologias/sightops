@@ -3,11 +3,11 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { ErroApi, enviar, obter } from '../lib/api';
 import { detalhe, useEntidades, type Entidade } from '../lib/dados';
-import { useFiltroSite } from '../lib/monitor';
+import { gravadoresPorLocal, useFiltroSite } from '../lib/monitor';
 import { useOnline } from '../lib/rede';
 import { useSite } from '../lib/site';
 import { desde } from '../lib/tempo';
-import { Carregando, Cartao, Icone, Item, Vazio, useToast } from '../ui/pecas';
+import { Carregando, Cartao, EscolhaLocal, Icone, Item, Vazio, useToast } from '../ui/pecas';
 
 /* 7 · Gravador — canais. Rotas da web (gravador-canais.js): recorder-xray (le),
    recorder-buscar-cameras (le), recorder-macs (le), recorder-edit (ESCREVE). */
@@ -25,12 +25,17 @@ function useGravadoresDoSite() {
   const { site } = useSite();
   const filtro = useFiltroSite(site);
   const q = useEntidades('nvr');
-  return { ...q, lista: (q.data ?? []).filter((e) => filtro(e.site, e.connector_id)) };
+  const grupos = useMemo(() => gravadoresPorLocal((q.data ?? []).filter((e) => filtro(e.site, e.connector_id)), site),
+    [q.data, filtro, site]);
+  return { ...q, grupos };
 }
 
 export function Gravadores() {
-  const { lista, isPending } = useGravadoresDoSite();
+  const { grupos, isPending } = useGravadoresDoSite();
   const ir = useNavigate();
+  const [escolhido, setEscolhido] = useState('');
+  const local = grupos.some((g) => g.local === escolhido) ? escolhido : grupos.length === 1 ? grupos[0].local : '';
+  const lista = grupos.find((g) => g.local === local)?.itens ?? [];
   return (
     <>
       <button type="button" className="volta-link" onClick={() => ir('/implantar')}>{Icone.volta}Implantar</button>
@@ -40,7 +45,13 @@ export function Gravadores() {
       </div>
       {isPending ? <Carregando /> : (
         <Cartao>
-          {!lista.length ? <Vazio>Nenhum gravador monitorado neste site.</Vazio> : lista.map((e) => {
+          {grupos.length > 1 ? (
+            <div className="form-cartao">
+              <EscolhaLocal locais={grupos.map((g) => ({ local: g.local, n: g.itens.length }))} valor={local} onEscolher={setEscolhido} />
+            </div>
+          ) : null}
+          {!grupos.length ? <Vazio>Nenhum gravador monitorado neste site.</Vazio>
+            : !local ? <Vazio>Escolha o local para ver os gravadores.</Vazio> : lista.map((e) => {
             const d = detalhe<DetalheNvr>(e);
             const sem = Number(d.canais_sem_imagem ?? 0) + Number(d.canais_offline ?? 0);
             return (
@@ -80,7 +91,7 @@ export function GravadorCanais() {
   const conector = param.get('c') ?? '';
   const online = useOnline();
   const { site } = useSite();
-  const { lista } = useGravadoresDoSite();
+  const lista = useGravadoresDoSite().grupos.flatMap((g) => g.itens);
   const toast = useToast();
   const ir = useNavigate();
   const ent: Entidade | undefined = lista.find((e) => detalhe<DetalheNvr>(e).host === host);
