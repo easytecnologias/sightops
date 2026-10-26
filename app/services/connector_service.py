@@ -1440,7 +1440,9 @@ def _wireguard_routeros_address(client_address: str) -> str:
 def _routeros_job_script_template(base_url: str, connector_id: str, token: str, job: Dict[str, Any] | None) -> str:
     base_url = base_url.rstrip("/")
     if not job:
-        return """:do {/system scheduler set [find name="sightops-connector"] interval=10s} on-error={};
+        # So grava quando o intervalo ainda nao e 10s: `set` incondicional a cada
+        # 10 s vira escrita de configuracao (flash) e uma linha de log por ciclo.
+        return """:do {:local s [/system scheduler find name="sightops-connector"]; :if ([/system scheduler get $s interval] != 10s) do={/system scheduler set $s interval=10s}} on-error={};
 :put "SightOps: nenhum job pendente";
 """
     job_id = _text(job.get("id"))
