@@ -502,3 +502,4 @@ a { color: var(--primary); text-decoration: none; }
 .lista-num span { display: flex; align-items: center; gap: 10px; }
 .lista-num i { width: 22px; height: 22px; border-radius: 50%; background: var(--primary-soft); color: var(--primary-escuro); font: 700 12px 'IBM Plex Sans', sans-serif; display: grid; place-items: center; flex: none; font-style: normal; }
 .lista-quebra .item .t { white-space: normal; }
+.chips-quebra { flex-wrap: wrap; overflow: visible; }

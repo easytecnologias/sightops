@@ -1,7 +1,8 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { enviar } from '../lib/api';
-import { mesmoSite, siteDoConector, useConectores } from '../lib/dados';
+import { detalhe, mesmoSite, siteDa, siteDoConector, useCameras, useConectores, useEntidades } from '../lib/dados';
+import { useFiltroSite } from '../lib/monitor';
 import { useOnline } from '../lib/rede';
 import { useSite } from '../lib/site';
 import { Carregando, Cartao, Icone, Item, Vazio, useToast } from '../ui/pecas';
@@ -26,16 +27,48 @@ function estado(d: Dispositivo): [string, string] {
   return ['modelo antigo', 'cinza'];
 }
 
-function faixa(texto: string): string[] {
-  const t = texto.trim();
-  if (!t) return [];
-  if (/^\d+\.\d+\.\d+\.\d+$/.test(t)) return [t];
-  const m = t.match(/^(\d+\.\d+\.\d+)\.(\d+)\s*-\s*(?:\d+\.\d+\.\d+\.)?(\d+)$/);
-  if (!m) return [];
-  const a = parseInt(m[2], 10); const b = parseInt(m[3], 10);
-  if (b < a || b - a > 254) return [];
-  return Array.from({ length: b - a + 1 }, (_, i) => `${m[1]}.${a + i}`);
+const MAX_IPS = 2048;         // teto da busca manual (o servidor sonda 256 por vez)
+const LOTE = 256;
+
+const ipNum = (ip: string) => ip.split('.').reduce((n, o) => n * 256 + Number(o), 0);
+const numIp = (n: number) => [24, 16, 8, 0].map((d) => Math.floor(n / 2 ** d) % 256).join('.');
+const ipValido = (ip: string) => /^\d{1,3}(\.\d{1,3}){3}$/.test(ip) && ip.split('.').every((o) => Number(o) <= 255);
+
+/**
+ * Expande o que o tecnico digitou: "10.10.10.0/24", "10.10.10.1-254",
+ * "10.10.10.1-10.10.10.50", IP solto, ou varios separados por virgula/espaco.
+ */
+export function expandir(texto: string): { ips: string[]; erro: string } {
+  const ips = new Set<string>();
+  for (const pedaco of texto.split(/[\s,;]+/).filter(Boolean)) {
+    const cidr = pedaco.match(/^(\d{1,3}(?:\.\d{1,3}){3})\/(\d{1,2})$/);
+    const faixa = pedaco.match(/^(\d{1,3}(?:\.\d{1,3}){3})-(\d{1,3}(?:\.\d{1,3}){3}|\d{1,3})$/);
+    if (cidr && ipValido(cidr[1])) {
+      const bits = Number(cidr[2]);
+      if (bits < 21 || bits > 32) return { ips: [], erro: `Rede ${pedaco} grande demais: use /21 ou menor (ex.: /24).` };
+      const tam = 2 ** (32 - bits);
+      const base = ipNum(cidr[1]) - (ipNum(cidr[1]) % tam);
+      // Sem o endereco de rede e o de broadcast quando a rede tem mais de 2.
+      for (let i = tam > 2 ? 1 : 0; i < (tam > 2 ? tam - 1 : tam); i++) ips.add(numIp(base + i));
+    } else if (faixa && ipValido(faixa[1])) {
+      const fimTxt = faixa[2].includes('.') ? faixa[2] : faixa[1].replace(/\d+$/, faixa[2]);
+      if (!ipValido(fimTxt)) return { ips: [], erro: `Faixa inválida: ${pedaco}` };
+      const ini = ipNum(faixa[1]);
+      const fim = ipNum(fimTxt);
+      if (fim < ini) return { ips: [], erro: `Faixa ao contrário: ${pedaco}` };
+      for (let n = ini; n <= fim && ips.size <= MAX_IPS; n++) ips.add(numIp(n));
+    } else if (ipValido(pedaco)) {
+      ips.add(pedaco);
+    } else {
+      return { ips: [], erro: `Não entendi “${pedaco}”. Use 10.10.10.0/24, 10.10.10.1-50 ou um IP.` };
+    }
+    if (ips.size > MAX_IPS) return { ips: [], erro: `Mais de ${MAX_IPS} endereços: divida a busca.` };
+  }
+  return { ips: [...ips], erro: '' };
 }
+
+/** IP de fabrica comum, que nao aparece no ARP enquanto a camera nao "fala". */
+const FABRICA: [string, string][] = [['192.168.1.108', 'fábrica Intelbras'], ['192.168.1.64', 'fábrica Hikvision']];
 
 export function CameraAtivar() {
   const online = useOnline();
@@ -71,25 +104,70 @@ export function CameraAtivar() {
 
   const visiveis = useMemo(() => (lista ?? []).filter((d) => verTodas || podeAtivar(d)), [lista, verTodas]);
 
-  async function varrer() {
+  const [progresso, setProgresso] = useState('');
+  const [origem, setOrigem] = useState<'arp' | 'faixa' | ''>('');
+
+  // Redes do site: as /24 onde ja ha camera (inventario + monitoramento).
+  // E nelas que a camera nova costuma cair -- e o que o tecnico digitaria.
+  const filtro = useFiltroSite(site);
+  const cams = useCameras();
+  const entCams = useEntidades('camera');
+  const redes = useMemo(() => {
+    const conta = new Map<string, number>();
+    const somar = (ip?: string) => {
+      if (!ip || !ipValido(ip)) return;
+      const r = `${ip.split('.').slice(0, 3).join('.')}.0/24`;
+      conta.set(r, (conta.get(r) ?? 0) + 1);
+    };
+    for (const c of cams.data ?? []) if (filtro(siteDa(c), c.remote_connector_id || c.connector_id)) somar(c.ip);
+    for (const e of entCams.data ?? []) if (filtro(e.site, e.connector_id)) somar(detalhe<{ ip?: string }>(e).ip);
+    return [...conta.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6);
+  }, [cams.data, entCams.data, filtro]);
+  const pedido = useMemo(() => expandir(range), [range]);
+
+  async function sondar(ips: string[], tipo: 'arp' | 'faixa') {
     if (!con?.id) return;
-    setVarrendo(true); setErro(''); setResultados(null);
+    setVarrendo(true); setErro(''); setResultados(null); setOrigem(tipo);
+    const achados = new Map<string, Dispositivo>();
+    let sondados = 0;
     try {
-      const d = await enviar<{ devices?: Dispositivo[]; scanned?: number; aviso?: string; detail?: string; source?: string }>(
-        '/api/deployments/activation/scan', { connector_id: con.id, ips: faixa(range), marca });
-      const devs = d.devices ?? [];
-      setLista(devs);
+      // Sem faixa: uma chamada (o servidor usa ARP/DHCP + IP de fabrica).
+      // Com faixa: lotes de 256, que e o que o servidor sonda por vez.
+      const lotes: string[][] = tipo === 'arp' ? [[]]
+        : Array.from({ length: Math.ceil(ips.length / LOTE) }, (_, i) => ips.slice(i * LOTE, (i + 1) * LOTE));
+      for (let i = 0; i < lotes.length; i++) {
+        if (lotes.length > 1) setProgresso(`Sondando ${Math.min((i + 1) * LOTE, ips.length)} de ${ips.length}…`);
+        const d = await enviar<{ devices?: Dispositivo[]; scanned?: number; aviso?: string; detail?: string }>(
+          '/api/deployments/activation/scan', { connector_id: con.id, ips: lotes[i], marca });
+        for (const dev of d.devices ?? []) achados.set(dev.ip, dev);
+        sondados += d.scanned ?? lotes[i].length;
+        if (d.aviso) toast(d.aviso);
+        setLista([...achados.values()]);
+      }
+      const devs = [...achados.values()];
       setVerTodas(!devs.some(podeAtivar));
       const pend = devs.filter(podeAtivar).length;
-      setResumo(devs.length
-        ? `${devs.length} responderam de ${d.scanned ?? '?'} endereços · ${pend} de fábrica · origem: ${d.source === 'manual' ? 'faixa digitada' : 'ARP/DHCP do MikroTik'}`
-        : (d.detail || 'Nenhuma câmera respondeu.'));
-      if (d.aviso) toast(d.aviso);
+      setResumo(`${devs.length} responderam de ${sondados} endereços · ${pend} de fábrica · ${tipo === 'arp' ? 'pelo ARP/DHCP do MikroTik' : 'na faixa pedida'}`);
     } catch (e) {
       setErro((e as Error).message);
+      setLista([...achados.values()]);
     } finally {
-      setVarrendo(false);
+      setVarrendo(false); setProgresso('');
     }
+  }
+
+  function varrer() { void sondar([], 'arp'); }
+  function procurarFaixa() {
+    if (pedido.erro || !pedido.ips.length) { setErro(pedido.erro || 'Digite uma rede, faixa ou IP.'); return; }
+    void sondar(pedido.ips, 'faixa');
+  }
+  function varrerRedesDoSite() {
+    const texto = redes.map(([r]) => r).join(', ');
+    setRange(texto);
+    void sondar(expandir(texto).ips, 'faixa');
+  }
+  function adicionar(t: string) {
+    setRange((r) => (r.split(/[\s,;]+/).includes(t) ? r : [r.trim(), t].filter(Boolean).join(', ')));
   }
 
   async function ativar() {
@@ -148,18 +226,49 @@ export function CameraAtivar() {
               {(['todas', 'intelbras', 'hikvision'] as const).map((m) => (
                 <button key={m} type="button" aria-pressed={marca === m} onClick={() => setMarca(m)}>{m === 'todas' ? 'Todas' : m === 'intelbras' ? 'Intelbras' : 'Hikvision'}</button>))}
             </div></div>
-          <details className="avancado">
-            <summary>Faixa de IP (opcional)</summary>
-            <div className="form-cartao">
-              <div className="campo"><label htmlFor="faixa">Faixa ou IP</label>
-                <div className="caixa"><input id="faixa" className="mono" value={range} onChange={(e) => setRange(e.target.value)} placeholder="192.168.1.100-200" inputMode="decimal" /></div>
-                <span className="ajuda">Vazio: usa o que o MikroTik enxerga (ARP/DHCP).</span></div>
-            </div>
-          </details>
-
           <button type="button" className="btn" disabled={varrendo || !online || !con?.online} onClick={varrer}>
-            {Icone.busca}{varrendo ? 'Varrendo o site…' : lista ? 'Varrer de novo' : 'Varrer o site'}
+            {Icone.busca}{varrendo && origem === 'arp' ? 'Varrendo o site…' : 'Varrer o site (ARP/DHCP)'}
           </button>
+          <p className="sub-tela">Rápido, mas só vê o que o MikroTik já listou: câmera recém-ligada ou com IP fixo pode não estar lá.</p>
+
+          <Cartao>
+            <h2>Procurar numa rede</h2>
+            <div className="form-cartao">
+              {redes.length ? (
+                <div className="campo"><span className="lb">Redes deste site</span>
+                  <div className="chips chips-quebra">
+                    {redes.map(([r, n]) => (
+                      <button key={r} type="button" className="aba" aria-pressed={range.includes(r)} onClick={() => adicionar(r)}>
+                        <span className="mono">{r}</span> · {n} {n === 1 ? 'câmera' : 'câmeras'}
+                      </button>
+                    ))}
+                  </div></div>
+              ) : null}
+              <div className="chips chips-quebra">
+                {FABRICA.map(([ip, n]) => (
+                  <button key={ip} type="button" className="aba" aria-pressed={range.includes(ip)} onClick={() => adicionar(ip)}><span className="mono">{ip}</span> · {n}</button>
+                ))}
+              </div>
+              <div className="campo"><label htmlFor="faixa">Rede, faixa ou IP</label>
+                <div className="caixa"><input id="faixa" className="mono" value={range} onChange={(e) => setRange(e.target.value)}
+                       placeholder="10.10.10.0/24 ou 10.10.10.1-50" inputMode="text" autoCapitalize="none" autoCorrect="off" spellCheck={false} /></div>
+                <span className="ajuda" style={pedido.erro && range.trim() ? { color: 'var(--danger)' } : undefined}>
+                  {range.trim() ? (pedido.erro || `${pedido.ips.length} endereços${pedido.ips.length > LOTE ? ` em ${Math.ceil(pedido.ips.length / LOTE)} lotes` : ''}`)
+                    : 'Aceita /24, faixa com traço, IP solto ou vários separados por vírgula.'}
+                </span></div>
+              <button type="button" className="btn2" disabled={varrendo || !online || !con?.online || !range.trim() || !!pedido.erro} onClick={procurarFaixa}>
+                {Icone.busca}{varrendo && origem === 'faixa' ? (progresso || 'Sondando…') : 'Procurar nesta faixa'}
+              </button>
+            </div>
+          </Cartao>
+
+          {lista && origem === 'arp' && !varrendo && !lista.some(podeAtivar) && redes.length ? (
+            <div className="aviso ambar">{Icone.aviso}
+              <span>Nenhuma câmera de fábrica no ARP/DHCP. Se ela acabou de ser ligada, ainda não está lá.{' '}
+                <button type="button" className="link" onClick={varrerRedesDoSite}>Varrer as {redes.length} redes do site</button>
+              </span>
+            </div>
+          ) : null}
 
           {lista ? (
             <Cartao>
