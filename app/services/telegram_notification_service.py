@@ -148,7 +148,10 @@ def _coletar(cfg: Dict[str, Any]) -> tuple[List[Dict[str, Any]], Dict[str, Dict[
                             "linha": ident + (f" (fora {dur})" if dur else "")})
 
         if tipo in ("nvr", "dvr"):
-            canais = [str(c) for c in (detail.get("canais_sem_imagem_lista") or [])]
+            # So com o gravador CONFIRMADO "unstable" (histerese em
+            # monitoring_service): a lista crua mudava a cada ping perdido de
+            # camera e o aviso ia e voltava a cada 6 min.
+            canais = [str(c) for c in (detail.get("canais_sem_imagem_lista") or [])] if status == "unstable" else []
             st = _state(key, "sem_imagem")
             atual = ",".join(canais)
             if canais and not (st.get("active") and atual == _text(st.get("last_value"))):

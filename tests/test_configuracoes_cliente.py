@@ -72,7 +72,9 @@ def test_limiar_novo_vale_na_proxima_verificacao(banco):
     tok = _como("cliente-a")
     try:
         M.set_profile_threshold("camera-default", 3)
-        for esperado in ("unstable", "unstable", "down"):
+        # Falha isolada nao gera evento (histerese, 26/10/2026): equipamento
+        # novo fica "unknown" ate o limite configurado (3) e entao cai.
+        for esperado in ("unknown", "unknown", "down"):
             r = M.observe_entity({"entity_key": "cam1", "entity_type": "camera", "status": "down"})
             assert r["status"] == esperado
     finally:

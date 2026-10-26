@@ -99,6 +99,103 @@ def ensure_default_profiles() -> None:
             )
 
 
+# Histerese do estado. Antes UMA leitura com falha virava "unstable" e a
+# primeira boa, "up": em 26/10/2026 as 4 cameras atras da ONU 4431DEFF
+# (RESERVA, PERUCABA) trocaram de estado 80 vezes em 24 h, e os gravadores
+# delas mais 87 -- aviso a cada 6 min de equipamento que nao tinha caido.
+OSC_JANELA_S = 3600      # falhas isoladas contadas nesta janela
+OSC_FALHAS = 3           # tantas falhas isoladas na janela = "unstable" (um evento so)
+OSC_CALMA_S = 1800       # "unstable" por oscilacao volta a "up" apos isto sem falha
+OK_PARA_VOLTAR = 2       # leituras boas seguidas para sair de "down"
+INSTAVEL_SEGUIDAS = 2    # "unstable" vindo da fonte (gravador) precisa repetir
+
+
+def _so_cameras_estaveis(medidas: Dict[str, Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
+    """Medidas por IP com "online" so para camera cujo estado gravado e "up"."""
+    tenant = _tenant()
+    with _conn() as c:
+        rows = c.execute(
+            "SELECT status, detail_json FROM monitoring_entities WHERE tenant_slug=? AND entity_type='camera'", (tenant,)
+        ).fetchall()
+    estado: Dict[str, str] = {}
+    for row in rows:
+        r = dict(row)
+        try:
+            ip = _text((json.loads(r.get("detail_json") or "{}") or {}).get("ip"))
+        except Exception:
+            continue
+        if ip and estado.get(ip) != "up":  # o mesmo IP em dois modos: "up" em um basta
+            estado[ip] = _text(r.get("status"))
+    saida: Dict[str, Dict[str, Any]] = {}
+    for ip, m in medidas.items():
+        if _text(m.get("status")).lower() == "online" and estado.get(ip, "up") != "up":
+            m = dict(m, status=estado[ip])  # "unstable"/"down": nao conta como no ar
+        saida[ip] = m
+    return saida
+
+
+def _oscilacao_anterior(current: Dict[str, Any]) -> Dict[str, Any]:
+    try:
+        osc = (json.loads(current.get("detail_json") or "{}") or {}).get("_oscilacao") or {}
+    except Exception:
+        osc = {}
+    return {"falhas": [str(f) for f in osc.get("falhas") or []][-50:],
+            "corrida": [str(f) for f in osc.get("corrida") or []][-50:],
+            "ok_seguidos": int(osc.get("ok_seguidos") or 0),
+            "instavel_seguidas": int(osc.get("instavel_seguidas") or 0)}
+
+
+def _decidir_com_histerese(raw: str, old: str, failures: int, threshold: int,
+                           osc: Dict[str, Any], now: str) -> tuple[str, int]:
+    """Estado gravado a partir da leitura crua e do historico curto (puro,
+    testavel; altera `osc`). Uma falha isolada nao gera evento; "down" exige
+    `threshold` falhas seguidas, como antes; oscilacao vira UM "unstable".
+
+    `corrida` = falhas seguidas em curso. So entram em `falhas` (oscilacao) as
+    corridas que acabaram SEM derrubar o equipamento: queda de verdade nao e
+    oscilacao, e conta-la deixava link/switch "unstable" 30 min depois de
+    voltar (o "caiu" do Zabbix so fecha com status=1)."""
+    osc.setdefault("corrida", [])
+    agora = _segundos_desde(now)  # 0 para `now`; referencia comum para a janela
+    osc["falhas"] = [f for f in osc["falhas"] if _segundos_desde(f) - agora < OSC_JANELA_S]
+    if raw == "down":
+        failures += 1
+        osc["corrida"].append(now)
+        osc["ok_seguidos"] = 0
+        osc["instavel_seguidas"] = 0
+        if failures >= threshold or old == "down":
+            return "down", failures
+        if len(osc["falhas"]) + len(osc["corrida"]) >= OSC_FALHAS:
+            return "unstable", failures
+        return (old if old in ("up", "unstable", "maintenance") else "unknown"), failures
+    if osc["corrida"]:
+        if old != "down":  # corrida curta, nao derrubou: e oscilacao
+            osc["falhas"] = (osc["falhas"] + osc["corrida"])[-50:]
+        osc["corrida"] = []
+    if raw == "up":
+        osc["ok_seguidos"] = osc["ok_seguidos"] + 1
+        osc["instavel_seguidas"] = 0
+        if old == "down" and osc["ok_seguidos"] < OK_PARA_VOLTAR:
+            return "down", 0
+        recentes = [f for f in osc["falhas"] if _segundos_desde(f) - agora < OSC_CALMA_S]
+        # Saindo de "down" ou de "unstable" ainda oscilando: fica "unstable".
+        # O "voltou" so sai quando estabiliza -- antes era voltou/instavel/caiu
+        # em sequencia, tres avisos para o mesmo problema.
+        if old == "unstable" and recentes:
+            return "unstable", 0
+        if old == "down" and len(recentes) >= OSC_FALHAS:
+            return "unstable", 0
+        return "up", 0
+    if raw == "unstable":
+        osc["ok_seguidos"] = 0
+        osc["instavel_seguidas"] = osc["instavel_seguidas"] + 1
+        if old == "unstable" or osc["instavel_seguidas"] >= INSTAVEL_SEGUIDAS:
+            return "unstable", 0
+        return (old if old in ("up", "unknown") else "unstable"), 0
+    osc["ok_seguidos"] = osc["instavel_seguidas"] = 0
+    return raw, 0
+
+
 def _observe_entity_on(c: Any, item: Dict[str, Any], tenant: str) -> Dict[str, Any]:
     key = _text(item.get("entity_key"))
     entity_type = _text(item.get("entity_type")).lower()
@@ -107,7 +204,6 @@ def _observe_entity_on(c: Any, item: Dict[str, Any], tenant: str) -> Dict[str, A
     raw_status = normalize_status(item.get("status"))
     now = _now()
     profile_key = _text(item.get("profile_key")) or f"{entity_type}-default"
-    detail = json.dumps(item.get("detail") or {}, ensure_ascii=False)
     current_row = c.execute(
             "SELECT * FROM monitoring_entities WHERE tenant_slug=? AND entity_key=?", (tenant, key)
         ).fetchone()
@@ -119,12 +215,19 @@ def _observe_entity_on(c: Any, item: Dict[str, Any], tenant: str) -> Dict[str, A
             (tenant, profile_key),
         ).fetchone()
     threshold = int(dict(threshold_row or {}).get("failure_threshold") or 2)
-    if raw_status == "down":
-        failures += 1
-        status = "down" if failures >= threshold else "unstable"
-    else:
-        failures = 0
-        status = raw_status
+    osc = _oscilacao_anterior(current)
+    status, failures = _decidir_com_histerese(raw_status, old, failures, threshold, osc, now)
+    detail_obj = dict(item.get("detail") or {})
+    detail_obj["_oscilacao"] = osc
+    if entity_type in ("nvr", "dvr") and status != "unstable" and detail_obj.get("canais_sem_imagem"):
+        # O item do Zabbix (e o gatilho "sem imagem") segue o estado CONFIRMADO,
+        # como o status e o Telegram: a leitura crua de uma rodada so fica
+        # guardada a parte, senao o gatilho abria e fechava a cada rodada.
+        detail_obj["canais_sem_imagem_lido"] = detail_obj.get("canais_sem_imagem_lista") or []
+        detail_obj["canais_sem_imagem"] = 0
+        detail_obj["canais_sem_imagem_lista"] = []
+        detail_obj.pop("motivo", None)
+    detail = json.dumps(detail_obj, ensure_ascii=False)
     changed_at = now if status != old else (current.get("last_changed_at") or now)
     values = (
             tenant, key, entity_type, _text(item.get("entity_id")), _text(item.get("parent_key")),
@@ -575,6 +678,12 @@ def refresh_from_inventory() -> Dict[str, Any]:
     except Exception as exc:
         logger.warning("Monitoramento: sem estado das cameras para julgar canais sem imagem: %s", exc)
         medidas_cam = None
+    if medidas_cam:
+        # "Camera no ar" para julgar o gravador = estado CONFIRMADO da camera
+        # (com histerese), nao a ultima leitura crua. Camera oscilando ou fora
+        # ja tem o aviso dela; o gravador nao avisa de novo por ela, e deixa de
+        # trocar de estado a cada ping perdido (RESERVA 02/03, 26/10/2026).
+        medidas_cam = _so_cameras_estaveis(medidas_cam)
     for source in ("dvr", "nvr"):
         canais_por_host: Dict[str, List[Dict[str, Any]]] = {}
         for r in _recorder_rows(source):

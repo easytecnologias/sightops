@@ -201,7 +201,10 @@ def test_falha_de_leitura_switch_fora_links_sem_leitura(cliente):
     _LeitorFalso.falhar = True
     r = SP.coletar_cliente()
     assert r["falhas"] and {v["status"] for v in _ents().values()} == {"unknown"}
-    assert _ents("switch_provedor")[cliente["sw"]]["status"] in ("unstable", "down")
+    # Uma leitura falha nao gera evento (histerese); a segunda seguida derruba.
+    assert _ents("switch_provedor")[cliente["sw"]]["status"] == "up"
+    SP.coletar_cliente()
+    assert _ents("switch_provedor")[cliente["sw"]]["status"] == "down"
     assert SP.listar()[0]["erro"] and SP.listar()[0]["leitura"]["portas"]   # guarda a ultima leitura boa
 
 
