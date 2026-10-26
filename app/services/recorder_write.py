@@ -422,7 +422,7 @@ def executar(acao: str, *, host: str, user: str, password: str, canal: int,
         if not (marca == "intelbras" and acao in ("adicionar", "editar", "excluir")
                 and any(f"HTTP {c}" in str(exc) for c in (400, 404, 501))):
             raise
-        saida = _intelbras_pelo_sdk(acao, host=host, user=user, password=password,
+        saida = _intelbras_pelo_sdk(acao, base=base, host=host, user=user, password=password,
                                     canal=int(canal), connector_id=connector_id, ip=ip,
                                     cam_user=cam_user, cam_senha=cam_senha, nome=nome,
                                     protocolo=protocolo, porta=porta,
@@ -431,17 +431,38 @@ def executar(acao: str, *, host: str, user: str, password: str, canal: int,
     return saida
 
 
-def _intelbras_pelo_sdk(acao: str, *, host: str, user: str, password: str, canal: int,
+def _porta_sdk_intelbras(base: str, user: str, password: str) -> int:
+    """Porta do NetSDK que o PROPRIO gravador informa (DVRIP.TCPPort).
+
+    O SDK ia sempre na 37777. O NVD 7132 do PERUCABA (10.10.9.122, web na
+    8088) tem a porta trocada: a 37777 recusa a conexao e excluir canal dava
+    "o gravador nao respondeu na porta 37777" com o gravador no ar. Leitura so
+    (getConfig); sem resposta, fica a padrao.
+    """
+    try:
+        status, txt = _req("GET", f"{base}/cgi-bin/configManager.cgi?action=getConfig&name=DVRIP",
+                           user, password, timeout=10)
+        m = re.search(r"DVRIP\.TCPPort\s*=\s*(\d+)", txt or "") if status == 200 else None
+        if m and 0 < int(m.group(1)) < 65536:
+            return int(m.group(1))
+    except Exception:
+        pass
+    return 37777
+
+
+def _intelbras_pelo_sdk(acao: str, *, base: str, host: str, user: str, password: str, canal: int,
                         connector_id: str, ip: str, cam_user: str, cam_senha: str,
                         nome: str, protocolo: str, porta: Any, porta_http: Any,
                         porta_rtsp: Any) -> Dict[str, Any]:
     from app.services import intelbras_canal_sdk as sdk
+    porta_sdk = _porta_sdk_intelbras(base, user, password)
     if acao == "excluir":
-        r = sdk.soltar_canal(host, user, password, canal, connector_id=connector_id)
+        r = sdk.soltar_canal(host, user, password, canal, connector_id=connector_id, porta=porta_sdk)
     else:
         r = sdk.gravar_canal(host, user, password, canal, ip, cam_user, cam_senha,
                              connector_id=connector_id, nome=nome, protocolo=protocolo,
-                             porta_cam=porta, porta_http=porta_http, porta_rtsp=porta_rtsp)
+                             porta=porta_sdk, porta_cam=porta, porta_http=porta_http,
+                             porta_rtsp=porta_rtsp)
     if not r.get("ok"):
         raise ErroGravador(r.get("error") or "o gravador recusou pelo NetSDK")
     return {"comando": "NetSDK RemoteDevice", "via": "sdk"}
