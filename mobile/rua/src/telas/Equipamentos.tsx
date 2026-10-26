@@ -7,7 +7,7 @@ import { useSite } from '../lib/site';
 import { desde } from '../lib/tempo';
 import { Carregando, Cartao, Icone, Item, Vazio } from '../ui/pecas';
 import { situacaoDoStatus, useFiltro, type Situacao } from '../ui/Filtros';
-import { subEntidade, useAbrirEntidade } from './Inicio';
+import { sitCamera, useCamerasDoSite } from '../screens/Cameras';
 
 type Familia = 'rede' | 'cftv' | 'acesso';
 type Pon = { pon: string; total: number; up: number; down: number; baixo: number };
@@ -177,36 +177,44 @@ function Cftv() {
   const { site } = useSite();
   const m = useSiteMonitor(site);
   const ir = useNavigate();
-  const abrir = useAbrirEntidade();
-  const semVideoTodas = m.cameras.filter((e) => e.status !== 'up');
-  const up = m.cameras.length - semVideoTodas.length;
+  // Numeros de camera da MESMA fonte e regra da tela Cameras (inventario):
+  // o que esta escrito aqui e o que aparece ao abrir.
+  const { cameras } = useCamerasDoSite();
+  const fora = cameras.filter((c) => sitCamera(c) === 'fora').length;
+  const semLeitura = cameras.filter((c) => sitCamera(c) === 'atencao').length;
+  const noAr = cameras.length - fora - semLeitura;
+
   const sitNvr = (e: Entidade): Situacao => {
     const d = detalhe<{ canais_sem_imagem?: number; canais_offline?: number }>(e);
     return e.status !== 'up' ? 'fora' : Number(d.canais_sem_imagem ?? 0) + Number(d.canais_offline ?? 0) ? 'atencao' : 'ok';
   };
-  const itens = [...m.nvrs, ...semVideoTodas];
-  const { lista, barra, ativo } = useFiltro(itens, {
-    texto: (e) => [nomeEntidade(e), detalhe<{ host?: string }>(e).host, detalhe<{ ip?: string }>(e).ip],
-    local: (e) => localDe(e.site), situacao: (e) => (e.entity_type === 'camera' ? situacaoDoStatus(e.status) : sitNvr(e)),
-    nomes: { atencao: 'Sem vídeo' }, dica: 'Nome ou IP',
-    extra: { rotulo: 'Tipo', todos: 'Gravadores e câmeras', de: (e) => (e.entity_type === 'camera' ? 'Câmera sem vídeo' : 'Gravador') },
+  const { lista: nvrs, barra } = useFiltro(m.nvrs, {
+    texto: (e) => [nomeEntidade(e), detalhe<{ host?: string }>(e).host], dica: 'Gravador: nome ou IP', unidade: 'gravadores',
+    local: (e) => localDe(e.site), situacao: sitNvr, nomes: { atencao: 'Com canal sem vídeo', ok: 'Tudo ok' },
   });
-  const nvrs = lista.filter((e) => e.entity_type !== 'camera');
-  const semVideo = lista.filter((e) => e.entity_type === 'camera');
 
   return (
     <>
-      <button type="button" className="familia solta" onClick={() => ir('/cameras')}>
-        <span className="fam-ic cftv">{Icone.camera}</span>
-        <span className="corpo"><span className="t">Câmeras</span><span className="s">{up} de {m.cameras.length} no ar · buscar, filtrar, ao vivo</span></span>
-        {Icone.seta}
-      </button>
-
-      {barra}
-      {ativo && !nvrs.length ? null : (
       <Cartao>
-        <h2>Gravadores{nvrs.length ? ` · ${nvrs.length}` : ''}</h2>
-        {!nvrs.length ? <Vazio>Nenhum gravador neste site.</Vazio> : nvrs.map((e) => {
+        <button type="button" className="item" onClick={() => ir('/cameras')}>
+          <span className="fam-ic cftv">{Icone.camera}</span>
+          <span className="corpo"><span className="t">Câmeras · {cameras.length}</span>
+            <span className="s">{noAr} no ar{fora ? ` · ${fora} fora do ar` : ''}{semLeitura ? ` · ${semLeitura} sem leitura` : ''}</span></span>
+          {Icone.seta}
+        </button>
+        {fora ? (
+          <button type="button" className="item" onClick={() => ir('/cameras?sit=fora')}>
+            <span className="ponto" style={{ background: 'var(--danger)' }} />
+            <span className="corpo"><span className="t">Ver as {fora} fora do ar</span><span className="s">com filtro de local e gravador</span></span>
+            {Icone.seta}
+          </button>
+        ) : null}
+      </Cartao>
+
+      <span className="rot-secao">Gravadores · {m.nvrs.length}</span>
+      {barra}
+      <Cartao>
+        {!m.nvrs.length ? <Vazio>Nenhum gravador neste site.</Vazio> : !nvrs.length ? <Vazio>Nenhum gravador com esse filtro.</Vazio> : nvrs.map((e) => {
           const d = detalhe<{ host?: string; canais_sem_imagem?: number; canais_offline?: number; canais_total?: number }>(e);
           const sem = Number(d.canais_sem_imagem ?? 0) + Number(d.canais_offline ?? 0);
           return (
@@ -217,18 +225,6 @@ function Cftv() {
           );
         })}
       </Cartao>
-      )}
-
-      {ativo && !semVideo.length ? null : (
-      <Cartao>
-        <h2>Sem vídeo{semVideo.length ? ` · ${semVideo.length}` : ''}</h2>
-        {!semVideo.length ? <Vazio>Todas as câmeras no ar.</Vazio> : semVideo.slice(0, ativo ? 200 : 20).map((e) => (
-          <Item key={e.entity_key} ponto={e.status === 'down' ? 'vermelho' : 'ambar'} titulo={nomeEntidade(e)}
-                sub={subEntidade(e)} onClick={() => abrir(e)} direita={Icone.seta} />
-        ))}
-      </Cartao>
-      )}
-      {ativo && !lista.length ? <Cartao><Vazio>Nada com esse filtro.</Vazio></Cartao> : null}
     </>
   );
 }

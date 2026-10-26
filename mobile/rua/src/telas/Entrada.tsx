@@ -5,7 +5,7 @@ import { mesmoSite, siteDoConector, useConectores, useEntidades } from '../lib/d
 import { Carregando, Icone, Logo, Vazio, iniciais } from '../ui/pecas';
 import { ordemNatural } from '../lib/ordem';
 
-export const VERSAO = '2.0.5';
+export const VERSAO = '2.0.6';
 
 /* ─────────────────────────── B · Abertura ─────────────────────────── */
 export function Abertura() {
@@ -292,7 +292,12 @@ export function ListaSites({ atual, aoEscolher }: { atual?: string | null; aoEsc
       ) : null}
       {lista.map((s) => {
         const on = porSite.get(s);
-        const n = (cams.data ?? []).filter((c) => mesmoSite(c.site, s)).length;
+        // Mesma regra das telas: camera do site = conector do site (que atende os
+        // sub-locais: JARDINS I, RESERVA...); conector que nao existe mais nao conta.
+        const ids = new Set((cons.data ?? []).filter((c) => mesmoSite(siteDoConector(c), s)).map((c) => String(c.id ?? '')));
+        const existe = new Set((cons.data ?? []).map((c) => String(c.id ?? '')));
+        const n = (cams.data ?? []).filter((c) => (c.connector_id ? ids.has(c.connector_id) : mesmoSite(c.site, s))
+          && (!c.connector_id || existe.has(c.connector_id))).length;
         return (
           <button key={s} type="button" className="item" onClick={() => aoEscolher(s)}>
             <span className="ic">{Icone.predio}</span>

@@ -188,14 +188,21 @@ A câmera reinicia e volta em 1 a 2 minutos.`)) return;
               <Ficha rot="Coordenada" val={coord} mono />
             </div>
             {temCoord && (
-              // Abre o mapa do proprio aparelho. E o unico jeito de a
-              // coordenada guardada virar caminho ate o poste.
-              <a className="item" target="_blank" rel="noreferrer"
-                 href={`https://www.google.com/maps/search/?api=1&query=${cam.lat},${cam.lon}`}>
-                <span className="ic">{Icone.pin}</span>
-                <span className="corpo"><span className="t">Abrir no mapa</span></span>
-                {Icone.seta}
-              </a>
+              // "Abrir no mapa" fica no app: o Mapa do SightOps centrado na
+              // camera, com caixas e cabos. O Google Maps so para a rota.
+              <>
+                <button type="button" className="item" onClick={() => ir('/mapa', { state: { centro: [Number(cam.lat), Number(cam.lon)] } })}>
+                  <span className="ic">{Icone.pin}</span>
+                  <span className="corpo"><span className="t">Abrir no mapa</span><span className="s">Mapa do SightOps, com caixas e cabos</span></span>
+                  {Icone.seta}
+                </button>
+                <a className="item" target="_blank" rel="noreferrer"
+                   href={`https://www.google.com/maps/dir/?api=1&destination=${cam.lat},${cam.lon}`}>
+                  <span className="ic">{Icone.mapa}</span>
+                  <span className="corpo"><span className="t">Como chegar</span><span className="s">rota no Google Maps</span></span>
+                  {Icone.seta}
+                </a>
+              </>
             )}
           </>
         ) : (

@@ -23,6 +23,10 @@ type Config<T> = {
   dica?: string;
   /** Busca ja preenchida (ex.: ?q= no endereco). */
   buscaInicial?: string;
+  /** Filtros ja ligados ao abrir (vindos do endereco). */
+  inicial?: { local?: string; extra?: string; sit?: Situacao };
+  /** O que esta sendo contado ("gravadores", "ONUs"): aparece no "Mostrando N de M". */
+  unidade?: string;
 };
 
 const PADRAO: Record<Situacao | 'todos', string> = { todos: 'Todos', fora: 'Fora do ar', atencao: 'Atenção', ok: 'No ar', livre: 'Livres' };
@@ -33,25 +37,44 @@ function contar<T>(itens: T[], chave: (x: T) => string) {
   return [...m.entries()].sort((a, b) => ordemNatural(a[0], b[0]));
 }
 
-export function useFiltro<T>(itens: T[], cfg: Config<T>): { lista: T[]; barra: ReactNode; ativo: boolean } {
+export function useFiltro<T>(itens: T[], cfg: Config<T>): { lista: T[]; barra: ReactNode; ativo: boolean; estado: { busca: string; local: string; extra: string } } {
   const [busca, setBusca] = useState(cfg.buscaInicial ?? '');
-  const [local, setLocal] = useState('');
-  const [extra, setExtra] = useState('');
-  const [sit, setSit] = useState<Situacao | 'todos'>('todos');
+  const [local, setLocal] = useState(cfg.inicial?.local ?? '');
+  const [extra, setExtra] = useState(cfg.inicial?.extra ?? '');
+  const [sit, setSit] = useState<Situacao | 'todos'>(cfg.inicial?.sit ?? 'todos');
   const nomes = { ...PADRAO, ...cfg.nomes };
   const t = busca.trim().toLowerCase();
 
-  const locais = useMemo(() => (cfg.local ? contar(itens, cfg.local) : []), [itens]); // eslint-disable-line react-hooks/exhaustive-deps
-  const doLocal = useMemo(() => (local && cfg.local ? itens.filter((x) => (cfg.local!(x) || '—') === local) : itens), [itens, local]); // eslint-disable-line react-hooks/exhaustive-deps
-  const extras = useMemo(() => (cfg.extra ? contar(doLocal, cfg.extra.de) : []), [doLocal]); // eslint-disable-line react-hooks/exhaustive-deps
-  const base = useMemo(() => doLocal.filter((x) => (!extra || !cfg.extra || (cfg.extra.de(x) || '—') === extra)
-    && (!t || cfg.texto(x).some((v) => String(v ?? '').toLowerCase().includes(t)))), [doLocal, extra, t]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Cada contagem considera TODOS os outros filtros ligados: o numero ao lado
+  // de uma opcao e exatamente o que aparece ao toca-la. Antes cada seletor
+  // contava sozinho (local ignorava o tipo, o tipo ignorava a busca...) e os
+  // numeros nao batiam com a lista.
+  const deLocal = (x: T) => (cfg.local ? cfg.local(x) || '—' : '');
+  const deExtra = (x: T) => (cfg.extra ? cfg.extra.de(x) || '—' : '');
+  const passa = (x: T, sem?: 'local' | 'extra' | 'sit') =>
+    (sem === 'local' || !local || deLocal(x) === local)
+    && (sem === 'extra' || !extra || deExtra(x) === extra)
+    && (sem === 'sit' || sit === 'todos' || !cfg.situacao || cfg.situacao(x) === sit)
+    && (!t || cfg.texto(x).some((v) => String(v ?? '').toLowerCase().includes(t)));
+
+  const paraLocal = useMemo(() => itens.filter((x) => passa(x, 'local')), [itens, extra, sit, t]); // eslint-disable-line react-hooks/exhaustive-deps
+  const paraExtra = useMemo(() => itens.filter((x) => passa(x, 'extra')), [itens, local, sit, t]); // eslint-disable-line react-hooks/exhaustive-deps
+  const paraSit = useMemo(() => itens.filter((x) => passa(x, 'sit')), [itens, local, extra, t]); // eslint-disable-line react-hooks/exhaustive-deps
+  const lista = useMemo(() => itens.filter((x) => passa(x)), [itens, local, extra, sit, t]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Opcoes: todas as que existem na lista inteira (para o seletor nao sumir),
+  // com a contagem do momento -- a escolhida aparece mesmo com 0.
+  const opcoes = (todas: [string, number][], agora: [string, number][]) => {
+    const n = new Map(agora);
+    return todas.map(([k]) => [k, n.get(k) ?? 0] as [string, number]);
+  };
+  const locais = useMemo(() => (cfg.local ? opcoes(contar(itens, deLocal), contar(paraLocal, deLocal)) : []), [itens, paraLocal]); // eslint-disable-line react-hooks/exhaustive-deps
+  const extras = useMemo(() => (cfg.extra ? opcoes(contar(itens, deExtra), contar(paraExtra, deExtra)) : []), [itens, paraExtra]); // eslint-disable-line react-hooks/exhaustive-deps
   const conta = useMemo(() => {
     const c: Record<Situacao, number> = { ok: 0, atencao: 0, fora: 0, livre: 0 };
-    if (cfg.situacao) for (const x of base) c[cfg.situacao(x)] += 1;
+    if (cfg.situacao) for (const x of paraSit) c[cfg.situacao(x)] += 1;
     return c;
-  }, [base]); // eslint-disable-line react-hooks/exhaustive-deps
-  const lista = useMemo(() => (sit === 'todos' || !cfg.situacao ? base : base.filter((x) => cfg.situacao!(x) === sit)), [base, sit]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [paraSit]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const ativo = !!(t || local || extra || sit !== 'todos');
   const limpar = () => { setBusca(''); setLocal(''); setExtra(''); setSit('todos'); };
@@ -66,15 +89,15 @@ export function useFiltro<T>(itens: T[], cfg: Config<T>): { lista: T[]; barra: R
       {locais.length > 1 || extras.length > 1 ? (
         <div className="filtros-duplos">
           {locais.length > 1 ? (
-            <select aria-label="Local" className="caixa-sel" value={local} onChange={(e) => { setLocal(e.target.value); setExtra(''); }}>
-              <option value="">Todos os locais ({itens.length})</option>
-              {locais.map(([l, n]) => <option key={l} value={l}>{l} ({n})</option>)}
+            <select aria-label="Local" className="caixa-sel" value={local} onChange={(e) => setLocal(e.target.value)}>
+              <option value="">Todos os locais ({paraLocal.length})</option>
+              {locais.filter(([l, n]) => n || l === local).map(([l, n]) => <option key={l} value={l}>{l} ({n})</option>)}
             </select>
           ) : null}
           {cfg.extra && extras.length > 1 ? (
             <select aria-label={cfg.extra.rotulo} className="caixa-sel" value={extra} onChange={(e) => setExtra(e.target.value)}>
-              <option value="">{cfg.extra.todos} ({doLocal.length})</option>
-              {extras.map(([l, n]) => <option key={l} value={l}>{l} ({n})</option>)}
+              <option value="">{cfg.extra.todos} ({paraExtra.length})</option>
+              {extras.filter(([l, n]) => n || l === extra).map(([l, n]) => <option key={l} value={l}>{l} ({n})</option>)}
             </select>
           ) : null}
         </div>
@@ -85,16 +108,17 @@ export function useFiltro<T>(itens: T[], cfg: Config<T>): { lista: T[]; barra: R
             .filter((k) => k === 'todos' || k === sit || conta[k] > 0)
             .map((k) => (
               <button key={k} type="button" className="aba" aria-pressed={sit === k} onClick={() => setSit(k)}>
-                {nomes[k]} {k === 'todos' ? base.length : conta[k]}
+                {nomes[k]} {k === 'todos' ? paraSit.length : conta[k]}
               </button>
             )) : null}
           {ativo ? <button type="button" className="aba limpar-aba" onClick={limpar}>Limpar</button> : null}
         </div>
       ) : null}
+      {ativo ? <p className="sub-tela" style={{ margin: 0 }}>Mostrando {lista.length} de {itens.length}{cfg.unidade ? ` ${cfg.unidade}` : ''}.</p> : null}
     </div>
   ) : null;
 
-  return { lista, barra, ativo };
+  return { lista, barra, ativo, estado: { busca: t, local, extra } };
 }
 
 /** Situacao pelo status do monitoramento: down = fora, unstable = atencao. */

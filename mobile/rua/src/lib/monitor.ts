@@ -51,8 +51,13 @@ export function useFiltroSite(site: string | null) {
   const cons = useConectores();
   return useMemo(() => {
     const ids = new Set((cons.data ?? []).filter((c) => site && mesmoSite(siteDoConector(c), site)).map((c) => String(c.id ?? '')).filter(Boolean));
+    // Equipamento de conector que nao existe mais (apagado/trocado) fica de
+    // fora: o 5c2897... do PERUCABA deixou 387 cameras paradas desde 23/09
+    // com site "PERUCABA", que entravam em contagens e listas pelo nome.
+    const existe = new Set((cons.data ?? []).map((c) => String(c.id ?? '')).filter(Boolean));
+    const orfao = (conector?: string | null) => !!conector && existe.size > 0 && !existe.has(String(conector));
     return (siteDoItem?: string | null, conector?: string | null) =>
-      !site || mesmoSite(siteDoItem, site) || (!!conector && ids.has(String(conector)));
+      !orfao(conector) && (!site || mesmoSite(siteDoItem, site) || (!!conector && ids.has(String(conector))));
   }, [cons.data, site]);
 }
 
