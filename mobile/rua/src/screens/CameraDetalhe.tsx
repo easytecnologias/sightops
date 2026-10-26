@@ -50,6 +50,8 @@ function useCaminhoCamera(cam: Camera | undefined) {
   return elos;
 }
 import { AjustarCamera } from '../telas/AjustarCamera';
+import { CartaoOnvif } from '../ui/CartaoOnvif';
+import { ehHikvision } from '../lib/onvif';
 
 function Ficha({ rot, val, mono }: { rot: string; val?: string | number | null; mono?: boolean }) {
   if (val === undefined || val === null || val === '') return null;
@@ -155,6 +157,8 @@ A câmera reinicia e volta em 1 a 2 minutos.`)) return;
       ) : null}
 
       <AjustarCamera cam={cam} />
+
+      {ehHikvision(cam) ? <CartaoOnvif cam={cam} /> : null}
 
       <Cartao>
         <h2>Identificação</h2>

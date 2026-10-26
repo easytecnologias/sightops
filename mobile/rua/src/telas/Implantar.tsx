@@ -55,6 +55,8 @@ export function MenuImplantar({ aoEscolher }: { aoEscolher: () => void }) {
               onClick={() => vai('/implantar/instalar')} direita={Icone.seta} />
         <Item icone={Icone.raio} titulo="Ativar câmera de fábrica" sub="Câmera nova, ainda sem senha"
               onClick={() => vai('/implantar/camera')} direita={Icone.seta} />
+        <Item icone={Icone.usuario} titulo="Usuário ONVIF" sub="Hikvision em gravador de outra marca, em lote"
+              onClick={() => vai('/implantar/onvif')} direita={Icone.seta} />
         <Item icone={Icone.gravador} titulo="Gravador" sub="Canais e troca de câmera de canal"
               onClick={() => vai('/implantar/gravador')}
               direita={semVideo ? <span className="selo vermelho">{semVideo} sem vídeo</span> : Icone.seta} />

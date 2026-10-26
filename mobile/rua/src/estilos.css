@@ -676,3 +676,4 @@ button.canal-linha[aria-expanded="true"] > svg { transform: rotate(90deg); }
 @keyframes girar { to { transform: rotate(360deg); } }
 .selo-botao { display: inline-flex; align-items: center; gap: 5px; border: 0; cursor: pointer; font-family: inherit; }
 .selo-botao svg { width: 13px; height: 13px; }
+.link.perigo-link { color: var(--danger); }
