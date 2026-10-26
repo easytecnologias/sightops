@@ -16,7 +16,7 @@ from fastapi import APIRouter, HTTPException, Request
 from requests.auth import HTTPBasicAuth, HTTPDigestAuth
 
 from app.core.tenant_context import tenant_recorder_inventory_path, tenant_scoped_path, tenant_snapshot_dir
-from app.services.connector_service import get_connector, list_connectors, register_connector_known_targets
+from app.services.connector_service import create_job, get_connector, list_connectors, list_jobs, register_connector_known_targets
 from app.services import connector_routing_vnat as _vnat
 from app.services.inventory_json import inventory_row_key, load_inventory_json, save_inventory_json
 from app.services.camsnapshot.device_info import get_network_config, set_network_ip, set_channel_title
@@ -899,6 +899,68 @@ def api_deployments_lookup(connector_id: str, query: str = "") -> Dict[str, Any]
     return _lookup_in_connector(connector_id, query)
 
 
+def _parse_mac_lookup(texto: str) -> List[Dict[str, Any]]:
+    """`arp|ip|mac|estado|vivo;dhcp|...` -> linhas. Uma por (ip), fontes somadas."""
+    por_ip: Dict[str, Dict[str, Any]] = {}
+    for pedaco in (texto or "").split(";"):
+        partes = [p.strip() for p in pedaco.split("|")]
+        if len(partes) < 5 or partes[0] not in ("arp", "dhcp") or not partes[1]:
+            continue
+        fonte, ip, mac, estado, vivo = partes[:5]
+        linha = por_ip.setdefault(ip, {"ip": ip, "address": ip, "mac": mac, "fontes": [], "estados": [], "responde": False, "ao_vivo": True})
+        if fonte not in linha["fontes"]:
+            linha["fontes"].append(fonte)
+        if estado:
+            linha["estados"].append(f"{fonte} {estado}")
+        linha["responde"] = linha["responde"] or vivo == "1"
+    saida = list(por_ip.values())
+    for linha in saida:
+        linha["source"] = " + ".join(linha["fontes"])
+        linha["estado"] = ", ".join(linha["estados"])
+        # "failed"/"invalid" no ARP = o roteador ja sabe que o IP nao existe mais.
+        linha["antigo"] = not linha["responde"] and any(("failed" in e or "invalid" in e) for e in linha["estados"])
+    saida.sort(key=lambda l: (not l["responde"], l["antigo"]))
+    return saida
+
+
+@router.get("/lookup-live")
+async def api_deployments_lookup_live(connector_id: str, mac: str) -> Dict[str, Any]:
+    """Pergunta AGORA ao MikroTik onde esta este MAC (ARP + DHCP, com estado e ping).
+
+    O `/lookup` le o inventario que o agente manda de tempos em tempos, que
+    corta o ARP em 500 linhas e nao diz o estado da entrada. No PERUCABA (1997
+    entradas) a camera nova ficava de fora e so aparecia o lease de DHCP velho
+    -- o app escolhia um IP que nem existia mais. Aqui vai um job pequeno, so
+    daquele MAC; o agente busca job a cada ~10 s.
+    """
+    import anyio
+    import time
+
+    hexa = re.sub(r"[^0-9A-Fa-f]", "", _text(mac))
+    if len(hexa) != 12:
+        raise HTTPException(status_code=400, detail="MAC invalido")
+    try:
+        job = (create_job({"connector_id": connector_id, "type": "mac_lookup", "payload": {"mac": hexa}}).get("job") or {})
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    job_id = _text(job.get("id"))
+    prazo = time.time() + 40
+    final: Dict[str, Any] | None = None
+    while time.time() < prazo:
+        await anyio.sleep(2)
+        final = next((j for j in (list_jobs(connector_id).get("jobs") or []) if _text(j.get("id")) == job_id), None)
+        if final and final.get("status") in {"done", "failed"}:
+            break
+    if not final or final.get("status") != "done":
+        return {"ok": True, "respondeu": False, "matches": [], "detail": "o MikroTik nao respondeu a tempo"}
+    resultado = final.get("result") if isinstance(final.get("result"), dict) else {}
+    texto = _text(resultado.get("routeros_ping"))
+    if not texto.startswith("mac_lookup"):
+        return {"ok": True, "respondeu": False, "matches": [], "detail": "este conector nao faz consulta ao vivo"}
+    matches = _parse_mac_lookup(texto)
+    return {"ok": True, "respondeu": True, "matches": matches, "count": len(matches)}
+
+
 @router.get("/ip-check")
 def api_deployments_ip_check(ip: str, connector_id: str = "", site: str = "") -> Dict[str, Any]:
     if not _text(ip):
@@ -1533,6 +1595,18 @@ def api_deployments_commit_camera(payload: Dict[str, Any]) -> Dict[str, Any]:
             save_inventory_json(filtered, mode="olt")
 
     recorder_link = _upsert_recorder_channel(payload, row)
+
+    # Camera com coordenada vai para o mapa: o mapa so desenha camera que e
+    # ponto de camada, e sem isto ela ficava "sem coordenada no mapa".
+    mapa: Dict[str, Any] = {"acao": "sem coordenada"}
+    if lat and lon:
+        try:
+            from app.api.endpoints.tools import marcar_camera_no_mapa
+            mapa = marcar_camera_no_mapa(titulo=title, ip=ip, lat=lat, lon=lon, site=site, modo=inv_mode)
+        except Exception as exc:  # o cadastro da camera ja foi gravado; o mapa nao derruba a instalacao
+            logging.getLogger(__name__).exception("commit-camera: falha ao marcar %s no mapa", ip)
+            mapa = {"acao": "falhou", "erro": str(exc)}
+
     saved = api_deployments_save({
         **payload,
         "status": "camera_registered",
@@ -1547,6 +1621,7 @@ def api_deployments_commit_camera(payload: Dict[str, Any]) -> Dict[str, Any]:
         "recorder_link": recorder_link,
         "deployment": saved.get("deployment"),
         "inventory_mode": inv_mode,
+        "mapa": mapa,
     }
 
 

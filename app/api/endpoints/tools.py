@@ -1717,6 +1717,92 @@ async def api_kmz_import_layer_download_enriched(
     return FileResponse(kmz_path, media_type="application/vnd.google-earth.kmz", filename=filename)
 
 
+_ROTULO_MODO_MAPA = {"olt": "OLT", "switch": "Switch", "basico": "Basico"}
+
+
+def marcar_camera_no_mapa(*, titulo: str, ip: str, lat: Any, lon: Any, site: str = "", modo: str = "") -> Dict[str, Any]:
+    """Poe a camera instalada no mapa (chamado pelo commit-camera).
+
+    O mapa so desenha camera que e ponto de alguma camada: a coordenada no
+    inventario sozinha dava "Camera sem coordenada no mapa". Ordem:
+    1. ponto que ja e desta camera (IP no nome/descricao, ou mesmo titulo numa
+       camada do mesmo site) -> move para a coordenada nova;
+    2. senao, camada "Instalacoes <site> · <modo>" (criada na primeira vez,
+       modo fixo = inventario da camera) -> cria o ponto.
+    """
+    from app.services.kmz_ops import criar_kmz_vazio
+
+    titulo = str(titulo or "").strip()
+    ip = str(ip or "").strip()
+    try:
+        lat_f, lon_f = float(lat), float(lon)
+    except (TypeError, ValueError):
+        return {"acao": "sem coordenada"}
+    if not titulo:
+        return {"acao": "sem titulo"}
+    modo = modo if modo in _ROTULO_MODO_MAPA else ""
+    alvo = titulo.lower()
+    re_ip = re.compile(rf"(?<![\d.]){re.escape(ip)}(?![\d.])") if ip else None
+    chave_site = _chave_site(site)
+
+    with _LOCK_CAIXAS:
+        indice = _indice_sites_inventario()
+        metas = sorted(_kmz_layers_dir().glob("*.meta.json"), key=lambda p: p.stat().st_mtime, reverse=True)
+        da_instalacao: Optional[Dict[str, Any]] = None
+        for meta_path in metas:
+            meta = _read_kmz_layer_meta(meta_path)
+            layer_id = str(meta.get("id") or meta_path.stem.replace(".meta", "")).strip()
+            kmz_path, geojson_path, _ = _kmz_layer_paths(layer_id)
+            if not kmz_path.exists() or not geojson_path.exists():
+                continue
+            if (meta.get("origem") == "instalacao" and _chave_site(meta.get("site")) == chave_site
+                    and str(meta.get("modo") or "") == modo and da_instalacao is None):
+                da_instalacao = {**meta, "id": layer_id}
+            try:
+                feats = json.loads(geojson_path.read_text(encoding="utf-8") or "{}").get("features") or []
+            except (OSError, ValueError):
+                continue
+            for f in feats:
+                geo = (f or {}).get("geometry") or {}
+                if geo.get("type") != "Point":
+                    continue
+                props = f.get("properties") or {}
+                nome = str(props.get("name") or "").strip()
+                pelo_ip = bool(re_ip and re_ip.search(f"{nome} {props.get('description') or ''}"))
+                pelo_nome = nome.lower() == alvo
+                if pelo_nome and not pelo_ip:
+                    # titulo repete entre sites ("01", "Portaria"): so vale em
+                    # camada deste site (contada sem o proprio ponto)
+                    outros = [x for x in feats if x is not f]
+                    sites = _sites_da_camada(meta, outros, indice)
+                    if sites and chave_site not in sites:
+                        continue
+                if not (pelo_ip or pelo_nome):
+                    continue
+                c = geo.get("coordinates") or []
+                atual = {"lat_atual": c[1], "lon_atual": c[0]} if len(c) >= 2 else {}
+                _editar_ponto_da_camada(layer_id, {"nome": nome, "lat": lat_f, "lon": lon_f, **atual})
+                return {"acao": "movido", "camada": meta.get("label") or layer_id, "layer_id": layer_id}
+
+        if da_instalacao is None:
+            label = f"Instalacoes {site or 'sem site'}" + (f" · {_ROTULO_MODO_MAPA[modo]}" if modo else "")
+            layer_id = f"{datetime.now().strftime('%Y%m%d-%H%M%S')}-{_safe_name(label)}-{secrets.token_hex(3)}"
+            kmz_path, geojson_path, meta_path = _kmz_layer_paths(layer_id)
+            criar_kmz_vazio(kmz_path, label)
+            geojson_path.write_text(json.dumps(kmz_to_geojson(kmz_path), ensure_ascii=False), encoding="utf-8")
+            da_instalacao = {
+                "id": layer_id, "original_name": f"{label}.kmz", "label": label,
+                "created_at": datetime.now().isoformat(timespec="seconds"), "features_count": 0,
+                "origem": "instalacao", "site": site, "modo": modo,
+                **({"sites": [site]} if site else {}),
+            }
+            _write_kmz_layer_meta(meta_path, da_instalacao)
+        _editar_ponto_da_camada(da_instalacao["id"], {
+            "nome": titulo, "lat": lat_f, "lon": lon_f, "descricao": f"IP: {ip}" if ip else "",
+        })
+        return {"acao": "criado", "camada": da_instalacao.get("label"), "layer_id": da_instalacao["id"]}
+
+
 def _editar_ponto_da_camada(layer_id: str, ponto: Dict[str, Any], generated: bool = False) -> Dict[str, Any]:
     """Grava um ponto no KMZ da camada e regenera o geojson que o mapa le.
 
