@@ -618,3 +618,8 @@ a { color: var(--primary); text-decoration: none; }
 .camadas-mapa button { flex: none; min-height: 38px; padding: 0 13px; border-radius: 999px; border: 1px solid var(--border); background: #fff; color: var(--text); font-size: 13px; font-weight: 600; box-shadow: 0 1px 4px rgba(19,37,45,.16); }
 .camadas-mapa button[aria-pressed="true"] { background: var(--escuro); border-color: var(--escuro); color: #fff; }
 .fabs.abaixo { top: 62px; }
+
+/* Filtros de local e gravador: um por linha, na largura toda (nome de gravador e longo) */
+.filtros-duplos { display: grid; grid-template-columns: 1fr; gap: 8px; }
+.filtros-duplos .caixa-sel { height: 44px; font-size: 14px; }
+.filtros-duplos .limpar { justify-self: end; }
