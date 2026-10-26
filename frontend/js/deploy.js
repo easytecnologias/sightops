@@ -3562,9 +3562,15 @@ async function deployLookupMac() {
   if (seq !== _deployLookupSeq) return;
   const rapidos = Array.isArray(data?.matches) ? data.matches : [];
   if (!porMac) { deployRenderLookup(rapidos, ''); return; }
-  deployRenderLookup(rapidos, '<div style="margin-bottom:8px;font-size:12.5px;color:var(--muted)">Confirmando com o MikroTik agora qual IP responde (ate ~30 s)... '
-    + 'Esta lista vem do inventario e pode ter IP antigo.</div>', true);
-  const vivo = await vivoPromessa;
+  // Enquanto o MikroTik nao responde, NAO mostra a lista do inventario: o IP
+  // velho aparecia verde e clicavel e parecia ser a resposta.
+  const inicio = Date.now();
+  const espera = () => deploySetResult('<div style="font-size:13px;color:var(--muted)"><b>Perguntando ao MikroTik onde esta este MAC...</b> '
+    + `${Math.round((Date.now() - inicio) / 1000)} s (costuma levar 10 a 30 s).</div>`);
+  espera();
+  const relogio = setInterval(() => { if (seq === _deployLookupSeq) espera(); else clearInterval(relogio); }, 1000);
+  let vivo;
+  try { vivo = await vivoPromessa; } finally { clearInterval(relogio); }
   if (seq !== _deployLookupSeq) return;
   if (!vivo?.respondeu) {
     deployRenderLookup(rapidos, `<div style="margin-bottom:8px;font-size:12.5px;color:var(--amber)"><b>Nao deu para confirmar com o MikroTik</b> (${esc(vivo?.detail || 'sem resposta')}). `
