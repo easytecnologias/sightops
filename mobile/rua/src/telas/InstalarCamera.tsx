@@ -7,6 +7,7 @@ import { useFiltroSite } from '../lib/monitor';
 import { useOnline } from '../lib/rede';
 import { useSite } from '../lib/site';
 import { Cartao, Icone, Item, Vazio } from '../ui/pecas';
+import { OndeProcurar } from '../ui/OndeProcurar';
 
 /*
  * 6 · Instalar camera: achar na rede, ler, configurar, por no gravador e
@@ -60,7 +61,8 @@ export function InstalarCamera() {
   const veio = (useLocation().state ?? {}) as VemDaAtivacao;
 
   const conectores = (cons.data ?? []).filter((c) => site && mesmoSite(siteDoConector(c), site));
-  const conector = conectores.find((c) => c.online) ?? conectores[0];
+  const [conId, setConId] = useState('');
+  const conector = conectores.find((c) => c.id === conId) ?? conectores.find((c) => c.online) ?? conectores[0];
   const cid = conector?.id ?? '';
 
   // 1 · achar
@@ -232,8 +234,6 @@ export function InstalarCamera() {
     } finally { setIndo(''); }
   }
 
-  if (!conectores.length) return <Cartao><Vazio>Este site não tem conector: não há como alcançar a câmera.</Vazio></Cartao>;
-
   return (
     <>
       <button type="button" className="volta-link" onClick={() => ir('/implantar')}>{Icone.volta}Implantar</button>
@@ -241,6 +241,8 @@ export function InstalarCamera() {
         <h1 className="titulo-tela">Instalar câmera</h1>
         <p className="sub-tela">Ler a câmera, configurar e pôr no gravador.</p>
       </div>
+      <OndeProcurar conector={conector} so="todos" aoTrocarConector={(id) => { setConId(id); setAchados(null); setIp(''); setMac(''); setLeitura(null); }} />
+      {!conectores.length ? <Cartao><Vazio>Este site não tem conector: toque em “Trocar” e escolha o site da câmera.</Vazio></Cartao> : null}
       {conector && !conector.online ? <div className="aviso ambar">{Icone.aviso}<span>O conector {conector.name} está fora do ar: nada aqui chega à câmera agora.</span></div> : null}
 
       <Passo n={1} titulo="Achar a câmera na rede" aberto={aberto(1)} onEditar={() => setVendoPasso(1)} feito={ip ? `${ip}${mac ? ` · ${mac}` : ''}` : undefined}>

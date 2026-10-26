@@ -6,6 +6,7 @@ import { useFiltroSite } from '../lib/monitor';
 import { useOnline } from '../lib/rede';
 import { useSite } from '../lib/site';
 import { Carregando, Cartao, Icone, Item, Vazio, useToast } from '../ui/pecas';
+import { OndeProcurar } from '../ui/OndeProcurar';
 
 /* 5 · Ativar camera de fabrica — as mesmas rotas da web (cameraActivation.js). */
 
@@ -211,14 +212,12 @@ export function CameraAtivar() {
         <p className="sub-tela">Câmera de fábrica (sem senha), pela rede do site.</p>
       </div>
 
+      <OndeProcurar conector={con} aoTrocarConector={(id) => { setConId(id); setLista(null); setResultados(null); setRange(''); }} />
+
       {!conectores.length ? (
-        <Cartao><Vazio>Este site não tem conector MikroTik.<br />A ativação sai pelo MikroTik do site.</Vazio></Cartao>
+        <Cartao><Vazio>Este site não tem conector MikroTik.<br />Toque em “Trocar” e escolha o site onde a câmera está.</Vazio></Cartao>
       ) : (
         <>
-          {conectores.length > 1 ? (
-            <div className="chips">{conectores.map((c) => (
-              <button key={c.id} type="button" className="aba" aria-pressed={con?.id === c.id} onClick={() => setConId(c.id ?? '')}>{c.name}</button>))}</div>
-          ) : null}
           {con && !con.online ? <div className="aviso ambar">{Icone.aviso}<span>O conector {con.name} está fora do ar: não dá para varrer agora.</span></div> : null}
 
           <div className="campo"><span className="lb">Marca</span>
