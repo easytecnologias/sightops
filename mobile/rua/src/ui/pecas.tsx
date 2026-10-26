@@ -89,8 +89,8 @@ export function Pilula({ cor, children }: { cor: 'vermelha' | 'ambar' | 'verde' 
 export function Vazio({ children }: { children: ReactNode }) {
   return <div className="vazio">{children}</div>;
 }
-export function Carregando() {
-  return <div className="carregando">Carregando…</div>;
+export function Carregando({ texto = 'Carregando…' }: { texto?: string }) {
+  return <div className="carregando">{texto}</div>;
 }
 
 export function Titulo({ titulo, sub }: { titulo: string; sub?: string }) {

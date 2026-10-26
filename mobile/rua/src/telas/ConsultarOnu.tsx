@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { enviar } from '../lib/api';
-import { detalhe, useOlts, useSinalOnu, type AmostraSinal, type Entidade } from '../lib/dados';
+import { detalhe, ipDaOlt, useOlts, useSinalOnu, type AmostraSinal, type Entidade } from '../lib/dados';
 import { LIMITE_RX, num, nomeEntidade, partesOnu, quando, rxDa, sinalBaixo, useSiteMonitor, type DetalheOnu } from '../lib/monitor';
 import { useSite } from '../lib/site';
 import { desde } from '../lib/tempo';
@@ -135,7 +135,7 @@ export function ConsultarOnu() {
 
   const d = detalhe<DetalheOnu>(e);
   const p = partesOnu(key);
-  const olt = (olts.data ?? []).find((o) => o.ip === p.oltIp);
+  const olt = (olts.data ?? []).find((o) => ipDaOlt(o) === p.oltIp);
   const rx = rxDa(e);
   const baixo = sinalBaixo(e);
 

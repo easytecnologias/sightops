@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { chaveDa, estadoDa, siteDa, tituloDa, useCameras, type Camera, type Estado } from '../lib/dados';
 import { useOnline } from '../lib/rede';
 import { useSite } from '../lib/site';
+import { useFiltroSite } from '../lib/monitor';
 import { Carregando, Cartao, Icone, Item, Procedencia, Titulo, Vazio } from '../ui/pecas';
 
 type Filtro = 'todas' | 'offline' | 'sem';
@@ -15,12 +16,13 @@ export function Cameras() {
   const [param] = useSearchParams();
   const [busca, setBusca] = useState(param.get('q') ?? '');
   const ir = useNavigate();
+  const doSiteFn = useFiltroSite(site);
 
   const doSite = useMemo(() => {
     const todas = q.data ?? [];
     if (!site) return todas;
-    return todas.filter((c) => siteDa(c).toLowerCase() === site.toLowerCase());
-  }, [q.data, site]);
+    return todas.filter((c) => doSiteFn(siteDa(c), c.remote_connector_id || c.connector_id));
+  }, [q.data, site, doSiteFn]);
 
   const conta = useMemo(() => ({
     todas: doSite.length,

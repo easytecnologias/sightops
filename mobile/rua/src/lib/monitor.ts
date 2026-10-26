@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { detalhe, mesmoSite, useEntidades, useEventos, type Entidade, type EventoMon } from './dados';
+import { detalhe, mesmoSite, siteDoConector, useConectores, useEntidades, useEventos, type Entidade, type EventoMon } from './dados';
 
 /* Leitura do monitoramento por site: o que o tecnico precisa ver ao chegar. */
 
@@ -41,8 +41,23 @@ export const TIPO_NOME: Record<string, string> = {
   switch: 'switch', switch_provedor: 'switch', access_device: 'leitor', access_point: 'Wi-Fi', link: 'link', windows: 'PC',
 };
 
+/**
+ * Conectores do site escolhido. Um conector pode atender varios sub-sites
+ * (PERUCABA tem JARDINS I, RESERVA, INTERBLOCOS...): filtrar so pelo nome do
+ * site deixaria a tela vazia. Equipamento do site = mesmo nome OU mesmo conector.
+ */
+export function useFiltroSite(site: string | null) {
+  const cons = useConectores();
+  return useMemo(() => {
+    const ids = new Set((cons.data ?? []).filter((c) => site && mesmoSite(siteDoConector(c), site)).map((c) => String(c.id ?? '')).filter(Boolean));
+    return (siteDoItem?: string | null, conector?: string | null) =>
+      !site || mesmoSite(siteDoItem, site) || (!!conector && ids.has(String(conector)));
+  }, [cons.data, site]);
+}
+
 /** Entidades do site, por tipo, e o que precisa de atencao. */
 export function useSiteMonitor(site: string | null) {
+  const doSiteFn = useFiltroSite(site);
   const cams = useEntidades('camera');
   const nvrs = useEntidades('nvr');
   const onus = useEntidades('onu');
@@ -52,7 +67,7 @@ export function useSiteMonitor(site: string | null) {
   const eventos = useEventos();
 
   return useMemo(() => {
-    const doSite = (l?: Entidade[]) => (l ?? []).filter((e) => !site || mesmoSite(e.site, site));
+    const doSite = (l?: Entidade[]) => (l ?? []).filter((e) => doSiteFn(e.site, e.connector_id));
     const r = {
       cameras: doSite(cams.data), nvrs: doSite(nvrs.data), onus: doSite(onus.data),
       conectores: doSite(cons.data), switches: doSite(sws.data), olts: doSite(olts.data),
@@ -68,7 +83,7 @@ export function useSiteMonitor(site: string | null) {
     const buscando = cams.isFetching || onus.isFetching || cons.isFetching;
     const recarregar = () => { void cams.refetch(); void nvrs.refetch(); void onus.refetch(); void cons.refetch(); void eventos.refetch(); };
     return { ...r, atencao, mudancas, carregando, atualizadoEm, buscando, recarregar };
-  }, [site, cams, nvrs, onus, cons, sws, olts, eventos]);
+  }, [doSiteFn, cams, nvrs, onus, cons, sws, olts, eventos]);
 }
 
 /** Quanto tempo desde um texto de data do servidor (com ou sem fuso). */

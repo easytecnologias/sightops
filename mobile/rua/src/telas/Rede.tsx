@@ -1,6 +1,6 @@
 import { useMemo, useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { siteDoConector, mesmoSite, useConectores, useOlts, type Entidade } from '../lib/dados';
+import { ipDaOlt, siteDoConector, mesmoSite, useConectores, useOlts, type Entidade } from '../lib/dados';
 import { partesOnu, rxDa, sinalBaixo, useSiteMonitor } from '../lib/monitor';
 import { useSite } from '../lib/site';
 import { desde } from '../lib/tempo';
@@ -34,8 +34,8 @@ export function Rede() {
   }, [m.onus]);
 
   const conectores = (cons.data ?? []).filter((c) => !site || mesmoSite(siteDoConector(c), site));
-  const oltsDoSite = (olts.data ?? []).filter((o) => porOlt.has(o.ip ?? '') || (site && mesmoSite(o.site, site)));
-  const semCadastro = [...porOlt.keys()].filter((ip) => !oltsDoSite.some((o) => o.ip === ip));
+  const oltsDoSite = (olts.data ?? []).filter((o) => porOlt.has(ipDaOlt(o)) || (site && mesmoSite(o.site, site)));
+  const semCadastro = [...porOlt.keys()].filter((ip) => !oltsDoSite.some((o) => ipDaOlt(o) === ip));
 
   function buscar(ev: FormEvent) {
     ev.preventDefault();
@@ -111,8 +111,8 @@ export function Rede() {
       </Cartao>
 
       {olts.isPending && !olts.data ? <Carregando /> : null}
-      {oltsDoSite.map((o) => cartaoOlt(o.ip ?? '', o.name || o.ip || 'OLT',
-        [o.capability_label || [o.vendor, o.model].filter(Boolean).join(' '), `${(porOlt.get(o.ip ?? '') ? [...porOlt.get(o.ip ?? '')!.values()].reduce((a, p) => a + p.total, 0) : 0)} ONUs`, mediaRx(o.ip ?? '')].filter(Boolean).join(' · '),
+      {oltsDoSite.map((o) => cartaoOlt(ipDaOlt(o), o.name || ipDaOlt(o) || 'OLT',
+        [o.capability_label || [o.vendor, o.model].filter(Boolean).join(' '), `${(porOlt.get(ipDaOlt(o)) ? [...porOlt.get(ipDaOlt(o))!.values()].reduce((a, p) => a + p.total, 0) : 0)} ONUs`, mediaRx(ipDaOlt(o))].filter(Boolean).join(' · '),
         o.status || o.last_test_status))}
       {semCadastro.map((ip) => cartaoOlt(ip, `OLT ${ip}`, 'OLT sem cadastro no SightOps'))}
 

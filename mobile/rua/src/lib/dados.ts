@@ -28,6 +28,8 @@ export type Camera = {
   ocorrencia_em?: string;
   ocorrencia_por?: string;
   inventory_mode?: string;
+  connector_id?: string;
+  remote_connector_id?: string;
 };
 
 /** Chave de uma camera na navegacao. IP sozinho repete entre sites; com o
@@ -41,6 +43,9 @@ export type Conector = {
   name?: string;
   site?: string;
   client?: string;
+  type?: string;
+  status?: string;
+  /** Calculado aqui: a API manda `status` ("online"/"offline"), nao `online`. */
   online?: boolean;
 };
 
@@ -101,7 +106,7 @@ export function useConectores() {
     queryKey: ['conectores'],
     queryFn: async () => {
       const d = await obter<{ connectors?: Conector[] }>('/api/connectors');
-      return d.connectors ?? [];
+      return (d.connectors ?? []).map((c) => ({ ...c, online: String(c.status ?? '').toLowerCase() === 'online' }));
     },
   });
 }
@@ -229,9 +234,12 @@ export function useSinalOnu(entityKey?: string) {
 /* ───────────────────────── OLT ───────────────────────── */
 
 export type Olt = {
-  id: number; name?: string; ip?: string; vendor?: string; model?: string; site?: string; active?: boolean;
+  id: number; name?: string; host?: string; ip?: string; vendor?: string; model?: string; site?: string; active?: boolean;
   status?: string; last_test_status?: string; last_tested_at?: string; capability_label?: string; connector_id?: string;
 };
+
+/** IP da OLT: o cadastro chama de `host`. */
+export const ipDaOlt = (o?: Olt) => String(o?.host || o?.ip || '');
 
 export function useOlts() {
   return useQuery({

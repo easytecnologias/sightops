@@ -16,7 +16,11 @@ import { ConsultarOnu, ListaOnus } from './telas/ConsultarOnu';
 import { Conta } from './telas/Conta';
 import { Cameras } from './screens/Cameras';
 import { CameraDetalhe } from './screens/CameraDetalhe';
-import { Implantar } from './screens/Implantar';
+import { Implantar } from './telas/Implantar';
+import { OnuConfigurar, OnuEscolher, OnuPronta } from './telas/ImplantarOnu';
+import { CameraAtivar } from './telas/ImplantarCamera';
+import { GravadorCanais, Gravadores } from './telas/ImplantarGravador';
+import { ProvedorImplantar } from './lib/implantar';
 
 type Etapa = 'abertura' | 'apresentacao' | 'login' | 'pin' | 'criar-pin' | 'site' | 'dentro';
 
@@ -36,6 +40,12 @@ function Dentro(
             <Route path="/cameras" element={<Cameras />} />
             <Route path="/cameras/:chave" element={<CameraDetalhe />} />
             <Route path="/implantar" element={<Implantar />} />
+            <Route path="/implantar/onu" element={<OnuEscolher />} />
+            <Route path="/implantar/onu/configurar" element={<OnuConfigurar />} />
+            <Route path="/implantar/onu/pronta" element={<OnuPronta />} />
+            <Route path="/implantar/camera" element={<CameraAtivar />} />
+            <Route path="/implantar/gravador" element={<Gravadores />} />
+            <Route path="/implantar/gravador/:host" element={<GravadorCanais />} />
             <Route path="/alertas" element={<Alertas />} />
             <Route path="/rede" element={<Rede />} />
             <Route path="/onu" element={<ListaOnus />} />
@@ -129,11 +139,13 @@ export function App() {
   return (
     <HashRouter>
       <ProvedorToast>
+        <ProvedorImplantar>
         <Dentro
           aoSair={() => void sair()}
           aoTrocarPin={() => { void apagarPin().then(() => setEtapa('criar-pin')); }}
           aoVerApresentacao={() => { void apagar(VISTA_APRESENTACAO).then(() => setEtapa('apresentacao')); }}
         />
+        </ProvedorImplantar>
       </ProvedorToast>
     </HashRouter>
   );

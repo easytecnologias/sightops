@@ -3,6 +3,7 @@ import { chaveDa, estadoDa, siteDa, tituloDa, useCameras } from '../lib/dados';
 import { useFoto } from '../lib/foto';
 import { desde } from '../lib/tempo';
 import { Carregando, Cartao, Icone, Titulo, Vazio } from '../ui/pecas';
+import { AjustarCamera } from '../telas/AjustarCamera';
 
 function Ficha({ rot, val, mono }: { rot: string; val?: string | number | null; mono?: boolean }) {
   if (val === undefined || val === null || val === '') return null;
@@ -19,7 +20,9 @@ export function CameraDetalhe() {
   const ir = useNavigate();
   const q = useCameras();
 
-  const cam = (q.data ?? []).find((c) => chaveDa(c) === chave);
+  // O roteador entrega o parametro ja DECODIFICADO ("ip|mac"); chaveDa devolve
+  // codificado. Comparar so com chaveDa nunca casava: toda ficha dizia "nao encontrada".
+  const cam = (q.data ?? []).find((c) => `${c.ip ?? ''}|${c.mac ?? ''}` === chave || chaveDa(c) === chave);
   const foto = useFoto(cam?.snapshot_url);
 
   if (q.isPending && !q.data) return <Carregando />;
@@ -80,6 +83,8 @@ export function CameraDetalhe() {
           </div>
         </Cartao>
       ) : null}
+
+      <AjustarCamera cam={cam} />
 
       <Cartao>
         <h2>Identificação</h2>
