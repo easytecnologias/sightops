@@ -90,3 +90,13 @@ def test_fluxo_antigo_continua_sem_modo():
         assert W._modo_protocolo(antigo) == ""
     assert [W._modo_protocolo(x) for x in ("adaptativo", "onvif", "private", "personalizado")] == \
         ["adaptativo", "onvif", "private", "general"]
+
+
+def test_gravador_hikvision_onvif_usa_a_porta_http(grav, monkeypatch):
+    grav["marca"] = "hikvision"
+    vistos = {}
+    monkeypatch.setitem(W._ACOES["hikvision"], "adicionar", lambda base, u, p, **k: vistos.update(k) or {"comando": "x"})
+    W._gravar_com_modo("adicionar", "onvif", host="h", user="u", password="p", canal=3, porta_gravador=80,
+                       connector_id="c", ip="10.0.0.5", cam_user="onvif", cam_senha="s", nome="", porta=37777,
+                       porta_http=8080, porta_rtsp=None, url_principal="", url_extra="", camera_hik=True)
+    assert vistos["protocolo"] == "ONVIF" and vistos["porta"] == 8080

@@ -565,6 +565,10 @@ def _gravar_com_modo(acao: str, modo: str, *, host: str, user: str, password: st
         if modo == "general":
             raise ErroGravador("Personalizado (RTSP) por enquanto so em gravador Intelbras")
         funcao = _ACOES["hikvision"][acao]
+        if modo == "onvif":
+            # No InputProxy a porta do ONVIF e a HTTP da camera (80), nao a do
+            # protocolo proprietario: a tela manda as duas separadas.
+            comum = dict(comum, porta=porta_http or None)
         saida = funcao(base, user, password, canal=canal, protocolo=_HIK_PROTO[modo], **comum)
         saida.update({"ok": True, "acao": acao, "marca": marca, "canal": canal, "modo": modo})
         return saida
