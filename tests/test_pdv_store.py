@@ -249,3 +249,21 @@ def test_excluir_caixa_e_de_admin():
     from app.core.settings import get_settings
     m = ApiAuthMiddleware(FastAPI(), get_settings())
     assert m._match_role_rule("/api/pdv/caixas/abc", "DELETE") == "admin"
+
+
+def test_ao_vivo_mostra_o_item_na_hora_sem_esperar_a_tecla(banco):
+    """O item que ainda espera tecla aparece JA (provisorio) e nao e gravado antes da hora."""
+    c1 = _caixa()
+    caixa = S.autenticar(c1["id"], c1["token"])
+    ate_1003 = [l for l in ESP if l[1] < "08:16"]   # ate o item do cupom 1003
+    _enviar(caixa, ate_1003, [l for l in TEC if l[1] < "08:15:01"], agora=0.0)
+    v = S.ao_vivo(c1["id"])
+    assert v["cupom"]["cupom"] == "1003"
+    assert v["itens"][0]["descricao"] == "CAFE TORRADO 500G" and v["itens"][0].get("provisorio")
+    assert v["itens"][0]["modo"] == "scanner"           # a tecla ja tinha chegado
+    gravado = {k["cupom"]: k for k in S.buscar_cupons(DIA)}["1003"]
+    assert gravado["itens"] == 0 and v["cupom"]["itens"] == 1   # o item ainda nao foi gravado, so mostrado
+    _enviar(caixa, ESP, TEC, agora=10_000.0)              # chega o resto e libera
+    v = S.ao_vivo(c1["id"])
+    assert not any(i.get("provisorio") for i in v["itens"])
+    assert S.resumo_dia(DIA)["itens"] == 9

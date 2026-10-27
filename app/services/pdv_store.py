@@ -431,7 +431,24 @@ def ao_vivo(caixa_id: str) -> Dict[str, Any]:
             cancelados = _rows(c, "SELECT seq, ts, codigo, descricao, valor_centavos FROM pdv_eventos "
                                   "WHERE tenant_slug=? AND caixa_id=? AND dia=? AND cupom=? AND tipo='CIT' ORDER BY seq DESC",
                                (tenant, caixa_id, k["dia"], k["cupom"]))
-    return {"caixa": _publico(cx), "cupom": k, "itens": itens, "cancelados": cancelados}
+    # O que chegou e ainda espera tecla (ate 15 s): aparece JA, como provisorio.
+    # Sem isto a lista ficava ~10 s atras da imagem (medido no PDV 02, 27/10/2026).
+    with _lock:
+        pr = max(((d, p) for (t, cxid, d), p in _estado.items() if t == tenant and cxid == caixa_id),
+                 default=(None, None))[1]
+        previa = pr.previa() if pr is not None else None
+    if previa and previa["cupom"]:
+        if not k or previa["cupom"] != k["cupom"]:
+            k = {"cupom": previa["cupom"], "operador": previa["operador"], "aberto_em": previa["aberto_em"],
+                 "dia": pr.dia, "situacao": "aberto", "itens": 0, "itens_cancelados": 0, "total_centavos": 0,
+                 "pagamento": "", "fechado_em": ""}
+            itens = []
+        k = dict(k)
+        if previa["itens"]:
+            itens = list(reversed(previa["itens"])) + itens
+            k["itens"] = int(k.get("itens") or 0) + len(previa["itens"])
+            k["total_centavos"] = int(k.get("total_centavos") or 0) + sum(i["valor_centavos"] for i in previa["itens"])
+    return {"caixa": _publico(cx), "cupom": k, "itens": itens[:60], "cancelados": cancelados}
 
 
 def resumo_dia(dia: str, caixa_id: str = "") -> Dict[str, Any]:

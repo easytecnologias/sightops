@@ -278,7 +278,7 @@ function pdvRenderVivo() {
   _pdvVivo.timer = setInterval(() => {
     if (!pdvVisivel('viewPdvVivo')) { pdvParar(); return; }
     pdvAtualizarCupomVivo();
-  }, 3000);
+  }, 2000);
 }
 
 async function pdvAtualizarCupomVivo() {
@@ -304,7 +304,7 @@ async function pdvAtualizarCupomVivo() {
     <div class="pdv-cupom-itens">${itens.map(i => `
       <div class="pdv-cupom-item">
         <span class="pdv-hora">${esc(pdvHora(i.ts))}</span>
-        <div><strong>${esc(i.descricao || i.codigo)}</strong>${pdvChip(PDV_MODOS, i.modo)}</div>
+        <div><strong>${esc(i.descricao || i.codigo)}</strong>${pdvChip(PDV_MODOS, i.modo)}${i.provisorio ? ' <small class="pdv-muted" title="classificação ainda sendo confirmada pelo Teclas">…</small>' : ''}</div>
         <strong class="pdv-valor">${esc(pdvMoeda(i.valor_centavos))}</strong>
       </div>`).join('') || '<p class="pdv-nota">Cupom aberto, nenhum item ainda.</p>'}</div>
     <div class="pdv-cupom-total"><span>${pdvNum(k.itens)} itens${k.itens_cancelados ? ` · ${k.itens_cancelados} cancelado${k.itens_cancelados > 1 ? 's' : ''}` : ''}</span>

@@ -116,6 +116,32 @@ class ProcessadorDia(object):
                 self.pendentes.append((seq, ev, agora))
         return self._liberar(agora, final)
 
+    def previa(self) -> Dict[str, Any]:
+        """O que ja chegou e ainda espera tecla, SEM consumir nada: para o Ao vivo
+        mostrar o item na hora. O modo e provisorio (casa com a tecla que ja
+        existe); o definitivo sai quando a linha for liberada e gravada."""
+        cupom, operador, aberto, itens, fechou = self.cupom, self.operador, "", [], False
+        usados = set()
+        for seq, ev, _ in self.pendentes:
+            if ev.tipo == "ABRECUPOM":
+                cupom, operador, aberto, itens, fechou = ev.get("Cod") or None, ev.get("Descricao", "?") or "?", \
+                    "%s %s" % (self.dia, ev.hora), [], False
+            elif ev.tipo == "FECHACUPOM":
+                fechou = True
+            elif ev.tipo == "VIT" and cupom:
+                cod, d2 = L.sem_zeros(ev.get("Cod")), L.sem_zeros(ev.get("Desc2"))
+                modo = "sem_tecla"
+                cands = self.casador.por_codigo.get(cod, []) + (self.casador.por_codigo.get(d2, []) if d2 else [])
+                for i in cands:
+                    if i not in usados and not self.casador.usado[i] and abs(self.casador.entradas[i].t - ev.t) <= L.JANELA_CASAMENTO:
+                        usados.add(i)
+                        modo = self.casador.entradas[i].modo
+                        break
+                itens.append({"seq": seq, "ts": "%s %s" % (self.dia, ev.hora), "codigo": cod,
+                              "descricao": ev.get("Descricao"), "quant": ev.get("Quant"),
+                              "valor_centavos": centavos(ev.get("VlTotal")), "modo": modo, "provisorio": True})
+        return {"cupom": cupom, "operador": operador, "aberto_em": aberto, "itens": itens, "fechou": fechou}
+
     def finalizar(self) -> Dict[str, Any]:
         return self._liberar(time.time(), True)
 
