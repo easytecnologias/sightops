@@ -537,9 +537,10 @@ function pdvAbrirInstalacao(caixaId) {
     <form class="pdv-form" id="pdvInstForm" autocomplete="off">
       <h3>Instalar o coletor no ${esc(c.nome)}</h3>
       <p class="pdv-nota pdv-form-largo">O SightOps entra no caixa pelo túnel do conector da loja (nunca pelo IP público),
-        confere o caixa, copia o coletor e liga o serviço. Nada mais é alterado no caixa. A senha fica cifrada no SightOps.</p>
+        confere o caixa, copia o coletor e liga o serviço. Nada mais é alterado no caixa. A senha fica cifrada no SightOps.
+        Use o IP e a porta do caixa <strong>dentro da loja</strong> (SSH normalmente na 22), não os do roteador.</p>
       <label>IP do caixa na loja<input name="pdv_host" required value="${esc(c.pdv_host || '')}" placeholder="192.168.24.97"></label>
-      <label>Porta SSH<input name="ssh_porta" type="number" min="1" max="65535" value="${esc(c.ssh_porta || 22)}"></label>
+      <label>Porta SSH do caixa<input name="ssh_porta" type="number" min="1" max="65535" value="${esc(c.ssh_porta || 22)}" title="A porta do próprio caixa na rede da loja (normalmente 22), não a porta redirecionada no roteador"></label>
       <label>Usuário<input name="ssh_usuario" required value="${esc(c.ssh_usuario || '')}" placeholder="rpdv" autocomplete="off"></label>
       <label>Senha<input name="ssh_senha" type="password" autocomplete="new-password" placeholder="${c.tem_senha ? 'guardada (em branco mantém)' : ''}"></label>
       <div class="pdv-form-acoes">
