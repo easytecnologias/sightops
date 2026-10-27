@@ -50,7 +50,7 @@ EVENTOS_PADRAO = ["queda", "volta", "sem_imagem", "alarme", "panico"]
 TIPOS = {
     "camera": "Câmeras", "nvr": "NVR", "dvr": "DVR", "onu": "ONU", "olt": "OLT", "switch": "Switch",
     "access_point": "Access point", "access_device": "Controladoras", "connector": "Conector",
-    "windows": "Computadores", "whatsapp": "WhatsApp",
+    "windows": "Computadores", "whatsapp": "WhatsApp", "pdv": "Caixas (PDV)",
 }
 _CHAVE_BOT = "telegram_bot__tenant___platform"
 _CHAVE_ENVIOS = "notificacoes_envios"

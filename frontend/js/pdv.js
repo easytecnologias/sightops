@@ -1,0 +1,557 @@
+// Ponto de venda -- auditoria de caixa. Sem IA: os dados do proprio PDV
+// (Espiao + Teclas, mandados pelo coletor do caixa) e o video do gravador como
+// prova. Telas: Ao vivo, Visao geral, Cupons; caixas em Configuracoes.
+// Revisao e Operadores (regras e ranking) entram na fase 2.
+
+const PDV_MODOS = {
+  scanner: ['bipado', 'pdv-modo-bipado'],
+  manual: ['digitado', 'pdv-modo-digitado'],
+  menu: ['menu', 'pdv-modo-menu'],
+  outro: ['outro', 'pdv-modo-outro'],
+  sem_tecla: ['sem tecla', 'pdv-modo-outro'],
+};
+const PDV_SITUACAO = {
+  aberto: ['em andamento', 'pdv-sit-aberto'],
+  fechado: ['fechado', 'pdv-sit-ok'],
+  cancelado: ['cancelado', 'pdv-sit-cancelado'],
+};
+
+let _pdvCaixas = [];
+let _pdvDia = '';
+let _pdvTimer = null;
+let _pdvVivo = { caixaId: '', handle: null, timer: null };
+
+// ---------------------------------------------------------------- comum
+
+function pdvHoje() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function pdvMoeda(centavos) {
+  return (Number(centavos || 0) / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+}
+
+function pdvNum(n) {
+  return Number(n || 0).toLocaleString('pt-BR');
+}
+
+function pdvPlural(n, palavra) {
+  return `${pdvNum(n)} ${palavra}${Number(n) === 1 ? '' : 's'}`;
+}
+
+function pdvHora(ts) {
+  return String(ts || '').slice(11, 19);
+}
+
+function pdvChip(mapa, chave) {
+  const [txt, cls] = mapa[chave] || [chave || '-', 'pdv-modo-outro'];
+  return `<span class="pdv-chip ${cls}">${esc(txt)}</span>`;
+}
+
+function pdvDiaRotulo(dia) {
+  if (dia === pdvHoje()) return 'Hoje';
+  const [a, m, d] = dia.split('-');
+  return `${d}/${m}/${a}`;
+}
+
+function pdvMudarDia(dia, delta) {
+  const d = new Date(`${dia}T12:00:00`);
+  d.setDate(d.getDate() + delta);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function pdvIdade(ts) {
+  // ultimo_contato vem em UTC ('...Z'); devolve segundos ou null
+  if (!ts) return null;
+  const t = Date.parse(ts);
+  return Number.isNaN(t) ? null : Math.max(0, Math.round((Date.now() - t) / 1000));
+}
+
+function pdvSaudeCaixa(c) {
+  if (!c.ativo) return { cls: 'cinza', txt: 'desligado' };
+  const idade = pdvIdade(c.ultimo_contato);
+  if (idade === null) return { cls: 'cinza', txt: 'coletor não instalado' };
+  if (idade > 180) return { cls: 'ambar', txt: `sem contato há ${Math.round(idade / 60)} min` };
+  return { cls: 'verde', txt: 'coletando' };
+}
+
+function pdvRelogio(c) {
+  if (c.relogio_dvr_offset_s === null || c.relogio_dvr_offset_s === undefined) return 'não medido';
+  const s = Number(c.relogio_dvr_offset_s);
+  return `${s >= 0 ? '+' : ''}${s} s`;
+}
+
+async function pdvCarregarCaixas() {
+  const r = await apiJson('/api/pdv/caixas', { forceRefresh: true });
+  _pdvCaixas = r?.caixas || [];
+  return _pdvCaixas;
+}
+
+function pdvVisivel(viewId) {
+  const el = document.getElementById(viewId);
+  return el && !el.classList.contains('hidden');
+}
+
+function pdvParar() {
+  if (_pdvTimer) { clearInterval(_pdvTimer); _pdvTimer = null; }
+  if (_pdvVivo.timer) { clearInterval(_pdvVivo.timer); _pdvVivo.timer = null; }
+  if (_pdvVivo.handle) { try { _pdvVivo.handle.stop(); } catch (_) {} _pdvVivo.handle = null; }
+}
+
+function pdvSemCaixa(boxId) {
+  const box = document.getElementById(boxId);
+  if (!box) return;
+  box.innerHTML = `
+    <div class="pdv-vazio">
+      <div class="pdv-vazio-icone"><i data-lucide="scan-barcode"></i></div>
+      <h2>Nenhum caixa cadastrado</h2>
+      <p>Cadastre o caixa em Configurações › Ponto de venda e instale o coletor nele. Em até 1 minuto as vendas começam a aparecer aqui.</p>
+      <button class="secondary-action" type="button" data-pdv-config>Configurar caixas</button>
+    </div>`;
+  box.querySelector('[data-pdv-config]')?.addEventListener('click', pdvAbrirConfig);
+  lucide.createIcons();
+}
+
+function pdvAbrirConfig() {
+  document.querySelector('.nav-item[data-view="settings"]')?.click();
+  setTimeout(() => activateSettingsTab('pdv'), 50);
+}
+
+// ---------------------------------------------------------------- visao geral
+
+async function loadPdvVisao() {
+  pdvParar();
+  _pdvDia = _pdvDia || pdvHoje();
+  await pdvRenderVisao();
+  _pdvTimer = setInterval(() => {
+    if (!pdvVisivel('viewPdvVisao')) { pdvParar(); return; }
+    if (_pdvDia === pdvHoje()) pdvRenderVisao();
+  }, 15000);
+}
+
+async function pdvRenderVisao() {
+  const box = document.getElementById('pdvVisaoBody');
+  if (!box) return;
+  const [caixas, resumo] = await Promise.all([
+    pdvCarregarCaixas(),
+    apiJson(`/api/pdv/resumo?dia=${_pdvDia}`, { forceRefresh: true }),
+  ]);
+  setText('pdvVisaoDia', pdvDiaRotulo(_pdvDia));
+  if (!caixas.length) { pdvSemCaixa('pdvVisaoBody'); return; }
+  const r = resumo || {};
+  const m = r.modos || {};
+  const n = k => (m[k]?.n || 0);
+  const itens = r.itens || 0;
+  const pct = k => (itens ? `${(100 * n(k) / itens).toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%` : '-');
+  const coletando = caixas.filter(c => pdvSaudeCaixa(c).cls === 'verde').length;
+  const cup = r.cupons || {};
+  const ev = r.eventos || {};
+  const etapa = (num, rot, sub, icone, cor, seta = true) => `
+    <div class="pdv-etapa-wrap">
+      <div class="pdv-etapa pdv-etapa-${cor}">
+        <i data-lucide="${icone}"></i><strong>${num}</strong><span>${rot}</span><small>${sub}</small>
+      </div>${seta ? '<i data-lucide="arrow-right" class="pdv-seta"></i>' : ''}
+    </div>`;
+  box.innerHTML = `
+    <section class="metrics">
+      <article><div class="metric-icon green"><i data-lucide="monitor-check"></i></div>
+        <div><span>Caixas coletando</span><strong>${coletando} <small>/ ${caixas.length} cadastrados</small></strong></div></article>
+      <article><div class="metric-icon blue"><i data-lucide="banknote"></i></div>
+        <div><span>Vendido (cupons fechados)</span><strong>${pdvMoeda(r.vendido_centavos)}</strong></div></article>
+      <article><div class="metric-icon cyan"><i data-lucide="receipt"></i></div>
+        <div><span>Cupons fechados</span><strong>${pdvNum(cup.fechado)} <small>${pdvNum(cup.cancelado)} cancelados</small></strong></div></article>
+      <article><div class="metric-icon amber"><i data-lucide="x-circle"></i></div>
+        <div><span>Itens cancelados</span><strong>${pdvNum(ev.CIT)} <small>${itens ? (1000 * (ev.CIT || 0) / itens).toLocaleString('pt-BR', { maximumFractionDigits: 2 }) : '-'} por mil itens</small></strong></div></article>
+    </section>
+
+    <section class="panel pdv-painel pdv-pipeline">
+      <div class="pdv-panel-head"><h2>Como os itens entraram no caixa</h2><small>dados do próprio PDV · o vídeo é a prova</small></div>
+      <div class="pdv-etapas">
+        ${etapa(pdvNum(itens), 'Itens no caixa', pdvMoeda(Object.values(m).reduce((s, x) => s + (x.centavos || 0), 0)), 'scan-barcode', 'azul')}
+        ${etapa(pdvNum(n('scanner')), 'Bipados', pct('scanner'), 'scan-line', 'verde')}
+        ${etapa(pdvNum(n('manual') + n('menu')), 'Digitados / menu', `${pct('manual')} + ${pct('menu')}`, 'keyboard', 'ambar')}
+        ${etapa(pdvNum(n('sem_tecla') + n('outro')), 'Sem tecla', pct('sem_tecla'), 'help-circle', 'cinza')}
+        ${etapa(pdvNum((ev.CCV || 0) + (ev.CCG || 0)), 'Cupons cancelados', `${pdvNum(ev.DIT)} descontos em item`, 'ban', 'vermelho', false)}
+      </div>
+    </section>
+
+    <section class="panel pdv-painel">
+      <div class="pdv-panel-head"><h2>Saúde dos caixas</h2><small>também no Zabbix</small></div>
+      <div class="table-wrap"><table class="data-table pdv-tabela">
+        <thead><tr><th>Caixa</th><th>Coletor</th><th>Última venda lida</th><th>Gravador</th><th>Relógio gravador × caixa</th><th></th></tr></thead>
+        <tbody>${caixas.map(c => {
+          const s = pdvSaudeCaixa(c);
+          return `<tr>
+            <td><strong>${esc(c.nome)}</strong></td>
+            <td><span class="pdv-ponto pdv-ponto-${s.cls}"></span>${esc(s.txt)}</td>
+            <td>${c.ultimo_evento ? esc(`${c.ultimo_evento.slice(8, 10)}/${c.ultimo_evento.slice(5, 7)} ${c.ultimo_evento.slice(11, 16)}`) : '-'}</td>
+            <td>${c.gravador_host ? `${esc(c.gravador_host)} · canal ${c.gravador_canal}` : '-'}</td>
+            <td>${esc(pdvRelogio(c))}</td>
+            <td><button class="secondary-action pdv-mini" type="button" data-pdv-vivo="${esc(c.id)}"><span class="pdv-ponto pdv-ponto-vivo"></span>Ao vivo</button></td>
+          </tr>`;
+        }).join('')}</tbody>
+      </table></div>
+      <p class="pdv-nota">A diferença de relógio é medida e usada para achar o vídeo certo. O SightOps nunca altera a hora do gravador.</p>
+    </section>`;
+  box.querySelectorAll('[data-pdv-vivo]').forEach(b => b.addEventListener('click', () => {
+    _pdvVivo.caixaId = b.dataset.pdvVivo;
+    document.querySelector('.nav-item[data-view="pdv-vivo"]')?.click();
+  }));
+  lucide.createIcons();
+}
+
+function pdvVisaoDia(delta) {
+  _pdvDia = pdvMudarDia(_pdvDia || pdvHoje(), delta);
+  if (_pdvDia > pdvHoje()) _pdvDia = pdvHoje();
+  pdvRenderVisao();
+}
+
+// ---------------------------------------------------------------- ao vivo
+
+async function loadPdvVivo() {
+  pdvParar();
+  const caixas = await pdvCarregarCaixas();
+  if (!caixas.length) { pdvSemCaixa('pdvVivoBody'); return; }
+  if (!caixas.some(c => c.id === _pdvVivo.caixaId)) _pdvVivo.caixaId = caixas[0].id;
+  pdvRenderVivo();
+}
+
+function pdvRenderVivo() {
+  const box = document.getElementById('pdvVivoBody');
+  const c = _pdvCaixas.find(x => x.id === _pdvVivo.caixaId);
+  if (!box || !c) return;
+  box.innerHTML = `
+    <div class="pdv-vivo">
+      <section class="pdv-palco">
+        <video id="pdvVivoVideo" autoplay muted playsinline></video>
+        <div class="pdv-palco-topo">
+          <div><span class="pdv-selo-vivo"><span></span>Ao vivo</span><strong>${esc(c.nome)}</strong></div>
+          <span class="pdv-palco-info">${c.gravador_host ? `canal ${c.gravador_canal}` : ''}</span>
+        </div>
+        <div class="pdv-palco-aviso" id="pdvVivoAviso">${c.gravador_host && c.gravador_canal ? 'Conectando...' : 'Este caixa ainda não tem gravador e canal configurados.'}</div>
+        <div class="pdv-palco-osd" id="pdvVivoOsd" hidden></div>
+      </section>
+      <aside class="panel pdv-painel pdv-cupom-vivo" id="pdvCupomVivo"><p class="pdv-nota">Carregando o cupom...</p></aside>
+    </div>
+    <section class="pdv-miniaturas">${_pdvCaixas.map(x => {
+      const s = pdvSaudeCaixa(x);
+      return `<button type="button" class="pdv-miniatura ${x.id === c.id ? 'ativa' : ''}" data-pdv-caixa="${esc(x.id)}">
+        <strong>${esc(x.nome)}</strong><span><span class="pdv-ponto pdv-ponto-${s.cls}"></span>${esc(s.txt)}</span>
+      </button>`;
+    }).join('')}</section>
+    <p class="pdv-nota">O vídeo sai do gravador pelo conector da loja, como as outras câmeras do SightOps. O caixa não transmite vídeo.</p>`;
+  box.querySelectorAll('[data-pdv-caixa]').forEach(b => b.addEventListener('click', () => {
+    pdvParar();
+    _pdvVivo.caixaId = b.dataset.pdvCaixa;
+    pdvRenderVivo();
+  }));
+  lucide.createIcons();
+
+  if (c.gravador_host && c.gravador_canal && typeof mountLiveStream === 'function') {
+    const video = document.getElementById('pdvVivoVideo');
+    _pdvVivo.handle = mountLiveStream(video, {
+      ip: c.gravador_host, user: 'admin', pass: '', subtype: 1, connectorId: c.connector_id,
+      registrar: async () => {
+        const res = await api('/api/deployments/recorder-live-stream', {
+          method: 'POST',
+          body: JSON.stringify({ recorder_host: c.gravador_host, canal: Number(c.gravador_canal), connector_id: c.connector_id, alta: 0 }),
+        });
+        const r = await res?.json().catch(() => ({}));
+        if (res?.status === 428) throw new Error('Este gravador não tem senha guardada.');
+        if (!res?.ok || !r?.stream_name) throw new Error(r?.detail || 'não consegui preparar o vídeo');
+        return r.stream_name;
+      },
+      onStatus: texto => {
+        const aviso = document.getElementById('pdvVivoAviso');
+        if (aviso) { aviso.hidden = !texto; if (texto) aviso.textContent = texto; }
+      },
+    });
+  }
+  pdvAtualizarCupomVivo();
+  _pdvVivo.timer = setInterval(() => {
+    if (!pdvVisivel('viewPdvVivo')) { pdvParar(); return; }
+    pdvAtualizarCupomVivo();
+  }, 3000);
+}
+
+async function pdvAtualizarCupomVivo() {
+  const caixaId = _pdvVivo.caixaId;
+  const r = await apiJson(`/api/pdv/ao-vivo/${encodeURIComponent(caixaId)}`, { forceRefresh: true });
+  const box = document.getElementById('pdvCupomVivo');
+  if (!box || caixaId !== _pdvVivo.caixaId) return;
+  const k = r?.cupom;
+  if (!k) { box.innerHTML = '<p class="pdv-nota">Nenhuma venda recebida deste caixa ainda.</p>'; return; }
+  const itens = r.itens || [];
+  const osd = document.getElementById('pdvVivoOsd');
+  if (osd && itens[0]) {
+    osd.hidden = false;
+    osd.innerHTML = `<span>CUPOM ${esc(k.cupom)}</span>${esc(itens[0].descricao || '')} ${esc(pdvMoeda(itens[0].valor_centavos))}`;
+  }
+  const cancel = new Set((r.cancelados || []).map(x => `${x.codigo}`));
+  box.innerHTML = `
+    <div class="pdv-cupom-topo">
+      <div><small>${k.situacao === 'aberto' ? 'Cupom em andamento' : 'Último cupom'}</small><strong>${esc(k.cupom)}</strong>
+        <span>aberto ${esc(pdvHora(k.aberto_em))} · ${esc(k.operador || '-')}</span></div>
+      ${pdvChip(PDV_SITUACAO, k.situacao)}
+    </div>
+    <div class="pdv-cupom-itens">${itens.map(i => `
+      <div class="pdv-cupom-item">
+        <span class="pdv-hora">${esc(pdvHora(i.ts))}</span>
+        <div><strong>${esc(i.descricao || i.codigo)}</strong>${pdvChip(PDV_MODOS, i.modo)}</div>
+        <strong class="pdv-valor">${esc(pdvMoeda(i.valor_centavos))}</strong>
+      </div>`).join('') || '<p class="pdv-nota">Cupom aberto, nenhum item ainda.</p>'}</div>
+    <div class="pdv-cupom-total"><span>${pdvNum(k.itens)} itens${k.itens_cancelados ? ` · ${k.itens_cancelados} cancelado${k.itens_cancelados > 1 ? 's' : ''}` : ''}</span>
+      <strong>${esc(pdvMoeda(k.total_centavos))}</strong></div>
+    ${k.itens_cancelados ? `<div class="pdv-aviso">Item cancelado neste cupom${cancel.size ? '' : ''}. Fica disponível para revisão com o vídeo.</div>` : ''}`;
+}
+
+// ---------------------------------------------------------------- cupons
+
+async function loadPdvCupons() {
+  pdvParar();
+  const caixas = await pdvCarregarCaixas();
+  const sel = document.getElementById('pdvCupFiltroCaixa');
+  if (sel) {
+    const atual = sel.value;
+    sel.innerHTML = '<option value="">Todos os caixas</option>' + caixas.map(c => `<option value="${esc(c.id)}">${esc(c.nome)}</option>`).join('');
+    sel.value = atual;
+  }
+  const dia = document.getElementById('pdvCupFiltroDia');
+  if (dia && !dia.value) dia.value = pdvHoje();
+  if (!caixas.length) { pdvSemCaixa('pdvCuponsBody'); return; }
+  pdvBuscarCupons();
+}
+
+async function pdvBuscarCupons() {
+  const v = id => encodeURIComponent(document.getElementById(id)?.value || '');
+  const q = `dia=${v('pdvCupFiltroDia')}&caixa_id=${v('pdvCupFiltroCaixa')}&situacao=${v('pdvCupFiltroSituacao')}`
+    + `&texto=${v('pdvCupFiltroBusca')}&de=${v('pdvCupFiltroDe')}&ate=${v('pdvCupFiltroAte')}`;
+  const box = document.getElementById('pdvCuponsBody');
+  if (!box) return;
+  box.innerHTML = '<p class="pdv-nota">Buscando...</p>';
+  const r = await apiJson(`/api/pdv/cupons?${q}`, { forceRefresh: true });
+  const cupons = r?.cupons || [];
+  box.innerHTML = cupons.length ? `
+    <div class="table-wrap"><table class="data-table pdv-tabela">
+      <thead><tr><th>Hora</th><th>Caixa</th><th>Cupom</th><th>Operador</th><th class="num">Itens</th><th>Entrada</th>
+        <th>Pagamento</th><th class="num">Total</th><th>Situação</th></tr></thead>
+      <tbody>${cupons.map(k => `
+        <tr class="pdv-linha-clicavel" data-pdv-cupom="${esc(k.caixa_id)}|${esc(k.dia)}|${esc(k.cupom)}">
+          <td>${esc(pdvHora(k.aberto_em).slice(0, 5))}</td><td>${esc(k.caixa)}</td><td><strong>${esc(k.cupom)}</strong></td>
+          <td>${esc(k.operador)}</td><td class="num">${pdvNum(k.itens)}</td>
+          <td class="pdv-muted">${pdvPlural(k.bipados, 'bipado')}${k.digitados ? ` · ${pdvPlural(k.digitados, 'digitado')}` : ''}${k.menu ? ` · ${k.menu} menu` : ''}</td>
+          <td>${esc(k.pagamento || '-')}</td><td class="num"><strong>${esc(pdvMoeda(k.total_centavos))}</strong></td>
+          <td>${pdvChip(PDV_SITUACAO, k.situacao)}${k.itens_cancelados ? ` <span class="pdv-chip pdv-sit-alerta">${k.itens_cancelados} item canc.</span>` : ''}</td>
+        </tr>`).join('')}</tbody>
+    </table></div>
+    <p class="pdv-nota">${cupons.length} cupons${cupons.length >= 200 ? ' (mostrando os 200 mais recentes; filtre por horário)' : ''}.</p>
+    <div id="pdvCupomDetalhe"></div>`
+    : '<p class="pdv-nota">Nenhum cupom com esses filtros.</p>';
+  box.querySelectorAll('[data-pdv-cupom]').forEach(tr => tr.addEventListener('click', () => {
+    box.querySelectorAll('.pdv-linha-clicavel').forEach(x => x.classList.toggle('ativa', x === tr));
+    pdvAbrirCupom(...tr.dataset.pdvCupom.split('|'));
+  }));
+}
+
+async function pdvAbrirCupom(caixaId, dia, cupom) {
+  const box = document.getElementById('pdvCupomDetalhe');
+  if (!box) return;
+  box.innerHTML = '<p class="pdv-nota">Abrindo o cupom...</p>';
+  const r = await apiJson(`/api/pdv/cupons/${encodeURIComponent(caixaId)}/${dia}/${encodeURIComponent(cupom)}`, { forceRefresh: true });
+  if (!r?.cupom) { box.innerHTML = '<p class="pdv-nota">Não consegui abrir o cupom.</p>'; return; }
+  const k = r.cupom;
+  box.innerHTML = `
+    <section class="panel pdv-painel pdv-detalhe">
+      <div class="pdv-panel-head">
+        <div><h2>Cupom ${esc(k.cupom)} · ${esc(r.caixa.nome)} · ${esc(k.operador)}</h2>
+          <small>aberto ${esc(pdvHora(k.aberto_em))}${k.fechado_em ? ` · ${k.situacao === 'cancelado' ? 'cancelado' : 'fechado'} ${esc(pdvHora(k.fechado_em))}` : ''} · ${esc(k.pagamento || 'sem pagamento')}</small></div>
+        <button class="secondary-action" type="button" data-pdv-video="${esc(k.aberto_em)}"><i data-lucide="video"></i> Ver vídeo do cupom</button>
+      </div>
+      <div id="pdvVideoBox"></div>
+      <div class="pdv-detalhe-grade">
+        <div class="table-wrap"><table class="data-table pdv-tabela">
+          <thead><tr><th>Hora</th><th>Código</th><th>Produto</th><th class="num">Qtd</th><th class="num">Valor</th><th>Como entrou</th><th></th></tr></thead>
+          <tbody>${(r.itens || []).map(i => `<tr>
+            <td>${esc(pdvHora(i.ts))}</td><td>${esc(i.codigo)}</td><td>${esc(i.descricao)}</td><td class="num">${esc(i.quant)}</td>
+            <td class="num">${esc(pdvMoeda(i.valor_centavos))}</td><td>${pdvChip(PDV_MODOS, i.modo)}</td>
+            <td><button class="secondary-action pdv-mini" type="button" data-pdv-video="${esc(i.ts)}" title="Vídeo deste item"><i data-lucide="video"></i></button></td>
+          </tr>`).join('')}</tbody>
+        </table></div>
+        <div class="pdv-linha-tempo">
+          <h3>Linha do tempo do caixa</h3>
+          ${(r.linha_do_tempo || []).map(e => `<div class="pdv-evento pdv-ev-${esc(e.tipo)}">
+            <span class="pdv-hora">${esc(pdvHora(e.ts))}</span><span>${esc(pdvEventoTexto(e))}</span></div>`).join('')}
+        </div>
+      </div>
+    </section>`;
+  box.querySelectorAll('[data-pdv-video]').forEach(b => b.addEventListener('click', () => pdvVerVideo(caixaId, b.dataset.pdvVideo)));
+  lucide.createIcons();
+  box.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+const PDV_EVENTO_NOME = {
+  ABRECUPOM: 'Cupom aberto', VIT: 'Item', CIT: 'Item cancelado', SBT: 'Subtotal', FIN: 'Pagamento',
+  TRC: 'Troco', FECHACUPOM: 'Cupom fechado', CCV: 'Cupom cancelado', CCG: 'Cancelamento de cupom anterior',
+  SUP: 'Liberação de supervisor', SUPERVISOR: 'Supervisor', GER: 'Tecla de gerente', GAV: 'Gaveta aberta',
+  SGR: 'Sangria', DIT: 'Desconto no item', DST: 'Desconto no subtotal', DAS: 'Desconto retirado',
+  MTP: 'Multiplicação', ITEMSEMCAD: 'Código sem cadastro', CSP: 'Consulta de preço', CLIENTE: 'Cliente identificado',
+  VENDACF: 'Início da venda', EOP: 'Entrada do operador', SOP: 'Saída do operador',
+};
+
+function pdvEventoTexto(e) {
+  const nome = PDV_EVENTO_NOME[e.tipo] || e.tipo;
+  const valor = e.valor_centavos ? ` · ${pdvMoeda(e.valor_centavos)}` : '';
+  const desc = ['VIT', 'CIT', 'FIN', 'DIT', 'SUPERVISOR', 'ITEMSEMCAD'].includes(e.tipo) ? ` · ${e.descricao || e.codigo || ''}` : '';
+  return `${nome}${desc}${valor}`;
+}
+
+async function pdvVerVideo(caixaId, ts) {
+  const box = document.getElementById('pdvVideoBox');
+  if (!box) return;
+  box.innerHTML = '<p class="pdv-nota">Calculando o horário no gravador...</p>';
+  const j = await apiJson(`/api/pdv/video/${encodeURIComponent(caixaId)}?ts=${encodeURIComponent(ts)}&antes=15&depois=45`, { forceRefresh: true });
+  if (!j?.host) { box.innerHTML = '<p class="pdv-nota pdv-erro">Este caixa ainda não tem gravador e canal configurados.</p>'; return; }
+  const aviso = j.relogio_medido ? `gravador ${j.gravador_menos_caixa_s >= 0 ? '+' : ''}${j.gravador_menos_caixa_s} s em relação ao caixa`
+    : 'relógio do gravador ainda não medido: o vídeo pode estar alguns segundos deslocado';
+  box.innerHTML = `<p class="pdv-nota">Baixando do gravador ${esc(j.inicio.slice(11))} a ${esc(j.fim.slice(11))} (${esc(aviso)})... leva mais ou menos o tempo do trecho.</p>`;
+  const res = await api('/api/nvr/driver/trecho/iniciar', {
+    method: 'POST', body: JSON.stringify({ host: j.host, http_port: 80, canal: j.canal, inicio: j.inicio, fim: j.fim, connector_id: j.connector_id }),
+  });
+  const ini = await res?.json().catch(() => ({}));
+  if (!res?.ok || !ini?.job_id) {
+    box.innerHTML = `<p class="pdv-nota pdv-erro">${esc(res?.status === 428 ? 'O gravador não tem senha guardada no SightOps.' : (ini?.detail || 'Não consegui pedir o vídeo ao gravador.'))}</p>`;
+    return;
+  }
+  for (let i = 0; i < 120; i++) {
+    await new Promise(ok => setTimeout(ok, 2000));
+    if (!document.getElementById('pdvVideoBox')) return;
+    const st = await apiJson(`/api/nvr/driver/trecho/status?job_id=${ini.job_id}`, { forceRefresh: true });
+    if (st?.estado === 'pronto') {
+      box.innerHTML = `<video class="pdv-video" src="${esc(st.url)}" controls autoplay muted playsinline></video>
+        <p class="pdv-nota">Hora no caixa ${esc(j.momento_caixa.slice(11))} · no gravador ${esc(j.momento_gravador.slice(11))} · ${esc(aviso)}.</p>`;
+      return;
+    }
+    if (st?.estado === 'erro') { box.innerHTML = `<p class="pdv-nota pdv-erro">${esc(st.erro || 'O gravador não entregou o trecho.')}</p>`; return; }
+  }
+  box.innerHTML = '<p class="pdv-nota pdv-erro">O gravador demorou demais para entregar o trecho.</p>';
+}
+
+// ---------------------------------------------------------------- configuracoes
+
+async function loadPdvConfig() {
+  const box = document.getElementById('pdvConfigBody');
+  if (!box) return;
+  const [caixas, con] = await Promise.all([pdvCarregarCaixas(), apiJson('/api/connectors', { forceRefresh: true })]);
+  const conectores = con?.connectors || con?.items || [];
+  const opcoesCon = sel => '<option value="">Sem conector</option>' + conectores.map(c =>
+    `<option value="${esc(c.id)}" ${c.id === sel ? 'selected' : ''}>${esc(c.name || c.id)}</option>`).join('');
+  box.innerHTML = `
+    <div class="table-wrap"><table class="data-table pdv-tabela pdv-tabela-config">
+      <thead><tr><th>Caixa</th><th>Gravador e canal</th><th>Coletor</th><th>Relógio</th><th>Token</th><th></th></tr></thead>
+      <tbody>${caixas.map(c => {
+        const s = pdvSaudeCaixa(c);
+        return `<tr>
+          <td><strong>${esc(c.nome)}</strong><small class="pdv-muted"> · estação ${String(c.numero).padStart(3, '0')}</small></td>
+          <td>${c.gravador_host ? `${esc(c.gravador_host)} · canal ${c.gravador_canal}` : '-'}</td>
+          <td><span class="pdv-ponto pdv-ponto-${s.cls}"></span>${esc(s.txt)}${c.coletor_versao ? ` <small class="pdv-muted">v${esc(c.coletor_versao)}</small>` : ''}</td>
+          <td>${esc(pdvRelogio(c))}</td>
+          <td><code>${esc(c.token_prefixo || '')}…</code></td>
+          <td><div class="pdv-acoes">
+            <button class="secondary-action pdv-mini" type="button" data-pdv-editar="${esc(c.id)}">Editar</button>
+            <button class="secondary-action pdv-mini" type="button" data-pdv-relogio="${esc(c.id)}">Medir relógio</button>
+            <button class="secondary-action pdv-mini" type="button" data-pdv-token="${esc(c.id)}">Novo token</button>
+          </div></td></tr>`;
+      }).join('') || '<tr><td colspan="6" class="pdv-muted">Nenhum caixa cadastrado.</td></tr>'}</tbody>
+    </table></div>
+    <form class="pdv-form" id="pdvCaixaForm" autocomplete="off">
+      <h3 id="pdvCaixaFormTitulo">Adicionar caixa</h3>
+      <input type="hidden" name="id">
+      <label>Nome<input name="nome" required maxlength="60" placeholder="PDV 01"></label>
+      <label>Estação<input name="numero" type="number" min="1" max="999" value="1" title="O .NNN do arquivo do PDV (Espiao271026.001 = 1)"></label>
+      <label>Local<input name="site" maxlength="120" placeholder="Loja"></label>
+      <label>Conector<select name="connector_id">${opcoesCon('')}</select></label>
+      <label>Gravador (IP na loja)<input name="gravador_host" maxlength="120" placeholder="192.168.24.227"></label>
+      <label>Canal da câmera do caixa<input name="gravador_canal" type="number" min="0" max="256" value="0"></label>
+      <div class="pdv-form-acoes">
+        <button class="secondary-action" type="button" id="pdvCaixaCancelar" hidden>Cancelar</button>
+        <button class="primary-action" type="submit">Salvar caixa</button>
+      </div>
+    </form>
+    <div id="pdvTokenBox"></div>
+    <p class="pdv-nota">Cada caixa conta como 1 equipamento na licença. Monitorar operador exige ciência por escrito dos funcionários.</p>`;
+
+  const form = document.getElementById('pdvCaixaForm');
+  const preencher = c => {
+    form.id.value = c?.id || '';
+    form.nome.value = c?.nome || '';
+    form.numero.value = c?.numero || 1;
+    form.site.value = c?.site || '';
+    form.connector_id.innerHTML = opcoesCon(c?.connector_id || '');
+    form.gravador_host.value = c?.gravador_host || '';
+    form.gravador_canal.value = c?.gravador_canal || 0;
+    document.getElementById('pdvCaixaFormTitulo').textContent = c ? `Editar ${c.nome}` : 'Adicionar caixa';
+    document.getElementById('pdvCaixaCancelar').hidden = !c;
+  };
+  box.querySelectorAll('[data-pdv-editar]').forEach(b => b.addEventListener('click', () => {
+    preencher(caixas.find(c => c.id === b.dataset.pdvEditar));
+    form.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }));
+  document.getElementById('pdvCaixaCancelar').addEventListener('click', () => preencher(null));
+  form.addEventListener('submit', async ev => {
+    ev.preventDefault();
+    const dados = Object.fromEntries(new FormData(form).entries());
+    const res = await api('/api/pdv/caixas', { method: 'POST', body: JSON.stringify(dados) });
+    const r = await res?.json().catch(() => ({}));
+    if (!res?.ok) { showToast(r?.detail || 'Não consegui salvar o caixa.', true); return; }
+    showToast('Caixa salvo.');
+    await loadPdvConfig();
+    if (r.caixa?.token) pdvMostrarToken(r.caixa.id, r.caixa.token);
+  });
+  box.querySelectorAll('[data-pdv-token]').forEach(b => b.addEventListener('click', async () => {
+    if (!confirm('Gerar um token novo? O coletor que está no caixa para de enviar até receber o token novo.')) return;
+    const res = await api(`/api/pdv/caixas/${encodeURIComponent(b.dataset.pdvToken)}/token`, { method: 'POST', body: '{}' });
+    const r = await res?.json().catch(() => ({}));
+    if (!res?.ok) { showToast(r?.detail || 'Não consegui gerar o token.', true); return; }
+    await loadPdvConfig();
+    pdvMostrarToken(r.id, r.token);
+  }));
+  box.querySelectorAll('[data-pdv-relogio]').forEach(b => b.addEventListener('click', async () => {
+    b.disabled = true;
+    const res = await api(`/api/pdv/relogio/${encodeURIComponent(b.dataset.pdvRelogio)}`, { method: 'POST', body: '{}' });
+    const r = await res?.json().catch(() => ({}));
+    b.disabled = false;
+    if (!res?.ok) { showToast(r?.detail || 'Não consegui ler o relógio do gravador.', true); return; }
+    showToast(`Gravador ${r.gravador_menos_caixa_s >= 0 ? '+' : ''}${r.gravador_menos_caixa_s} s em relação ao caixa. Nada foi alterado no gravador.`);
+    loadPdvConfig();
+  }));
+  lucide.createIcons();
+}
+
+function pdvMostrarToken(caixaId, token) {
+  const box = document.getElementById('pdvTokenBox');
+  if (!box) return;
+  const base = window.location.origin;
+  const cmd = `sudo sh instalar.sh ${base} ${caixaId} ${token}`;
+  box.innerHTML = `
+    <div class="pdv-token">
+      <strong>Token do coletor -- aparece só agora. Copie antes de sair desta tela.</strong>
+      <p>No caixa, na pasta com os arquivos do coletor (sightops_pdv_coletor.py, instalar.sh e o .service), rode:</p>
+      <pre id="pdvTokenCmd">${esc(cmd)}</pre>
+      <button class="secondary-action" type="button" id="pdvTokenCopiar">Copiar comando</button>
+    </div>`;
+  document.getElementById('pdvTokenCopiar').addEventListener('click', () => {
+    navigator.clipboard?.writeText(cmd).then(() => showToast('Comando copiado.'));
+  });
+  box.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('pdvVisaoAnterior')?.addEventListener('click', () => pdvVisaoDia(-1));
+  document.getElementById('pdvVisaoProximo')?.addEventListener('click', () => pdvVisaoDia(1));
+  document.getElementById('pdvCupBuscar')?.addEventListener('click', pdvBuscarCupons);
+  document.getElementById('pdvCupFiltroBusca')?.addEventListener('keydown', ev => { if (ev.key === 'Enter') pdvBuscarCupons(); });
+  ['pdvCupFiltroDia', 'pdvCupFiltroCaixa', 'pdvCupFiltroSituacao'].forEach(id =>
+    document.getElementById(id)?.addEventListener('change', pdvBuscarCupons));
+  document.querySelector('[data-settings-tab="pdv"]')?.addEventListener('click', loadPdvConfig);
+});

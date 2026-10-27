@@ -633,6 +633,9 @@ const VIEW_META = {
   'alert-members':  { title: 'Pessoas e aparelhos', sub: 'Quem pode pedir ajuda e se o celular esta pronto' },
   'alert-reports':  { title: 'Relatorios do Alerta', sub: 'Pedidos de ajuda e como foram atendidos' },
   'rotas-vivo':     { title: 'Controle de Rotas', sub: 'Ônibus em viagem agora' },
+  'pdv-vivo':       { title: 'Ponto de venda', sub: 'Câmera e cupom de cada caixa agora' },
+  'pdv-visao':      { title: 'Ponto de venda', sub: 'Como os itens entraram e a saúde dos caixas' },
+  'pdv-cupons':     { title: 'Ponto de venda', sub: 'Cupons, itens e vídeo de cada venda' },
   'rotas-viagens':  { title: 'Controle de Rotas', sub: 'Viagens e as 6 provas do PNATE' },
   'rotas-cadastro': { title: 'Controle de Rotas', sub: 'Rotas, paradas e alunos' },
   'rotas-frota':    { title: 'Controle de Rotas', sub: 'Veículos, motoristas e vencimentos' },
@@ -685,6 +688,9 @@ const VIEW_ID_MAP = {
   'alert-members':   'viewAlertMembers',
   'alert-reports':   'viewAlertReports',
   'rotas-vivo':      'viewRotasVivo',
+  'pdv-vivo':        'viewPdvVivo',
+  'pdv-visao':       'viewPdvVisao',
+  'pdv-cupons':      'viewPdvCupons',
   'rotas-viagens':   'viewRotasViagens',
   'rotas-cadastro':  'viewRotasCadastro',
   'rotas-frota':     'viewRotasFrota',
@@ -810,6 +816,9 @@ function loadView(view) {
     case 'alert-members':  loadAlertMembers();  break;
     case 'alert-reports':  loadAlertReports();  break;
     case 'rotas-vivo':     loadRotasVivo();     break;
+    case 'pdv-vivo':       loadPdvVivo();       break;
+    case 'pdv-visao':      loadPdvVisao();      break;
+    case 'pdv-cupons':     loadPdvCupons();     break;
     case 'rotas-viagens':  loadRotasViagens();  break;
     case 'rotas-cadastro': loadRotasCadastro(); break;
     case 'rotas-frota':    loadRotasFrota();    break;

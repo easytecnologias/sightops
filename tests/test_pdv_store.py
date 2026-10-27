@@ -35,6 +35,7 @@ def banco(tmp_path, monkeypatch):
     monkeypatch.setattr(tenant_context, "DATA_DIR", tmp_path)
     db_store.init_db()
     S._estado.clear()
+    monkeypatch.setattr(S, "gravadores_do_cliente", lambda: {"192.168.24.227"})
     tok = set_current_tenant_slug("mercado-a")
     yield
     reset_current_tenant_slug(tok)
@@ -192,9 +193,12 @@ def test_video_no_relogio_do_gravador(banco, monkeypatch):
     import datetime as dt
     agora = dt.datetime.now()
     S.receber_lote(caixa, {"relogio": (agora + dt.timedelta(seconds=2)).strftime("%Y-%m-%d %H:%M:%S"), "lotes": []})
-    assert S.registrar_relogio_dvr(c1["id"], 6)["gravador_menos_caixa_s"] == 4
-    j = S.janela_video(c1["id"], "2026-10-27 15:12:04", antes=0, depois=10)
-    assert j["momento_gravador"] == "2026-10-27 15:12:08" and j["relogio_medido"] is True
+    pdv_off = S.listar_caixas()[0]["relogio_pdv_offset_s"]
+    assert pdv_off in (1, 2, 3)  # 2 s, com folga para a virada de segundo
+    dif = S.registrar_relogio_dvr(c1["id"], 6)["gravador_menos_caixa_s"]
+    assert dif == 6 - pdv_off
+    j = S.janela_video(c1["id"], "2026-10-27 15:12:00", antes=0, depois=10)
+    assert j["momento_gravador"] == "2026-10-27 15:12:%02d" % dif and j["relogio_medido"] is True
     sem = S.salvar_caixa({"nome": "PDV 02", "numero": 2})
     with pytest.raises(ValueError):
         S.janela_video(sem["id"], "2026-10-27 15:12:04")
@@ -213,3 +217,9 @@ def test_caixa_vira_entidade_de_monitoramento(banco):
     assert e["PDV 01"]["detail"]["contato_s"] <= 5
     e = {x["display_name"]: x for x in S.entidades_monitoramento(agora + dt.timedelta(minutes=10))}
     assert e["PDV 01"]["status"] == "offline"
+
+
+def test_gravador_tem_que_ser_do_inventario_do_cliente(banco):
+    with pytest.raises(ValueError):
+        S.salvar_caixa({"nome": "PDV 05", "numero": 5, "gravador_host": "10.0.0.99", "gravador_canal": 1})
+    assert S.salvar_caixa({"nome": "PDV 05", "numero": 5, "gravador_host": "192.168.24.227", "gravador_canal": 5})["id"]

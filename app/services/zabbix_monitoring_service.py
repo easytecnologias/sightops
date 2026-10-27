@@ -292,6 +292,25 @@ def _mensagens_telegram(entity_type: str) -> tuple[str, str]:
             "\U0001F552 <b>Quando:</b> {EVENT.RECOVERY.DATE} {EVENT.RECOVERY.TIME}",
         ])
         return problema, recuperacao
+    if entity_type == "pdv":
+        problema = "\n".join([
+            "\U0001F534 <b>CAIXA SEM COLETOR</b>",
+            "",
+            "\U0001F6D2 <b>Caixa:</b> {HOST.NAME}",
+            "",
+            "⚠️ <b>Problema:</b> o SightOps parou de receber as vendas deste caixa.",
+            "\U0001F6E0 <b>O que fazer:</b> confira se o caixa esta ligado e com rede, e o servico sightops-pdv-coletor.",
+            "Enquanto isso as vendas desse caixa nao sao auditadas.",
+            "",
+            "\U0001F552 <b>Quando:</b> {EVENT.DATE} {EVENT.TIME}",
+        ])
+        recuperacao = "\n".join([
+            "✅ <b>CAIXA VOLTOU A ENVIAR</b>",
+            "",
+            "\U0001F6D2 <b>Caixa:</b> {HOST.NAME}",
+            "\U0001F552 <b>Quando:</b> {EVENT.RECOVERY.DATE} {EVENT.RECOVERY.TIME}",
+        ])
+        return problema, recuperacao
     if entity_type == "link":
         problema = "\n".join([
             "\U0001F534 <b>LINK DE PROVEDOR COM PROBLEMA</b>",
@@ -506,6 +525,7 @@ GATILHO_LINK_CAIU = "Link do provedor caiu ({HOST.NAME})"
 GATILHO_SINAL_FIBRA = "Sinal da fibra do provedor 3 dB abaixo do normal ({HOST.NAME})"
 GATILHO_LINK_SEM_LEITURA = "Link do provedor sem leitura ha 10 min ({HOST.NAME})"
 GATILHO_SWITCH_PROV_CAIU = "Switch de provedores sem resposta ({HOST.NAME})"
+GATILHO_PDV_CAIU = "Caixa sem coletor: o SightOps parou de receber as vendas ({HOST.NAME})"
 
 
 def _garantir_gatilhos_switch_provedor(url: str, auth: str, technical_names: Dict[str, Dict[str, Any]],
@@ -535,6 +555,37 @@ def _garantir_gatilhos_switch_provedor(url: str, auth: str, technical_names: Dic
         return len(novos)
     except Exception as exc:
         logger.warning("Zabbix: falha ao criar gatilhos de switch de provedores: %s", exc)
+        return 0
+
+
+def _garantir_gatilhos_pdv(url: str, auth: str, technical_names: Dict[str, Dict[str, Any]],
+                           host_ids: Dict[str, str], item_by_host_key: Dict[Any, str]) -> int:
+    """Caixa (PDV) cujo coletor parou de mandar sinal (status 0 depois do limite
+    do perfil). Dado faltando e pior que nenhum dado: sem isto o caixa parava de
+    ser auditado e ninguem sabia. Falha aqui nao derruba o sync."""
+    alvos = {}
+    for nome, row in technical_names.items():
+        hostid = host_ids.get(nome, "")
+        if _text(row.get("entity_type")).lower() == "pdv" and hostid and item_by_host_key.get((hostid, "sightops.status")):
+            alvos[hostid] = nome
+    if not alvos:
+        return 0
+    try:
+        existentes = _call(url, "trigger.get", {
+            "output": ["triggerid"], "selectHosts": ["hostid"], "hostids": list(alvos),
+            "filter": {"description": [GATILHO_PDV_CAIU]}}, auth, 150) or []
+        tem = {_text(h.get("hostid")) for t in existentes for h in (t.get("hosts") or [])}
+        novos = [{"description": GATILHO_PDV_CAIU, "expression": f"last(/{nome}/sightops.status)=0",
+                  "recovery_mode": 1, "recovery_expression": f"last(/{nome}/sightops.status)=1", "priority": 3,
+                  "comments": "O coletor do caixa nao manda nada ha mais de 3 min (caixa desligado, sem rede ou "
+                              "servico parado). Enquanto isso as vendas desse caixa nao sao auditadas. No caixa: "
+                              "systemctl status sightops-pdv-coletor."}
+                 for hostid, nome in alvos.items() if hostid not in tem]
+        for i, lote in enumerate(_chunks(novos)):
+            _call(url, "trigger.create", lote, auth, 151 + i)
+        return len(novos)
+    except Exception as exc:
+        logger.warning("Zabbix: falha ao criar gatilhos de caixa (PDV): %s", exc)
         return 0
 
 
@@ -858,6 +909,7 @@ def _sync_monitoring_to_zabbix(entity_types: tuple[str, ...]) -> Dict[str, Any]:
     gatilhos = _garantir_gatilhos_gravador(url, auth, technical_names, host_ids, item_by_host_key)
     gatilhos += _garantir_gatilhos_link(url, auth, technical_names, host_ids, item_by_host_key)
     gatilhos += _garantir_gatilhos_switch_provedor(url, auth, technical_names, host_ids, item_by_host_key)
+    gatilhos += _garantir_gatilhos_pdv(url, auth, technical_names, host_ids, item_by_host_key)
 
     status_value = {"up": "1", "down": "0", "unstable": "2", "unknown": "3", "maintenance": "4"}
     push_rows = []

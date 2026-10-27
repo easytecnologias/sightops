@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=1792805043">
+  <link rel="stylesheet" href="styles.css?v=1793100002">
   <link rel="stylesheet" href="acesso/acesso.css?v=1792600213">
 </head>
 <body>
@@ -154,6 +154,12 @@
         <button class="nav-item" data-view="rotas-cadastro"><i data-lucide="map"></i><span>Rotas e alunos</span></button>
         <button class="nav-item" data-view="rotas-frota"><i data-lucide="bus"></i><span>Frota e motoristas</span></button>
         <button class="nav-item" data-view="rotas-pnate"><i data-lucide="file-check"></i><span>Prestação de contas</span></button>
+
+        <!-- Ponto de venda (auditoria de caixa) -->
+        <div class="nav-section-label">Ponto de venda</div>
+        <button class="nav-item" data-view="pdv-vivo"><i data-lucide="cctv"></i><span>Ao vivo</span></button>
+        <button class="nav-item" data-view="pdv-visao"><i data-lucide="scan-barcode"></i><span>Visão geral</span></button>
+        <button class="nav-item" data-view="pdv-cupons"><i data-lucide="receipt"></i><span>Cupons</span></button>
 
         </div>
 
@@ -1211,7 +1217,7 @@
         </div>
         <div class="panel" id="monitoringTablePanel">
           <div class="mn-tabs" role="tablist" aria-label="Escopo da tabela"><button class="mn-tab" type="button" role="tab" data-monitoring-tab="attention" aria-selected="true">Com problema</button><button class="mn-tab" type="button" role="tab" data-monitoring-tab="all" aria-selected="false">Todos os equipamentos</button></div>
-          <div class="filters monitoring-filters"><label class="search-box"><i data-lucide="search"></i><input id="monitoringSearch" placeholder="Buscar equipamento, site, IP ou tipo"></label><select class="filter-select" id="monitoringSite"><option value="">Todos os sites</option></select><select class="filter-select" id="monitoringType"><option value="">Todos os tipos</option><option value="connector">Conectores</option><option value="olt">OLTs</option><option value="onu">ONUs</option><option value="camera">Cameras</option><option value="nvr">NVRs</option><option value="dvr">DVRs</option><option value="windows">Computadores</option><option value="access_point">Access Points</option></select><select class="filter-select" id="monitoringStatus"><option value="">Todos os estados</option><option value="down">Down</option><option value="unstable">Instavel</option><option value="unknown">Nao verificado</option><option value="up">Up</option><option value="maintenance">Em manutencao</option></select></div>
+          <div class="filters monitoring-filters"><label class="search-box"><i data-lucide="search"></i><input id="monitoringSearch" placeholder="Buscar equipamento, site, IP ou tipo"></label><select class="filter-select" id="monitoringSite"><option value="">Todos os sites</option></select><select class="filter-select" id="monitoringType"><option value="">Todos os tipos</option><option value="connector">Conectores</option><option value="olt">OLTs</option><option value="onu">ONUs</option><option value="camera">Cameras</option><option value="nvr">NVRs</option><option value="dvr">DVRs</option><option value="windows">Computadores</option><option value="access_point">Access Points</option><option value="pdv">Caixas (PDV)</option></select><select class="filter-select" id="monitoringStatus"><option value="">Todos os estados</option><option value="down">Down</option><option value="unstable">Instavel</option><option value="unknown">Nao verificado</option><option value="up">Up</option><option value="maintenance">Em manutencao</option></select></div>
           <div class="table-wrap monitoring-table-wrap"><table class="data-table monitoring-table"><colgroup><col class="col-type"><col class="col-device"><col class="col-site"><col class="col-state"><col class="col-since"><col class="col-checked"><col class="col-detail"></colgroup><thead><tr><th>TIPO</th><th>EQUIPAMENTO</th><th>SITE</th><th>ESTADO</th><th>HA QUANTO</th><th>ULTIMA VERIFICACAO</th><th>DETALHES</th></tr></thead><tbody id="monitoringRows"></tbody></table></div>
           <div class="table-footer"><span id="monitoringFooter">0 equipamentos</span><span class="mn-muted">Ordenado por gravidade</span></div>
         </div>
@@ -2028,6 +2034,55 @@
 
       <!-- --- VIEWS: CONTROLE DE ROTAS --- transporte escolar; cada viagem so conta
            para o PNATE com as 6 provas (km, rota, alunos, veiculo, motorista, documentos). -->
+      <!-- Ponto de venda: auditoria de caixa pelos dados do PDV; o video do gravador e a prova. -->
+      <section class="workspace hidden" id="viewPdvVivo">
+        <div class="page-heading">
+          <div>
+            <p class="eyebrow">Ponto de venda · tempo real</p>
+            <h1>Caixas ao vivo</h1>
+            <p>A câmera de cada caixa, com o cupom que está passando agora.</p>
+          </div>
+          <div class="live-indicator pdv-live"><span></span>Atualização ao vivo</div>
+        </div>
+        <div id="pdvVivoBody"></div>
+      </section>
+
+      <section class="workspace hidden" id="viewPdvVisao">
+        <div class="page-heading">
+          <div>
+            <p class="eyebrow">Ponto de venda</p>
+            <h1>Visão geral dos caixas</h1>
+            <p>Acompanhe os caixas e revise só o que pede decisão de uma pessoa.</p>
+          </div>
+          <div class="page-heading-actions pdv-dia-nav">
+            <button class="secondary-action" type="button" id="pdvVisaoAnterior" aria-label="Dia anterior"><i data-lucide="chevron-left"></i></button>
+            <span class="pdv-dia" id="pdvVisaoDia">Hoje</span>
+            <button class="secondary-action" type="button" id="pdvVisaoProximo" aria-label="Próximo dia"><i data-lucide="chevron-right"></i></button>
+          </div>
+        </div>
+        <div id="pdvVisaoBody"></div>
+      </section>
+
+      <section class="workspace hidden" id="viewPdvCupons">
+        <div class="page-heading">
+          <div>
+            <p class="eyebrow">Ponto de venda</p>
+            <h1>Cupons e itens</h1>
+            <p>Busque por cupom, produto ou operador. Cada item mostra se foi bipado, digitado ou pelo menu.</p>
+          </div>
+        </div>
+        <section class="panel pdv-filtros">
+          <label class="search-box"><i data-lucide="search"></i><input id="pdvCupFiltroBusca" type="search" placeholder="Cupom, produto ou código"></label>
+          <label>Dia<input type="date" id="pdvCupFiltroDia"></label>
+          <label>Das<input type="time" id="pdvCupFiltroDe"></label>
+          <label>Até<input type="time" id="pdvCupFiltroAte"></label>
+          <label>Caixa<select id="pdvCupFiltroCaixa"><option value="">Todos os caixas</option></select></label>
+          <label>Situação<select id="pdvCupFiltroSituacao"><option value="">Todos</option><option value="fechado">Fechados</option><option value="cancelado">Cancelados</option><option value="item_cancelado">Com item cancelado</option><option value="aberto">Em andamento</option></select></label>
+          <button class="primary-action" type="button" id="pdvCupBuscar"><i data-lucide="search"></i> Buscar</button>
+        </section>
+        <section class="panel" id="pdvCuponsBody"></section>
+      </section>
+
       <section class="workspace hidden" id="viewRotasVivo">
         <div class="page-heading">
           <div>
@@ -4298,6 +4353,7 @@
             <button type="button" class="settings-nav-item" data-settings-tab="profiles" id="settingsNavProfiles" hidden><i data-lucide="key-round"></i><span><strong>Perfis de acesso</strong><small id="settingsNavProfilesSub">Módulos e níveis</small></span><i data-lucide="chevron-right"></i></button>
             <button type="button" class="settings-nav-item" data-settings-tab="alarms"><i data-lucide="siren"></i><span><strong>Alarmes</strong><small>Quando vira alerta</small></span><i data-lucide="chevron-right"></i></button>
             <button type="button" class="settings-nav-item" data-settings-tab="notifications"><i data-lucide="bell-ring"></i><span><strong>Notificações</strong><small id="settingsNavNotifSub">Canais de aviso</small></span><i data-lucide="chevron-right"></i></button>
+            <button type="button" class="settings-nav-item" data-settings-tab="pdv"><i data-lucide="scan-barcode"></i><span><strong>Ponto de venda</strong><small>Caixas e coletor</small></span><i data-lucide="chevron-right"></i></button>
             <button type="button" class="settings-nav-item" data-settings-tab="integrations"><i data-lucide="plug"></i><span><strong>Integrações</strong><small>Zabbix, conectores, WhatsApp</small></span><i data-lucide="chevron-right"></i></button>
             <button type="button" class="settings-nav-item" data-settings-tab="audit" id="settingsNavAudit"><i data-lucide="history"></i><span><strong>Histórico</strong><small>Tudo que a equipe fez</small></span><i data-lucide="chevron-right"></i></button>
           </aside>
@@ -4433,6 +4489,10 @@
               </table>
             </div>
             <div class="so-hist-mais"><button type="button" class="secondary-action" id="histMais" hidden>Carregar mais</button></div>
+          </div>
+          <div class="panel settings-wide-panel settings-area" data-settings-panel="pdv">
+            <div class="panel-header"><div><h2>Ponto de venda</h2><p>Cada caixa tem um coletor que lê os arquivos do PDV e manda ao SightOps. Nada é alterado no caixa nem no gravador.</p></div></div>
+            <div id="pdvConfigBody"><p class="pdv-nota">Abra esta aba para carregar os caixas.</p></div>
           </div>
           <div class="panel settings-wide-panel settings-area" data-settings-panel="notifications">
             <div class="panel-header">
@@ -8031,9 +8091,9 @@
        trechos do app.js original na sequencia em que estavam, entao carregar
        fora de ordem muda o comportamento. Ao adicionar um arquivo novo, entre
        antes de bootstrap.js, que e quem liga os botoes no DOMContentLoaded. -->
-  <script src="js/core.js?v=1792900010"></script>
+  <script src="js/core.js?v=1793100003"></script>
   <script src="js/licencas.js?v=1792600103"></script>
-  <script src="js/configuracoes.js?v=1792600138"></script>
+  <script src="js/configuracoes.js?v=1793100004"></script>
   <script src="js/notificacoes.js?v=1792600139"></script>
   <script src="js/permissoes.js?v=1792600120"></script>
   <script src="js/equipe.js?v=1792600136"></script>
@@ -8060,7 +8120,7 @@
   <script src="js/cameraActivation.js?v=1792900011"></script>
   <script src="js/deployOlt.js?v=1791000212"></script>
   <script src="js/connectors.js?v=1792500007"></script>
-  <script src="js/monitoring.js?v=1792500002"></script>
+  <script src="js/monitoring.js?v=1793100005"></script>
   <script src="js/planning.js?v=1791000212"></script>
   <script src="js/helpers.js?v=1791000212"></script>
   <script src="js/accessControl.js?v=1791000212"></script>
@@ -8078,6 +8138,7 @@
   <script src="https://unpkg.com/qrcode-generator@1.4.4/qrcode.js"></script>
   <script src="js/alert.js?v=1792804801"></script>
   <script src="js/controleRotas.js?v=1792600341"></script>
+  <script src="js/pdv.js?v=1793100001"></script>
   <script src="js/tr069.js?v=1791000212"></script>
   <script src="js/bootstrap.js?v=1792600207"></script>
 </body>

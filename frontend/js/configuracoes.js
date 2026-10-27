@@ -26,11 +26,11 @@ const AUDIT_ACOES = {
 const ALARME_TIPOS = {
   camera: 'Câmeras', nvr: 'Gravadores NVR', dvr: 'Gravadores DVR', onu: 'ONUs', olt: 'OLTs',
   switch: 'Switches', access_point: 'Access points', access_device: 'Controladoras de acesso',
-  connector: 'Conectores', windows: 'Computadores', whatsapp: 'Canal WhatsApp',
+  connector: 'Conectores', windows: 'Computadores', whatsapp: 'Canal WhatsApp', pdv: 'Caixas (PDV)',
 };
 const ALARME_ICONES = {
   camera: 'camera', nvr: 'hard-drive', dvr: 'hard-drive', onu: 'wifi', olt: 'radio-tower', switch: 'server',
-  access_point: 'router', access_device: 'scan-face', connector: 'plug', windows: 'monitor', whatsapp: 'message-circle',
+  access_point: 'router', access_device: 'scan-face', connector: 'plug', windows: 'monitor', whatsapp: 'message-circle', pdv: 'scan-barcode',
 };
 
 let _cfgAudit = []; // ultimos eventos, para o cartao "mudancas recentes" da visao geral

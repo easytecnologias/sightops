@@ -93,6 +93,10 @@ def salvar_caixa(payload: Dict[str, Any]) -> Dict[str, Any]:
         "gravador_host": _texto(payload.get("gravador_host"), 120), "gravador_canal": canal,
         "ativo": 0 if str(payload.get("ativo", 1)).lower() in ("0", "false", "nao", "não") else 1,
     }
+    if campos["gravador_host"] and campos["gravador_host"] not in gravadores_do_cliente():
+        # Sem isto, um IP qualquer viraria alvo da leitura de relogio/video pela
+        # rede do servidor. So gravador ja cadastrado no inventario do cliente.
+        raise ValueError("Esse gravador não está no inventário deste cliente. Cadastre-o em Gravadores primeiro.")
     if campos["connector_id"]:
         from app.services.connector_service import get_connector
         if not get_connector(campos["connector_id"], include_token=False, enforce_tenant=True):
@@ -122,6 +126,12 @@ def salvar_caixa(payload: Dict[str, Any]) -> Dict[str, Any]:
     if token:
         out["token"] = token
     return out
+
+
+def gravadores_do_cliente() -> set:
+    """IPs dos gravadores (NVR/DVR) no inventario do cliente da sessao."""
+    from app.services.nvr_ai_service import _read_nvr_inventory
+    return {str(r.get("host") or r.get("ip") or "").strip() for r in _read_nvr_inventory()} - {""}
 
 
 def novo_token(caixa_id: str) -> Dict[str, Any]:
@@ -438,7 +448,7 @@ def reprocessar_dia(caixa_id: str, dia: str) -> Dict[str, Any]:
 OFFLINE_APOS_S = 180  # coletor manda sinal de vida a cada 30 s
 
 
-def _segundos_desde(quando: str, agora: datetime) -> Optional[int]:
+def _segundos_desde(quando: str, agora: datetime, offset_caixa_s: int = 0) -> Optional[int]:
     """Idade em s de 'YYYY-MM-DDTHH:MM:SSZ' (UTC) ou 'YYYY-MM-DD HH:MM:SS' (hora local do caixa)."""
     if not quando:
         return None
@@ -447,7 +457,8 @@ def _segundos_desde(quando: str, agora: datetime) -> Optional[int]:
             t = datetime.strptime(quando, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
             return max(0, int((agora - t).total_seconds()))
         t = datetime.strptime(quando, "%Y-%m-%d %H:%M:%S")
-        return max(0, int((agora.astimezone().replace(tzinfo=None) - t).total_seconds()))
+        # hora do caixa: o offset entra antes do max, senao a idade sai inflada
+        return max(0, int((agora.astimezone().replace(tzinfo=None) - t).total_seconds()) + offset_caixa_s)
     except ValueError:
         return None
 
@@ -466,9 +477,7 @@ def entidades_monitoramento(agora: Optional[datetime] = None) -> List[Dict[str, 
             status = "unknown"  # coletor ainda nao instalado
         else:
             status = "online" if contato <= OFFLINE_APOS_S else "offline"
-        evento = _segundos_desde(r.get("ultimo_evento") or "", agora)
-        if evento is not None:
-            evento += int(r.get("relogio_pdv_offset_s") or 0)  # hora do caixa -> hora real
+        evento = _segundos_desde(r.get("ultimo_evento") or "", agora, int(r.get("relogio_pdv_offset_s") or 0))
         out.append({
             "entity_key": "pdv:%s" % r["id"], "entity_type": "pdv", "entity_id": r["id"],
             "site": r.get("site"), "connector_id": r.get("connector_id"), "display_name": r.get("nome"),

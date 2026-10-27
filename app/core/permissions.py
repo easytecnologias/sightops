@@ -395,7 +395,7 @@ def niveis_do_usuario(user: Dict[str, Any], dados: Optional[Dict[str, Any]] = No
 MODULO_DO_TIPO = {
     "camera": "cameras", "nvr": "gravadores", "dvr": "gravadores", "onu": "optica", "olt": "optica",
     "switch": "rede", "access_point": "rede", "access_device": "acesso", "whatsapp": "acesso",
-    "connector": "conectores", "windows": "computadores",
+    "connector": "conectores", "windows": "computadores", "pdv": "pdv",
 }
 
 

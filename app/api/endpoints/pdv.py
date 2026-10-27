@@ -116,7 +116,10 @@ def api_pdv_medir_relogio(caixa_id: str) -> Dict[str, Any]:
         raise HTTPException(status_code=404, detail="Caixa não encontrado.")
     if not cx["gravador_host"]:
         raise HTTPException(status_code=400, detail="Este caixa ainda não tem gravador configurado.")
-    g = _abrir(cx["gravador_host"], 80, cx["connector_id"])
+    try:
+        g = _abrir(cx["gravador_host"], 80, cx["connector_id"])
+    except ValueError as exc:  # conector recusado pelo vnat: nega com motivo, nao 500
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     try:
         medida = g.relogio()
     except ErroDriver as exc:

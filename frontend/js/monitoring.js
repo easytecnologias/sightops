@@ -4,7 +4,7 @@ const MONITORING_LABELS = {
   connector: 'Conectores', olt: 'OLTs', onu: 'ONUs/ONTs', camera: 'Cameras',
   nvr: 'NVRs', dvr: 'DVRs', windows: 'Computadores',
   access_device: 'Controladoras de Acesso', whatsapp: 'WhatsApp',
-  access_point: 'Access Points',
+  access_point: 'Access Points', pdv: 'Caixas (PDV)',
 };
 
 function monitoringStatusLabel(status) {

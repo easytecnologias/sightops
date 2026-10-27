@@ -23,7 +23,7 @@ from app.services.monitoring_service import list_entities
 
 ROTULO_TIPO = {"camera": "câmera", "nvr": "NVR", "dvr": "DVR", "onu": "ONU", "olt": "OLT", "switch": "switch",
                "access_point": "access point", "access_device": "controladora", "connector": "conector",
-               "windows": "computador", "whatsapp": "WhatsApp"}
+               "windows": "computador", "whatsapp": "WhatsApp", "pdv": "caixa"}
 
 
 def _text(value: Any) -> str:
