@@ -73,6 +73,11 @@ def api_pdv_novo_token(caixa_id: str) -> Dict[str, Any]:
     return {"ok": True, **_executar(pdv_store.novo_token, caixa_id)}
 
 
+@router.delete("/caixas/{caixa_id}")
+def api_pdv_excluir_caixa(caixa_id: str) -> Dict[str, Any]:
+    return _executar(pdv_store.excluir_caixa, caixa_id)
+
+
 @router.post("/caixas/{caixa_id}/acesso")
 def api_pdv_acesso(caixa_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     """IP do caixa na loja + usuario/senha SSH (senha cifrada; em branco mantem)."""
@@ -91,7 +96,14 @@ def api_pdv_instalar(caixa_id: str, request: Request) -> Dict[str, Any]:
         raise HTTPException(status_code=404, detail="Caixa não encontrado.")
     conector = get_connector(cx["connector_id"], include_token=False, enforce_tenant=True) if cx["connector_id"] else None
     base = str((conector or {}).get("public_base_url") or "").strip() or _base_publica(request)
-    return _executar(pdv_instalador.instalar, caixa_id, base)
+    return _executar(pdv_instalador.iniciar_instalacao, caixa_id, base)
+
+
+@router.get("/instalacao/{job_id}")
+def api_pdv_instalacao_andamento(job_id: str) -> Dict[str, Any]:
+    """Passos da instalacao em andamento (so do cliente da sessao)."""
+    from app.services import pdv_instalador
+    return _executar(pdv_instalador.andamento, job_id)
 
 
 @router.post("/caixas/{caixa_id}/coletor")

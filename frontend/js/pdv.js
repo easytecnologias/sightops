@@ -439,13 +439,36 @@ async function pdvVerVideo(caixaId, ts) {
 
 // ---------------------------------------------------------------- configuracoes
 
-async function loadPdvConfig() {
+let _pdvConectores = [];
+
+function pdvOpcoesConector(sel) {
+  return '<option value="">Sem conector</option>' + _pdvConectores.map(c =>
+    `<option value="${esc(c.id)}" ${c.id === sel ? 'selected' : ''}>${esc(c.name || c.id)}</option>`).join('');
+}
+
+function pdvCamposCaixa(c) {
+  return `
+      <label>Nome<input name="nome" required maxlength="60" placeholder="PDV 01" value="${esc(c?.nome || '')}"></label>
+      <label>Estação<input name="numero" type="number" min="1" max="999" value="${esc(c?.numero || 1)}" title="O .NNN do arquivo do PDV (Espiao271026.001 = 1)"></label>
+      <label>Local<input name="site" maxlength="120" placeholder="Loja" value="${esc(c?.site || '')}"></label>
+      <label>Conector da loja<select name="connector_id">${pdvOpcoesConector(c?.connector_id || '')}</select></label>
+      <label>Gravador (IP na loja)<input name="gravador_host" maxlength="120" placeholder="192.168.24.227" value="${esc(c?.gravador_host || '')}"></label>
+      <label>Canal da câmera do caixa<input name="gravador_canal" type="number" min="0" max="256" value="${esc(c?.gravador_canal || 0)}"></label>`;
+}
+
+async function pdvSalvarCaixa(form) {
+  const dados = Object.fromEntries(new FormData(form).entries());
+  const res = await api('/api/pdv/caixas', { method: 'POST', body: JSON.stringify(dados) });
+  const r = await res?.json().catch(() => ({}));
+  if (!res?.ok) { showToast(r?.detail || 'Não consegui salvar o caixa.', true); return null; }
+  return r.caixa;
+}
+
+async function loadPdvConfig(abrirId = '') {
   const box = document.getElementById('pdvConfigBody');
   if (!box) return;
   const [caixas, con] = await Promise.all([pdvCarregarCaixas(), apiJson('/api/connectors', { forceRefresh: true })]);
-  const conectores = con?.connectors || con?.items || [];
-  const opcoesCon = sel => '<option value="">Sem conector</option>' + conectores.map(c =>
-    `<option value="${esc(c.id)}" ${c.id === sel ? 'selected' : ''}>${esc(c.name || c.id)}</option>`).join('');
+  _pdvConectores = con?.connectors || con?.items || [];
   box.innerHTML = `
     <div class="table-wrap"><table class="data-table pdv-tabela pdv-tabela-config">
       <thead><tr><th>Caixa</th><th>Gravador e canal</th><th>Coletor</th><th>Relógio</th><th>Instalação</th><th></th></tr></thead>
@@ -458,57 +481,27 @@ async function loadPdvConfig() {
           <td>${esc(pdvRelogio(c))}</td>
           <td>${pdvInstalacaoTxt(c)}</td>
           <td><div class="pdv-acoes">
-            <button class="secondary-action pdv-mini" type="button" data-pdv-editar="${esc(c.id)}">Editar</button>
+            <button class="primary-action pdv-mini" type="button" data-pdv-abrir="${esc(c.id)}"><i data-lucide="pencil"></i> Editar e instalar</button>
             <button class="secondary-action pdv-mini" type="button" data-pdv-relogio="${esc(c.id)}">Medir relógio</button>
-            <button class="secondary-action pdv-mini" type="button" data-pdv-instalar="${esc(c.id)}"><i data-lucide="download"></i> Instalar no caixa</button>
           </div></td></tr>`;
       }).join('') || '<tr><td colspan="6" class="pdv-muted">Nenhum caixa cadastrado.</td></tr>'}</tbody>
     </table></div>
-    <form class="pdv-form" id="pdvCaixaForm" autocomplete="off">
-      <h3 id="pdvCaixaFormTitulo">Adicionar caixa</h3>
-      <input type="hidden" name="id">
-      <label>Nome<input name="nome" required maxlength="60" placeholder="PDV 01"></label>
-      <label>Estação<input name="numero" type="number" min="1" max="999" value="1" title="O .NNN do arquivo do PDV (Espiao271026.001 = 1)"></label>
-      <label>Local<input name="site" maxlength="120" placeholder="Loja"></label>
-      <label>Conector<select name="connector_id">${opcoesCon('')}</select></label>
-      <label>Gravador (IP na loja)<input name="gravador_host" maxlength="120" placeholder="192.168.24.227"></label>
-      <label>Canal da câmera do caixa<input name="gravador_canal" type="number" min="0" max="256" value="0"></label>
-      <div class="pdv-form-acoes">
-        <button class="secondary-action" type="button" id="pdvCaixaCancelar" hidden>Cancelar</button>
-        <button class="primary-action" type="submit">Salvar caixa</button>
-      </div>
+    <div id="pdvCaixaPainel"></div>
+    <form class="pdv-form" id="pdvCaixaNovo" autocomplete="off">
+      <h3>Adicionar caixa</h3>
+      ${pdvCamposCaixa(null)}
+      <div class="pdv-form-acoes"><button class="primary-action" type="submit">Adicionar caixa</button></div>
     </form>
-    <div id="pdvInstalarBox"></div>
     <p class="pdv-nota">Cada caixa conta como 1 equipamento na licença. Monitorar operador exige ciência por escrito dos funcionários.</p>`;
 
-  const form = document.getElementById('pdvCaixaForm');
-  const preencher = c => {
-    form.id.value = c?.id || '';
-    form.nome.value = c?.nome || '';
-    form.numero.value = c?.numero || 1;
-    form.site.value = c?.site || '';
-    form.connector_id.innerHTML = opcoesCon(c?.connector_id || '');
-    form.gravador_host.value = c?.gravador_host || '';
-    form.gravador_canal.value = c?.gravador_canal || 0;
-    document.getElementById('pdvCaixaFormTitulo').textContent = c ? `Editar ${c.nome}` : 'Adicionar caixa';
-    document.getElementById('pdvCaixaCancelar').hidden = !c;
-  };
-  box.querySelectorAll('[data-pdv-editar]').forEach(b => b.addEventListener('click', () => {
-    preencher(caixas.find(c => c.id === b.dataset.pdvEditar));
-    form.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  }));
-  document.getElementById('pdvCaixaCancelar').addEventListener('click', () => preencher(null));
-  form.addEventListener('submit', async ev => {
+  document.getElementById('pdvCaixaNovo').addEventListener('submit', async ev => {
     ev.preventDefault();
-    const dados = Object.fromEntries(new FormData(form).entries());
-    const res = await api('/api/pdv/caixas', { method: 'POST', body: JSON.stringify(dados) });
-    const r = await res?.json().catch(() => ({}));
-    if (!res?.ok) { showToast(r?.detail || 'Não consegui salvar o caixa.', true); return; }
-    showToast('Caixa salvo.');
-    await loadPdvConfig();
-    if (!dados.id && r.caixa?.id) pdvAbrirInstalacao(r.caixa.id);
+    const novo = await pdvSalvarCaixa(ev.currentTarget);
+    if (!novo) return;
+    showToast('Caixa adicionado. Agora informe o acesso ao caixa para instalar o coletor.');
+    loadPdvConfig(novo.id);
   });
-  box.querySelectorAll('[data-pdv-instalar]').forEach(b => b.addEventListener('click', () => pdvAbrirInstalacao(b.dataset.pdvInstalar)));
+  box.querySelectorAll('[data-pdv-abrir]').forEach(b => b.addEventListener('click', () => pdvAbrirCaixa(b.dataset.pdvAbrir)));
   box.querySelectorAll('[data-pdv-relogio]').forEach(b => b.addEventListener('click', async () => {
     b.disabled = true;
     const res = await api(`/api/pdv/relogio/${encodeURIComponent(b.dataset.pdvRelogio)}`, { method: 'POST', body: '{}' });
@@ -519,6 +512,7 @@ async function loadPdvConfig() {
     loadPdvConfig();
   }));
   lucide.createIcons();
+  if (abrirId) pdvAbrirCaixa(abrirId);
 }
 
 function pdvInstalacaoTxt(c) {
@@ -527,42 +521,80 @@ function pdvInstalacaoTxt(c) {
   return c.pdv_host ? `<small class="pdv-muted">${esc(c.pdv_host)}</small>` : '<small class="pdv-muted">não instalado</small>';
 }
 
-// Instalacao PELO SightOps: o servidor entra no caixa pelo tunel do conector
-// (IP virtual), nunca pelo IP publico da loja.
-function pdvAbrirInstalacao(caixaId) {
+// Um painel por caixa: dados, acesso pelo tunel (instalar / status) e excluir.
+// A instalacao e feita PELO SightOps, pelo IP virtual do conector -- nunca pelo
+// IP publico da loja.
+function pdvAbrirCaixa(caixaId) {
   const c = _pdvCaixas.find(x => x.id === caixaId);
-  const box = document.getElementById('pdvInstalarBox');
+  const box = document.getElementById('pdvCaixaPainel');
   if (!c || !box) return;
   box.innerHTML = `
-    <form class="pdv-form" id="pdvInstForm" autocomplete="off">
-      <h3>Instalar o coletor no ${esc(c.nome)}</h3>
-      <p class="pdv-nota pdv-form-largo">O SightOps entra no caixa pelo túnel do conector da loja (nunca pelo IP público),
-        confere o caixa, copia o coletor e liga o serviço. Nada mais é alterado no caixa. A senha fica cifrada no SightOps.
-        Use o IP e a porta do caixa <strong>dentro da loja</strong> (SSH normalmente na 22), não os do roteador.</p>
-      <label>IP do caixa na loja<input name="pdv_host" required value="${esc(c.pdv_host || '')}" placeholder="192.168.24.97"></label>
-      <label>Porta SSH do caixa<input name="ssh_porta" type="number" min="1" max="65535" value="${esc(c.ssh_porta || 22)}" title="A porta do próprio caixa na rede da loja (normalmente 22), não a porta redirecionada no roteador"></label>
-      <label>Usuário<input name="ssh_usuario" required value="${esc(c.ssh_usuario || '')}" placeholder="rpdv" autocomplete="off"></label>
-      <label>Senha<input name="ssh_senha" type="password" autocomplete="new-password" placeholder="${c.tem_senha ? 'guardada (em branco mantém)' : ''}"></label>
-      <div class="pdv-form-acoes">
-        <button class="secondary-action" type="button" id="pdvInstFechar">Fechar</button>
-        <button class="secondary-action" type="button" id="pdvInstStatus" ${c.tem_senha ? '' : 'disabled'}>Ver status</button>
-        <button class="primary-action" type="submit" id="pdvInstOk"><i data-lucide="download"></i> Salvar e instalar</button>
+    <section class="pdv-caixa-painel">
+      <div class="pdv-panel-head">
+        <h2>${esc(c.nome)}</h2>
+        <button class="secondary-action pdv-mini" type="button" id="pdvPainelFechar">Fechar</button>
       </div>
-      <div id="pdvInstPassos" class="pdv-passos"></div>
-    </form>`;
+
+      <form class="pdv-form" id="pdvDadosForm" autocomplete="off">
+        <h3>Dados do caixa</h3>
+        <input type="hidden" name="id" value="${esc(c.id)}">
+        ${pdvCamposCaixa(c)}
+        <div class="pdv-form-acoes"><button class="primary-action" type="submit">Salvar dados</button></div>
+      </form>
+
+      <form class="pdv-form" id="pdvAcessoForm" autocomplete="off">
+        <h3>Acesso ao caixa pelo túnel do conector</h3>
+        <p class="pdv-nota pdv-form-largo">O SightOps entra no caixa pelo conector da loja (nunca pelo IP público), confere o caixa,
+          copia o coletor e liga o serviço. Nada mais é alterado no caixa. A senha fica cifrada no SightOps.
+          Use o IP e a porta do caixa <strong>dentro da loja</strong> (SSH normalmente na 22), não os do roteador.</p>
+        <label>IP do caixa na loja<input name="pdv_host" required value="${esc(c.pdv_host || '')}" placeholder="192.168.24.97"></label>
+        <label>Porta SSH do caixa<input name="ssh_porta" type="number" min="1" max="65535" value="${esc(c.ssh_porta || 22)}"></label>
+        <label>Usuário<input name="ssh_usuario" required value="${esc(c.ssh_usuario || '')}" placeholder="rpdv" autocomplete="off"></label>
+        <label>Senha<input name="ssh_senha" type="password" autocomplete="new-password" placeholder="${c.tem_senha ? 'guardada (em branco mantém)' : ''}"></label>
+        <div class="pdv-form-acoes">
+          <button class="secondary-action" type="button" id="pdvAcessoSalvar">Salvar acesso</button>
+          <button class="secondary-action" type="button" id="pdvAcessoStatus" ${c.tem_senha ? '' : 'disabled'}>Ver status</button>
+          <button class="primary-action" type="submit" id="pdvAcessoInstalar"><i data-lucide="download"></i> Salvar e instalar</button>
+        </div>
+        <div id="pdvPassos" class="pdv-passos"></div>
+      </form>
+
+      <div class="pdv-perigo">
+        <div><strong>Excluir caixa</strong><small>Apaga o caixa e todas as vendas recebidas dele. O coletor no caixa para de enviar. Não dá para desfazer.</small></div>
+        <button class="secondary-action pdv-mini pdv-botao-perigo" type="button" id="pdvExcluir"><i data-lucide="trash-2"></i> Excluir</button>
+      </div>
+    </section>`;
   lucide.createIcons();
-  const form = document.getElementById('pdvInstForm');
-  const passos = document.getElementById('pdvInstPassos');
+
+  const passos = document.getElementById('pdvPassos');
+  const acesso = document.getElementById('pdvAcessoForm');
+  document.getElementById('pdvPainelFechar').addEventListener('click', () => { box.innerHTML = ''; });
+
+  document.getElementById('pdvDadosForm').addEventListener('submit', async ev => {
+    ev.preventDefault();
+    if (!(await pdvSalvarCaixa(ev.currentTarget))) return;
+    showToast('Dados do caixa salvos.');
+    loadPdvConfig(caixaId);
+  });
+
   const salvarAcesso = async () => {
-    const dados = Object.fromEntries(new FormData(form).entries());
+    const dados = Object.fromEntries(new FormData(acesso).entries());
     const res = await api(`/api/pdv/caixas/${encodeURIComponent(caixaId)}/acesso`, { method: 'POST', body: JSON.stringify(dados) });
     const r = await res?.json().catch(() => ({}));
     if (!res?.ok) { showToast(r?.detail || 'Não consegui salvar o acesso ao caixa.', true); return false; }
-    form.ssh_senha.value = '';
-    return true;
+    acesso.ssh_senha.value = '';
+    acesso.ssh_senha.placeholder = r.acesso?.tem_senha ? 'guardada (em branco mantém)' : 'a senha foi apagada: digite de novo';
+    document.getElementById('pdvAcessoStatus').disabled = !r.acesso?.tem_senha;
+    return r.acesso;
   };
-  document.getElementById('pdvInstFechar').addEventListener('click', () => { box.innerHTML = ''; });
-  document.getElementById('pdvInstStatus').addEventListener('click', async () => {
+
+  document.getElementById('pdvAcessoSalvar').addEventListener('click', async () => {
+    if (!acesso.reportValidity()) return;
+    const a = await salvarAcesso();
+    if (a) showToast(a.tem_senha ? 'Acesso salvo.' : 'Acesso salvo. IP ou porta mudaram: digite a senha de novo.');
+  });
+
+  document.getElementById('pdvAcessoStatus').addEventListener('click', async () => {
     passos.innerHTML = '<p class="pdv-nota">Consultando o serviço no caixa pelo túnel...</p>';
     const res = await api(`/api/pdv/caixas/${encodeURIComponent(caixaId)}/coletor`, { method: 'POST', body: '{}' });
     const r = await res?.json().catch(() => ({}));
@@ -570,26 +602,58 @@ function pdvAbrirInstalacao(caixaId) {
     passos.innerHTML = `<p class="pdv-nota">Serviço: <strong>${r.ativo ? 'rodando' : esc(r.estado || 'parado')}</strong>${r.desde ? ` desde ${esc(r.desde)}` : ''}</p>
       <pre class="pdv-log">${esc(r.log || '')}</pre>`;
   });
-  form.addEventListener('submit', async ev => {
+
+  acesso.addEventListener('submit', async ev => {
     ev.preventDefault();
-    const ok = document.getElementById('pdvInstOk');
+    const ok = document.getElementById('pdvAcessoInstalar');
     ok.disabled = true;
     passos.innerHTML = '<p class="pdv-nota">Salvando o acesso...</p>';
-    if (!(await salvarAcesso())) { ok.disabled = false; passos.innerHTML = ''; return; }
-    passos.innerHTML = '<p class="pdv-nota">Instalando pelo túnel do conector... leva até 1 minuto.</p>';
+    const a = await salvarAcesso();
+    if (!a || !a.tem_senha) {
+      ok.disabled = false;
+      passos.innerHTML = a ? '<p class="pdv-nota pdv-erro">Digite a senha do caixa para instalar.</p>' : '';
+      return;
+    }
+    passos.innerHTML = '<p class="pdv-nota">Instalando pelo túnel do conector... o caixa pode demorar a responder.</p>';
     const res = await api(`/api/pdv/caixas/${encodeURIComponent(caixaId)}/instalar`, { method: 'POST', body: '{}' });
-    const r = await res?.json().catch(() => ({}));
+    const ini = await res?.json().catch(() => ({}));
+    if (!res?.ok || !ini?.job_id) {
+      ok.disabled = false;
+      passos.innerHTML = `<p class="pdv-nota pdv-erro">${esc(ini?.detail || 'Não consegui iniciar a instalação.')}</p>`;
+      return;
+    }
+    const desenhar = (lista, rodando, seg) => {
+      passos.innerHTML = lista.map(p => `
+        <div class="pdv-passo ${p.ok ? 'ok' : 'erro'}"><i data-lucide="${p.ok ? 'check-circle' : 'x-circle'}"></i>
+          <div><strong>${esc(p.passo)}</strong>${p.detalhe ? `<pre class="pdv-log">${esc(p.detalhe)}</pre>` : ''}</div></div>`).join('')
+        + (rodando ? `<p class="pdv-nota">Trabalhando no caixa... ${seg} s</p>` : '');
+      lucide.createIcons();
+    };
+    let r = null;
+    for (let i = 0; i < 150; i++) {
+      await new Promise(fim => setTimeout(fim, 2000));
+      r = await apiJson(`/api/pdv/instalacao/${ini.job_id}`, { forceRefresh: true });
+      if (!r) break;
+      desenhar(r.passos || [], !r.fim, r.segundos);
+      if (r.fim) break;
+    }
     ok.disabled = false;
-    const lista = r?.passos || [];
-    passos.innerHTML = lista.map(p => `
-      <div class="pdv-passo ${p.ok ? 'ok' : 'erro'}"><i data-lucide="${p.ok ? 'check-circle' : 'x-circle'}"></i>
-        <div><strong>${esc(p.passo)}</strong>${p.detalhe ? `<pre class="pdv-log">${esc(p.detalhe)}</pre>` : ''}</div></div>`).join('')
-      || `<p class="pdv-nota pdv-erro">${esc(r?.detail || 'A instalação não respondeu.')}</p>`;
-    lucide.createIcons();
     showToast(r?.ok ? 'Coletor instalado. As vendas começam a chegar em até 1 minuto.' : 'A instalação não terminou. Veja o passo com erro.', !r?.ok);
-    if (r?.ok) setTimeout(loadPdvConfig, 4000);
+    pdvCarregarCaixas();
   });
-  box.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+  document.getElementById('pdvExcluir').addEventListener('click', async () => {
+    const nome = prompt(`Para excluir, digite o nome do caixa: ${c.nome}\n\nIsso apaga o caixa e todas as vendas recebidas dele.`);
+    if (nome === null) return;
+    if (nome.trim() !== c.nome) { showToast('O nome não confere. Nada foi excluído.', true); return; }
+    const res = await api(`/api/pdv/caixas/${encodeURIComponent(caixaId)}`, { method: 'DELETE', body: '{}' });
+    const r = await res?.json().catch(() => ({}));
+    if (!res?.ok) { showToast(r?.detail || 'Não consegui excluir o caixa.', true); return; }
+    showToast(`${c.nome} excluído.`);
+    loadPdvConfig();
+  });
+
+  box.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -599,5 +663,5 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('pdvCupFiltroBusca')?.addEventListener('keydown', ev => { if (ev.key === 'Enter') pdvBuscarCupons(); });
   ['pdvCupFiltroDia', 'pdvCupFiltroCaixa', 'pdvCupFiltroSituacao'].forEach(id =>
     document.getElementById(id)?.addEventListener('change', pdvBuscarCupons));
-  document.querySelector('[data-settings-tab="pdv"]')?.addEventListener('click', loadPdvConfig);
+  document.querySelector('[data-settings-tab="pdv"]')?.addEventListener('click', () => loadPdvConfig());
 });

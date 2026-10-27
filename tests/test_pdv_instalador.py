@@ -288,3 +288,66 @@ def test_status_aprende_a_chave(banco):
 def test_instalar_sh_tem_modo_config_sem_token_na_linha():
     sh = open(I.os.path.join(I.ASSETS, "instalar.sh"), encoding="utf-8").read()
     assert '"--config"' in sh and "json.dump" in sh and '"$TOKEN"' not in sh
+
+
+def test_erros_de_ssh_em_portugues():
+    import paramiko
+    assert "usuário ou a senha" in I.traduzir_erro_ssh(paramiko.AuthenticationException("Authentication failed."))
+    assert "demorou demais" in I.traduzir_erro_ssh(paramiko.SSHException("No existing session"))
+    assert "demorou demais" in I.traduzir_erro_ssh(TimeoutError("timed out"))
+    assert "porta SSH" in I.traduzir_erro_ssh(ConnectionRefusedError("Connection refused"))
+
+
+def test_conexao_lenta_tenta_de_novo_mas_senha_errada_nao(monkeypatch):
+    import paramiko
+    tentativas = []
+
+    class Cli(object):
+        def __init__(self):
+            pass
+
+        def set_missing_host_key_policy(self, p):
+            pass
+
+        def connect(self, *a, **k):
+            tentativas.append(k["banner_timeout"])
+            if len(tentativas) < 3:
+                raise paramiko.SSHException("No existing session")
+
+        def close(self):
+            pass
+    monkeypatch.setattr(paramiko, "SSHClient", Cli)
+    cli, _ = I._abrir_ssh("10.0.0.1", 22, "rpdv", "x", "")
+    assert len(tentativas) == 3 and tentativas[0] >= 60
+
+    class Recusa(Cli):
+        def connect(self, *a, **k):
+            tentativas.append(1)
+            raise paramiko.AuthenticationException("Authentication failed.")
+    tentativas.clear()
+    monkeypatch.setattr(paramiko, "SSHClient", Recusa)
+    with pytest.raises(paramiko.AuthenticationException):
+        I._abrir_ssh("10.0.0.1", 22, "rpdv", "x", "")
+    assert len(tentativas) == 1
+
+
+def test_instalacao_em_segundo_plano_so_o_cliente_ve(banco):
+    import time
+    cx = _caixa()
+    _acesso(cx)
+    falso = CaixaFalso()
+    job = I.iniciar_instalacao(cx["id"], "https://x", abrir=falso.abrir)["job_id"]
+    for _ in range(50):
+        a = I.andamento(job)
+        if a["fim"]:
+            break
+        time.sleep(0.05)
+    assert a["fim"] and a["ok"] and a["passos"][-1]["passo"].startswith("Instalar")
+    tok = set_current_tenant_slug("mercado-b")
+    try:
+        with pytest.raises(LookupError):
+            I.andamento(job)
+        with pytest.raises(ValueError):
+            I.iniciar_instalacao(cx["id"], "https://x", abrir=falso.abrir)
+    finally:
+        reset_current_tenant_slug(tok)

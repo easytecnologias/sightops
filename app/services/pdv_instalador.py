@@ -16,6 +16,9 @@ import ipaddress
 import json
 import os
 import secrets
+import threading
+import time
+import uuid
 from datetime import datetime, timezone
 from typing import Any, Callable, Dict, List, Optional
 
@@ -26,7 +29,12 @@ from app.services import pdv_store
 ASSETS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "pdv_coletor")
 ARQUIVOS = ("sightops_pdv_coletor.py", "sightops-pdv-coletor.service", "instalar.sh")
 SERVICO = "sightops-pdv-coletor"
-TIMEOUT_CONEXAO = 12
+# Medido no PDV1 da VITAL (27/10/2026) pelo tunel: a conversa SSH leva de 2 a
+# 20 s (o sshd do caixa resolve o nome de quem conecta e o roteador da loja
+# esta saturado). Com 12 s a biblioteca desistia e mostrava "No existing session".
+TIMEOUT_CONEXAO = 25
+TIMEOUT_BANNER = 60
+TENTATIVAS = 3
 
 
 class ErroInstalacao(Exception):
@@ -120,11 +128,36 @@ def _abrir_ssh(vip: str, porta: int, usuario: str, senha: str, hostkey: str):
                 raise ErroInstalacao("A chave SSH do caixa mudou (%s, esperada %s): outro equipamento neste IP? "
                                      "Confira antes de instalar." % (vista["fp"], hostkey))
 
-    cli = paramiko.SSHClient()
-    cli.set_missing_host_key_policy(_Politica())
-    cli.connect(vip, port=porta, username=usuario, password=senha, timeout=TIMEOUT_CONEXAO,
-                banner_timeout=TIMEOUT_CONEXAO, auth_timeout=TIMEOUT_CONEXAO, look_for_keys=False, allow_agent=False)
-    return cli, vista.get("fp", "")
+    ultimo = None
+    for tentativa in range(TENTATIVAS):
+        cli = paramiko.SSHClient()
+        cli.set_missing_host_key_policy(_Politica())
+        try:
+            cli.connect(vip, port=porta, username=usuario, password=senha, timeout=TIMEOUT_CONEXAO,
+                        banner_timeout=TIMEOUT_BANNER, auth_timeout=TIMEOUT_BANNER,
+                        look_for_keys=False, allow_agent=False)
+            return cli, vista.get("fp", "")
+        except (paramiko.AuthenticationException, ErroInstalacao):
+            cli.close()
+            raise  # senha recusada ou chave mudou: tentar de novo nao muda nada
+        except Exception as exc:  # rede: caiu no meio da conversa, demorou demais
+            cli.close()
+            ultimo = exc
+    raise ErroInstalacao(traduzir_erro_ssh(ultimo))
+
+
+def traduzir_erro_ssh(exc: Any) -> str:
+    """Erro da biblioteca de SSH em portugues, dizendo o que fazer."""
+    texto = "%s: %s" % (type(exc).__name__, exc) if exc else "sem resposta"
+    nome = type(exc).__name__ if exc else ""
+    if "Authentication" in nome or "Authentication failed" in texto:
+        return "O caixa recusou o usuário ou a senha."
+    if "No existing session" in texto or "timed out" in texto.lower() or "Timeout" in nome or "banner" in texto.lower():
+        return ("O caixa demorou demais para responder pelo túnel (%d tentativas). Confira se o caixa está ligado "
+                "e tente de novo; o roteador da loja pode estar sobrecarregado." % TENTATIVAS)
+    if "refused" in texto.lower():
+        return "O caixa recusou a conexão nesta porta. Confira a porta SSH do caixa na loja (normalmente 22)."
+    return texto
 
 
 def _rodar(cli: Any, cmd: str, entrada: str = "", timeout: int = 60) -> tuple:
@@ -164,10 +197,58 @@ def _gravar_estado(caixa_id: str, estado: str, hostkey: str = "") -> None:
                       (estado, _agora(), pdv_store._tenant(), caixa_id))
 
 
+# Instalacao em segundo plano: pelo tunel lento ela pode passar de 100 s, e o
+# Cloudflare corta a requisicao (524) com a instalacao ainda rodando.
+_jobs: Dict[str, Dict[str, Any]] = {}
+_jobs_lock = threading.Lock()
+
+
+def iniciar_instalacao(caixa_id: str, url_base: str, abrir: Optional[Callable] = None) -> Dict[str, Any]:
+    from app.core.tenant_context import reset_current_tenant_slug, set_current_tenant_slug
+
+    tenant = pdv_store._tenant()
+    with db_store._conn() as c:
+        _caixa(c, caixa_id)  # do cliente, ou ValueError
+    with _jobs_lock:
+        for j in list(_jobs):  # esquece jobs de mais de 1 h
+            if time.time() - _jobs[j]["inicio"] > 3600:
+                _jobs.pop(j, None)
+        if any(j["caixa"] == caixa_id and j["tenant"] == tenant and not j["fim"] for j in _jobs.values()):
+            raise ValueError("Já há uma instalação em andamento para este caixa.")
+        job_id = uuid.uuid4().hex
+        _jobs[job_id] = {"tenant": tenant, "caixa": caixa_id, "inicio": time.time(), "fim": False,
+                         "ok": False, "passos": []}
+
+    def trabalho() -> None:
+        tok = set_current_tenant_slug(tenant)
+        try:
+            instalar(caixa_id, url_base, abrir=abrir, passos=_jobs[job_id]["passos"])
+            _jobs[job_id]["ok"] = bool(_jobs[job_id]["passos"]) and all(p["ok"] for p in _jobs[job_id]["passos"])
+        except Exception as exc:
+            _jobs[job_id]["passos"].append({"passo": "Instalação interrompida", "ok": False,
+                                            "detalhe": "%s" % type(exc).__name__})
+        finally:
+            _jobs[job_id]["fim"] = True
+            reset_current_tenant_slug(tok)
+
+    threading.Thread(target=trabalho, daemon=True).start()
+    return {"ok": True, "job_id": job_id}
+
+
+def andamento(job_id: str) -> Dict[str, Any]:
+    with _jobs_lock:
+        j = _jobs.get(job_id)
+        if not j or j["tenant"] != pdv_store._tenant():
+            raise LookupError("Instalação não encontrada.")
+        return {"ok": j["ok"], "fim": j["fim"], "passos": list(j["passos"]),
+                "segundos": int(time.time() - j["inicio"])}
+
+
 def instalar(caixa_id: str, url_base: str, pasta: str = "/home/rpdv/frente/Cm",
-             abrir: Optional[Callable] = None) -> Dict[str, Any]:
-    """Instala (ou reinstala) o coletor. Devolve os passos com o resultado de cada um."""
-    passos: List[Dict[str, Any]] = []
+             abrir: Optional[Callable] = None, passos: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
+    """Instala (ou reinstala) o coletor. Devolve os passos com o resultado de cada um.
+    `passos` pode ser a lista do job: cada passo aparece na tela assim que termina."""
+    passos = passos if passos is not None else []
 
     def passo(nome: str, ok: bool, detalhe: str = "") -> None:
         passos.append({"passo": nome, "ok": ok, "detalhe": detalhe})
@@ -182,8 +263,9 @@ def instalar(caixa_id: str, url_base: str, pasta: str = "/home/rpdv/frente/Cm",
     abrir = abrir or _abrir_ssh
     try:
         cli, fp = abrir(vip, int(cx["ssh_porta"] or 22), cx["ssh_usuario"], senha, cx.get("ssh_hostkey") or "")
-    except Exception as exc:  # senha errada, porta fechada, chave mudou
-        passo("Entrar no caixa", False, _limpar(str(exc) or type(exc).__name__, [senha]))
+    except Exception as exc:  # senha errada, porta fechada, chave mudou, caixa lento
+        msg = str(exc) if isinstance(exc, ErroInstalacao) else traduzir_erro_ssh(exc)
+        passo("Entrar no caixa", False, _limpar(msg, [senha]))
         _gravar_estado(caixa_id, "falhou")
         return {"ok": False, "passos": passos}
     token = ""
@@ -246,7 +328,8 @@ def status(caixa_id: str, abrir: Optional[Callable] = None) -> Dict[str, Any]:
     try:
         cli, fp = abrir(cx["_vip"], int(cx["ssh_porta"] or 22), cx["ssh_usuario"], cx["_senha"], cx.get("ssh_hostkey") or "")
     except Exception as exc:
-        return {"ok": False, "erro": _limpar(str(exc) or type(exc).__name__, [cx["_senha"]])}
+        msg = str(exc) if isinstance(exc, ErroInstalacao) else traduzir_erro_ssh(exc)
+        return {"ok": False, "erro": _limpar(msg, [cx["_senha"]])}
     if fp and not cx.get("ssh_hostkey"):
         with db_store._conn() as c:  # aprende a chave na primeira conexao, como o instalar
             c.execute("UPDATE pdv_caixas SET ssh_hostkey=? WHERE tenant_slug=? AND id=?", (fp, pdv_store._tenant(), caixa_id))

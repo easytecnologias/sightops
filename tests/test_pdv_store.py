@@ -223,3 +223,29 @@ def test_gravador_tem_que_ser_do_inventario_do_cliente(banco):
     with pytest.raises(ValueError):
         S.salvar_caixa({"nome": "PDV 05", "numero": 5, "gravador_host": "10.0.0.99", "gravador_canal": 1})
     assert S.salvar_caixa({"nome": "PDV 05", "numero": 5, "gravador_host": "192.168.24.227", "gravador_canal": 5})["id"]
+
+
+def test_excluir_caixa_apaga_o_que_veio_dele_e_so_do_cliente(banco):
+    c1 = _caixa()
+    c2 = S.salvar_caixa({"nome": "PDV 02", "numero": 2})
+    _enviar(S.autenticar(c1["id"], c1["token"]), ESP, TEC, agora=10_000.0)
+    tok = set_current_tenant_slug("mercado-b")
+    try:
+        with pytest.raises(ValueError):
+            S.excluir_caixa(c1["id"])           # outro cliente nao apaga
+    finally:
+        reset_current_tenant_slug(tok)
+    r = S.excluir_caixa(c1["id"])
+    assert r["apagados"]["pdv_cupons"] == 4 and r["apagados"]["pdv_linhas"] == len(ESP) + len(TEC)
+    assert [c["nome"] for c in S.listar_caixas()] == ["PDV 02"]
+    assert S.buscar_cupons(DIA) == [] and S.autenticar(c1["id"], c1["token"]) is None
+    assert S.autenticar(c2["id"], c2["token"])
+
+
+def test_excluir_caixa_e_de_admin():
+    from fastapi import FastAPI
+
+    from app.core.security import ApiAuthMiddleware
+    from app.core.settings import get_settings
+    m = ApiAuthMiddleware(FastAPI(), get_settings())
+    assert m._match_role_rule("/api/pdv/caixas/abc", "DELETE") == "admin"

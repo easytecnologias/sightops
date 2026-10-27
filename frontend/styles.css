@@ -14050,3 +14050,8 @@ button.rk-chip { cursor: pointer; }
 .pdv-passo.erro svg { color: var(--danger); }
 .pdv-passo div { min-width: 0; flex: 1; }
 .pdv-log { margin: 6px 0 0; padding: 8px 10px; border-radius: 6px; background: var(--sidebar); color: var(--cyan-soft); font-size: 11.5px; white-space: pre-wrap; word-break: break-word; max-height: 220px; overflow-y: auto; }
+.pdv-caixa-painel { margin-top: 16px; padding: 16px; border: 2px solid var(--primary); border-radius: 12px; background: var(--surface); }
+.pdv-caixa-painel .pdv-form { margin-top: 12px; }
+.pdv-perigo { margin-top: 12px; display: flex; flex-wrap: wrap; gap: 12px; justify-content: space-between; align-items: center; padding: 12px 14px; border-radius: 10px; background: var(--danger-soft); }
+.pdv-perigo small { display: block; color: var(--muted); font-size: 12px; margin-top: 2px; }
+.pdv-botao-perigo { color: var(--danger); border-color: var(--danger); }

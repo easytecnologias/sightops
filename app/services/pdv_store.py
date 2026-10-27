@@ -139,6 +139,25 @@ def salvar_caixa(payload: Dict[str, Any]) -> Dict[str, Any]:
     return out
 
 
+def excluir_caixa(caixa_id: str) -> Dict[str, Any]:
+    """Apaga o caixa e tudo que veio dele (linhas, eventos, itens, cupons).
+
+    O coletor que estiver no caixa passa a receber 401 (token some com o caixa).
+    A entidade de monitoramento sai na proxima passagem do refresh (poda por tipo).
+    """
+    tenant = _tenant()
+    with _lock, db_store._conn() as c:
+        cx = _caixa_do_cliente(c, tenant, caixa_id)
+        apagados = {}
+        for t in ("pdv_linhas", "pdv_eventos", "pdv_itens", "pdv_cupons"):
+            cur = c.execute("DELETE FROM %s WHERE tenant_slug=? AND caixa_id=?" % t, (tenant, caixa_id))
+            apagados[t] = getattr(cur, "rowcount", 0)
+        c.execute("DELETE FROM pdv_caixas WHERE tenant_slug=? AND id=?", (tenant, caixa_id))
+        for chave in [k for k in _estado if k[0] == tenant and k[1] == caixa_id]:
+            _estado.pop(chave, None)
+    return {"ok": True, "nome": cx["nome"], "apagados": apagados}
+
+
 def gravadores_do_cliente() -> set:
     """IPs dos gravadores (NVR/DVR) no inventario do cliente da sessao."""
     from app.services.nvr_ai_service import _read_nvr_inventory

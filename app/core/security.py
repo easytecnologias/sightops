@@ -154,6 +154,9 @@ class ApiAuthMiddleware(BaseHTTPMiddleware):
             # Ponto de venda: caixa, token do coletor e reprocessar o dia
             # mexem na configuracao do cliente -- so administrador.
             (("POST",), "/api/pdv/caixas", "admin"),
+            # Excluir caixa apaga tambem as vendas recebidas dele: so admin
+            # (e a regra central de exclusao pede a senha do administrador).
+            (("DELETE",), "/api/pdv/caixas/", "admin"),
             # Medir o relogio so LE a hora do gravador e guarda a diferenca.
             (("POST",), "/api/pdv/relogio/", "operator"),
             # Switch Provedores: cadastrar/testar operador; DELETE vira admin
