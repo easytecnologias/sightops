@@ -37,7 +37,8 @@ def test_toda_chave_de_metrica_esta_na_busca_do_zabbix():
     busca = set(re.findall(r'"(sightops\.[a-z0-9_]+)"', bloco_busca))
     assert {"sightops.link_in_bps", "sightops.sfp_rx_dbm"} <= metricas
     assert metricas - busca == set()
-    assert '"switch_provedor")' in fonte and '"link"' in fonte   # no tuple padrao do sync
+    padrao = re.search(r"def sync_monitoring_to_zabbix\(entity_types: tuple\[str, \.\.\.\] = \(([^)]*)\)", fonte).group(1)
+    assert {'"switch_provedor"', '"link"', '"pdv"'} <= {x.strip() for x in padrao.split(",")}  # no tuple padrao do sync
 
 
 class _LeitorFalso:

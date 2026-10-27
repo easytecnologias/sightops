@@ -26,6 +26,8 @@ DEFAULT_PROFILES = (
     # link de provedor do rack (rack_links.py): le a cada minuto; cai depois de 2 leituras sem link
     ("link-default", "Link de provedor (rack)", "link", 60, 2),
     ("switch_provedor-default", "Switch de provedores", "switch_provedor", 60, 2),
+    # Caixa (PDV): offline = coletor sem contato ha mais de 3 min (pdv_store.status_monitoramento)
+    ("pdv-default", "Caixa (coletor do PDV)", "pdv", 60, 2),
     # underscore para casar com o fallback automatico de _observe_entity_on()
     # (f"{entity_type}-default", e entity_type="access_device"); o bloco de
     # access_device em refresh_from_inventory() nunca define profile_key, entao
@@ -788,6 +790,13 @@ def refresh_from_inventory() -> Dict[str, Any]:
         # derrubar o refresh dos outros tenants no mesmo ciclo.
         logger.warning("Falha ao observar canais WhatsApp no monitoramento: %s", exc)
         counts["whatsapp"] = 0
+    try:
+        from app.services.pdv_store import entidades_monitoramento
+        counts["pdv"] = _observe_many(entidades_monitoramento(), prune_entity_type="pdv")
+    except Exception as exc:
+        # Mesmo motivo dos blocos acima: um erro aqui nao para o refresh dos outros clientes.
+        logger.warning("Falha ao observar caixas (PDV) no monitoramento: %s", exc)
+        counts["pdv"] = 0
     return {"ok": True, "tenant": _tenant(), "observed": counts, "total": sum(counts.values())}
 
 

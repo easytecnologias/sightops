@@ -605,7 +605,7 @@ def ultimo_sync(tenant: str) -> Dict[str, Any]:
         return dict(_ULTIMO_SYNC.get(_text(tenant).lower()) or {})
 
 
-def sync_monitoring_to_zabbix(entity_types: tuple[str, ...] = ("olt", "onu", "camera", "nvr", "dvr", "connector", "access_device", "whatsapp", "switch", "windows", "access_point", "link", "switch_provedor")) -> Dict[str, Any]:
+def sync_monitoring_to_zabbix(entity_types: tuple[str, ...] = ("olt", "onu", "camera", "nvr", "dvr", "connector", "access_device", "whatsapp", "switch", "windows", "access_point", "link", "switch_provedor", "pdv")) -> Dict[str, Any]:
     tenant = _text(get_current_tenant_slug() or "default").lower()
     try:
         result = _sync_monitoring_to_zabbix(entity_types)
@@ -746,7 +746,8 @@ def _sync_monitoring_to_zabbix(entity_types: tuple[str, ...]) -> Dict[str, Any]:
                    # duplicata e o sync do tenant inteiro para antes do push.
                    "sightops.disco_c_livre_pct", "sightops.defender_tempo_real", "sightops.alertas",
                    "sightops.link_in_bps", "sightops.link_out_bps", "sightops.link_erros",
-                   "sightops.sfp_rx_dbm", "sightops.sfp_tx_dbm"]
+                   "sightops.sfp_rx_dbm", "sightops.sfp_tx_dbm",
+                   "sightops.pdv_contato_s", "sightops.pdv_evento_s"]
     items = _call(
         url, "item.get",
         {"output": ["itemid", "hostid", "key_"], "hostids": all_hostids, "filter": {"key_": wanted_keys}},
@@ -781,6 +782,8 @@ def _sync_monitoring_to_zabbix(entity_types: tuple[str, ...]) -> Dict[str, Any]:
         "sightops.link_erros": ("SightOps - Erros na porta do link", 3, "Erros de entrada+saida na porta do provedor desde a leitura anterior"),
         "sightops.sfp_rx_dbm": ("SightOps - Sinal da fibra recebido", 0, "Potencia optica recebida no SFP da porta do provedor, em dBm"),
         "sightops.sfp_tx_dbm": ("SightOps - Sinal da fibra enviado", 0, "Potencia optica enviada pelo SFP da porta do provedor, em dBm"),
+        "sightops.pdv_contato_s": ("SightOps - Coletor do caixa: ultimo contato", 3, "Segundos desde o ultimo envio do coletor do PDV (sinal de vida a cada 30 s)"),
+        "sightops.pdv_evento_s": ("SightOps - Caixa: ultima venda lida", 3, "Segundos desde o ultimo evento do Espiao recebido (cresce a noite e com o caixa fechado)"),
         "sightops.alertas": ("SightOps - Alertas de saude", 3, "Windows: alertas do inventario (sem SSD, pouca memoria, disco cheio, Defender, BitLocker, TPM, Windows sem suporte). Gateway/AP Ruijie: alarmes ativos no equipamento + conflito de IP"),
     }
     # bit/s ja vem calculado (olt_snmp_health, entre duas leituras SNMP). A
@@ -819,6 +822,9 @@ def _sync_monitoring_to_zabbix(entity_types: tuple[str, ...]) -> Dict[str, Any]:
                  "sightops.sfp_rx_dbm", "sightops.sfp_tx_dbm"],
         # Switch Provedores (switch_provedores.py): MikroTik da rede neutra
         "switch_provedor": ["sightops.ports_up", "sightops.ports_total"],
+        # Caixa (PDV): o coletor manda sinal de vida; a idade do ultimo evento
+        # mostra caixa "vivo" que parou de ler o Espiao.
+        "pdv": ["sightops.pdv_contato_s", "sightops.pdv_evento_s"],
     }
     so_se_presente = {"connector", "access_point", "link", "switch_provedor"}
     create_items = []
@@ -898,6 +904,8 @@ def _sync_monitoring_to_zabbix(entity_types: tuple[str, ...]) -> Dict[str, Any]:
             ("sightops.link_erros", _number(detail.get("link_erros"))),
             ("sightops.sfp_rx_dbm", _number(detail.get("sfp_rx_dbm"))),
             ("sightops.sfp_tx_dbm", _number(detail.get("sfp_tx_dbm"))),
+            ("sightops.pdv_contato_s", _number(detail.get("contato_s"))),
+            ("sightops.pdv_evento_s", _number(detail.get("evento_s"))),
         ):
             metric_itemid = item_by_host_key.get((hostid, key), "")
             if metric_itemid and value is not None:

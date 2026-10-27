@@ -151,6 +151,11 @@ class ApiAuthMiddleware(BaseHTTPMiddleware):
             # Controle de Rotas: cadastro da frota. DELETE sobe para admin
             # sozinho (permissions.e_exclusao).
             (("POST", "DELETE"), "/api/rotas/", "operator"),
+            # Ponto de venda: caixa, token do coletor e reprocessar o dia
+            # mexem na configuracao do cliente -- so administrador.
+            (("POST",), "/api/pdv/caixas", "admin"),
+            # Medir o relogio so LE a hora do gravador e guarda a diferenca.
+            (("POST",), "/api/pdv/relogio/", "operator"),
             # Switch Provedores: cadastrar/testar operador; DELETE vira admin
             # pela regra central de exclusao. (POST cai em /api/switch/ abaixo.)
             (("DELETE",), "/api/switch/provedores/", "operator"),
@@ -213,6 +218,10 @@ class ApiAuthMiddleware(BaseHTTPMiddleware):
         if path.startswith("/api/alert/app/"):
             return True
         if path.startswith("/api/access-control/whatsapp/inbound/") and path != "/api/access-control/whatsapp/inbound/simulate":
+            return True
+        # Coletor do caixa (PDV): autentica pelo token do caixa dentro do
+        # proprio endpoint (app/api/endpoints/pdv.py), nao por usuario.
+        if path.startswith("/api/pdv/coletor/"):
             return True
         # Webhook da Cloud API: a Meta chama sem credencial nossa. A protecao e o
         # token de verificacao conferido dentro do proprio endpoint.

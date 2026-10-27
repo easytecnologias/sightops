@@ -1,0 +1,25 @@
+[Unit]
+Description=SightOps - coletor do caixa (Espiao e Teclas do PDV)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=rpdv
+Group=rpdv
+ExecStart=/usr/bin/python3 /opt/sightops-pdv/sightops_pdv_coletor.py
+Restart=always
+RestartSec=5
+# Leve de proposito: o caixa e quem manda. Prioridade baixa de CPU e disco.
+Nice=10
+IOSchedulingClass=idle
+MemoryMax=64M
+# Ubuntu 18.04 (systemd 237, cgroup v1) le esta; MemoryMax so vale no v2.
+MemoryLimit=64M
+# So le os arquivos do PDV e escreve a propria posicao.
+ProtectSystem=full
+ReadWritePaths=/var/lib/sightops-pdv
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=multi-user.target
