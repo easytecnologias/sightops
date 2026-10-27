@@ -465,11 +465,14 @@ def resumo_dia(dia: str, caixa_id: str = "") -> Dict[str, Any]:
             c, "SELECT situacao, COUNT(1) AS n FROM pdv_cupons WHERE %s GROUP BY situacao" % filtro, tuple(p))}
         vendido = _row(c, "SELECT SUM(total_centavos) AS v FROM pdv_cupons WHERE %s AND situacao='fechado'" % filtro, tuple(p))
         ev = {r["tipo"]: int(r["n"]) for r in _rows(
-            c, "SELECT tipo, COUNT(1) AS n FROM pdv_eventos WHERE %s AND tipo IN ('CIT','CCV','CCG','DIT','ITEMSEMCAD','SGR','GAV') "
+            c, "SELECT tipo, COUNT(1) AS n FROM pdv_eventos WHERE %s AND tipo IN ('CIT','CCV','CCG','DIT','DST','ITEMSEMCAD','SGR','GAV') "
                "GROUP BY tipo" % filtro, tuple(p))}
+        por_caixa = {r["caixa_id"]: {"cupons": int(r["n"] or 0), "vendido_centavos": int(r["v"] or 0)} for r in _rows(
+            c, "SELECT caixa_id, COUNT(1) AS n, SUM(total_centavos) AS v FROM pdv_cupons WHERE %s AND situacao='fechado' "
+               "GROUP BY caixa_id" % filtro, tuple(p))}
     itens = sum(m["n"] for m in modos.values())
     return {"dia": dia, "itens": itens, "modos": modos, "cupons": cup,
-            "vendido_centavos": int((vendido or {}).get("v") or 0), "eventos": ev}
+            "vendido_centavos": int((vendido or {}).get("v") or 0), "eventos": ev, "por_caixa": por_caixa}
 
 
 def reprocessar_dia(caixa_id: str, dia: str) -> Dict[str, Any]:

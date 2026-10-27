@@ -86,6 +86,7 @@ def test_dia_inteiro_igual_ao_leitor_da_fase_0(banco):
     assert resumo["itens"] == len(ref.itens) == 9
     assert {m: v["n"] for m, v in resumo["modos"].items()} == {"scanner": 5, "manual": 1, "menu": 1, "sem_tecla": 1, "outro": 1}
     assert resumo["eventos"]["CIT"] == 1 and resumo["eventos"]["CCV"] == 2 and resumo["eventos"]["CCG"] == 1
+    assert resumo["por_caixa"][caixa["id"]] == {"cupons": 2, "vendido_centavos": 3008 + 1890}
 
 
 def test_lotes_picados_e_reenvio_dao_o_mesmo(banco):
