@@ -677,5 +677,7 @@ button.canal-linha[aria-expanded="true"] > svg { transform: rotate(90deg); }
 .selo-botao { display: inline-flex; align-items: center; gap: 5px; border: 0; cursor: pointer; font-family: inherit; }
 .selo-botao svg { width: 13px; height: 13px; }
 .link.perigo-link { color: var(--danger); }
-.seg.seg-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-.seg.seg-4 button { font-size: 12.5px; }
+/* Quatro opcoes em 2 x 2: numa linha so "Personalizado" nao cabia no celular. */
+.seg.seg-4 { grid-auto-flow: row; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.portas-cam summary { min-height: 40px; display: flex; align-items: center; font-weight: 600; color: var(--primary-escuro); cursor: pointer; }
+.tres { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
