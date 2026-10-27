@@ -9,7 +9,7 @@ import { useSite } from '../lib/site';
 import { Cartao, EscolhaLocal, Icone, Item, Vazio } from '../ui/pecas';
 import { OndeProcurar } from '../ui/OndeProcurar';
 import { LerEtiqueta } from '../ui/LerEtiqueta';
-import { ehMac } from '../lib/etiqueta';
+import { digitarMac, ehMac } from '../lib/etiqueta';
 import { ordenar } from '../lib/ordem';
 
 /*
@@ -357,7 +357,7 @@ export function InstalarCamera() {
       <Passo n={1} titulo="Achar a câmera na rede" aberto={aberto(1)} onEditar={() => setVendoPasso(1)} feito={ip ? `${ip}${mac ? ` · ${mac}` : ''}` : undefined}>
         <div className="campo"><label htmlFor="bq">MAC da etiqueta ou IP</label>
           <form className="caixa" onSubmit={(e) => { e.preventDefault(); void procurar(); }}>
-            <input id="bq" className="mono" value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="aa:bb:cc:dd:ee:ff" autoCapitalize="none" spellCheck={false} enterKeyHint="search" />
+            <input id="bq" className="mono" value={busca} onChange={(e) => setBusca(digitarMac(e.target.value))} placeholder="aa:bb:cc:dd:ee:ff" autoCapitalize="none" spellCheck={false} enterKeyHint="search" />
           </form>
           <span className="ajuda">Por MAC, pergunta na hora ao MikroTik do site (ARP e DHCP) e testa qual IP responde.</span></div>
         <LerEtiqueta aoErro={setErro} aoLer={(m) => { setBusca(m); void procurar(m); }} />

@@ -11,6 +11,7 @@ import {
   type OltCompleta, type OnuDescoberta, type Servico,
 } from '../lib/implantar';
 import { Carregando, Cartao, Icone, Item, Vazio } from '../ui/pecas';
+import { digitarMac } from '../lib/etiqueta';
 import { useFiltro } from '../ui/Filtros';
 
 function Passos({ n }: { n: number }) {
@@ -159,7 +160,7 @@ export function OnuEscolher() {
               <p className="sub-h2">Esta OLT não lista as ONUs novas: digite o MAC da etiqueta.</p>
               <div className="form-cartao">
                 <div className="campo"><label htmlFor="mac">MAC da ONU</label>
-                  <div className="caixa"><input id="mac" className="mono" value={mac} onChange={(e) => setMac(e.target.value)} placeholder="00:00:00:00:00:00" autoCapitalize="characters" spellCheck={false} /></div></div>
+                  <div className="caixa"><input id="mac" className="mono" value={mac} onChange={(e) => setMac(digitarMac(e.target.value, true))} placeholder="00:00:00:00:00:00" autoCapitalize="characters" spellCheck={false} /></div></div>
                 <div className="campo"><span className="lb">PON</span>
                   <div className="seg">{Array.from({ length: ponsDa(olt) }, (_, i) => String(i + 1)).map((p) => (
                     <button key={p} type="button" aria-pressed={pon === p} onClick={() => setPon(p)}>{p}</button>))}</div></div>
