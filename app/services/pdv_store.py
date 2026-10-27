@@ -63,7 +63,12 @@ _CAMPOS_CAIXA = ("id", "nome", "numero", "site", "connector_id", "gravador_host"
 
 
 def _publico(r: Dict[str, Any]) -> Dict[str, Any]:
-    return {k: r.get(k) for k in _CAMPOS_CAIXA}
+    out = {k: r.get(k) for k in _CAMPOS_CAIXA}
+    # acesso SSH ao caixa (migration 024): nunca a senha, so se ha uma guardada
+    out.update({"pdv_host": r.get("pdv_host") or "", "ssh_porta": int(r.get("ssh_porta") or 22),
+                "ssh_usuario": r.get("ssh_usuario") or "", "tem_senha": bool(r.get("ssh_senha_enc")),
+                "instalacao_estado": r.get("instalacao_estado") or "", "instalacao_em": r.get("instalacao_em") or ""})
+    return out
 
 
 def listar_caixas() -> List[Dict[str, Any]]:

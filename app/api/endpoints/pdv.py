@@ -73,6 +73,39 @@ def api_pdv_novo_token(caixa_id: str) -> Dict[str, Any]:
     return {"ok": True, **_executar(pdv_store.novo_token, caixa_id)}
 
 
+@router.post("/caixas/{caixa_id}/acesso")
+def api_pdv_acesso(caixa_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    """IP do caixa na loja + usuario/senha SSH (senha cifrada; em branco mantem)."""
+    from app.services import pdv_instalador
+    return {"ok": True, "acesso": _executar(pdv_instalador.salvar_acesso, caixa_id, payload)}
+
+
+@router.post("/caixas/{caixa_id}/instalar")
+def api_pdv_instalar(caixa_id: str, request: Request) -> Dict[str, Any]:
+    """Instala o coletor no caixa pelo tunel do conector (nunca pelo IP publico)."""
+    from app.services import pdv_instalador
+    from app.services.connector_service import get_connector
+
+    cx = next((c for c in pdv_store.listar_caixas() if c["id"] == caixa_id), None)
+    if not cx:
+        raise HTTPException(status_code=404, detail="Caixa não encontrado.")
+    conector = get_connector(cx["connector_id"], include_token=False, enforce_tenant=True) if cx["connector_id"] else None
+    base = str((conector or {}).get("public_base_url") or "").strip() or _base_publica(request)
+    return _executar(pdv_instalador.instalar, caixa_id, base)
+
+
+@router.post("/caixas/{caixa_id}/coletor")
+def api_pdv_coletor_status(caixa_id: str) -> Dict[str, Any]:
+    """Situacao do servico do coletor no caixa (so leitura, pelo tunel)."""
+    from app.services import pdv_instalador
+    return _executar(pdv_instalador.status, caixa_id)
+
+
+def _base_publica(request: Request) -> str:
+    from app.api.endpoints.connectors import _request_public_base_url
+    return _request_public_base_url(request)
+
+
 @router.post("/caixas/{caixa_id}/reprocessar")
 def api_pdv_reprocessar(caixa_id: str, dia: str) -> Dict[str, Any]:
     return _executar(pdv_store.reprocessar_dia, caixa_id, dia)

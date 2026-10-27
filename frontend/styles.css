@@ -14041,3 +14041,12 @@ button.rk-chip { cursor: pointer; }
   .pdv-etapa-wrap { flex-basis: 100%; }
   .pdv-seta { transform: rotate(90deg); }
 }
+.pdv-form-largo { grid-column: 1 / -1; margin: 0; }
+.pdv-passos { grid-column: 1 / -1; display: flex; flex-direction: column; gap: 6px; }
+.pdv-passo { display: flex; gap: 10px; align-items: flex-start; padding: 8px 10px; border-radius: 8px; background: var(--surface); border: 1px solid var(--border); }
+.pdv-passo svg { width: 18px; height: 18px; flex: none; margin-top: 1px; }
+.pdv-passo.ok svg { color: var(--primary); }
+.pdv-passo.erro { background: var(--danger-soft); }
+.pdv-passo.erro svg { color: var(--danger); }
+.pdv-passo div { min-width: 0; flex: 1; }
+.pdv-log { margin: 6px 0 0; padding: 8px 10px; border-radius: 6px; background: var(--sidebar); color: var(--cyan-soft); font-size: 11.5px; white-space: pre-wrap; word-break: break-word; max-height: 220px; overflow-y: auto; }

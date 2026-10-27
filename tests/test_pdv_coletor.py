@@ -12,7 +12,7 @@ import pytest
 RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FIX = os.path.join(RAIZ, "tests", "fixtures", "pdv")
 _spec = importlib.util.spec_from_file_location(
-    "coletor", os.path.join(RAIZ, "tools", "pdv", "coletor", "sightops_pdv_coletor.py"))
+    "coletor", os.path.join(RAIZ, "app", "services", "assets", "pdv_coletor", "sightops_pdv_coletor.py"))
 C = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(C)
 
