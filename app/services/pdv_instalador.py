@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import hashlib
 import ipaddress
+import json
 import os
 import secrets
 from datetime import datetime, timezone
@@ -202,18 +203,24 @@ def instalar(caixa_id: str, url_base: str, pasta: str = "/home/rpdv/frente/Cm",
             return {"ok": False, "passos": passos}
         passo("Permissão de administrador (sudo)", True)
         destino = "/tmp/sightops-pdv-%s" % secrets.token_hex(4)
+        token = pdv_store.novo_token(caixa_id)["token"]  # o anterior para de valer aqui
+        config = json.dumps({"url": url_base.rstrip("/") + "/api/pdv/coletor/lote", "caixa": caixa_id,
+                             "token": token, "pasta": pasta, "estacao": int(cx["numero"])})
         sftp = cli.open_sftp()
         try:
             sftp.mkdir(destino, 0o700)
             for nome in ARQUIVOS:
                 sftp.put(os.path.join(ASSETS, nome), "%s/%s" % (destino, nome))
+            # O token vai num arquivo 600, nunca na linha de comando (o sudo
+            # gravaria no auth.log e qualquer usuario veria no ps).
+            with sftp.open("%s/coletor.json" % destino, "w") as f:
+                f.write(config)
+            sftp.chmod("%s/coletor.json" % destino, 0o600)
         finally:
             sftp.close()
         passo("Enviar o coletor", True, "versão %s" % _versao_coletor())
-        token = pdv_store.novo_token(caixa_id)["token"]  # o anterior para de valer aqui
-        cod, out = _rodar(cli, "sudo -S -p '' sh %s/instalar.sh %s %s %s %s %d; rm -rf %s"
-                          % (destino, _aspas(url_base.rstrip("/")), _aspas(caixa_id), _aspas(token), _aspas(pasta),
-                             int(cx["numero"]), destino), entrada=senha + "\n", timeout=90)
+        cod, out = _rodar(cli, "sudo -S -p '' sh %s/instalar.sh --config %s/coletor.json; rm -rf %s"
+                          % (destino, destino, destino), entrada=senha + "\n", timeout=90)
         ok = cod == 0 and "Pronto." in out
         passo("Instalar e ligar o serviço", ok, _limpar(out, [senha, token]))
         _gravar_estado(caixa_id, "instalado" if ok else "falhou", fp)
@@ -237,9 +244,12 @@ def status(caixa_id: str, abrir: Optional[Callable] = None) -> Dict[str, Any]:
         return {"ok": False, "erro": str(exc)}
     abrir = abrir or _abrir_ssh
     try:
-        cli, _ = abrir(cx["_vip"], int(cx["ssh_porta"] or 22), cx["ssh_usuario"], cx["_senha"], cx.get("ssh_hostkey") or "")
+        cli, fp = abrir(cx["_vip"], int(cx["ssh_porta"] or 22), cx["ssh_usuario"], cx["_senha"], cx.get("ssh_hostkey") or "")
     except Exception as exc:
         return {"ok": False, "erro": _limpar(str(exc) or type(exc).__name__, [cx["_senha"]])}
+    if fp and not cx.get("ssh_hostkey"):
+        with db_store._conn() as c:  # aprende a chave na primeira conexao, como o instalar
+            c.execute("UPDATE pdv_caixas SET ssh_hostkey=? WHERE tenant_slug=? AND id=?", (fp, pdv_store._tenant(), caixa_id))
     try:
         _, ativo = _rodar(cli, "systemctl is-active %s; systemctl show -p ActiveEnterTimestamp --value %s" % (SERVICO, SERVICO), timeout=15)
         _, log = _rodar(cli, "journalctl -u %s -n 15 --no-pager 2>/dev/null || true" % SERVICO, timeout=15)

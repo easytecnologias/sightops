@@ -53,6 +53,8 @@ class CaixaFalso(object):
         self.cmds, self.entradas, self.arquivos = [], [], []
         self.sudo_ok, self.python, self.pasta, self.instalar_ok = sudo_ok, python, pasta, instalar_ok
         self.conexoes = []
+        self.config = {}
+        self.modos = {}
 
     def abrir(self, vip, porta, usuario, senha, hostkey):
         self.conexoes.append((vip, porta, usuario, senha, hostkey))
@@ -98,6 +100,25 @@ class _Sftp(object):
     def put(self, origem, destino):
         self.cx.arquivos.append(destino)
 
+    def open(self, caminho, modo):
+        cx = self.cx
+
+        class _Arq(object):
+            def __enter__(s):
+                return s
+
+            def __exit__(s, *a):
+                return False
+
+            def write(s, texto):
+                import json
+                cx.config = json.loads(texto)
+                cx.arquivos.append(caminho)
+        return _Arq()
+
+    def chmod(self, caminho, modo):
+        self.cx.modos[caminho] = modo
+
     def close(self):
         pass
 
@@ -115,7 +136,7 @@ class _Cliente(object):
         elif cmd == "sudo -S -p '' true":
             out, cod = "", 0 if cx.sudo_ok else 1
         elif "instalar.sh" in cmd:
-            token = cmd.split("'")[7]
+            token = cx.config.get("token", "")
             out = ("Pronto. token %s" % token) if cx.instalar_ok else "falhou"
             cod = 0 if cx.instalar_ok else 1
         elif cmd.startswith("systemctl"):
@@ -181,11 +202,14 @@ def test_instala_pelo_ip_virtual_sem_senha_na_linha_de_comando(banco):
     assert falso.conexoes[0][:3] == ("10.211.198.97", 22, "rpdv")  # IP VIRTUAL, nunca o real nem o publico
     assert all(SENHA not in c for c in falso.cmds)                  # senha so pela entrada padrao
     assert SENHA + "\n" in falso.entradas
-    assert {a.rsplit("/", 1)[1] for a in falso.arquivos} == set(I.ARQUIVOS)
+    assert {a.rsplit("/", 1)[1] for a in falso.arquivos} == set(I.ARQUIVOS) | {"coletor.json"}
     instalar = next(c for c in falso.cmds if "instalar.sh" in c)
-    assert "'https://sightops.exemplo'" in instalar and "rm -rf /tmp/sightops-pdv-" in instalar
+    assert "--config" in instalar and "rm -rf /tmp/sightops-pdv-" in instalar
+    token = falso.config["token"]
+    assert token not in instalar and "sightops.exemplo" not in instalar   # nada disso na linha de comando
+    assert falso.config["url"] == "https://sightops.exemplo/api/pdv/coletor/lote"
+    assert [m for c, m in falso.modos.items() if c.endswith("coletor.json")] == [0o600]
     detalhes = " ".join(p["detalhe"] for p in r["passos"])
-    token = instalar.split("'")[7]
     assert token.startswith("pdv_") and token not in detalhes and SENHA not in detalhes
     assert S.autenticar(cx["id"], token)                            # token novo vale
     caixa = S.listar_caixas()[0]
@@ -236,3 +260,31 @@ def test_rotas_de_instalacao_sao_de_admin():
     m = ApiAuthMiddleware(FastAPI(), get_settings())
     for rota in ("acesso", "instalar", "coletor"):
         assert m._match_role_rule("/api/pdv/caixas/abc/%s" % rota, "POST") == "admin"
+
+
+def test_trocar_conector_apaga_senha_e_chave(banco, monkeypatch):
+    cx = _caixa()
+    _acesso(cx)
+    I.instalar(cx["id"], "https://x", abrir=CaixaFalso().abrir)
+    from app.services import connector_service
+    monkeypatch.setattr(connector_service, "get_connector", lambda *a, **k: {"id": "c2"})
+    S.salvar_caixa({"id": cx["id"], "nome": "PDV 01", "numero": 1, "connector_id": "c2"})
+    caixa = S.listar_caixas()[0]
+    assert caixa["connector_id"] == "c2" and caixa["tem_senha"] is False
+    from app.services import db_store
+    with db_store._conn() as c:
+        assert c.execute("SELECT ssh_hostkey FROM pdv_caixas").fetchone()[0] == ""
+
+
+def test_status_aprende_a_chave(banco):
+    cx = _caixa()
+    _acesso(cx)
+    falso = CaixaFalso()
+    I.status(cx["id"], abrir=falso.abrir)
+    I.status(cx["id"], abrir=falso.abrir)
+    assert falso.conexoes[0][4] == "" and falso.conexoes[1][4] == "SHA256:caixa1"
+
+
+def test_instalar_sh_tem_modo_config_sem_token_na_linha():
+    sh = open(I.os.path.join(I.ASSETS, "instalar.sh"), encoding="utf-8").read()
+    assert '"--config"' in sh and "json.dump" in sh and '"$TOKEN"' not in sh

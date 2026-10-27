@@ -115,6 +115,12 @@ def salvar_caixa(payload: Dict[str, Any]) -> Dict[str, Any]:
         if caixa_id:
             if not _row(c, "SELECT id FROM pdv_caixas WHERE tenant_slug=? AND id=?", (tenant, caixa_id)):
                 raise ValueError("Caixa não encontrado.")
+            antes = _row(c, "SELECT connector_id FROM pdv_caixas WHERE tenant_slug=? AND id=?", (tenant, caixa_id)) or {}
+            if (antes.get("connector_id") or "") != campos["connector_id"]:
+                # Outro conector = outra rede: o mesmo IP privado e outra maquina.
+                # A senha do caixa nunca segue para la sem alguem digita-la de novo.
+                c.execute("UPDATE pdv_caixas SET ssh_senha_enc='', ssh_hostkey='' WHERE tenant_slug=? AND id=?",
+                          (tenant, caixa_id))
             sets = ", ".join("%s=?" % k for k in campos)
             c.execute("UPDATE pdv_caixas SET %s, updated_at=? WHERE tenant_slug=? AND id=?" % sets,
                       (*campos.values(), agora, tenant, caixa_id))
