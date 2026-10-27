@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { enviar } from '../lib/api';
-import { chaveDa, detalhe, estadoDa, ipDaOlt, tituloDa, useCameras, useOlts, useSinalOnu, type AmostraSinal, type Entidade } from '../lib/dados';
+import { chaveDa, detalhe, estadoDa, ipDaOlt, tituloDa, useCameras, useOlts, useProvedoresPorVlan, useSinalOnu, useVlansOnu, type AmostraSinal, type Entidade } from '../lib/dados';
 import { Caminho, type Elo } from '../ui/Caminho';
 import { LIMITE_RX, num, nomeEntidade, partesOnu, quando, rxDa, sinalBaixo, useSiteMonitor, type DetalheOnu } from '../lib/monitor';
 import { useSite } from '../lib/site';
@@ -136,8 +136,12 @@ export function ConsultarOnu() {
   const podeRemover = ['admin', 'owner'].includes(String(eu.data?.role ?? '').toLowerCase());
   const [fazendo, setFazendo] = useState('');
   const acoes = useAcoes(partesOnu(key).oltIp);
-
   const e: Entidade | undefined = m.onus.find((x) => x.entity_key === key);
+  // VLAN diz de qual provedor e o cliente desta ONU (rede neutra).
+  const pk = partesOnu(key);
+  const vl = useVlansOnu(String(e?.site ?? ''), pk.oltIp, pk.pon, pk.onu, String(e ? detalhe<DetalheOnu>(e).serial ?? '' : ''));
+  const provedores = useProvedoresPorVlan();
+
   if (m.carregando) return <Carregando />;
   if (!e) return <Cartao><Vazio>ONU não encontrada no monitoramento.</Vazio></Cartao>;
 
@@ -170,6 +174,10 @@ export function ConsultarOnu() {
   // Acoes na ONU. EQUIPAMENTO VIVO: reiniciar derruba o que esta atras dela
   // por ~1 min; remover desautoriza na OLT (so admin/dono, regra e_exclusao).
   const destaOnu = (acoes.data ?? []).filter((a) => String(a.pon ?? '') === p.pon && String(a.onu ?? '') === p.onu).slice(0, 5);
+  // Sem coleta da OLT, a VLAN que o SightOps gravou ao autorizar a ONU.
+  const vlans = vl.vlans.length ? vl.vlans
+    : [...new Set(destaOnu.flatMap((a) => String(a.vlan ?? '').split(/[,\s]+/)).filter((v) => /^\d+$/.test(v)))];
+  const donos = [...new Set(vlans.flatMap((v) => provedores.data?.[v] ?? []))];
   const posicao = () => ({ olt_id: olt!.id, pon: Number(p.pon) || 0, onu: Number(p.onu) || 0, serial: d.serial || '',
     site: e!.site || site || '', olt_name: olt!.name || '', connector_id: olt!.connector_id || '', remote_connector_id: olt!.connector_id || '' });
   async function naOlt(qual: 'reboot' | 'delete') {
@@ -214,6 +222,7 @@ export function ConsultarOnu() {
         <div style={{ flex: 1, minWidth: 0 }}>
           <h1 className="titulo-tela">{nomeEntidade(e)}</h1>
           <p className="sub-tela mono">{[d.serial, e.site].filter(Boolean).join(' · ')}</p>
+          {vlans.length ? <p className="sub-tela"><b>VLAN {vlans.join(', ')}</b>{donos.length ? ` · ${donos.join(', ')}` : ''}</p> : null}
         </div>
         <span className={`selo ${e.status === 'down' ? 'vermelho' : e.status !== 'up' || baixo ? 'ambar' : 'verde'}`}>
           {e.status === 'down' ? 'fora do ar' : e.status === 'unstable' ? 'instável' : baixo ? 'sinal baixo' : 'sinal bom'}
@@ -242,6 +251,12 @@ export function ConsultarOnu() {
       <Cartao>
         <div className="ficha">
           <div className="ficha-linha"><span className="ficha-rot">OLT · posição</span><span className="ficha-val mono">{olt?.name || p.oltIp} · PON {p.pon} · ONU {p.onu}</span></div>
+          <div className="ficha-linha"><span className="ficha-rot">VLAN · provedor</span><span className="ficha-val">
+            {vlans.length ? vlans.map((v) => {
+              const quem = provedores.data?.[v];
+              return <div key={v}><span className="mono">VLAN {v}</span>{' · '}{quem?.length ? <b>{quem.join(', ')}</b> : <span style={{ color: 'var(--muted)' }}>não está nos provedores do rack</span>}</div>;
+            }) : vl.carregando ? 'lendo…' : 'a OLT não informou'}
+          </span></div>
           {e.status === 'down' && d.offline_reason ? <div className="ficha-linha"><span className="ficha-rot">Motivo</span><span className="ficha-val">{d.offline_reason}</span></div> : null}
           {num(d.temperatura) !== null ? <div className="ficha-linha"><span className="ficha-rot">Temperatura</span><span className="ficha-val">{d.temperatura} °C</span></div> : null}
           <div className="ficha-linha"><span className="ficha-rot">Zabbix</span><span className="ficha-val">{e.status === 'up' ? (baixo ? 'no ar, sinal abaixo de −27 dBm' : 'no ar') : e.status === 'unstable' ? 'instável (caiu e voltou mais de uma vez na última hora)' : e.status === 'down' ? 'fora do ar' : 'sem leitura'}{e.last_checked_at ? ` · lido ${desde(e.last_checked_at)}` : ''}</span></div>

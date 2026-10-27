@@ -260,6 +260,54 @@ export function useOlts() {
   });
 }
 
+/* ───────────────────────── VLAN da ONU e de quem ela e ───────────────────────── */
+
+type LinhaOlt = { olt_ip?: string; pon?: string | number; onu_id?: string | number; onu_serial?: string; vlan?: string | number };
+
+/** VLANs vistas na ONU pela coleta da OLT (/api/olt/rows: uma linha por MAC
+ *  atras da ONU; o modo compact NAO traz a vlan). Filtrado pelo site da ONU. */
+export function useVlansOnu(site: string, oltIp: string, pon: string, onu: string, serial: string) {
+  const q = useQuery({
+    queryKey: ['olt-rows', site],
+    queryFn: async () => (await obter<{ rows?: LinhaOlt[] }>(`/api/olt/rows?site=${encodeURIComponent(site)}`)).rows ?? [],
+    enabled: !!site,
+    staleTime: 5 * 60_000,
+  });
+  const ser = serial.toUpperCase();
+  const vlans = new Set<string>();
+  for (const r of q.data ?? []) {
+    const mesma = ser ? String(r.onu_serial ?? '').toUpperCase() === ser
+      : String(r.olt_ip ?? '') === oltIp && String(r.pon ?? '').split('/').pop() === pon && String(r.onu_id ?? '') === onu;
+    if (!mesma) continue;
+    for (const v of String(r.vlan ?? '').split(/[,\s]+/)) if (/^\d+$/.test(v)) vlans.add(v);
+  }
+  return { vlans: [...vlans].sort((a, b) => Number(a) - Number(b)), carregando: q.isPending && !!site };
+}
+
+type Rack = { provedores?: { nome?: string; vlans?: (number | string)[] }[] };
+
+/** VLAN -> provedor, pelos provedores cadastrados nos racks do mapa
+ *  (meta.racks das camadas; sem os pontos, que sao pesados). */
+export function useProvedoresPorVlan() {
+  return useQuery({
+    queryKey: ['provedores-vlan'],
+    queryFn: async () => {
+      const layers = (await obter<{ layers?: { racks?: Record<string, Rack> }[] }>('/api/kmz/import/layers?include_features=false')).layers ?? [];
+      const mapa: Record<string, string[]> = {};
+      for (const l of layers) for (const r of Object.values(l.racks ?? {})) for (const pv of r.provedores ?? []) {
+        const nome = String(pv.nome ?? '').trim();
+        if (!nome) continue;
+        for (const v of pv.vlans ?? []) {
+          const lista = (mapa[String(v)] ??= []);
+          if (!lista.includes(nome)) lista.push(nome);
+        }
+      }
+      return mapa;
+    },
+    staleTime: 10 * 60_000,
+  });
+}
+
 /* ───────────────────────── panico (so contagem e lista; NUNCA o campo de coacao) ───────────────────────── */
 
 export type Incidente = {
