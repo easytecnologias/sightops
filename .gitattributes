@@ -18,3 +18,4 @@ Dockerfile text eol=lf
 *.ico  binary
 *.pdf  binary
 *.exe  binary
+tests/fixtures/pdv/* -text
