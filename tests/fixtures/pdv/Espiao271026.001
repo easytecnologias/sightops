@@ -1,0 +1,37 @@
+08:00:00:EOP | Cod: 9001 | Descricao: Operador 01|
+08:01:00:VENDACF | Descricao: Operador 01|
+08:01:05:CDP | Cod: 7891000460498|
+08:01:05:ABRECUPOM | Cod: 1001 | Descricao: Operador 01|
+08:01:05:VIT | Cod: 7891000460498 | Descricao: CAFE TORRADO 500G | Quant: 1 | Und: Un | VlUnit: 18,90 | VlTotal: 18,90|
+08:01:12:CDP | Cod: 2117230009982|
+08:01:13:VIT | Cod: 0011723 | Descricao: PAO FRANCES KG | Quant: 1 | Und: Kg | VlUnit: 9,98 | VlTotal: 9,98 | Desc2: 2117230009982|
+08:01:21:CDP | Cod: 123|
+08:01:22:VIT | Cod: 123 | Descricao: TOMATE KG | Quant: 1 | Und: Kg | VlUnit: 5,40 | VlTotal: 5,40|
+08:01:31:VIT | Cod: 456 | Descricao: CHEIRO VERDE | Quant: 1 | Und: Un | VlUnit: 3,00 | VlTotal: 3,00|
+08:01:40:VIT | Cod: 789 | Descricao: SACOLA | Quant: 1 | Und: Un | VlUnit: 0,10 | VlTotal: 0,10|
+08:01:52:VIT | Cod: 1234567 | Descricao: PILHA AA | Quant: 1 | Und: Un | VlUnit: 12,00 | VlTotal: 12,00|
+08:02:00:SUP|
+08:02:00:SUPERVISOR | Cod: 9002 | Descricao: Operador 02|
+08:02:01:CIT | Cod: 7891000460498 | Descricao: CAFE TORRADO 500G | Quant: 1 | Und: Un | VlUnit: 18,90 | VlTotal: 18,90|
+08:02:10:DIT | Cod: 123 | Descricao: TOMATE KG | VlUnit: 0,40|
+08:02:20:SBT | Cod: 1001 | VlTotal: 30,08|
+08:02:25:CLIENTE | Cod: 00000000000 | Descricao: CLIENTE|
+08:02:30:FIN | Cod: 1 | Descricao: DINHEIRO | VlUnit: 30,08 | VlTotal: 50,00|
+08:02:30:TRC | Descricao: DINHEIRO | VlTotal: 19,92|
+08:02:31:GAV|
+08:02:35:FECHACUPOM | Cod: 1001 | Descricao: Operador 01 | VlTotal: 30,08|
+08:02:40:VIT | Cod: 999 | Descricao: FORA DE CUPOM | Quant: 1 | Und: Un | VlUnit: 1,00 | VlTotal: 1,00|
+08:10:00:ABRECUPOM | Cod: 1002 | Descricao: Operador 01|
+08:10:00:VIT | Cod: 7891000460498 | Descricao: CAFE TORRADO 500G | Quant: 1 | Und: Un | VlUnit: 18,90 | VlTotal: 18,90|
+08:10:30:CCV | Cod: 1002 | Descricao: Operador 01 | VlTotal: 18,90|
+08:15:00:ABRECUPOM | Cod: 1003 | Descricao: Operador 01|
+08:15:00:VIT | Cod: 7891000460498 | Descricao: CAFE TORRADO 500G | Quant: 1 | Und: Un | VlUnit: 18,90 | VlTotal: 18,90|
+08:15:20:FIN | Cod: 99 | Descricao: PIX | VlUnit: 18,90 | VlTotal: 18,90|
+08:15:21:FECHACUPOM | Cod: 1003 | Descricao: Operador 01 | VlTotal: 18,90|
+09:00:00:ITEMSEMCAD | Cod: 7899999999999|
+09:00:05:ABRECUPOM | Cod: 1004 | Descricao: Operador 01|
+09:00:05:VIT | Cod: 7891234567895 | Descricao: WHISKY 1L | Quant: 1 | Und: Un | VlUnit: 50,00 | VlTotal: 50,00|
+09:00:40:CCV | Cod: 1004 | Descricao: Operador 01 | VlTotal: 50,00|
+09:01:00:CCG | Cod: 0998 | Descricao: Operador 01 | VlTotal: 7,00|
+09:02:00:SGR | Cod: 9001 | Descricao: Dinheiro | VlTotal: 200,00|
+09:03:20:SOP | Cod: 9001 | Descricao: Operador 01 | VlTotal: 48,98|
