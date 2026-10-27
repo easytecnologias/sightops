@@ -379,11 +379,22 @@ def executar(acao: str, *, host: str, user: str, password: str, canal: int,
              porta_gravador: Any = None, connector_id: str = "",
              ip: str = "", cam_user: str = "", cam_senha: str = "", nome: str = "",
              protocolo: str = "", porta: Any = None, porta_http: Any = None,
-             porta_rtsp: Any = None) -> Dict[str, Any]:
+             porta_rtsp: Any = None, url_principal: str = "", url_extra: str = "",
+             camera_hik: bool = False) -> Dict[str, Any]:
     """Executa a acao no gravador e devolve o que foi feito.
 
     acao: "adicionar" | "editar" | "excluir" | "renomear"
+    protocolo (adicionar/editar): "" = como sempre foi (sem conferir imagem);
+    "adaptativo" | "private" | "onvif" | "general" (Personalizado, RTSP
+    manual) -- esses conferem se o gravador ja entrega imagem do canal.
     """
+    modo = _modo_protocolo(protocolo)
+    if modo and acao in ("adicionar", "editar"):
+        return _gravar_com_modo(acao, modo, host=host, user=user, password=password, canal=int(canal),
+                                porta_gravador=porta_gravador, connector_id=connector_id, ip=ip,
+                                cam_user=cam_user, cam_senha=cam_senha, nome=nome, porta=porta,
+                                porta_http=porta_http, porta_rtsp=porta_rtsp,
+                                url_principal=url_principal, url_extra=url_extra, camera_hik=camera_hik)
     if not host or not user or not password:
         raise ErroGravador("informe host, usuario e senha do gravador")
     if not canal:
@@ -453,7 +464,7 @@ def _porta_sdk_intelbras(base: str, user: str, password: str) -> int:
 def _intelbras_pelo_sdk(acao: str, *, base: str, host: str, user: str, password: str, canal: int,
                         connector_id: str, ip: str, cam_user: str, cam_senha: str,
                         nome: str, protocolo: str, porta: Any, porta_http: Any,
-                        porta_rtsp: Any) -> Dict[str, Any]:
+                        porta_rtsp: Any, url_principal: str = "", url_extra: str = "") -> Dict[str, Any]:
     from app.services import intelbras_canal_sdk as sdk
     porta_sdk = _porta_sdk_intelbras(base, user, password)
     if acao == "excluir":
@@ -462,7 +473,129 @@ def _intelbras_pelo_sdk(acao: str, *, base: str, host: str, user: str, password:
         r = sdk.gravar_canal(host, user, password, canal, ip, cam_user, cam_senha,
                              connector_id=connector_id, nome=nome, protocolo=protocolo,
                              porta=porta_sdk, porta_cam=porta, porta_http=porta_http,
-                             porta_rtsp=porta_rtsp)
+                             porta_rtsp=porta_rtsp, url_principal=url_principal, url_extra=url_extra)
     if not r.get("ok"):
         raise ErroGravador(r.get("error") or "o gravador recusou pelo NetSDK")
     return {"comando": "NetSDK RemoteDevice", "via": "sdk"}
+
+
+# ------------------------------------------------------------------ modos de protocolo
+# O que o tecnico escolhe no app: Adaptativo (o SightOps tenta e confere),
+# Intelbras (protocolo proprio), ONVIF ou Personalizado (RTSP manual).
+# Em 26/10/2026 uma Hikvision foi posta no NVD 7132 (RESERVA 03) sem protocolo:
+# o SightOps mandou "Private" e o PROPRIO gravador trocou para ONVIF -- deu
+# certo por causa do firmware, nao por nos. Aqui a escolha e explicita.
+_MODOS = {"adaptativo": "adaptativo", "auto": "adaptativo", "automatico": "adaptativo",
+          "private": "private", "intelbras": "private", "privado": "private",
+          "onvif": "onvif", "general": "general", "personalizado": "general", "custom": "general"}
+_INTELBRAS_PROTO = {"private": "Private", "onvif": "Onvif", "general": "General"}
+_HIK_PROTO = {"adaptativo": "", "private": "HIKVISION", "onvif": "ONVIF"}
+_NOME_MODO = {"private": "Intelbras", "onvif": "ONVIF", "general": "Personalizado (RTSP)"}
+
+
+def _modo_protocolo(protocolo: str) -> str:
+    """"" para o fluxo antigo (protocolo vazio ou o valor cru das telas antigas:
+    "Private", "Onvif", "HIKVISION"); senao o modo novo."""
+    p = str(protocolo or "").strip().lower()
+    if p in ("", "hikvision") or str(protocolo or "").strip() in ("Private", "Onvif"):
+        return ""
+    return _MODOS.get(p, "")
+
+
+def _intelbras_imagem(base: str, user: str, password: str, canal: int,
+                      tentativas: int = 3, intervalo: float = 4.0) -> Any:
+    """O gravador ja entrega imagem do canal? True/False/None (nao deu para
+    perguntar). A camera leva alguns segundos para conectar depois de gravada."""
+    from app.services.nvr_status_service import _imagem_do_canal
+    ultimo = None
+    for i in range(tentativas):
+        if i:
+            time.sleep(intervalo)
+        # 3 x 5 s + esperas: o Adaptativo inteiro (ate 3 gravacoes e 2
+        # conferencias) cabe nos 100 s que o Cloudflare deixa a requisicao viver.
+        r = _imagem_do_canal(base, HTTPDigestAuth(user, password), int(canal), 5.0)
+        if r is True:
+            return True
+        ultimo = r if r is not None else ultimo
+    return False if ultimo is not None else None
+
+
+def _gravar_intelbras(acao: str, proto: str, *, base: str, host: str, user: str, password: str,
+                      canal: int, connector_id: str, **k) -> Dict[str, Any]:
+    """Grava o canal no Intelbras com o protocolo dado. Personalizado vai direto
+    pelo NetSDK (a API JSON nao leva as URLs); os outros pela API e, se o
+    gravador nao tiver a rota, pelo NetSDK (o mesmo fallback de `executar`)."""
+    if proto == "General":
+        return _intelbras_pelo_sdk(acao, base=base, host=host, user=user, password=password,
+                                   canal=canal, connector_id=connector_id, protocolo=proto, **k)
+    funcao = _ACOES["intelbras"][acao]
+    sem_url = {c: v for c, v in k.items() if c not in ("url_principal", "url_extra")}
+    try:
+        return funcao(base, user, password, canal=canal, protocolo=proto, **sem_url)
+    except ErroGravador as exc:
+        if not any(f"HTTP {c}" in str(exc) for c in (400, 404, 501)):
+            raise
+        return _intelbras_pelo_sdk(acao, base=base, host=host, user=user, password=password,
+                                   canal=canal, connector_id=connector_id, protocolo=proto, **k)
+
+
+def _gravar_com_modo(acao: str, modo: str, *, host: str, user: str, password: str, canal: int,
+                     porta_gravador: Any, connector_id: str, ip: str, cam_user: str, cam_senha: str,
+                     nome: str, porta: Any, porta_http: Any, porta_rtsp: Any,
+                     url_principal: str, url_extra: str, camera_hik: bool) -> Dict[str, Any]:
+    if not host or not user or not password:
+        raise ErroGravador("informe host, usuario e senha do gravador")
+    if not ip:
+        raise ErroGravador("informe o IP da camera")
+    if not cam_user or not cam_senha:
+        raise ErroGravador("informe usuario e senha da camera")
+    if modo == "general" and not str(url_principal or "").strip().lower().startswith("rtsp://"):
+        raise ErroGravador("Personalizado: informe o endereco RTSP principal (rtsp://...)")
+    base = _base(host, porta_gravador, connector_id)
+    marca = detectar_marca(base, user, password)
+    if acao == "adicionar":
+        ocupado = _canal_ocupado(marca, base, user, password, canal)
+        if ocupado:
+            raise ErroGravador(f"o canal {canal} ja tem a camera {ocupado} -- nada foi gravado; "
+                               "para substituir use \"Trocar IP\"")
+    comum = dict(ip=ip, cam_user=cam_user, cam_senha=cam_senha, nome=nome, porta=porta,
+                 porta_http=porta_http, porta_rtsp=porta_rtsp)
+
+    if marca == "hikvision":
+        if modo == "general":
+            raise ErroGravador("Personalizado (RTSP) por enquanto so em gravador Intelbras")
+        funcao = _ACOES["hikvision"][acao]
+        saida = funcao(base, user, password, canal=canal, protocolo=_HIK_PROTO[modo], **comum)
+        saida.update({"ok": True, "acao": acao, "marca": marca, "canal": canal, "modo": modo})
+        return saida
+    if marca != "intelbras":
+        raise ErroGravador(f"marca de gravador nao suportada: {marca}")
+
+    # Adaptativo: Hikvision (pelo inventario) quase nunca fala o protocolo
+    # Intelbras -- comeca pelo ONVIF. As outras, Intelbras primeiro.
+    ordem = (["onvif", "private"] if camera_hik else ["private", "onvif"]) if modo == "adaptativo" else [modo]
+    tentados = []
+    acao_vez = acao
+    for m in ordem:
+        _gravar_intelbras(acao_vez, _INTELBRAS_PROTO[m], base=base, host=host, user=user, password=password,
+                          canal=canal, connector_id=connector_id, url_principal=url_principal,
+                          url_extra=url_extra, **comum)
+        acao_vez = "editar"  # depois da primeira gravacao o canal ja e da camera
+        imagem = _intelbras_imagem(base, user, password, canal)
+        tentados.append(f"{_NOME_MODO[m]}: {'com imagem' if imagem else 'sem imagem' if imagem is False else 'nao deu para conferir'}")
+        if imagem:
+            return {"ok": True, "acao": acao, "marca": marca, "canal": canal, "modo": modo,
+                    "protocolo_usado": _NOME_MODO[m], "online": True, "tentados": tentados,
+                    "comando": f"canal {canal} em {_NOME_MODO[m]}"}
+        if imagem is None:
+            break  # nao da para conferir: nao fica trocando protocolo as cegas
+    if len(ordem) > 1 and len(tentados) > 1:
+        # Nenhum deu imagem: volta ao primeiro da ordem (o mais provavel).
+        _gravar_intelbras("editar", _INTELBRAS_PROTO[ordem[0]], base=base, host=host, user=user,
+                          password=password, canal=canal, connector_id=connector_id,
+                          url_principal=url_principal, url_extra=url_extra, **comum)
+    return {"ok": True, "acao": acao, "marca": marca, "canal": canal, "modo": modo,
+            "protocolo_usado": _NOME_MODO[ordem[0]], "online": False, "tentados": tentados,
+            "comando": f"canal {canal} em {_NOME_MODO[ordem[0]]}",
+            "aviso": "o gravador aceitou, mas ainda nao mostra imagem (" + "; ".join(tentados)
+                     + "). Confira usuario e senha da camera" + (" e o endereco RTSP" if modo == "general" else "")}

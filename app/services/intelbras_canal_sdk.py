@@ -178,6 +178,25 @@ def _agir(p: Dict[str, Any]) -> Dict[str, Any]:
                 # Canal livre do NVD 1516 trazia HttpsPort=80; o cadastro manual grava 443.
                 if int(e.get("HttpsPort") or 0) in (0, 80):
                     e["HttpsPort"] = 443
+            if str(p.get("protocolo") or "").lower() == "general":
+                # Personalizado: o gravador pega o video pelo endereco RTSP
+                # informado (camera que nao entra nem pelo protocolo Intelbras
+                # nem por ONVIF). Vendor/ProtocolType "General" e o da Dahua,
+                # que fabrica para a Intelbras; nenhum dos 355 canais do
+                # PERUCABA usava esse modo para conferir -- por isso a gravacao
+                # e conferida pela imagem do canal (recorder_write).
+                e["Vendor"] = "General"
+                e["ProtocolType"] = "General"
+                if not p.get("porta_rtsp"):
+                    e["RtspPort"] = 554
+                vis = e.get("VideoInputs") or [{}]
+                e["VideoInputs"] = [dict(vis[0], MainStreamUrl=p.get("url_principal") or "",
+                                         ExtraStreamUrl=p.get("url_extra") or "")] + list(vis[1:])
+            elif str(p.get("protocolo") or "").lower() == "private":
+                # Volta ao protocolo Intelbras: o Vendor tem de voltar junto,
+                # senao um canal que era ONVIF fica "Vendor=Onvif" com
+                # ProtocolType Private e o gravador nao conecta.
+                e["Vendor"] = "Private"
             if p.get("nome"):
                 vis = e.get("VideoInputs") or [{}]
                 e["VideoInputs"] = [dict(vis[0], Name=p["nome"])] + list(vis[1:])
@@ -244,12 +263,14 @@ def ler_canais(host, user, senha, connector_id="", porta=PORTA_SDK):
 
 def gravar_canal(host, user, senha, canal, cam_ip, cam_user, cam_senha,
                  connector_id="", nome="", protocolo="", porta=PORTA_SDK,
-                 porta_cam=None, porta_http=None, porta_rtsp=None):
+                 porta_cam=None, porta_http=None, porta_rtsp=None,
+                 url_principal="", url_extra=""):
     return _em_subprocesso({"acao": "gravar", "ip_alcance": _alcance(host, connector_id),
                             "user": user, "senha": senha, "porta": porta, "canal": canal,
                             "cam_ip": cam_ip, "cam_user": cam_user, "cam_senha": cam_senha,
                             "nome": nome, "protocolo": protocolo, "porta_cam": porta_cam,
-                            "porta_http": porta_http, "porta_rtsp": porta_rtsp})
+                            "porta_http": porta_http, "porta_rtsp": porta_rtsp,
+                            "url_principal": url_principal, "url_extra": url_extra})
 
 
 def soltar_canal(host, user, senha, canal, connector_id="", porta=PORTA_SDK):

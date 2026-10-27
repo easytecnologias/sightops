@@ -1969,6 +1969,19 @@ def api_deployments_camera_onvif(payload: Dict[str, Any], request: Request) -> D
     return r
 
 
+def _camera_e_hikvision(ip: str) -> bool:
+    """Marca da camera pelo inventario DESTE cliente (decide a ordem do modo
+    Adaptativo: Hikvision comeca pelo ONVIF). Sem cadastro, False."""
+    if not ip:
+        return False
+    try:
+        from app.api.endpoints.cameras import _camera_row_for_ip
+        linha = _camera_row_for_ip(ip) or {}
+    except Exception:
+        return False
+    return "hik" in _text(linha.get("fabricante") or linha.get("vendor")).lower()
+
+
 @router.post("/recorder-edit")
 def api_deployments_recorder_edit(payload: Dict[str, Any], request: Request) -> Dict[str, Any]:
     """Adicionar, editar, excluir ou renomear um canal do gravador.
@@ -2024,6 +2037,9 @@ def api_deployments_recorder_edit(payload: Dict[str, Any], request: Request) -> 
             porta=payload.get("camera_port"),
             porta_http=payload.get("camera_http_port"),
             porta_rtsp=payload.get("camera_rtsp_port"),
+            url_principal=_text(payload.get("url_principal")),
+            url_extra=_text(payload.get("url_extra")),
+            camera_hik=_camera_e_hikvision(_text(payload.get("camera_ip"))),
         )
     except ErroGravador as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
