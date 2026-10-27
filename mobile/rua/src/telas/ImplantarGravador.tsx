@@ -126,14 +126,16 @@ export function GravadorCanais() {
   // cadastrar camera em canal livre, excluir). Tudo vai ao gravador de verdade.
   const [menuCanal, setMenuCanal] = useState(0);
   const [modo, setModo] = useState<'' | 'renomear' | 'ip' | 'cadastrar'>('');
-  const [form, setForm] = useState({ nome: '', ip: '', user: 'admin', senha: '' });
+  // protocolo: Adaptativo (o SightOps tenta e confere pela imagem do canal),
+  // Intelbras, ONVIF ou Personalizado (RTSP manual) -- recorder_write._gravar_com_modo.
+  const [form, setForm] = useState({ nome: '', ip: '', user: 'admin', senha: '', protocolo: 'adaptativo', rtsp: '', rtspExtra: '', portaRtsp: '' });
   const eu = useEu();
   const podeExcluir = ['admin', 'owner'].includes(String(eu.data?.role ?? '').toLowerCase());
   const cams = useCameras();
   const abrirMenu = (c: Canal) => {
     setMenuCanal(menuCanal === c.canal ? 0 : c.canal);
     setModo(c.ip ? '' : 'cadastrar');
-    setForm({ nome: c.nome || '', ip: c.ip || '', user: 'admin', senha: '' });
+    setForm({ nome: c.nome || '', ip: c.ip || '', user: 'admin', senha: '', protocolo: 'adaptativo', rtsp: '', rtspExtra: '', portaRtsp: '' });
   };
   const ipValido = (v: string) => /^(\d{1,3})(\.\d{1,3}){3}$/.test(v.trim()) && v.trim().split('.').every((x) => Number(x) <= 255);
   const [senhaCam, setSenhaCam] = useState('');
@@ -197,8 +199,9 @@ export function GravadorCanais() {
   async function editar(chave: string, corpo: Record<string, unknown>, ok: string) {
     setTrabalhando(chave);
     try {
-      const r = await enviar<{ online?: boolean; aviso?: string }>('/api/deployments/recorder-edit', { ...base(), ...corpo });
-      toast(r.online === false ? `${ok}, mas a câmera ainda não conectou: ${r.aviso || 'confira a senha'}` : ok, r.online === false);
+      const r = await enviar<{ online?: boolean; aviso?: string; protocolo_usado?: string }>('/api/deployments/recorder-edit', { ...base(), ...corpo });
+      const como = r.protocolo_usado ? ` (${r.protocolo_usado})` : '';
+      toast(r.online === false ? `${ok}${como}, mas a câmera ainda não conectou: ${r.aviso || 'confira a senha'}` : `${ok}${como}`, r.online === false);
       setPedirSenhaCam(''); setSenhaCam('');
       void rx.refetch();
       return true;
@@ -371,19 +374,54 @@ export function GravadorCanais() {
                             <div className="campo"><label htmlFor={`cs${c.canal}`}>Senha</label>
                               <div className="caixa"><input id={`cs${c.canal}`} type="password" value={form.senha} autoComplete="off" onChange={(ev) => setForm({ ...form, senha: ev.target.value })} placeholder="a salva, se houver" /></div></div>
                           </div>
+                          <span className="lb">Protocolo</span>
+                          <div className="seg seg-4">
+                            {([['adaptativo', 'Adaptativo'], ['private', 'Intelbras'], ['onvif', 'ONVIF'], ['general', 'Personalizado']] as const).map(([v, n]) => (
+                              <button key={v} type="button" aria-pressed={form.protocolo === v} onClick={() => setForm({ ...form, protocolo: v })}>{n}</button>
+                            ))}
+                          </div>
+                          <span className="ajuda">{{
+                            adaptativo: 'O SightOps tenta e confere se o gravador já mostra imagem. Hikvision começa pelo ONVIF; as outras, pelo protocolo Intelbras.',
+                            private: 'Protocolo próprio da Intelbras: câmera Intelbras.',
+                            onvif: 'Câmera de outra marca (Hikvision e afins): use o usuário ONVIF da câmera.',
+                            general: 'Endereço RTSP manual, para câmera que não entra pelos outros. Só em gravador Intelbras.',
+                          }[form.protocolo]}</span>
+                          {form.protocolo === 'general' ? (
+                            <>
+                              <div className="campo"><label htmlFor={`rp${c.canal}`}>RTSP principal</label>
+                                <div className="caixa"><input id={`rp${c.canal}`} className="mono" value={form.rtsp} autoCapitalize="none" spellCheck={false}
+                                       onChange={(ev) => setForm({ ...form, rtsp: ev.target.value })} placeholder={`rtsp://${form.ip.trim() || 'IP'}:554/...`} /></div></div>
+                              <div className="duas">
+                                <div className="campo"><label htmlFor={`rx${c.canal}`}>RTSP extra (opcional)</label>
+                                  <div className="caixa"><input id={`rx${c.canal}`} className="mono" value={form.rtspExtra} autoCapitalize="none" spellCheck={false}
+                                         onChange={(ev) => setForm({ ...form, rtspExtra: ev.target.value })} /></div></div>
+                                <div className="campo"><label htmlFor={`rpo${c.canal}`}>Porta RTSP</label>
+                                  <div className="caixa"><input id={`rpo${c.canal}`} className="mono" inputMode="numeric" value={form.portaRtsp}
+                                         onChange={(ev) => setForm({ ...form, portaRtsp: ev.target.value.replace(/\D/g, '') })} placeholder="554" /></div></div>
+                              </div>
+                            </>
+                          ) : null}
                           {form.ip.trim() && !ipValido(form.ip) ? <span className="sub-tela" style={{ color: 'var(--danger)' }}>IP inválido.</span> : null}
-                          {modo === 'ip' && form.ip.trim() === (c.ip || '') ? <span className="sub-tela">Digite o IP novo.</span> : null}
+                          {modo === 'ip' && form.ip.trim() === (c.ip || '') && form.protocolo === 'adaptativo'
+                            ? <span className="sub-tela">Digite o IP novo, ou escolha o protocolo para regravar este IP com ele.</span> : null}
+                          {form.protocolo === 'general' && form.rtsp.trim() && !/^rtsp:\/\//i.test(form.rtsp.trim())
+                            ? <span className="sub-tela" style={{ color: 'var(--danger)' }}>O endereço começa com rtsp://</span> : null}
                           <div className="acoes-duplas">
                             <button type="button" className="btn2" onClick={() => (c.ip ? setModo('') : setMenuCanal(0))}>{c.ip ? 'Voltar' : 'Cancelar'}</button>
                             <BotaoArmado rotulo={modo === 'ip' ? 'Trocar IP' : 'Cadastrar'}
                                          armar={modo === 'ip' ? `Toque de novo: canal ${n2(c.canal)} → ${form.ip.trim()}` : `Toque de novo: ${form.ip.trim()} no canal ${n2(c.canal)}`}
                                          indo={trabalhando === `ed-${c.canal}`}
-                                         desab={!online || !ipValido(form.ip) || (modo === 'ip' && form.ip.trim() === (c.ip || ''))}
+                                         desab={!online || !ipValido(form.ip)
+                                           || (modo === 'ip' && form.ip.trim() === (c.ip || '') && form.protocolo === 'adaptativo')
+                                           || (form.protocolo === 'general' && !/^rtsp:\/\//i.test(form.rtsp.trim()))}
                                          onConfirmar={async () => {
                                            const ok = await editar(`ed-${c.canal}`, {
                                              acao: modo === 'ip' ? 'editar' : 'adicionar', canal: c.canal, camera_ip: form.ip.trim(),
                                              nome: (form.nome.trim() || c.nome || `Canal ${n2(c.canal)}`),
                                              camera_user: form.user.trim() || 'admin', ...(form.senha ? { camera_password: form.senha } : {}),
+                                             protocolo: form.protocolo,
+                                             ...(form.protocolo === 'general' ? { url_principal: form.rtsp.trim(), url_extra: form.rtspExtra.trim(),
+                                               ...(form.portaRtsp ? { camera_rtsp_port: Number(form.portaRtsp) } : {}) } : {}),
                                              antes: { nome: c.nome || '', ip: c.ip || '' },
                                            }, modo === 'ip' ? `Canal ${n2(c.canal)} agora em ${form.ip.trim()}` : `${form.ip.trim()} cadastrada no canal ${n2(c.canal)}`);
                                            if (ok) { setModo(''); setMenuCanal(0); }

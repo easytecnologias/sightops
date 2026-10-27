@@ -677,3 +677,5 @@ button.canal-linha[aria-expanded="true"] > svg { transform: rotate(90deg); }
 .selo-botao { display: inline-flex; align-items: center; gap: 5px; border: 0; cursor: pointer; font-family: inherit; }
 .selo-botao svg { width: 13px; height: 13px; }
 .link.perigo-link { color: var(--danger); }
+.seg.seg-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.seg.seg-4 button { font-size: 12.5px; }
