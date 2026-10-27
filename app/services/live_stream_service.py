@@ -234,9 +234,13 @@ def register_recorder_stream(
     Idempotente igual ao de camera: so toca no go2rtc quando a fonte mudou,
     para nao derrubar quem ja esta assistindo.
 
-    A fonte vai como `ffmpeg:...#video=h264` de proposito: quando o canal ja
-    e H.264 o go2rtc apenas copia (sem recodificar, custo quase zero); quando
-    for H.265 ele converte, porque navegador nao decodifica H.265 por MSE.
+    Duas fontes, como a camera (_source_urls): o RTSP do gravador DIRETO
+    (repassa sem recodificar quando o navegador aceita o codec -- o player
+    anuncia H.265 quando suporta) e `ffmpeg:<este stream>#video=h264` so
+    para quem nao aceita. Antes era so o ffmpeg: medido no iMHDX 7032 da
+    VITAL (27/10/2026), o canal vem em H.265 nos dois fluxos, entao TODO ao
+    vivo de gravador era recodificado no servidor -- lento para abrir e
+    mais lento que o ao vivo de camera.
     """
     nome = recorder_stream_name(host, canal, alta)
     _registered_at[nome] = time.time()
@@ -244,16 +248,21 @@ def register_recorder_stream(
     user_q = quote(str(user or "admin"), safe="")
     pass_q = quote(str(password or ""), safe="")
     caminho = _recorder_rtsp_path(canal, marca, alta)
-    fonte = f"ffmpeg:rtsp://{user_q}:{pass_q}@{host}:{int(porta_rtsp or 554)}{caminho}#video=h264"
+    fontes = [f"rtsp://{user_q}:{pass_q}@{host}:{int(porta_rtsp or 554)}{caminho}", f"ffmpeg:{nome}#video=h264"]
 
-    if _stream_registered_with_source(nome, fonte):
+    atuais = _fontes_registradas(nome)
+    if atuais == fontes:
         return nome
-
-    put = requests.put(f"{GO2RTC_BASE_URL}/api/streams", params={"name": nome, "src": fonte}, timeout=8)
+    if atuais is not None:
+        # fonte mudou (registro antigo so-ffmpeg, ou senha): o PUT ACRESCENTA
+        # fontes a um stream existente -- recria do zero
+        requests.delete(f"{GO2RTC_BASE_URL}/api/streams", params={"src": nome}, timeout=5)
+    put = requests.put(f"{GO2RTC_BASE_URL}/api/streams",
+                       params=[("name", nome)] + [("src", s) for s in fontes], timeout=8)
     if put.status_code not in (200, 201, 204):
         # Mesmo bug de YAML do go2rtc 1.9.14 descrito no topo: ele cria e
         # devolve 400. Conferir o estado real antes de desistir.
-        if _stream_registered_with_source(nome, fonte):
+        if _stream_registered_with_source(nome, fontes):
             return nome
         raise RuntimeError(f"go2rtc recusou registrar {nome}: HTTP {put.status_code} {put.text[:200]}")
     return nome

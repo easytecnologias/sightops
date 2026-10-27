@@ -19,7 +19,7 @@ const PDV_SITUACAO = {
 let _pdvCaixas = [];
 let _pdvDia = '';
 let _pdvTimer = null;
-let _pdvVivo = { caixaId: '', handle: null, timer: null };
+let _pdvVivo = { caixaId: '', handle: null, timer: null, alta: false };
 
 // ---------------------------------------------------------------- comum
 
@@ -227,7 +227,8 @@ function pdvRenderVivo() {
         <video id="pdvVivoVideo" autoplay muted playsinline></video>
         <div class="pdv-palco-topo">
           <div><span class="pdv-selo-vivo"><span></span>Ao vivo</span><strong>${esc(c.nome)}</strong></div>
-          <span class="pdv-palco-info">${c.gravador_host ? `canal ${c.gravador_canal}` : ''}</span>
+          <span class="pdv-palco-info">${c.gravador_host ? `canal ${c.gravador_canal} ·
+            <button type="button" class="pdv-qualidade" id="pdvVivoQualidade" title="SD é leve; HD pesa mais no link da loja">${_pdvVivo.alta ? 'HD' : 'SD'}</button>` : ''}</span>
         </div>
         <div class="pdv-palco-aviso" id="pdvVivoAviso">${c.gravador_host && c.gravador_canal ? 'Conectando...' : 'Este caixa ainda não tem gravador e canal configurados.'}</div>
         <div class="pdv-palco-osd" id="pdvVivoOsd" hidden></div>
@@ -241,6 +242,11 @@ function pdvRenderVivo() {
       </button>`;
     }).join('')}</section>
     <p class="pdv-nota">O vídeo sai do gravador pelo conector da loja, como as outras câmeras do SightOps. O caixa não transmite vídeo.</p>`;
+  document.getElementById('pdvVivoQualidade')?.addEventListener('click', () => {
+    pdvParar();
+    _pdvVivo.alta = !_pdvVivo.alta;
+    pdvRenderVivo();
+  });
   box.querySelectorAll('[data-pdv-caixa]').forEach(b => b.addEventListener('click', () => {
     pdvParar();
     _pdvVivo.caixaId = b.dataset.pdvCaixa;
@@ -251,11 +257,11 @@ function pdvRenderVivo() {
   if (c.gravador_host && c.gravador_canal && typeof mountLiveStream === 'function') {
     const video = document.getElementById('pdvVivoVideo');
     _pdvVivo.handle = mountLiveStream(video, {
-      ip: c.gravador_host, user: 'admin', pass: '', subtype: 1, connectorId: c.connector_id,
+      ip: c.gravador_host, user: 'admin', pass: '', subtype: _pdvVivo.alta ? 0 : 1, connectorId: c.connector_id,
       registrar: async () => {
         const res = await api('/api/deployments/recorder-live-stream', {
           method: 'POST',
-          body: JSON.stringify({ recorder_host: c.gravador_host, canal: Number(c.gravador_canal), connector_id: c.connector_id, alta: 0 }),
+          body: JSON.stringify({ recorder_host: c.gravador_host, canal: Number(c.gravador_canal), connector_id: c.connector_id, alta: _pdvVivo.alta ? 1 : 0 }),
         });
         const r = await res?.json().catch(() => ({}));
         if (res?.status === 428) throw new Error('Este gravador não tem senha guardada.');

@@ -14055,3 +14055,4 @@ button.rk-chip { cursor: pointer; }
 .pdv-perigo { margin-top: 12px; display: flex; flex-wrap: wrap; gap: 12px; justify-content: space-between; align-items: center; padding: 12px 14px; border-radius: 10px; background: var(--danger-soft); }
 .pdv-perigo small { display: block; color: var(--muted); font-size: 12px; margin-top: 2px; }
 .pdv-botao-perigo { color: var(--danger); border-color: var(--danger); }
+.pdv-qualidade { font: inherit; font-size: 11px; font-weight: 700; color: #fff; background: rgba(255,255,255,.18); border: 1px solid rgba(255,255,255,.35); border-radius: 5px; padding: 1px 7px; cursor: pointer; }
