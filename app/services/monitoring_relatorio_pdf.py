@@ -1,11 +1,15 @@
-"""PDF do relatorio de disponibilidade do Monitoramento (A4 retrato), no formato
-de relatorio tecnico: secoes numeradas, indicadores em tabela com o periodo
-anterior, linguagem formal e cor so onde ha desvio (abaixo da meta, fora).
+"""PDF do relatorio de disponibilidade do Monitoramento (A4 retrato).
 
-  1 Sumario executivo          5 Indisponibilidade de conectores
-  2 Indicadores do periodo     6 Pontos de atencao
-  3 Indisponibilidade diaria   7 Equipamentos com maior indisponibilidade
-  4 Por site e por tipo        Anexos A (ocorrencias) e B (inventario), metodologia
+Um conceito so, em todas as tabelas: parte do tempo NO AR, FORA e SEM LEITURA
+(somam 100%). Estrutura:
+
+  Resumo                 tres numeros, uma barra e o que aconteceu em texto corrido
+  1 Pendencias agora     o que nao esta no ar na emissao, e desde quando
+  2 Ocorrencias          quedas de conector e de equipamento, da mais recente
+  3 Dia a dia            as tres partes por dia
+  4 Por site / por tipo  so quando ha mais de um
+  5 Equipamentos         um por linha
+  Como ler, assinatura
 
 Recebe o dicionario de monitoring_relatorio.gerar e devolve os bytes."""
 from __future__ import annotations
@@ -16,20 +20,22 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 from xml.sax.saxutils import escape
 
+from reportlab.graphics.shapes import Drawing, Rect
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib.units import mm
-from reportlab.platypus import (CondPageBreak, Image, KeepTogether, Paragraph, SimpleDocTemplate, Spacer, Table,
-                                TableStyle)
+from reportlab.platypus import CondPageBreak, Image, KeepTogether, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
-from app.services.access_control_relatorios_pdf import (BORDER, LARGURA, MARGEM, MUTED, SOFT, TEXT, _assinatura, _br,
-                                                        _num, _p, _Paginas)
-from app.services.alert_relatorio_pdf import _barras
+from app.services.access_control_relatorios_pdf import (LARGURA, MARGEM, MUTED, TEXT, _assinatura, _br, _num,
+                                                        _Paginas)
 
 ESCURO = colors.HexColor("#2b3a42")
-LINHA = colors.HexColor("#c9d1d6")
-VERMELHO = "#a61e1e"
+LINHA = colors.HexColor("#d5dce0")
+COR_NO_AR = colors.HexColor("#3f7f6a")
+COR_FORA = colors.HexColor("#b42318")
+COR_SEM = colors.HexColor("#c4ccd2")
+VERMELHO = "#b42318"
 
 E = {
     "kicker": ParagraphStyle("k", fontName="Helvetica-Bold", fontSize=7.5, leading=10, textColor=MUTED),
@@ -37,19 +43,24 @@ E = {
     "sub": ParagraphStyle("s", fontName="Helvetica", fontSize=8.5, leading=11, textColor=MUTED),
     "dir": ParagraphStyle("d", fontName="Helvetica", fontSize=7.8, leading=10, textColor=MUTED, alignment=2),
     "sec": ParagraphStyle("sec", fontName="Helvetica-Bold", fontSize=10.5, leading=13, textColor=TEXT,
-                          spaceBefore=14, spaceAfter=2),
+                          spaceBefore=16, spaceAfter=2),
     "secsub": ParagraphStyle("secsub", fontName="Helvetica", fontSize=7.8, leading=10, textColor=MUTED, spaceAfter=6),
-    "texto": ParagraphStyle("tx", fontName="Helvetica", fontSize=9.2, leading=13.5, textColor=TEXT),
+    "texto": ParagraphStyle("tx", fontName="Helvetica", fontSize=9.2, leading=13.8, textColor=TEXT),
     "cel": ParagraphStyle("cel", fontName="Helvetica", fontSize=8.2, leading=10.6, textColor=TEXT),
     "num": ParagraphStyle("num", fontName="Helvetica", fontSize=8.2, leading=10.6, textColor=TEXT, alignment=2),
-    "th": ParagraphStyle("th", fontName="Helvetica-Bold", fontSize=7, leading=9, textColor=MUTED),
-    "thn": ParagraphStyle("thn", fontName="Helvetica-Bold", fontSize=7, leading=9, textColor=MUTED, alignment=2),
-    "nota": ParagraphStyle("nota", fontName="Helvetica", fontSize=7.4, leading=10.2, textColor=MUTED),
+    "th": ParagraphStyle("th", fontName="Helvetica-Bold", fontSize=6.9, leading=9, textColor=MUTED),
+    "thn": ParagraphStyle("thn", fontName="Helvetica-Bold", fontSize=6.9, leading=9, textColor=MUTED, alignment=2),
+    "kpirot": ParagraphStyle("kr", fontName="Helvetica-Bold", fontSize=7.2, leading=9, textColor=MUTED),
+    "kpival": ParagraphStyle("kv", fontName="Helvetica-Bold", fontSize=22, leading=26, textColor=TEXT),
+    "kpisub": ParagraphStyle("ks", fontName="Helvetica", fontSize=7.6, leading=10, textColor=MUTED),
+    "nota": ParagraphStyle("nota", fontName="Helvetica", fontSize=7.6, leading=10.6, textColor=MUTED),
 }
 
-ESTADOS = {"up": "Disponível", "down": "Indisponível", "unstable": "Instável", "unknown": "Sem leitura",
-           "maintenance": "Manutenção", "blind": "Sem visibilidade"}
+CURTA = {"up": "No ar", "unstable": "No ar (instável)", "down": "Fora", "blind": "Sem leitura",
+         "unknown": "Sem leitura", "maintenance": "Manutenção"}
 
+
+# ---------------------------------------------------------------- formato
 
 def _t(txt: Any) -> str:
     return escape(str(txt if txt not in (None, "") else "—"))
@@ -57,7 +68,7 @@ def _t(txt: Any) -> str:
 
 def _dur(seg: Any) -> str:
     seg = int(seg or 0)
-    if not seg:
+    if seg <= 0:
         return "—"
     d, r = divmod(seg, 86400)
     h, r = divmod(r, 3600)
@@ -66,25 +77,22 @@ def _dur(seg: Any) -> str:
         return f"{d}d {h:02d}h"
     if h:
         return f"{h}h {m:02d}min"
-    return f"{m} min" if m else f"{seg} s"
+    return f"{m} min" if m else "< 1 min"
 
 
-def _pct(v: Any) -> str:
-    return "—" if v is None else f"{v:.2f}%".replace(".", ",")
-
-
-def _pct_meta(v: Any, meta: float) -> str:
-    """Abaixo da meta em vermelho e negrito; o resto, texto comum."""
+def _p(v: Any, zero_traco: bool = True) -> str:
     if v is None:
-        return '<font color="#66747e">n/d</font>'
-    return f'<font color="{VERMELHO}"><b>{_pct(v)}</b></font>' if v < meta else _pct(v)
+        return "—"
+    if zero_traco and v == 0:
+        return "—"
+    return f"{v:.1f}%".replace(".", ",")
 
 
-def _quando(iso: str) -> str:
+def _quando(iso: str, ano: bool = False) -> str:
     if not iso:
         return ""
     try:
-        return datetime.fromisoformat(iso).strftime("%d/%m/%Y %H:%M")
+        return datetime.fromisoformat(iso).strftime("%d/%m/%Y %H:%M" if ano else "%d/%m %H:%M")
     except ValueError:
         return iso
 
@@ -93,25 +101,45 @@ def _c(html: str, estilo: str = "cel") -> Paragraph:
     return Paragraph(html, E[estilo])
 
 
-def _secao(numero: str, titulo: str, sub: str = "") -> List[Any]:
-    rot = f"{numero}  {titulo}" if numero else titulo
+def _n(txt: Any) -> Paragraph:
+    return _c(_t(txt), "num")
+
+
+def _fora(v: Any) -> Paragraph:
+    """Fora > 0 em vermelho: e o desvio que o leitor procura."""
+    return _c(f'<font color="{VERMELHO}"><b>{_p(v)}</b></font>' if v else _p(v), "num")
+
+
+def _secao(rot: str, sub: str = "") -> List[Any]:
     return [Paragraph(_t(rot), E["sec"])] + ([Paragraph(_t(sub), E["secsub"])] if sub else [Spacer(1, 4)])
 
 
 def _tabela(cab: List[str], linhas: List[List[Any]], larguras: List[float], numericas: tuple = ()) -> Table:
-    dados = [[_c(_t(c.upper()), "thn" if i in numericas else "th") for i, c in enumerate(cab)]] + linhas
+    dados = [[_c(escape(c.upper()), "thn" if i in numericas else "th") for i, c in enumerate(cab)]] + linhas
     t = Table(dados, colWidths=[LARGURA * f for f in larguras], repeatRows=1)
     t.setStyle(TableStyle([
         ("LINEABOVE", (0, 0), (-1, 0), 0.9, ESCURO), ("LINEBELOW", (0, 0), (-1, 0), 0.6, ESCURO),
-        ("LINEBELOW", (0, 1), (-1, -1), 0.3, LINHA), ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LINEBELOW", (0, 1), (-1, -1), 0.3, LINHA), ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
         ("TOPPADDING", (0, 0), (-1, -1), 4), ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
         ("LEFTPADDING", (0, 0), (-1, -1), 4), ("RIGHTPADDING", (0, 0), (-1, -1), 4),
     ]))
     return t
 
 
-def _n(txt: Any) -> Paragraph:
-    return _c(_t(txt), "num")
+def _barra(no_ar: Any, fora: Any, sem: Any, largura: float, altura: float = 7) -> Drawing:
+    d = Drawing(largura, altura)
+    x = 0.0
+    for v, cor in ((no_ar, COR_NO_AR), (fora, COR_FORA), (sem, COR_SEM)):
+        w = largura * (v or 0) / 100
+        if w > 0:
+            d.add(Rect(x, 0, w, altura, fillColor=cor, strokeColor=None))
+            x += w
+    return d
+
+
+def _legenda() -> str:
+    q = lambda cor, txt: f'<font color="{cor}">■</font> {txt}'
+    return " &nbsp;&nbsp; ".join([q("#3f7f6a", "no ar"), q(VERMELHO, "fora"), q("#9aa5ad", "sem leitura")])
 
 
 # ---------------------------------------------------------------- blocos
@@ -120,9 +148,9 @@ def _cabecalho(r: Dict[str, Any], usuario: str, logo: Optional[Path]) -> Table:
     local = r["site"] or "Todos os sites"
     gerado = datetime.strptime(r["gerado_em"][:19], "%Y-%m-%d %H:%M:%S")
     periodo = f"{_br(r['de'])} a {_br(r['ate'])}" if r["de"] != r["ate"] else _br(r["de"])
-    filtros = [f"Período de apuração: {periodo}"] + ([f"Tipo: {r['tipo_rotulo']}"] if r.get("tipo") else [])
-    esquerda = [Paragraph("RELATÓRIO TÉCNICO DE DISPONIBILIDADE", E["kicker"]), Spacer(1, 3),
-                Paragraph(_t(local), E["titulo"]), Spacer(1, 2), Paragraph(_t(" · ".join(filtros)), E["sub"])]
+    filtros = [f"Período: {periodo}"] + ([f"Tipo: {r['tipo_rotulo']}"] if r.get("tipo") else [])
+    esquerda = [Paragraph("RELATÓRIO DE DISPONIBILIDADE", E["kicker"]), Spacer(1, 3), Paragraph(_t(local), E["titulo"]),
+                Spacer(1, 2), Paragraph(_t(" · ".join(filtros)), E["sub"])]
     cab_esq: Any = esquerda
     if logo and Path(logo).is_file():
         try:
@@ -135,225 +163,211 @@ def _cabecalho(r: Dict[str, Any], usuario: str, logo: Optional[Path]) -> Table:
             cab_esq = esquerda
     direita = [Paragraph(_t(f"Emitido em {gerado.strftime('%d/%m/%Y às %H:%M')}"), E["dir"])]
     if usuario:
-        direita.append(Paragraph(_t(f"Responsável pela emissão: {usuario}"), E["dir"]))
-    cab = Table([[cab_esq, direita]], colWidths=[LARGURA * 0.68, LARGURA * 0.32])
+        direita.append(Paragraph(_t(f"por {usuario}"), E["dir"]))
+    cab = Table([[cab_esq, direita]], colWidths=[LARGURA * 0.7, LARGURA * 0.3])
     cab.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP"), ("LINEBELOW", (0, 0), (-1, 0), 1.2, ESCURO),
                              ("BOTTOMPADDING", (0, 0), (-1, -1), 9), ("LEFTPADDING", (0, 0), (-1, -1), 0),
                              ("RIGHTPADDING", (0, 0), (-1, -1), 0)]))
     return cab
 
 
-def _sumario(r: Dict[str, Any]) -> List[Any]:
-    rs, meta = r["resumo"], r["meta_pct"]
-    h = _secao("1", "Sumário executivo")
-    if not rs["equipamentos"]:
-        return h + [Paragraph("Não há equipamentos monitorados com os filtros informados.", E["texto"])]
-    frases = [f"No período de apuração foram monitorados {_num(rs['equipamentos'])} equipamentos."]
-    if rs["disponibilidade"] is None:
-        frases.append("Não houve leituras suficientes para apurar a disponibilidade.")
-    else:
-        situacao = "acima" if rs["disponibilidade"] >= meta else "abaixo"
-        frases.append(f"A disponibilidade apurada foi de {_pct(rs['disponibilidade'])}, {situacao} da meta de "
-                      f"{_pct(meta)}, com cobertura de monitoramento de {_pct(rs['cobertura'])} do tempo.")
-    if rs["quedas"]:
-        frases.append(f"Foram registradas {_num(rs['quedas'])} ocorrências de indisponibilidade em "
-                      f"{_num(rs['com_queda'])} equipamentos, totalizando {_dur(rs['fora_s'])} de indisponibilidade "
-                      f"acumulada.")
-    else:
-        frases.append("Não foram registradas ocorrências de indisponibilidade.")
-    if r["conectores"]:
-        frases.append(f"Houve {_num(len(r['conectores']))} período(s) de indisponibilidade de conector, nos quais os "
-                      f"equipamentos dependentes ficaram sem visibilidade por {_dur(rs['sem_visibilidade_s'])} "
-                      f"acumulados; esse tempo não é contado como disponível nem como indisponível.")
-    if rs["fora_agora"] or rs["sem_vis_agora"]:
-        partes = []
-        if rs["fora_agora"]:
-            partes.append(f"{_num(rs['fora_agora'])} equipamento(s) indisponível(is)")
-        if rs["sem_vis_agora"]:
-            partes.append(f"{_num(rs['sem_vis_agora'])} sem visibilidade")
-        frases.append(f"Na emissão deste relatório havia {' e '.join(partes)}.")
-    return h + [Paragraph(_t(" ".join(frases)), E["texto"])]
-
-
-def _indicadores(r: Dict[str, Any]) -> List[Any]:
+def _texto_resumo(r: Dict[str, Any]) -> str:
     rs, an = r["resumo"], r["anterior"]
-
-    def var(a: Any, b: Any, fmt, unidade: str = "") -> str:
-        if a is None or b is None:
-            return "—"
-        d = a - b
-        if abs(d) < 0.005:
-            return "sem variação"
-        return f"{'+' if d > 0 else '−'}{fmt(abs(d))}{unidade}"
-
-    pp = lambda v: f"{v:.2f}".replace(".", ",")
-    linhas = [
-        ("Disponibilidade (média ponderada pelo tempo)", _pct(rs["disponibilidade"]), _pct(an["disponibilidade"]),
-         var(rs["disponibilidade"], an["disponibilidade"], pp, " p.p.")),
-        ("Cobertura de monitoramento", _pct(rs["cobertura"]), _pct(an["cobertura"]),
-         var(rs["cobertura"], an["cobertura"], pp, " p.p.")),
-        ("Ocorrências de indisponibilidade", _num(rs["quedas"]), _num(an["quedas"]),
-         var(rs["quedas"], an["quedas"], _num)),
-        ("Tempo indisponível acumulado", _dur(rs["fora_s"]), _dur(an["fora_s"]), var(rs["fora_s"], an["fora_s"], _dur)),
-        ("Indisponibilidades de conector", _num(rs["quedas_conector"]), _num(an["quedas_conector"]),
-         var(rs["quedas_conector"], an["quedas_conector"], _num)),
-        ("Tempo sem visibilidade (conector indisponível)", _dur(rs["sem_visibilidade_s"]),
-         _dur(an["sem_visibilidade_s"]), var(rs["sem_visibilidade_s"], an["sem_visibilidade_s"], _dur)),
-        (f"Equipamentos abaixo da meta ({_pct(r['meta_pct'])})", _num(rs["abaixo_meta"]), _num(an["abaixo_meta"]),
-         var(rs["abaixo_meta"], an["abaixo_meta"], _num)),
-    ]
-    ant = f"{_br(r['anterior_de'])} a {_br(r['anterior_ate'])}"
-    return _secao("2", "Indicadores do período", f"Comparação com o período anterior de mesma duração ({ant}).") + [
-        _tabela(["Indicador", "Período", "Período anterior", "Variação"],
-                [[_c(_t(a)), _n(b), _n(c), _n(d)] for a, b, c, d in linhas], [0.49, 0.17, 0.17, 0.17],
-                numericas=(1, 2, 3))]
-
-
-def _diario(r: Dict[str, Any]) -> List[Any]:
-    serie = r["serie"]
-    if not serie or not any(s["fora_s"] for s in serie):
-        return _secao("3", "Indisponibilidade diária", "Sem indisponibilidade registrada no período.")
-    horas = [round(s["fora_s"] / 3600) for s in serie]
-    cada = max(1, -(-len(serie) // 15))
-    d = _barras(horas, [s["rotulo"] for s in serie], LARGURA, 42 * mm, cores=[ESCURO] * len(serie),
-                rotulo_cada=cada, mostrar_valor=len(serie) <= 31)
-    return _secao("3", "Indisponibilidade diária",
-                  "Horas de indisponibilidade somadas de todos os equipamentos, por dia (horário de Brasília). "
-                  "Não inclui o tempo sem visibilidade.") + [d]
+    if not rs["equipamentos"]:
+        return "Não há equipamentos monitorados com os filtros informados."
+    frases = [f"{_num(rs['equipamentos'])} equipamentos monitorados de {_br(r['de'])} a {_br(r['ate'])}."]
+    conectores = [o for o in r["ocorrencias"] if o["tipo"] == "conector"]
+    for o in [o for o in conectores if o["aberta"]]:
+        frases.append(f"O conector {o['equipamento']} está fora desde {_quando(o['inicio'], True)}: desde então os "
+                      f"{_num(o['afetados'])} equipamentos atrás dele estão sem leitura.")
+    fechados = [o for o in conectores if not o["aberta"]]
+    if fechados:
+        frases.append(f"O conector caiu e voltou {_num(len(fechados))} vez(es), somando "
+                      f"{_dur(sum(o['no_periodo_s'] for o in fechados))} fora.")
+    quedas = [o for o in r["ocorrencias"] if o["tipo"] == "equipamento"]
+    novas = [o for o in quedas if not o["antes"]]
+    if novas:
+        frases.append(f"Houve {_num(len(novas))} queda(s) de equipamento no período.")
+    for o in [o for o in quedas if o["antes"]][:3]:
+        if o["aberta"]:
+            frases.append(f"{o['equipamento']} está fora desde {_quando(o['inicio'], True)}, antes do início do "
+                          f"período.")
+        else:
+            frases.append(f"{o['equipamento']} ficou fora de {_quando(o['inicio'], True)} (antes do período) "
+                          f"até {_quando(o['fim'], True)}.")
+    if not conectores and not quedas:
+        frases.append("Nenhuma queda no período.")
+    if an["no_ar_pct"] is not None:
+        frases.append(f"No período anterior ({_br(r['anterior_de'])} a {_br(r['anterior_ate'])}): "
+                      f"{_p(an['no_ar_pct'], False)} no ar, {_p(an['fora_pct'], False)} fora e "
+                      f"{_p(an['sem_pct'], False)} sem leitura.")
+    return " ".join(frases)
 
 
-def _grupo(numero: str, titulo: str, cab0: str, grupos: List[Dict[str, Any]], r: Dict[str, Any]) -> List[Any]:
-    meta = r["meta_pct"]
-    if not grupos:
-        return []
-    linhas = [[_c(f"<b>{_t(g['nome'])}</b>"), _n(_num(g["equipamentos"])), _c(_pct_meta(g["disponibilidade"], meta), "num"),
-               _n(_pct(g["cobertura"])), _n(_num(g["quedas"]) if g["quedas"] else "—"), _n(_dur(g["fora_s"])),
-               _n(_dur(g["sem_visibilidade_s"]))] for g in grupos]
-    return _secao(numero, titulo, "Ordenado da menor para a maior disponibilidade. n/d: cobertura insuficiente "
-                                  f"(abaixo de {r['cobertura_minima_pct']}%).") + [
-        _tabela([cab0, "Equip.", "Disponib.", "Cobertura", "Ocorr.", "Indisponível", "Sem visib."], linhas,
-                [0.31, 0.08, 0.12, 0.12, 0.09, 0.14, 0.14], numericas=(1, 2, 3, 4, 5, 6))]
+def _resumo(r: Dict[str, Any]) -> List[Any]:
+    rs = r["resumo"]
+    itens = [("NO AR", rs["no_ar_pct"], TEXT), ("FORA", rs["fora_pct"], COR_FORA if rs["fora_pct"] else TEXT),
+             ("SEM LEITURA", rs["sem_pct"], TEXT)]
+    cel = [[Paragraph(rot, E["kpirot"]), Spacer(1, 3),
+            Paragraph(_p(v, False), ParagraphStyle("v", parent=E["kpival"], textColor=cor)),
+            Paragraph("do tempo", E["kpisub"])] for rot, v, cor in itens]
+    k = Table([cel], colWidths=[LARGURA / 3] * 3)
+    k.setStyle(TableStyle([("LINEABOVE", (0, 0), (-1, 0), 1.6, ESCURO), ("LINEBELOW", (0, 0), (-1, 0), 0.4, LINHA),
+                           ("LINEAFTER", (0, 0), (1, 0), 0.4, LINHA), ("TOPPADDING", (0, 0), (-1, -1), 10),
+                           ("BOTTOMPADDING", (0, 0), (-1, -1), 10), ("LEFTPADDING", (0, 0), (-1, -1), 12)]))
+    barra = _barra(rs["no_ar_pct"], rs["fora_pct"], rs["sem_pct"], LARGURA, 9)
+    return [Spacer(1, 10), k, Spacer(1, 8), barra, Spacer(1, 3), Paragraph(_legenda(), E["nota"]), Spacer(1, 10),
+            Paragraph(_t(_texto_resumo(r)), E["texto"])]
 
 
-def _conectores(r: Dict[str, Any]) -> List[Any]:
-    h = _secao("5", "Indisponibilidade de conectores",
-               "Períodos em que o conector do site não respondeu. Durante esses períodos os equipamentos "
-               "dependentes ficam sem visibilidade.")
-    if not r["conectores"]:
-        return h + [Paragraph("Nenhuma indisponibilidade de conector no período.", E["texto"])]
+def _pendencias(r: Dict[str, Any]) -> List[Any]:
+    h = _secao("1  Pendências agora", "O que não estava no ar na emissão deste relatório.")
+    if not r["pendencias"]:
+        return h + [Paragraph("Nenhuma pendência: todos os equipamentos estavam no ar.", E["texto"])]
+    multi = not r["um_site"]
     linhas = []
-    for c in r["conectores"]:
-        fim = f'<font color="{VERMELHO}"><b>em aberto</b></font>' if c["aberta"] else _t(_quando(c["fim"]))
-        ini = _t(_quando(c["inicio"])) + (" *" if c["comecou_antes"] else "")
-        linhas.append([_c(f"<b>{_t(c['conector'])}</b>"), _c(_t(c["site"])), _c(ini), _c(fim), _n(_dur(c["duracao_s"])),
-                       _n(_num(c["afetados"]))])
-    h.append(_tabela(["Conector", "Site", "Início", "Fim", "Duração", "Equip. afetados"], linhas,
-                     [0.23, 0.25, 0.15, 0.15, 0.11, 0.11], numericas=(4, 5)))
-    if any(c["comecou_antes"] for c in r["conectores"]):
-        h.append(Paragraph("* iniciado antes do período de apuração.", E["nota"]))
-    return h
+    for p in r["pendencias"]:
+        cor = VERMELHO if p["situacao"] == "Fora" else "#4a5a64"
+        nome = f"<b>{_t(p['equipamento'])}</b>" + (f' <font color="#66747e">· {_t(p["tipo_item"])}</font>'
+                                                   if p["tipo_item"] else "")
+        linhas.append([_c(nome)] + ([_c(_t(p["site"]))] if multi else []) + [
+            _c(f'<font color="{cor}"><b>{_t(p["situacao"])}</b></font>'), _c(_t(_quando(p["desde"], True)))])
+    cab = ["Equipamento"] + (["Site"] if multi else []) + ["Situação", "Desde"]
+    larg = [0.35, 0.23, 0.24, 0.18] if multi else [0.5, 0.3, 0.2]
+    return h + [_tabela(cab, linhas, larg)]
 
 
-def _atencao(r: Dict[str, Any]) -> List[Any]:
-    h = _secao("6", "Pontos de atenção", "Ordenados por severidade.")
-    if not r["atencao"]:
-        return h + [Paragraph(f"Nenhum equipamento indisponível na emissão, abaixo da meta de {_pct(r['meta_pct'])} "
-                              f"ou com instabilidade recorrente.", E["texto"])]
-    linhas = []
-    for a in r["atencao"]:
-        sev = f'<font color="{VERMELHO}"><b>Alta</b></font>' if a["nivel"] == "alto" else "Média"
-        linhas.append([_c(sev), _c(f"<b>{_t(a['equipamento'])}</b>"), _c(_t(a["site"])), _c(_t(a["texto"]))])
-    return h + [_tabela(["Severidade", "Equipamento", "Site", "Descrição"], linhas, [0.11, 0.22, 0.24, 0.43])]
-
-
-def _piores(r: Dict[str, Any]) -> List[Any]:
-    if not r["piores"]:
-        return []
-    meta = r["meta_pct"]
-    linhas = [[_c(f"<b>{_t(e['equipamento'])}</b>"), _c(_t(e["tipo_item"])), _c(_t(e["site"])),
-               _c(_pct_meta(e["disponibilidade"], meta), "num"), _n(_num(e["quedas"])), _n(_dur(e["fora_s"])),
-               _n(_dur(e["maior_queda_s"]))] for e in r["piores"]]
-    return _secao("7", "Equipamentos com maior indisponibilidade", "Ordenados pelo tempo indisponível no período.") + [
-        _tabela(["Equipamento", "Tipo", "Site", "Disponib.", "Ocorr.", "Indisponível", "Maior evento"], linhas,
-                [0.23, 0.12, 0.23, 0.1, 0.07, 0.12, 0.13], numericas=(3, 4, 5, 6))]
-
-
-def _anexo_quedas(r: Dict[str, Any]) -> List[Any]:
-    total = r["quedas_total"]
-    sub = "Da mais recente para a mais antiga. Não inclui o tempo sem visibilidade."
-    if total > len(r["quedas"]):
-        sub += f" Exibidas {len(r['quedas'])} de {total}."
-    h = _secao("Anexo A", f"Registro de ocorrências de indisponibilidade ({_num(total)})", sub)
-    if not r["quedas"]:
-        return h + [Paragraph("Nenhuma ocorrência no período.", E["texto"])]
-    linhas = []
-    for q in r["quedas"]:
-        fim = f'<font color="{VERMELHO}"><b>em aberto</b></font>' if q["aberta"] else _t(_quando(q["fim"]))
-        linhas.append([_c(f"<b>{_t(q['equipamento'])}</b>"), _c(_t(q.get("tipo_rotulo") or q["tipo"])),
-                       _c(_t(q["site"])), _c(_t(_quando(q["inicio"])) + (" *" if q["comecou_antes"] else "")),
-                       _c(fim), _n(_dur(q["duracao_s"]))])
-    out = h + [_tabela(["Equipamento", "Tipo", "Site", "Início", "Fim", "Duração"], linhas,
-                       [0.23, 0.12, 0.23, 0.15, 0.15, 0.12], numericas=(5,))]
-    if any(q["comecou_antes"] for q in r["quedas"]):
-        out.append(Paragraph("* iniciada antes do período de apuração.", E["nota"]))
+def _agrupar(ocorrencias: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Equipamentos do mesmo site que cairam e voltaram no mesmo minuto sao UMA
+    ocorrencia ("7 cameras"), nao sete linhas iguais."""
+    grupos: Dict[tuple, Dict[str, Any]] = {}
+    out: List[Dict[str, Any]] = []
+    for o in ocorrencias:
+        if o["tipo"] != "equipamento":
+            out.append(o)
+            continue
+        chave = (o["site"], o["inicio"][:16], o["fim"][:16], o["aberta"])
+        if chave in grupos:
+            grupos[chave]["nomes"].append(o["equipamento"])
+            grupos[chave]["tipos"].add(o["tipo_item"])
+            continue
+        g = {**o, "nomes": [o["equipamento"]], "tipos": {o["tipo_item"]}}
+        grupos[chave] = g
+        out.append(g)
     return out
 
 
-def _anexo_inventario(r: Dict[str, Any]) -> List[Any]:
+def _nome_grupo(o: Dict[str, Any]) -> str:
+    nomes = o.get("nomes") or [o["equipamento"]]
+    if len(nomes) == 1:
+        return f"<b>{_t(nomes[0])}</b>"
+    tipo = next(iter(o["tipos"])) if len(o["tipos"]) == 1 else "equipamento"
+    plural = {"Câmera": "câmeras", "NVR": "NVRs", "DVR": "DVRs"}.get(tipo, "equipamentos")
+    lista = ", ".join(nomes[:8]) + (f" e mais {len(nomes) - 8}" if len(nomes) > 8 else "")
+    return f'<b>{len(nomes)} {plural}</b><br/><font size="7" color="#66747e">{_t(lista)}</font>'
+
+
+def _ocorrencias(r: Dict[str, Any]) -> List[Any]:
+    total = r["ocorrencias_total"]
+    sub = "Da mais recente para a mais antiga. Quando o conector cai, tudo o que está atrás dele fica sem leitura."
+    if total > len(r["ocorrencias"]):
+        sub += f" Exibidas {len(r['ocorrencias'])} de {total}."
+    h = _secao(f"2  Ocorrências no período ({_num(total)})", sub)
+    if not r["ocorrencias"]:
+        return h + [Paragraph("Nenhuma queda de conector ou de equipamento no período.", E["texto"])]
+    multi = not r["um_site"]
+    linhas = []
+    for o in _agrupar(r["ocorrencias"]):
+        if o["tipo"] == "conector":
+            oque = f"<b>Conector fora</b><br/>{_num(o['afetados'])} sem leitura"
+            nome = f"<b>{_t(o['equipamento'])}</b>"
+        else:
+            oque = "<b>Fora</b>"
+            nome = _nome_grupo(o)
+        fim = f'<font color="{VERMELHO}"><b>continua fora</b></font>' if o["aberta"] else _t(_quando(o["fim"]))
+        linhas.append([_c(_t(_quando(o["inicio"], o["antes"]))), _c(fim), _n(_dur(o["duracao_s"])), _c(nome)] +
+                      ([_c(_t(o["site"]))] if multi else []) + [_c(oque)])
+    cab = ["Início", "Fim", "Duração", "Equipamento"] + (["Site"] if multi else []) + ["O que aconteceu"]
+    larg = [0.13, 0.13, 0.09, 0.28, 0.21, 0.16] if multi else [0.15, 0.15, 0.1, 0.36, 0.24]
+    return h + [_tabela(cab, linhas, larg, numericas=(2,))]
+
+
+def _dia_a_dia(r: Dict[str, Any]) -> List[Any]:
+    dias = [d for d in r["dias"] if d["no_ar_pct"] is not None]
+    if not dias:
+        return []
+    larg_barra = LARGURA * 0.36 - 8
+    linhas = [[_c(_t(d["rotulo"])), _n(_p(d["no_ar_pct"], False)), _fora(d["fora_pct"]), _n(_p(d["sem_pct"])),
+               _n(_num(d["quedas"]) if d["quedas"] else "—"),
+               _barra(d["no_ar_pct"], d["fora_pct"], d["sem_pct"], larg_barra)] for d in dias]
+    return _secao("3  Dia a dia", "Parte do tempo de todos os equipamentos somados, em cada dia.") + [
+        _tabela(["Dia", "No ar", "Fora", "Sem leitura", "Quedas", ""], linhas,
+                [0.1, 0.12, 0.12, 0.14, 0.16, 0.36], numericas=(1, 2, 3, 4))]
+
+
+def _grupo(rot: str, cab0: str, grupos: List[Dict[str, Any]]) -> List[Any]:
+    if len(grupos) < 2:
+        return []
+    linhas = [[_c(f"<b>{_t(g['nome'])}</b>"), _n(_num(g["equipamentos"])), _n(_p(g["no_ar_pct"], False)),
+               _fora(g["fora_pct"]), _n(_p(g["sem_pct"])), _n(_num(g["quedas"]) if g["quedas"] else "—"),
+               _n(_num(g["fora_agora"]) if g["fora_agora"] else "—")] for g in grupos]
+    return _secao(rot, "Da menor para a maior parte do tempo no ar.") + [
+        _tabela([cab0, "Equip.", "No ar", "Fora", "Sem leitura", "Quedas", "Fora agora"], linhas,
+                [0.34, 0.09, 0.11, 0.11, 0.13, 0.1, 0.12], numericas=(1, 2, 3, 4, 5, 6))]
+
+
+def _equipamentos(r: Dict[str, Any], numero: int) -> List[Any]:
     eqs = r["equipamentos"]
-    h = _secao("Anexo B", f"Inventário monitorado ({_num(len(eqs))})",
-               "Por site e tipo. Situação: estado na emissão do relatório.")
+    h = _secao(f"{numero}  Equipamentos ({_num(len(eqs))})", "Parte do período em cada situação e a situação na emissão.")
     if not eqs:
         return h
-    meta = r["meta_pct"]
-    linhas = [[_c(_t(e["equipamento"])), _c(_t(e["site"])), _c(_t(e["tipo_item"])),
-               _c(_pct_meta(e["disponibilidade"], meta), "num"), _n(_pct(e["cobertura"])),
-               _n(_num(e["quedas"]) if e["quedas"] else "—"), _n(_dur(e["fora_s"])),
-               _c(_t(ESTADOS.get(e["status_atual"], "Sem leitura")))] for e in eqs]
-    return h + [_tabela(["Equipamento", "Site", "Tipo", "Disponib.", "Cobertura", "Ocorr.", "Indisponível", "Situação"],
-                        linhas, [0.2, 0.21, 0.11, 0.1, 0.1, 0.06, 0.1, 0.12], numericas=(3, 4, 5, 6))]
+    multi = not r["um_site"]
+    linhas = []
+    for e in eqs:
+        sit = CURTA.get(e["status"], "Sem leitura")
+        sit_html = f'<font color="{VERMELHO}"><b>{sit}</b></font>' if e["status"] == "down" else _t(sit)
+        linhas.append([_c(f"<b>{_t(e['equipamento'])}</b>")] + ([_c(_t(e["site"]))] if multi else []) + [
+            _c(_t(e["tipo_item"])), _n(_p(e["no_ar_pct"], False)), _fora(e["fora_pct"]), _n(_p(e["sem_pct"])),
+            _n(_num(e["quedas"]) if e["quedas"] else "—"), _c(sit_html)])
+    cab = ["Equipamento"] + (["Site"] if multi else []) + ["Tipo", "No ar", "Fora", "Sem leitura", "Quedas", "Agora"]
+    larg = [0.22, 0.21, 0.1, 0.08, 0.08, 0.1, 0.08, 0.13] if multi else [0.32, 0.14, 0.1, 0.1, 0.12, 0.08, 0.14]
+    ini = 3 if multi else 2
+    return h + [_tabela(cab, linhas, larg, numericas=tuple(range(ini, ini + 4)))]
 
 
-def _metodologia(r: Dict[str, Any]) -> List[Any]:
+def _como_ler(r: Dict[str, Any]) -> List[Any]:
     itens = [
-        "Fonte: registros de mudança de estado do monitoramento do SightOps. O estado de cada equipamento só muda "
-        "após leituras consecutivas o confirmarem; falhas isoladas de uma única leitura não geram ocorrência.",
-        "Disponibilidade = 1 − (tempo indisponível ÷ tempo com leitura). O estado instável conta como disponível "
-        "(o equipamento respondeu de forma intermitente) e é relatado à parte como ponto de atenção.",
-        "Sem visibilidade: enquanto o conector do site está indisponível, não é possível afirmar o estado dos "
-        "equipamentos que dependem dele. Esse tempo é excluído do cálculo e não gera ocorrência. Também é tratado "
-        f"assim o equipamento que deixou de responder até {r['margem_conector_min']} min antes da indisponibilidade "
-        f"do conector ser confirmada ou até {r['margem_retorno_min']} min depois do seu retorno, pois a falha é a mesma.",
-        "Cobertura = tempo com leitura ÷ tempo do período. Equipamentos ou grupos com cobertura inferior a "
-        f"{r['cobertura_minima_pct']}% não têm disponibilidade apurada (n/d).",
-        "Tempo indisponível acumulado é a soma de todos os equipamentos (dois equipamentos indisponíveis por 1 h "
-        "somam 2 h). Horários no fuso de Brasília.",
-        f"Meta de disponibilidade: {_pct(r['meta_pct'])}. Comparação com o período anterior de mesma duração, "
-        "com os mesmos filtros.",
+        "<b>No ar</b>: o equipamento respondeu ao monitoramento (inclui respostas intermitentes).",
+        "<b>Fora</b>: o equipamento não respondeu, confirmado por leituras seguidas. Uma falha isolada não conta.",
+        "<b>Sem leitura</b>: não foi possível verificar o equipamento. O caso mais comum é o conector do site fora: "
+        "sem ele não se alcança nada do que está atrás, e por isso esse tempo não é contado como fora. Também entra "
+        f"aqui quem parou de responder até {r['margem_conector_min']} min antes da queda do conector ser confirmada "
+        f"ou até {r['margem_retorno_min']} min depois de ele voltar (é a mesma falha).",
+        "As três partes somam 100% do período de cada equipamento. Horários no fuso de Brasília.",
     ]
-    corpo = [Paragraph(_t(x), E["nota"], bulletText="•") for x in itens]
-    return [KeepTogether([Spacer(1, 6)] + _secao("", "Metodologia") + corpo +
-                         [Spacer(1, 18), _assinatura("Responsável técnico")])]
+    corpo = [Paragraph(x, E["nota"], bulletText="•") for x in itens]
+    return [KeepTogether([Spacer(1, 6)] + _secao("Como ler este relatório") + corpo +
+                         [Spacer(1, 22), _assinatura("Responsável técnico")])]
 
 
 def gerar_pdf(r: Dict[str, Any], usuario: str = "", logo: Optional[Path] = None) -> bytes:
     buf = io.BytesIO()
     local = r["site"] or "Todos os sites"
     doc = SimpleDocTemplate(buf, pagesize=A4, leftMargin=MARGEM, rightMargin=MARGEM, topMargin=14 * mm,
-                            bottomMargin=18 * mm, title=f"Relatório técnico de disponibilidade · {local}",
-                            author="SightOps", subject="Relatório técnico de disponibilidade")
-    h: List[Any] = [_cabecalho(r, usuario, logo), Spacer(1, 4)]
-    h += _sumario(r) + _indicadores(r) + _diario(r)
-    if len(r["por_site"]) > 1:
-        h += [CondPageBreak(45 * mm)] + _grupo("4.1", "Disponibilidade por site", "Site", r["por_site"], r)
-    h += [CondPageBreak(45 * mm)] + _grupo("4.2" if len(r["por_site"]) > 1 else "4", "Disponibilidade por tipo de "
-                                           "equipamento", "Tipo", r["por_tipo"], r)
-    h += [CondPageBreak(40 * mm)] + _conectores(r)
-    h += [CondPageBreak(40 * mm)] + _atencao(r)
-    h += [CondPageBreak(40 * mm)] + _piores(r)
-    h += [CondPageBreak(50 * mm)] + _anexo_quedas(r)
-    h += [CondPageBreak(50 * mm)] + _anexo_inventario(r)
-    h += _metodologia(r)
-    rodape = f"SightOps · Relatório técnico de disponibilidade · {local} · {_br(r['de'])} a {_br(r['ate'])}"
+                            bottomMargin=18 * mm, title=f"Relatório de disponibilidade · {local}", author="SightOps",
+                            subject="Relatório de disponibilidade")
+    h: List[Any] = [_cabecalho(r, usuario, logo)] + _resumo(r)
+    h += [CondPageBreak(35 * mm)] + _pendencias(r)
+    h += [CondPageBreak(40 * mm)] + _ocorrencias(r)
+    h += [CondPageBreak(40 * mm)] + _dia_a_dia(r)
+    numero = 4
+    for rot, cab0, lista in (("Por site", "Site", r["por_site"]), ("Por tipo de equipamento", "Tipo", r["por_tipo"])):
+        bloco = _grupo(f"{numero}  {rot}", cab0, lista)
+        if bloco:
+            h += [CondPageBreak(40 * mm)] + bloco
+            numero += 1
+    h += [CondPageBreak(50 * mm)] + _equipamentos(r, numero)
+    h += _como_ler(r)
+    rodape = f"SightOps · Relatório de disponibilidade · {local} · {_br(r['de'])} a {_br(r['ate'])}"
     doc.build(h, canvasmaker=lambda *a, **k: _Paginas(*a, rodape=rodape, **k))
     return buf.getvalue()

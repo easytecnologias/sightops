@@ -1,15 +1,17 @@
-"""Relatorio de disponibilidade do Monitoramento: quanto tempo cada equipamento
-ficou no ar no periodo, quantas quedas teve e quanto tempo ficou fora.
+"""Relatorio de disponibilidade do Monitoramento: em que parte do periodo cada
+equipamento esteve NO AR, FORA ou SEM LEITURA. As tres somam 100% e sao o unico
+conceito do relatorio (o cliente le "81% no ar, 19% sem leitura" sem precisar de
+glossario).
 
 O calculo sai de `monitoring_events` (cada mudanca de estado confirmada): a
 linha do tempo de cada equipamento e montada a partir do estado no inicio do
 periodo (ultimo evento antes dele) e dos eventos dentro dele.
 
-  disponibilidade = 1 - tempo down / tempo medido
-  tempo medido    = up + instavel + down  (nao verificado e manutencao ficam
-                    de fora: sem leitura nao ha como dizer que estava no ar)
+  no ar       = up ou instavel (respondeu)
+  fora        = down confirmado
+  sem leitura = nao verificado, manutencao, ou atras de conector fora (nesse
+                caso nao da para afirmar nada sobre o equipamento)
 
-Instavel conta como no ar (respondeu, mas oscilando) e aparece a parte.
 Horarios no banco em UTC; dias do periodo no horario de Brasilia. A tela e o
 PDF leem o mesmo dicionario."""
 from __future__ import annotations
@@ -40,7 +42,6 @@ ROTULOS = {
     "switch_provedor": "Switches de provedores",
 }
 MEDIDOS = ("up", "unstable", "down")
-META_PCT = 99.0          # abaixo disso o equipamento entra em "o que conferir"
 LIMITE_QUEDAS = 600      # anexo do PDF
 
 
@@ -66,12 +67,6 @@ def _dia(v: str, padrao: date) -> date:
 
 def _utc(d: date) -> datetime:
     return datetime(d.year, d.month, d.day, tzinfo=FUSO).astimezone(timezone.utc)
-
-
-def _pct(fora: float, medido: float) -> Optional[float]:
-    if medido <= 0:
-        return None
-    return round(max(0.0, 100.0 * (1 - fora / medido)), 2)
 
 
 def _sql_in(n: int) -> str:
@@ -171,7 +166,6 @@ def _linha_do_tempo(ent: Dict[str, Any], ev: Dict[str, Any], ini: datetime, fim:
 
 MARGEM_CONECTOR = timedelta(minutes=30)   # antes da queda confirmada do conector
 MARGEM_RETORNO = timedelta(minutes=10)    # depois que o conector volta (leituras atrasadas)
-COBERTURA_MINIMA = 0.5   # abaixo disso a disponibilidade do equipamento nao e afirmada
 
 
 def _juntar(trechos: List[tuple]) -> List[tuple]:
@@ -217,14 +211,36 @@ def _sem_visibilidade(trechos: List[tuple], janelas: List[tuple]) -> List[tuple]
     return _juntar(out)
 
 
+def _classe(est: str) -> str:
+    """Tres classes, e so elas aparecem no relatorio: no ar, fora, sem leitura."""
+    if est in ("up", "unstable"):
+        return "no_ar"
+    if est == "down":
+        return "fora"
+    return "sem"
+
+
+def _tres(s: Dict[str, float]) -> Dict[str, Any]:
+    """Percentuais do tempo que somam 100 (o arredondamento vai para "no ar")."""
+    total = s["no_ar"] + s["fora"] + s["sem"]
+    if total <= 0:
+        return {"no_ar_pct": None, "fora_pct": None, "sem_pct": None}
+    fora = round(100 * s["fora"] / total, 1)
+    sem = round(100 * s["sem"] / total, 1)
+    return {"no_ar_pct": round(100 - fora - sem, 1), "fora_pct": fora, "sem_pct": sem}
+
+
+def _soma0() -> Dict[str, float]:
+    return {"no_ar": 0.0, "fora": 0.0, "sem": 0.0}
+
+
 def _calcular(ents: List[Dict[str, Any]], conectores: List[Dict[str, Any]], ini: datetime, fim: datetime,
               dias: List[date]) -> Dict[str, Any]:
     agora = datetime.now(timezone.utc)
-    fim_efetivo = min(fim, agora)  # o futuro do "hoje" nao conta como medido
-    vazio = {"resumo": _resumo([], []), "equipamentos": [], "quedas": [], "serie": [], "por_site": [],
-             "por_tipo": [], "conectores": []}
+    fim_efetivo = min(fim, agora)  # o futuro do "hoje" nao conta
     if fim_efetivo <= ini:
-        return vazio
+        return {"resumo": _resumo([], []), "equipamentos": [], "ocorrencias": [], "dias": [], "por_site": [],
+                "por_tipo": []}
     eventos = _eventos([e["entity_key"] for e in ents], ini, fim_efetivo)
 
     # Linha do tempo de cada conector (um pouco alem do fim, por causa da margem).
@@ -236,155 +252,132 @@ def _calcular(ents: List[Dict[str, Any]], conectores: List[Dict[str, Any]], ini:
         t = _linha_do_tempo(c, ev_con[c["entity_key"]], ini, fim_con)
         trechos_con[c["entity_key"]] = t
         janelas[str(c.get("entity_id") or "")] = _janelas_do_conector(t)
+    con_por_id = {str(c.get("entity_id") or ""): c for c in conectores}
 
-    equipamentos, quedas = [], []
-    fora_dia = {d: 0.0 for d in dias}
-    medido_dia = {d: 0.0 for d in dias}
+    def inicio_real(ev: Dict[str, Any], a: datetime) -> datetime:
+        """Queda que ja vinha de antes do periodo: quando ela comecou de fato."""
+        antes = ev.get("antes") or {}
+        if a <= ini and str(antes.get("to_status")) == "down":
+            return _dt(antes.get("created_at")) or a
+        return a
+
+    equipamentos, ocorrencias = [], []
+    por_dia = {d: _soma0() for d in dias}
     quedas_dia = {d: 0 for d in dias}
     dependentes: Dict[str, int] = {}
     for ent in ents:
-        trechos = _linha_do_tempo(ent, eventos[ent["entity_key"]], ini, fim_efetivo)
+        ev = eventos[ent["entity_key"]]
+        trechos = _linha_do_tempo(ent, ev, ini, fim_efetivo)
         cid = str(ent.get("connector_id") or "")
-        if ent["entity_type"] != "connector" and cid in janelas:
+        atras = ent["entity_type"] != "connector" and cid in janelas
+        if atras:
             dependentes[cid] = dependentes.get(cid, 0) + 1
             trechos = _sem_visibilidade(trechos, janelas[cid])
-        soma = {"up": 0.0, "unstable": 0.0, "down": 0.0, "unknown": 0.0, "maintenance": 0.0, "blind": 0.0}
-        n_quedas, n_instab, maior = 0, 0, 0.0
+        soma, quedas = _soma0(), 0
         for k, (a, b, est) in enumerate(trechos):
-            seg = (b - a).total_seconds()
-            soma[est if est in soma else "unknown"] += seg
-            if est == "unstable" and (k == 0 or trechos[k - 1][2] != "unstable") and a > ini:
-                n_instab += 1
-            if est in MEDIDOS:
-                p = a  # reparte o trecho pelos dias de Brasilia (serie diaria)
-                while p < b:
-                    d = p.astimezone(FUSO).date()
-                    corte = min(b, _utc(d + timedelta(days=1)))
-                    if d in medido_dia:
-                        medido_dia[d] += (corte - p).total_seconds()
-                        if est == "down":
-                            fora_dia[d] += (corte - p).total_seconds()
-                    p = corte
-            if est == "down":
-                comecou_antes = a <= ini and k == 0
+            cl = _classe(est)
+            soma[cl] += (b - a).total_seconds()
+            p = a  # reparte o trecho pelos dias de Brasilia
+            while p < b:
+                d = p.astimezone(FUSO).date()
+                corte = min(b, _utc(d + timedelta(days=1)))
+                if d in por_dia:
+                    por_dia[d][cl] += (corte - p).total_seconds()
+                p = corte
+            if est == "down" and ent["entity_type"] != "connector":
+                antes = a <= ini and k == 0
                 aberta = b >= fim_efetivo
-                maior = max(maior, seg)
-                if not comecou_antes:
-                    n_quedas += 1
+                if not antes:
+                    quedas += 1
                     d = a.astimezone(FUSO).date()
                     if d in quedas_dia:
                         quedas_dia[d] += 1
-                quedas.append({
-                    "equipamento": ent.get("display_name") or ent["entity_key"], "entity_key": ent["entity_key"],
-                    "tipo": ent["entity_type"], "tipo_rotulo": UM.get(ent["entity_type"], ent["entity_type"]),
-                    "site": ent["site"] or "Sem site",
-                    "inicio": a.astimezone(FUSO).isoformat(timespec="seconds"),
-                    "fim": "" if aberta else b.astimezone(FUSO).isoformat(timespec="seconds"),
-                    "duracao_s": int(seg), "comecou_antes": comecou_antes, "aberta": aberta,
+                real = inicio_real(ev, a) if antes else a
+                ocorrencias.append({
+                    "tipo": "equipamento", "equipamento": ent.get("display_name") or ent["entity_key"],
+                    "tipo_item": UM.get(ent["entity_type"], ent["entity_type"]), "site": ent["site"] or "Sem site",
+                    "inicio": real.astimezone(FUSO).isoformat(timespec="seconds"), "antes": antes,
+                    "fim": "" if aberta else b.astimezone(FUSO).isoformat(timespec="seconds"), "aberta": aberta,
+                    "duracao_s": int((b - real).total_seconds()), "no_periodo_s": int((b - a).total_seconds()),
+                    "afetados": 0,
                 })
-        total = sum(soma.values())
-        medido = soma["up"] + soma["unstable"] + soma["down"]
-        cobertura = medido / total if total else 0.0
-        status_atual = ent.get("status") or "unknown"
-        if ent["entity_type"] != "connector" and cid in janelas and trechos and trechos[-1][2] == "blind" \
-                and trechos[-1][1] >= fim_efetivo and fim_efetivo >= agora - timedelta(minutes=1):
-            status_atual = "blind"
+        status = ent.get("status") or "unknown"
+        desde = _dt(ent.get("last_changed_at"))
+        if atras and trechos and trechos[-1][2] == "blind" and fim_efetivo >= agora - timedelta(minutes=1):
+            status = "blind"
+            desde = _dt((con_por_id.get(cid) or {}).get("last_changed_at")) or desde
+        if ent["entity_type"] == "connector":
+            quedas = sum(1 for a, b in janelas.get(str(ent.get("entity_id") or ""), []) if a > ini and a < fim_efetivo)
         equipamentos.append({
             "entity_key": ent["entity_key"], "equipamento": ent.get("display_name") or ent["entity_key"],
             "tipo": ent["entity_type"], "tipo_rotulo": ROTULOS.get(ent["entity_type"], ent["entity_type"]),
-            "tipo_item": UM.get(ent["entity_type"], ent["entity_type"]),
-            "site": ent["site"] or "Sem site", "status_atual": status_atual,
-            "disponibilidade": _pct(soma["down"], medido) if cobertura >= COBERTURA_MINIMA else None,
-            "cobertura": round(100 * cobertura, 1),
-            "fora_s": int(soma["down"]), "instavel_s": int(soma["unstable"]),
-            "sem_visibilidade_s": int(soma["blind"]), "sem_leitura_s": int(soma["unknown"] + soma["maintenance"]),
-            "medido_s": int(medido), "periodo_s": int(total), "quedas": n_quedas, "instabilidades": n_instab,
-            "maior_queda_s": int(maior),
+            "tipo_item": UM.get(ent["entity_type"], ent["entity_type"]), "site": ent["site"] or "Sem site",
+            "status": status, "desde": desde.astimezone(FUSO).isoformat(timespec="seconds") if desde else "",
+            "quedas": quedas, "no_ar_s": int(soma["no_ar"]), "fora_s": int(soma["fora"]), "sem_s": int(soma["sem"]),
+            **_tres(soma),
         })
 
-    # Indisponibilidade dos conectores: a causa de toda a perda de visibilidade.
-    nomes_con = {str(c.get("entity_id") or ""): c for c in conectores}
+    # Quedas de conector: a causa de toda a falta de leitura atras dele.
     no_escopo = {e["entity_key"] for e in ents}
-    eventos_con = []
-    for cid, c in nomes_con.items():
+    for cid, c in con_por_id.items():
         if c["entity_key"] not in no_escopo and not dependentes.get(cid):
             continue
         for a, b in janelas.get(cid, []):
-            a, b = max(a, ini), min(b, fim_efetivo)
-            if b <= a:
+            a2, b2 = max(a, ini), min(b, fim_efetivo)
+            if b2 <= a2:
                 continue
-            aberta = b >= fim_efetivo and (trechos_con[c["entity_key"]] or [(0, 0, "")])[-1][2] == "down"
-            eventos_con.append({
-                "conector": c.get("display_name") or c["entity_key"], "site": c.get("site") or "Sem site",
-                "inicio": a.astimezone(FUSO).isoformat(timespec="seconds"),
-                "fim": "" if aberta else b.astimezone(FUSO).isoformat(timespec="seconds"),
-                "duracao_s": int((b - a).total_seconds()), "aberta": aberta, "comecou_antes": a <= ini,
-                "afetados": dependentes.get(cid, 0),
+            antes = a2 <= ini
+            ultimo = (trechos_con[c["entity_key"]] or [(0, 0, "")])[-1]
+            aberta = b2 >= fim_efetivo and ultimo[2] == "down"
+            real = inicio_real(ev_con[c["entity_key"]], a2) if antes else a2
+            ocorrencias.append({
+                "tipo": "conector", "equipamento": c.get("display_name") or c["entity_key"], "tipo_item": "Conector",
+                "site": c.get("site") or "Sem site", "inicio": real.astimezone(FUSO).isoformat(timespec="seconds"),
+                "antes": antes, "fim": "" if aberta else b2.astimezone(FUSO).isoformat(timespec="seconds"),
+                "aberta": aberta, "duracao_s": int((b2 - real).total_seconds()),
+                "no_periodo_s": int((b2 - a2).total_seconds()), "afetados": dependentes.get(cid, 0),
             })
-    eventos_con.sort(key=lambda x: x["inicio"], reverse=True)
+    ocorrencias.sort(key=lambda o: o["inicio"], reverse=True)
 
     def agrupa(chave: str) -> List[Dict[str, Any]]:
         g: Dict[str, Dict[str, Any]] = {}
         for e in equipamentos:
-            x = g.setdefault(e[chave], {"nome": e[chave], "equipamentos": 0, "quedas": 0, "fora_s": 0, "medido_s": 0,
-                                        "periodo_s": 0, "sem_visibilidade_s": 0, "fora_agora": 0, "sem_vis_agora": 0})
+            x = g.setdefault(e[chave], {"nome": e[chave], "equipamentos": 0, "quedas": 0, "fora_agora": 0,
+                                        "sem_agora": 0, "_s": _soma0()})
             x["equipamentos"] += 1
             x["quedas"] += e["quedas"]
-            x["fora_s"] += e["fora_s"]
-            x["medido_s"] += e["medido_s"]
-            x["periodo_s"] += e["periodo_s"]
-            x["sem_visibilidade_s"] += e["sem_visibilidade_s"]
-            x["fora_agora"] += 1 if e["status_atual"] == "down" else 0
-            x["sem_vis_agora"] += 1 if e["status_atual"] == "blind" else 0
+            x["fora_agora"] += 1 if e["status"] == "down" else 0
+            x["sem_agora"] += 1 if e["status"] in ("blind", "unknown") else 0
+            for k, campo in (("no_ar", "no_ar_s"), ("fora", "fora_s"), ("sem", "sem_s")):
+                x["_s"][k] += e[campo]
+        out = []
         for x in g.values():
-            cob = x["medido_s"] / x["periodo_s"] if x["periodo_s"] else 0.0
-            x["cobertura"] = round(100 * cob, 1)
-            x["disponibilidade"] = _pct(x["fora_s"], x["medido_s"]) if cob >= COBERTURA_MINIMA else None
-        return sorted(g.values(), key=lambda x: (x["disponibilidade"] if x["disponibilidade"] is not None else -1,
-                                                 x["nome"]))
+            out.append({**{k: v for k, v in x.items() if k != "_s"}, **_tres(x["_s"])})
+        return sorted(out, key=lambda x: (x["no_ar_pct"] if x["no_ar_pct"] is not None else 101, x["nome"]))
 
-    serie = [{"dia": d.isoformat(), "rotulo": d.strftime("%d/%m"), "disponibilidade": _pct(fora_dia[d], medido_dia[d]),
-              "quedas": quedas_dia[d], "fora_s": int(fora_dia[d])} for d in dias]
-    return {"resumo": _resumo(equipamentos, eventos_con), "equipamentos": equipamentos, "quedas": quedas,
-            "serie": serie, "por_site": agrupa("site"), "por_tipo": agrupa("tipo_rotulo"), "conectores": eventos_con}
+    serie = [{"dia": d.isoformat(), "rotulo": d.strftime("%d/%m"), "quedas": quedas_dia[d], **_tres(por_dia[d])}
+             for d in dias]
+    return {"resumo": _resumo(equipamentos, ocorrencias), "equipamentos": equipamentos, "ocorrencias": ocorrencias,
+            "dias": serie, "por_site": agrupa("site"), "por_tipo": agrupa("tipo_rotulo")}
 
 
-def _resumo(equipamentos: List[Dict[str, Any]], eventos_con: List[Dict[str, Any]]) -> Dict[str, Any]:
-    fora = sum(e["fora_s"] for e in equipamentos)
-    medido = sum(e["medido_s"] for e in equipamentos)
-    periodo = sum(e["periodo_s"] for e in equipamentos)
+def _resumo(equipamentos: List[Dict[str, Any]], ocorrencias: List[Dict[str, Any]]) -> Dict[str, Any]:
+    s = {"no_ar": float(sum(e["no_ar_s"] for e in equipamentos)), "fora": float(sum(e["fora_s"] for e in equipamentos)),
+         "sem": float(sum(e["sem_s"] for e in equipamentos))}
     return {
         "equipamentos": len(equipamentos),
-        "disponibilidade": _pct(fora, medido),
-        "cobertura": round(100 * medido / periodo, 1) if periodo else None,
-        "quedas": sum(e["quedas"] for e in equipamentos),
-        "com_queda": sum(1 for e in equipamentos if e["fora_s"]),
-        "fora_s": int(fora),
-        "medido_s": int(medido),
-        "sem_visibilidade_s": sum(e["sem_visibilidade_s"] for e in equipamentos),
-        "quedas_conector": sum(1 for c in eventos_con if not c["comecou_antes"]),
-        "instabilidades": sum(e["instabilidades"] for e in equipamentos),
-        "sem_dados": sum(1 for e in equipamentos if e["disponibilidade"] is None),
-        "fora_agora": sum(1 for e in equipamentos if e["status_atual"] == "down"),
-        "sem_vis_agora": sum(1 for e in equipamentos if e["status_atual"] == "blind"),
-        "abaixo_meta": sum(1 for e in equipamentos if e["disponibilidade"] is not None and e["disponibilidade"] < META_PCT),
+        **_tres(s),
+        "quedas": sum(1 for o in ocorrencias if o["tipo"] == "equipamento" and not o["antes"]),
+        "quedas_conector": sum(1 for o in ocorrencias if o["tipo"] == "conector" and not o["antes"]),
+        "com_queda": len({o["equipamento"] + "|" + o["site"] for o in ocorrencias if o["tipo"] == "equipamento"}),
+        "fora_agora": sum(1 for e in equipamentos if e["status"] == "down"),
+        "sem_agora": sum(1 for e in equipamentos if e["status"] in ("blind", "unknown")),
+        "conector_fora_agora": sum(1 for e in equipamentos if e["tipo"] == "connector" and e["status"] == "down"),
     }
 
 
-def _dur(seg: int) -> str:
-    seg = int(seg or 0)
-    d, r = divmod(seg, 86400)
-    h, r = divmod(r, 3600)
-    m = r // 60
-    if d:
-        return f"{d}d {h}h"
-    if h:
-        return f"{h}h {m:02d}min"
-    return f"{m} min" if m else f"{seg}s"
-
-
-def _br_pct(v: float) -> str:
-    return f"{v:.2f}%".replace(".", ",")
+SITUACAO = {"up": "No ar", "unstable": "No ar (instável)", "down": "Fora", "blind": "Sem leitura (conector fora)",
+            "unknown": "Sem leitura", "maintenance": "Em manutenção"}
 
 
 def gerar(de: str = "", ate: str = "", site: str = "", tipo: str = "",
@@ -400,7 +393,7 @@ def gerar(de: str = "", ate: str = "", site: str = "", tipo: str = "",
     tipo = tipo if tipo in ROTULOS else ""
     site_f = str(site or "").strip().upper()
     ents = _entidades(site_f, tipo, sites)
-    # Conectores do cliente inteiro: so para saber quando cada equipamento ficou sem visibilidade.
+    # Conectores do cliente inteiro: so para saber quando cada equipamento ficou sem leitura.
     conectores = _entidades("", "connector", None)
     dias = [ini_d + timedelta(days=i) for i in range((fim_d - ini_d).days + 1)]
     atual = _calcular(ents, conectores, _utc(ini_d), _utc(fim_d + timedelta(days=1)), dias)
@@ -409,56 +402,41 @@ def gerar(de: str = "", ate: str = "", site: str = "", tipo: str = "",
     anterior = _calcular(ents, conectores, _utc(ant_ini), _utc(ini_d), [])["resumo"]
 
     eq = atual["equipamentos"]
-    piores = sorted([e for e in eq if e["fora_s"] or e["quedas"]],
-                    key=lambda e: (-e["fora_s"], -e["quedas"], e["equipamento"]))
-    atencao = []
-    for c in atual["conectores"]:
-        if c["aberta"]:
-            atencao.append({"nivel": "alto", "equipamento": c["conector"], "site": c["site"],
-                            "texto": f"Conector indisponível desde {_quando_br(c['inicio'])}. "
-                                     f"{c['afetados']} equipamento(s) sem visibilidade."})
-    ja_conector = {a["equipamento"] + "|" + a["site"] for a in atencao}
-    for e in piores:
-        if e["equipamento"] + "|" + e["site"] in ja_conector:
+    for e in eq:
+        e["situacao"] = SITUACAO.get(e["status"], "Sem leitura")
+    # Pendencias: o que NAO esta no ar agora. Conector primeiro (e a causa),
+    # depois o que caiu, depois o que esta sem leitura.
+    ordem = {"connector": 0}
+    pend = [e for e in eq if e["status"] in ("down", "blind", "unknown")]
+    pend.sort(key=lambda e: (ordem.get(e["tipo"], 1), {"down": 0, "unknown": 1, "blind": 2}[e["status"]],
+                             e["desde"] or "9", e["equipamento"]))
+    # Atras de conector fora vira uma linha so ("24 equipamentos"), nao 24 linhas iguais.
+    pendencias, cegos = [], {}
+    for e in pend:
+        if e["status"] == "blind":
+            cegos.setdefault(e["site"], []).append(e)
             continue
-        if e["status_atual"] == "down":
-            atencao.append({"nivel": "alto", "equipamento": e["equipamento"], "site": e["site"],
-                            "texto": f"Indisponível na emissão do relatório. Tempo indisponível no período: "
-                                     f"{_dur(e['fora_s'])}."})
-        elif e["disponibilidade"] is not None and e["disponibilidade"] < META_PCT:
-            atencao.append({"nivel": "medio", "equipamento": e["equipamento"], "site": e["site"],
-                            "texto": f"Disponibilidade de {_br_pct(e['disponibilidade'])}, abaixo da meta de "
-                                     f"{_br_pct(META_PCT)}; {e['quedas']} ocorrência(s), {_dur(e['fora_s'])} indisponível."})
-    ja = {a["equipamento"] + "|" + a["site"] for a in atencao}
-    for e in sorted([e for e in eq if e["instabilidades"] >= 3], key=lambda e: (-e["instabilidades"], e["equipamento"]))[:15]:
-        if e["equipamento"] + "|" + e["site"] not in ja:
-            atencao.append({"nivel": "medio", "equipamento": e["equipamento"], "site": e["site"],
-                            "texto": f"{e['instabilidades']} ocorrências de instabilidade no período "
-                                     f"(respostas intermitentes)."})
-    sem_leitura = [e for e in eq if e["disponibilidade"] is None and e["status_atual"] != "blind"]
+        pendencias.append({"equipamento": e["equipamento"], "tipo_item": e["tipo_item"], "site": e["site"],
+                           "situacao": e["situacao"], "desde": e["desde"]})
+    for s_, lista in cegos.items():
+        pendencias.append({"equipamento": f"{len(lista)} equipamento(s) atrás do conector", "tipo_item": "",
+                           "site": s_, "situacao": "Sem leitura (conector fora)", "desde": lista[0]["desde"]})
 
-    quedas = sorted(atual["quedas"], key=lambda q: q["inicio"], reverse=True)
+    sites_vistos = {e["site"] for e in eq}
+    ocorrencias = atual["ocorrencias"]
     return {
         "ok": True,
         "de": ini_d.isoformat(), "ate": fim_d.isoformat(),
         "anterior_de": ant_ini.isoformat(), "anterior_ate": ant_fim.isoformat(),
         "site": str(site or "").strip(), "tipo": tipo, "tipo_rotulo": ROTULOS.get(tipo, ""),
-        "meta_pct": META_PCT, "cobertura_minima_pct": int(COBERTURA_MINIMA * 100),
+        "um_site": len(sites_vistos) <= 1,
         "margem_conector_min": int(MARGEM_CONECTOR.total_seconds() // 60),
         "margem_retorno_min": int(MARGEM_RETORNO.total_seconds() // 60),
         "gerado_em": datetime.now(FUSO).strftime("%Y-%m-%d %H:%M:%S"),
-        "resumo": atual["resumo"], "anterior": anterior, "serie": atual["serie"],
-        "por_site": atual["por_site"], "por_tipo": atual["por_tipo"], "conectores": atual["conectores"],
-        "piores": piores[:20], "atencao": sorted(atencao, key=lambda a: a["nivel"] != "alto")[:40],
-        "sem_leitura": [{"equipamento": e["equipamento"], "site": e["site"], "cobertura": e["cobertura"]}
-                        for e in sem_leitura][:40],
-        "equipamentos": sorted(eq, key=lambda e: (e["site"], e["tipo_rotulo"], e["equipamento"])),
-        "quedas": quedas[:LIMITE_QUEDAS], "quedas_total": len(quedas),
+        "resumo": atual["resumo"], "anterior": anterior, "dias": atual["dias"],
+        "por_site": atual["por_site"], "por_tipo": atual["por_tipo"],
+        "pendencias": pendencias,
+        "ocorrencias": ocorrencias[:LIMITE_QUEDAS], "ocorrencias_total": len(ocorrencias),
+        "equipamentos": sorted(eq, key=lambda e: (e["site"], 0 if e["tipo"] == "connector" else 1, e["tipo_item"],
+                                                  e["equipamento"])),
     }
-
-
-def _quando_br(iso: str) -> str:
-    try:
-        return datetime.fromisoformat(iso).strftime("%d/%m/%Y %H:%M")
-    except ValueError:
-        return iso

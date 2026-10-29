@@ -763,8 +763,12 @@ function mnRelQuery() {
   return q.toString();
 }
 
-function mnRelPct(v) {
-  return v == null ? '--' : `${Number(v).toFixed(2).replace('.', ',')}%`;
+function mnRelQuando(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  const dois = n => String(n).padStart(2, '0');
+  return `${dois(d.getDate())}/${dois(d.getMonth() + 1)} ${dois(d.getHours())}:${dois(d.getMinutes())}`;
 }
 
 function mnRelDur(seg) {
@@ -776,60 +780,80 @@ function mnRelDur(seg) {
   return m ? `${m} min` : `${seg}s`;
 }
 
-function mnRelCor(v, meta) {
-  if (v == null) return '';
-  return v >= meta ? 'ok' : (v >= 95 ? 'warn' : 'bad');
+function mnRelP(v, zeroTraco = true) {
+  if (v == null) return '--';
+  if (zeroTraco && v === 0) return '--';
+  return `${Number(v).toFixed(1).replace('.', ',')}%`;
 }
 
-function mnRelQuando(iso) {
-  if (!iso) return '';
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? iso : d.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+function mnRelFora(v) {
+  return v ? `<b class="mn-rel-bad">${mnRelP(v)}</b>` : mnRelP(v);
 }
 
-function mnRelPctMeta(v, meta) {
-  if (v == null) return '<span class="mn-muted">n/d</span>';
-  return v < meta ? `<b class="mn-rel-bad">${mnRelPct(v)}</b>` : mnRelPct(v);
+function mnRelBarra(noAr, fora, sem) {
+  return `<span class="mn-rel-barra"><i class="ar" style="width:${noAr || 0}%"></i><i class="fora" style="width:${fora || 0}%"></i><i class="sem" style="width:${sem || 0}%"></i></span>`;
+}
+
+// Equipamentos do mesmo site que cairam e voltaram no mesmo minuto: uma linha so.
+function mnRelAgrupar(ocorrencias) {
+  const grupos = new Map();
+  const out = [];
+  ocorrencias.forEach(o => {
+    if (o.tipo !== 'equipamento') { out.push(o); return; }
+    const chave = `${o.site}|${o.inicio.slice(0, 16)}|${o.fim.slice(0, 16)}|${o.aberta}`;
+    if (grupos.has(chave)) { grupos.get(chave).nomes.push(o.equipamento); return; }
+    const g = { ...o, nomes: [o.equipamento] };
+    grupos.set(chave, g);
+    out.push(g);
+  });
+  return out;
 }
 
 function mnRelRender(r) {
   const el = document.getElementById('mnRelResultado');
-  const rs = r.resumo, an = r.anterior, meta = r.meta_pct;
+  const rs = r.resumo, an = r.anterior;
   if (!rs.equipamentos) { el.innerHTML = '<p class="mn-muted">Nao ha equipamentos monitorados com os filtros informados.</p>'; return; }
   const num = v => Number(v || 0).toLocaleString('pt-BR');
-  const pp = v => `${v.toFixed(2).replace('.', ',')} p.p.`;
-  const variacao = (a, b, fmt) => {
-    if (a == null || b == null) return '--';
-    const d = a - b;
-    if (Math.abs(d) < 0.005) return 'sem variacao';
-    return `${d > 0 ? '+' : '−'}${fmt(Math.abs(d))}`;
-  };
-  const linha = (rot, a, b, fa, fv) => `<tr><td>${esc(rot)}</td><td class="n">${fa(a)}</td><td class="n">${fa(b)}</td><td class="n">${esc(variacao(a, b, fv))}</td></tr>`;
-  const ant = `${r.anterior_de.split('-').reverse().join('/')} a ${r.anterior_ate.split('-').reverse().join('/')}`;
+  const br = iso => iso.split('-').reverse().join('/');
+  const multi = !r.um_site;
   const tab = (cab, numericas, linhas) => `<div class="table-wrap"><table class="mn-rel-tab"><thead><tr>${cab.map((c, i) => `<th${numericas.includes(i) ? ' class="n"' : ''}>${esc(c)}</th>`).join('')}</tr></thead><tbody>${linhas}</tbody></table></div>`;
   const grupo = (titulo, cab, lista) => lista.length < 2 ? '' : `<h3>${esc(titulo)}</h3>` + tab(
-    [cab, 'Equip.', 'Disponib.', 'Cobertura', 'Ocorr.', 'Indisponivel', 'Sem visib.'], [1, 2, 3, 4, 5, 6],
-    lista.map(g => `<tr><td><strong>${esc(g.nome)}</strong></td><td class="n">${g.equipamentos}</td><td class="n">${mnRelPctMeta(g.disponibilidade, meta)}</td><td class="n">${mnRelPct(g.cobertura)}</td><td class="n">${g.quedas || '--'}</td><td class="n">${mnRelDur(g.fora_s)}</td><td class="n">${mnRelDur(g.sem_visibilidade_s)}</td></tr>`).join(''));
+    [cab, 'Equip.', 'No ar', 'Fora', 'Sem leitura', 'Quedas', 'Fora agora'], [1, 2, 3, 4, 5, 6],
+    lista.map(g => `<tr><td><strong>${esc(g.nome)}</strong></td><td class="n">${g.equipamentos}</td><td class="n">${mnRelP(g.no_ar_pct, false)}</td><td class="n">${mnRelFora(g.fora_pct)}</td><td class="n">${mnRelP(g.sem_pct)}</td><td class="n">${g.quedas || '--'}</td><td class="n">${g.fora_agora || '--'}</td></tr>`).join(''));
+
+  const pend = r.pendencias.length
+    ? tab(['Equipamento', ...(multi ? ['Site'] : []), 'Situacao', 'Desde'], [],
+      r.pendencias.map(p => `<tr><td><strong>${esc(p.equipamento)}</strong>${p.tipo_item ? ` <span class="mn-muted">· ${esc(p.tipo_item)}</span>` : ''}</td>${multi ? `<td>${esc(p.site)}</td>` : ''}<td>${p.situacao === 'Fora' ? '<b class="mn-rel-bad">Fora</b>' : esc(p.situacao)}</td><td class="d">${esc(mnRelQuando(p.desde))}</td></tr>`).join(''))
+    : '<p>Nenhuma pendencia: todos os equipamentos estao no ar.</p>';
+
+  const ocs = mnRelAgrupar(r.ocorrencias).slice(0, 20);
+  const oc = ocs.length
+    ? tab(['Inicio', 'Fim', 'Duracao', 'Equipamento', ...(multi ? ['Site'] : []), 'O que aconteceu'], [2],
+      ocs.map(o => {
+        const nome = o.tipo === 'conector' || o.nomes.length === 1
+          ? `<strong>${esc(o.equipamento)}</strong>`
+          : `<strong>${o.nomes.length} equipamentos</strong><br><span class="mn-muted">${esc(o.nomes.slice(0, 8).join(', '))}${o.nomes.length > 8 ? ` e mais ${o.nomes.length - 8}` : ''}</span>`;
+        const oque = o.tipo === 'conector' ? `<b>Conector fora</b> · ${o.afetados} sem leitura` : '<b>Fora</b>';
+        return `<tr><td class="d">${esc(mnRelQuando(o.inicio))}</td><td class="d">${o.aberta ? '<b class="mn-rel-bad">continua fora</b>' : esc(mnRelQuando(o.fim))}</td><td class="n">${mnRelDur(o.duracao_s)}</td><td>${nome}</td>${multi ? `<td>${esc(o.site)}</td>` : ''}<td>${oque}</td></tr>`;
+      }).join(''))
+    : '<p>Nenhuma queda de conector ou de equipamento no periodo.</p>';
+
+  const dias = r.dias.filter(d => d.no_ar_pct != null);
   el.innerHTML = `
-    <h3>Indicadores do periodo <span class="mn-muted">comparados a ${esc(ant)}</span></h3>
-    ${tab(['Indicador', 'Periodo', 'Periodo anterior', 'Variacao'], [1, 2, 3], [
-      linha('Disponibilidade (media ponderada pelo tempo)', rs.disponibilidade, an.disponibilidade, mnRelPct, pp),
-      linha('Cobertura de monitoramento', rs.cobertura, an.cobertura, mnRelPct, pp),
-      linha('Ocorrencias de indisponibilidade', rs.quedas, an.quedas, num, num),
-      linha('Tempo indisponivel acumulado', rs.fora_s, an.fora_s, mnRelDur, mnRelDur),
-      linha('Indisponibilidades de conector', rs.quedas_conector, an.quedas_conector, num, num),
-      linha('Tempo sem visibilidade (conector indisponivel)', rs.sem_visibilidade_s, an.sem_visibilidade_s, mnRelDur, mnRelDur),
-      linha(`Equipamentos abaixo da meta (${mnRelPct(meta)})`, rs.abaixo_meta, an.abaixo_meta, num, num),
-    ].join(''))}
-    ${grupo('Disponibilidade por site', 'Site', r.por_site)}
-    ${grupo('Disponibilidade por tipo', 'Tipo', r.por_tipo)}
-    ${r.conectores.length ? `<h3>Indisponibilidade de conectores</h3>` + tab(['Conector', 'Site', 'Inicio', 'Fim', 'Duracao', 'Equip. afetados'], [4, 5],
-      r.conectores.slice(0, 15).map(c => `<tr><td><strong>${esc(c.conector)}</strong></td><td>${esc(c.site)}</td><td>${esc(mnRelQuando(c.inicio))}</td><td>${c.aberta ? '<b class="mn-rel-bad">em aberto</b>' : esc(mnRelQuando(c.fim))}</td><td class="n">${mnRelDur(c.duracao_s)}</td><td class="n">${c.afetados}</td></tr>`).join('')) : ''}
-    ${r.atencao.length ? `<h3>Pontos de atencao</h3>` + tab(['Severidade', 'Equipamento', 'Site', 'Descricao'], [],
-      r.atencao.slice(0, 15).map(a => `<tr><td>${a.nivel === 'alto' ? '<b class="mn-rel-bad">Alta</b>' : 'Media'}</td><td><strong>${esc(a.equipamento)}</strong></td><td>${esc(a.site)}</td><td>${esc(a.texto)}</td></tr>`).join('')) : ''}
-    ${r.quedas.length ? `<h3>Ultimas ocorrencias de indisponibilidade <span class="mn-muted">${num(r.quedas_total)} no periodo; registro completo no PDF</span></h3>` + tab(['Equipamento', 'Site', 'Inicio', 'Fim', 'Duracao'], [4],
-      r.quedas.slice(0, 15).map(q => `<tr><td><strong>${esc(q.equipamento)}</strong></td><td>${esc(q.site)}</td><td>${esc(mnRelQuando(q.inicio))}${q.comecou_antes ? ' *' : ''}</td><td>${q.aberta ? '<b class="mn-rel-bad">em aberto</b>' : esc(mnRelQuando(q.fim))}</td><td class="n">${mnRelDur(q.duracao_s)}</td></tr>`).join('')) : ''}
-    <p class="mn-rel-nota">Disponibilidade = 1 − tempo indisponivel ÷ tempo com leitura. Enquanto o conector do site esta indisponivel, os equipamentos dependentes ficam sem visibilidade: esse tempo nao conta como disponivel nem como indisponivel. n/d = cobertura abaixo de ${r.cobertura_minima_pct}%.</p>`;
+    <div class="mn-rel-tres">
+      <div><span class="mn-cap">No ar</span><strong>${mnRelP(rs.no_ar_pct, false)}</strong><small>do tempo</small></div>
+      <div><span class="mn-cap">Fora</span><strong class="${rs.fora_pct ? 'mn-rel-bad' : ''}">${mnRelP(rs.fora_pct, false)}</strong><small>do tempo</small></div>
+      <div><span class="mn-cap">Sem leitura</span><strong>${mnRelP(rs.sem_pct, false)}</strong><small>do tempo</small></div>
+    </div>
+    ${mnRelBarra(rs.no_ar_pct, rs.fora_pct, rs.sem_pct)}
+    <p class="mn-rel-legenda"><i class="ar"></i> no ar <i class="fora"></i> fora <i class="sem"></i> sem leitura${an.no_ar_pct != null ? ` &nbsp;·&nbsp; periodo anterior (${esc(br(r.anterior_de))} a ${esc(br(r.anterior_ate))}): ${mnRelP(an.no_ar_pct, false)} no ar, ${mnRelP(an.fora_pct, false)} fora, ${mnRelP(an.sem_pct, false)} sem leitura` : ''}</p>
+    <h3>1 Pendencias agora</h3>${pend}
+    <h3>2 Ocorrencias no periodo <span class="mn-muted">${num(r.ocorrencias_total)}${r.ocorrencias_total > ocs.length ? '; lista completa no PDF' : ''}</span></h3>${oc}
+    ${dias.length ? `<h3>3 Dia a dia</h3>` + tab(['Dia', 'No ar', 'Fora', 'Sem leitura', 'Quedas', ''], [1, 2, 3, 4],
+      dias.map(d => `<tr><td>${esc(d.rotulo)}</td><td class="n">${mnRelP(d.no_ar_pct, false)}</td><td class="n">${mnRelFora(d.fora_pct)}</td><td class="n">${mnRelP(d.sem_pct)}</td><td class="n">${d.quedas || '--'}</td><td class="mn-rel-col-barra">${mnRelBarra(d.no_ar_pct, d.fora_pct, d.sem_pct)}</td></tr>`).join('')) : ''}
+    ${grupo('Por site', 'Site', r.por_site)}
+    ${grupo('Por tipo de equipamento', 'Tipo', r.por_tipo)}
+    <p class="mn-rel-nota"><b>No ar</b>: respondeu ao monitoramento. <b>Fora</b>: nao respondeu, confirmado por leituras seguidas. <b>Sem leitura</b>: nao foi possivel verificar, quase sempre porque o conector do site estava fora; esse tempo nao conta como fora. As tres partes somam 100%. A lista de todos os equipamentos esta no PDF.</p>`;
 }
 
 async function mnRelGerar() {

@@ -1,7 +1,7 @@
 """Linha do tempo do relatorio de disponibilidade (monitoring_relatorio)."""
 from datetime import datetime, timedelta, timezone
 
-from app.services.monitoring_relatorio import _linha_do_tempo, _pct, _sem_visibilidade
+from app.services.monitoring_relatorio import _linha_do_tempo, _sem_visibilidade, _tres
 
 INI = datetime(2026, 10, 1, 3, tzinfo=timezone.utc)
 FIM = INI + timedelta(days=1)
@@ -39,9 +39,10 @@ def test_sem_evento_nenhum_vale_o_estado_atual_desde_a_ultima_mudanca():
     assert _soma(_linha_do_tempo(ent, ev, INI, FIM)) == {"unknown": 4, "up": 20}
 
 
-def test_disponibilidade_ignora_tempo_sem_medida():
-    assert _pct(0, 0) is None
-    assert _pct(3600, 36000) == 90.0
+def test_tres_percentuais_somam_100():
+    assert _tres({"no_ar": 0, "fora": 0, "sem": 0})["no_ar_pct"] is None
+    r = _tres({"no_ar": 2, "fora": 1, "sem": 0})
+    assert r == {"no_ar_pct": 66.7, "fora_pct": 33.3, "sem_pct": 0.0}
 
 
 def test_conector_fora_vira_sem_visibilidade_e_nao_queda():
