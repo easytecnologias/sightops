@@ -271,7 +271,15 @@ function mountLiveStream(videoEl, opts) {
           // mesma, mas nem sempre). Trata igual credential_required: limpa o
           // que tava guardado neste navegador e reabre o formulario, em vez
           // de deixar a mensagem crua do ffmpeg na tela sem dizer o que fazer.
-          if (/401|unauthorized|authorization failed/i.test(String(msg.value || ''))) {
+          // "wrong user/pass" e como o go2rtc 1.9 diz 401 do RTSP (Hikvision
+          // de Telha, 29/10/2026): sem casar aqui a tela mostrava o erro cru e
+          // reconectava sozinha com a MESMA senha errada -- cada volta e uma
+          // tentativa a mais, e a Hikvision bloqueia o login depois de algumas.
+          if (/401|unauthorized|authorization failed|wrong user\/pass/i.test(String(msg.value || ''))) {
+            document.removeEventListener('visibilitychange', onVisibilityChange);
+            stopped = true;
+            generation++;
+            teardown();
             onStatus('credential_required');
           } else {
             onStatus('Erro go2rtc: ' + msg.value);

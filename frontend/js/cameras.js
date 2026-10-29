@@ -3603,9 +3603,13 @@ function openCamPanelLive() {
   startCamPanelLive();
 }
 
-function _openCamPanelLiveAuthForm() {
+function _openCamPanelLiveAuthForm(aviso = '') {
   const auth = document.getElementById('cpLiveAuth');
   if (!auth) return;
+  // Sem aviso o operador digitava a senha, o formulario voltava igual e
+  // parecia que "nao fez nada" -- a camera tinha recusado a senha.
+  const texto = auth.querySelector('div > span');
+  if (texto) texto.textContent = aviso || 'Informe o acesso da camera.';
   auth.style.display = '';
   lucide.createIcons();
   setTimeout(() => {
@@ -3754,7 +3758,9 @@ async function startCamPanelLive() {
         status.classList.add('hidden');
         video.classList.add('hidden');
         _camLiveCredSave('', '');
-        _openCamPanelLiveAuthForm();
+        _openCamPanelLiveAuthForm(pass
+          ? 'A câmera recusou essa senha. Após várias tentativas erradas ela bloqueia o login por uns minutos.'
+          : 'Informe a senha atual da câmera.');
         return;
       }
       if (texto) {
