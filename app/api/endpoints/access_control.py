@@ -565,12 +565,19 @@ def api_access_control_people(
     site: str = Query(""),
 ) -> Dict[str, Any]:
     people = list_people(search=search, active=active, person_type=person_type, site=site)
+    liberados = _sites_liberados()
+    if liberados is not None:
+        people = [p for p in people if _no_site(p.get("site"), liberados)]
     return {"ok": True, "count": len(people), "people": _attach_people_provision_summary(people)}
 
 
 @router.get("/people/sites")
 def api_access_control_people_sites() -> Dict[str, Any]:
-    return {"ok": True, "sites": list_people_sites()}
+    liberados = _sites_liberados()
+    sites = list_people_sites()
+    if liberados is not None:
+        sites = [x for x in sites if _no_site(x.get("site") if isinstance(x, dict) else x, liberados)]
+    return {"ok": True, "sites": sites}
 
 
 @router.post("/people")
@@ -587,6 +594,11 @@ def api_access_control_save_person(req: AccessPersonRequest) -> Dict[str, Any]:
         # o aviso ao responsavel some sem erro nenhum.
         if not str(payload.get("site") or "").strip():
             raise HTTPException(status_code=400, detail="Escolha a escola/site da pessoa.")
+        _exigir_site(payload.get("site"))
+        if payload.get("id") and _sites_liberados() is not None:
+            atual = next((p for p in list_people() if str(p.get("id") or "") == str(payload["id"])), None)
+            if atual:
+                _exigir_site(atual.get("site"))
         person = save_person(payload)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
@@ -894,7 +906,8 @@ def api_access_control_import_device_people(device_id: str) -> Dict[str, Any]:
 
 @router.get("/groups")
 def api_access_control_groups() -> Dict[str, Any]:
-    groups = list_groups()
+    liberados = _sites_liberados()
+    groups = [g for g in list_groups() if _no_site(g.get("site"), liberados)]
     for group in groups:
         group["member_ids"] = list_group_members(group["id"])
     return {"ok": True, "groups": groups}
@@ -1091,6 +1104,43 @@ def _site_do_painel(site: str) -> str:
     return site
 
 
+def _sites_liberados() -> Optional[set]:
+    """Sites do usuario restrito em maiusculas; None = sem filtro."""
+    sites = permissions.sites_da_sessao()
+    return None if sites is None else {s.strip().upper() for s in sites}
+
+
+def _no_site(valor: Any, liberados: Optional[set]) -> bool:
+    """Sem filtro, tudo passa. Com filtro, item sem site fica de fora."""
+    return liberados is None or str(valor or "").strip().upper() in liberados
+
+
+def _exigir_site(site: Any) -> None:
+    if not _no_site(site, _sites_liberados()):
+        raise HTTPException(status_code=403, detail="local fora dos seus sites")
+
+
+def _perfil_restrito(perfil: Any, liberados: Optional[set]) -> Any:
+    """Usuario restrito nao ve tipo/contagem dos locais de outro site."""
+    if liberados is None or not isinstance(perfil, dict):
+        return perfil
+    return {**perfil, "locais": [x for x in perfil.get("locais") or []
+                                 if isinstance(x, dict) and _no_site(x.get("site"), liberados)]}
+
+
+def _membros_da_pessoa(person_id: str) -> List[Dict[str, Any]]:
+    from app.services import db_store
+
+    with db_store._conn() as c:
+        return [dict(r) for r in c.execute(
+            "SELECT group_id FROM access_group_members WHERE tenant_slug=? AND person_id=?",
+            (db_store._current_tenant_slug(), str(person_id or ""))).fetchall()]
+
+
+def _grupo_por_id(group_id: str) -> Optional[Dict[str, Any]]:
+    return next((g for g in list_groups() if str(g.get("id") or "") == str(group_id or "")), None)
+
+
 @router.get("/painel/visao-geral")
 def api_access_control_painel_visao_geral(site: str = Query("")) -> Dict[str, Any]:
     from app.services.access_control_painel import visao_geral
@@ -1285,7 +1335,19 @@ def api_access_control_painel_dispositivos() -> Dict[str, Any]:
 @router.get("/painel/pessoas")
 def api_access_control_painel_pessoas(site: str = Query("")) -> Dict[str, Any]:
     from app.services.access_control_pessoas import pessoas
-    return pessoas(site=site)
+    dados = pessoas(site=_site_do_painel(site))
+    liberados = _sites_liberados()
+    if liberados is None or not isinstance(dados, dict):
+        return dados
+    # Usuario restrito a uma escola nao ve pessoas, grupos (portas) nem locais
+    # das outras: antes o cadastro oferecia os grupos de todas as escolas.
+    return {
+        **dados,
+        "pessoas": [p for p in dados.get("pessoas") or [] if _no_site(p.get("site"), liberados)],
+        "grupos": [g for g in dados.get("grupos") or [] if _no_site(g.get("site"), liberados)],
+        "sites": [s for s in dados.get("sites") or [] if _no_site(s, liberados)],
+        "perfil": _perfil_restrito(dados.get("perfil"), liberados),
+    }
 
 
 class PessoaGruposRequest(BaseModel):
@@ -1296,6 +1358,21 @@ class PessoaGruposRequest(BaseModel):
 def api_access_control_painel_pessoa_grupos(person_id: str, req: PessoaGruposRequest) -> Dict[str, Any]:
     """Grupos de UMA pessoa (operador, pela regra /api/access-control/)."""
     from app.services.access_control_pessoas import definir_grupos
+    liberados = _sites_liberados()
+    if liberados is not None:
+        from app.services.access_control_store import list_people
+
+        pessoa = next((p for p in list_people() if str(p.get("id") or "") == str(person_id or "")), None)
+        if pessoa and not _no_site(pessoa.get("site"), liberados):
+            raise HTTPException(status_code=403, detail="pessoa de local fora dos seus sites")
+        site_do_grupo = {str(g.get("id") or ""): g.get("site") for g in list_groups()}
+        if any(not _no_site(site_do_grupo.get(str(g)), liberados) for g in req.grupos if g in site_do_grupo):
+            raise HTTPException(status_code=403, detail="grupo de local fora dos seus sites")
+        # Grupos de outros sites que a pessoa ja tinha (o usuario nem os ve na
+        # tela) continuam: sem isso, salvar tirava a pessoa deles.
+        atuais = [str(r["group_id"]) for r in _membros_da_pessoa(person_id)]
+        req.grupos = list(dict.fromkeys(list(req.grupos) + [g for g in atuais
+                                                              if not _no_site(site_do_grupo.get(g), liberados)]))
     if not req.grupos and not permissions.pode_excluir():
         # Sem grupo nenhum a pessoa sai de todos os leitores: e excluir o
         # acesso dela (a tela de excluir pessoa ja e so de administrador).
@@ -1340,24 +1417,53 @@ def _acesso_erro(fn, *args):
 @router.get("/painel/acesso")
 def api_access_control_painel_acesso(site: str = Query("")) -> Dict[str, Any]:
     from app.services.access_control_horarios import acesso
-    return acesso(site=site)
+    dados = acesso(site=_site_do_painel(site))
+    liberados = _sites_liberados()
+    if liberados is None or not isinstance(dados, dict):
+        return dados
+    feriados = dados.get("feriados") if isinstance(dados.get("feriados"), dict) else {}
+    return {
+        **dados,
+        "grupos": [g for g in dados.get("grupos") or [] if _no_site(g.get("site"), liberados)],
+        "leitores": [x for x in dados.get("leitores") or [] if _no_site(x.get("site"), liberados)],
+        # horario sem local e de uso geral: continua visivel
+        "horarios": [h for h in dados.get("horarios") or []
+                     if not str(h.get("site") or "").strip() or _no_site(h.get("site"), liberados)],
+        "feriados": {k: v for k, v in feriados.items() if _no_site(k, liberados)},
+        "perfil": _perfil_restrito(dados.get("perfil"), liberados),
+    }
 
 
 @router.put("/painel/acesso/grupos")
 def api_access_control_painel_acesso_grupo(payload: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
     from app.services.access_control_horarios import salvar_grupo
+    if _sites_liberados() is not None:
+        _exigir_site(payload.get("site"))
+        atual = _grupo_por_id(str(payload.get("id") or "")) if payload.get("id") else None
+        if atual:
+            _exigir_site(atual.get("site"))
+        user = _usuario_restrito()
+        for did in payload.get("portas") or []:
+            d = next((x for x in list_devices() if str(x.get("id") or "") == str(did)), None)
+            if d and user and not _controladora_liberada(user, d):
+                raise HTTPException(status_code=403, detail="porta de local fora dos seus sites")
     return _acesso_erro(salvar_grupo, payload)
 
 
 @router.delete("/painel/acesso/grupos/{group_id}")
 def api_access_control_painel_acesso_grupo_excluir(group_id: str) -> Dict[str, Any]:
     from app.services.access_control_horarios import excluir_grupo
+    atual = _grupo_por_id(group_id)
+    if atual:
+        _exigir_site(atual.get("site"))
     return _acesso_erro(excluir_grupo, group_id)
 
 
 @router.put("/painel/acesso/horarios")
 def api_access_control_painel_acesso_horario(payload: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
     from app.services.access_control_horarios import salvar_horario
+    if str(payload.get("site") or "").strip():
+        _exigir_site(payload.get("site"))
     return {"ok": True, "horario": _acesso_erro(salvar_horario, payload)}
 
 
@@ -1370,12 +1476,16 @@ def api_access_control_painel_acesso_horario_excluir(horario_id: str) -> Dict[st
 @router.put("/painel/acesso/feriados")
 def api_access_control_painel_acesso_feriados(payload: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
     from app.services.access_control_horarios import salvar_feriados
+    _exigir_site(payload.get("site"))
     return {"ok": True, **_acesso_erro(salvar_feriados, payload.get("site"), payload.get("feriados") or [], payload.get("regra"))}
 
 
 @router.get("/painel/acesso/simulacao")
 def api_access_control_painel_acesso_simulacao(site: str = Query(""), dias: int = Query(14)) -> Dict[str, Any]:
     from app.services.access_control_horarios import simular
+    site = _site_do_painel(site)
+    if not site and _sites_liberados() is not None:
+        raise HTTPException(status_code=400, detail="Escolha o local.")
     return simular(site=site, dias=dias)
 
 
