@@ -81,7 +81,7 @@ def compactar(linha):
 
 
 def _sql_valores(texto):
-    """Valores de um VALUES (...) cortado: ['VIT', 'P', ...]. Para no que nao fechou."""
+    """Valores de um VALUES (...) cortado: ['VIT', 'P', ...]; o ultimo pode vir pela metade."""
     out, atual, aspas, i = [], [], False, 0
     while i < len(texto):
         ch = texto[i]
@@ -104,8 +104,9 @@ def _sql_valores(texto):
         else:
             atual.append(ch)
         i += 1
-    if not aspas:
-        out.append("".join(atual).strip())
+    # o ultimo valor pode vir cortado (o coletor corta o INSERT em TAM_VALUES):
+    # entra assim mesmo -- o 'dados' traz codigo e descricao logo no comeco
+    out.append("".join(atual).strip())
     return out
 
 

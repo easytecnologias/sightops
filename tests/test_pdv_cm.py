@@ -133,6 +133,7 @@ def caixa(tmp_path):
     srv = _Servidor()
     col = C.Coletor({"pasta": str(pasta), "estacao": 1}, estado_path=str(tmp_path / "estado.json"),
                     enviar=srv, relogio=lambda: agora["t"])
+    col.gerador = False  # caixa sem o gerador do Espiao (ele tem teste proprio)
     return pasta, agora, srv, col
 
 
@@ -207,3 +208,34 @@ def test_cm_ate_o_banco(tmp_path, monkeypatch):
     finally:
         reset_current_tenant_slug(tok)
         S._estado.clear()
+
+
+def test_coletor_espera_o_gerador_criar_o_espiao(caixa):
+    pasta, agora, srv, col = caixa
+    col.gerador = True  # instalados juntos: o coletor liga antes do Espiao gerado existir
+    (pasta / "CM271026.001").write_bytes(_bytes_cm())
+    col.ciclo()
+    assert srv.arquivo("CM") == []
+    (pasta / "Espiao271026.001").write_bytes(b"00:00:00---------- SightOps ----------\r\n10:00:00:GAV|\r\n")
+    col.ciclo()
+    assert srv.arquivo("Espiao")[-1] == "10:00:00:GAV|" and srv.arquivo("CM") == []
+    col2 = C.Coletor({"pasta": str(pasta), "estacao": 2}, enviar=srv, relogio=lambda: agora["t"],
+                     estado_path=str(pasta.parent / "e2.json"))
+    col2.gerador, col2.inicio = True, col2.inicio - C.ESPERA_GERADOR - 1  # gerador nao criou: cai no CM
+    (pasta / "CM271026.002").write_bytes(_bytes_cm())
+    col2.ciclo()
+    assert srv.arquivo("CM") != []
+
+
+def test_insert_cortado_no_meio_ainda_traz_a_descricao():
+    """Caso real do PDV-03: o corte de TAM_VALUES caia dentro do 'dados' e o nome sumia."""
+    dados = "|7896013104919|Vinagre De Alcool Minhoto Lv750ml Pg500m|389|1000|389|0|030|0|N" + "|0" * 200
+    linha = ("15:22:47.399:TVenda.GravaItem.cmdSql(1): INSERT INTO venda (tipo, status, st_canc, caixa, cupom, ope, "
+             "data, dados) VALUES ('VIT', 'P', 'N', '003', '162902', '0181', '291026152247:291026152247', '%s', 1);|" % dados)
+    curta = pdv_cm.compactar(linha)
+    assert len(curta) < 400 and curta.count("'") % 2 == 1  # cortou dentro do texto
+    cv = pdv_cm.ConversorCM()
+    cv.linha(curta)
+    out = cv.linha("15:22:47.406:COMANDO ==> (REGISTRA ITEM)  PARAMETRO()  /  TOTAIS COO: 162902  (SB: 0 / PG: 0 / "
+                   "DC: 0 / AC: 0)  /  REGISTRA ITEM: 7896013104919  (VL: 3.89 / QT: 1 / TT: 3.89)")
+    assert any("Descricao: Vinagre De Alcool Minhoto Lv750ml Pg500m" in l for l in out)

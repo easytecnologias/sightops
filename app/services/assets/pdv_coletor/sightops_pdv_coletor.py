@@ -30,7 +30,7 @@ import time
 import urllib.error
 import urllib.request
 
-VERSAO = "1.1.0"
+VERSAO = "1.1.1"
 CONFIG = os.environ.get("SIGHTOPS_PDV_CONFIG", "/etc/sightops-pdv/coletor.json")
 ESTADO = os.environ.get("SIGHTOPS_PDV_ESTADO", "/var/lib/sightops-pdv/estado.json")
 INTERVALO = 2.0          # s entre leituras
@@ -41,6 +41,7 @@ FECHAR_APOS = 600        # s depois da meia-noite para dar o arquivo de ontem po
 ESPERA_MAX = 60.0        # s de espera maxima entre tentativas sem rede
 ESPERA_ESPIAO = 300      # s depois da meia-noite antes de decidir que o dia e de CM
                          # (o gerador do Espiao, sightops_pdv_espiao.py, cria o dele aos 180 s)
+ESPERA_GERADOR = 120     # s depois que o coletor liga, esperando o gerador criar o Espiao
 
 # Linhas do CM que o servidor usa -- IGUAL a app/services/pdv_cm.py (um teste confere).
 MARCADORES_CM = (
@@ -148,6 +149,12 @@ class Coletor(object):
         self.relogio = relogio or dt.datetime.now
         self.ultimo_envio = 0.0
         self.espera = INTERVALO
+        # Gerador do Espiao instalado ao lado (sightops_pdv_espiao.py): sem Espiao do
+        # dia, espera ele criar antes de cair para o CM (na instalacao os dois ligam
+        # juntos e o coletor escolhia o CM um segundo antes do Espiao aparecer).
+        self.gerador = cfg.get("gerar_espiao") is not False and os.path.exists(
+            os.path.join(os.path.dirname(os.path.abspath(__file__)), "sightops_pdv_espiao.py"))
+        self.inicio = time.time()
 
     # ------------------------------------------------------------ rede
     def _enviar_http(self, payload):
@@ -193,6 +200,8 @@ class Coletor(object):
             return "CM"
         if os.path.exists(os.path.join(self.pasta, esp)):
             return "Espiao"
+        if self.gerador and time.time() - self.inicio < ESPERA_GERADOR:
+            return ""  # o gerador ainda vai criar o Espiao do dia
         if not cedo and os.path.exists(os.path.join(self.pasta, cm)):
             return "CM"  # na virada do dia o Espiao nasce uns segundos depois do CM
         return ""
