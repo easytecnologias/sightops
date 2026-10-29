@@ -20,7 +20,7 @@ from app.services import db_store
 from app.services import pdv_leitor as L
 from app.services.pdv_processador import ProcessadorDia
 
-ARQUIVOS = ("Espiao", "Teclas")
+ARQUIVOS = ("Espiao", "Teclas", "CM")  # CM: caixa sem Espiao (pdv_cm)
 MAX_LINHAS_LOTE = 5000
 MAX_TAM_LINHA = 2000
 _DIA_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
@@ -205,10 +205,10 @@ def _processador(c: Any, tenant: str, caixa_id: str, dia: str) -> ProcessadorDia
     linhas = {a: [(int(r["seq"]), r["linha"]) for r in _rows(
         c, "SELECT seq, linha FROM pdv_linhas WHERE tenant_slug=? AND caixa_id=? AND arquivo=? AND dia=? ORDER BY seq",
         (tenant, caixa_id, a, dia))] for a in ARQUIVOS}
-    if linhas["Espiao"] or linhas["Teclas"]:
+    if linhas["Espiao"] or linhas["Teclas"] or linhas["CM"]:
         # Regrava o que sair (o banco ignora o que ja tinha): o que estava
         # esperando tecla quando a API caiu nao se perde. O resto volta a esperar.
-        _gravar_saida(c, tenant, caixa_id, dia, pr.receber(linhas["Espiao"], linhas["Teclas"]))
+        _gravar_saida(c, tenant, caixa_id, dia, pr.receber(linhas["Espiao"], linhas["Teclas"], linhas["CM"]))
     _estado[chave] = pr
     while len(_estado) > _MAX_ESTADOS:
         _estado.pop(next(iter(_estado)))
@@ -259,7 +259,7 @@ def receber_lote(caixa: Dict[str, Any], payload: Dict[str, Any], agora: Optional
     for l in lotes:
         arq = str(l.get("arquivo") or "")
         if arq not in ARQUIVOS:
-            raise ValueError("arquivo deve ser Espiao ou Teclas")
+            raise ValueError("arquivo deve ser Espiao, Teclas ou CM")
         dia = _dia(l.get("dia"))
         alvo = por_dia.setdefault(dia, {a: [] for a in ARQUIVOS})[arq]
         for item in l.get("linhas") or []:
@@ -283,7 +283,7 @@ def receber_lote(caixa: Dict[str, Any], payload: Dict[str, Any], agora: Optional
                 if arqs[arq]:
                     aceito["%s/%s" % (arq, dia)] = arqs[arq][-1][0]
             pr = _processador(c, tenant, caixa_id, dia)
-            saida = pr.receber(arqs["Espiao"], arqs["Teclas"], agora=agora)
+            saida = pr.receber(arqs["Espiao"], arqs["Teclas"], arqs["CM"], agora=agora)
             _gravar_saida(c, tenant, caixa_id, dia, saida)
             if saida["eventos"]:
                 ultimo_ts = max(ultimo_ts, saida["eventos"][-1]["ts"])
@@ -487,7 +487,7 @@ def reprocessar_dia(caixa_id: str, dia: str) -> Dict[str, Any]:
         linhas = {a: [(int(r["seq"]), r["linha"]) for r in _rows(
             c, "SELECT seq, linha FROM pdv_linhas WHERE tenant_slug=? AND caixa_id=? AND arquivo=? AND dia=? ORDER BY seq",
             (tenant, caixa_id, a, dia))] for a in ARQUIVOS}
-        saida = pr.receber(linhas["Espiao"], linhas["Teclas"], final=True)
+        saida = pr.receber(linhas["Espiao"], linhas["Teclas"], linhas["CM"], final=True)
         _gravar_saida(c, tenant, caixa_id, dia, saida)
         _estado[(tenant, caixa_id, dia)] = pr
     return {"ok": True, "eventos": len(saida["eventos"]), "itens": len(saida["itens"]), "cupons": len(saida["cupons"])}

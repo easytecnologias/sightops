@@ -164,7 +164,7 @@ def test_busca_por_produto_e_situacao(banco):
 def test_lote_invalido(banco):
     c1 = _caixa()
     caixa = S.autenticar(c1["id"], c1["token"])
-    for ruim in ({"lotes": [{"arquivo": "CM", "dia": DIA, "linhas": []}]},
+    for ruim in ({"lotes": [{"arquivo": "RC", "dia": DIA, "linhas": []}]},
                  {"lotes": [{"arquivo": "Espiao", "dia": "27/10/2026", "linhas": []}]},
                  {"lotes": [{"arquivo": "Espiao", "dia": DIA, "linhas": [[0, "x"]]}]},
                  {"lotes": "x"}):

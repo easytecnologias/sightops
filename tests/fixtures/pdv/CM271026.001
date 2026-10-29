@@ -1,0 +1,81 @@
+08:00:00.001:---------- 1.93.54 / Linux ----------|
+08:00:10.100:Entrada Operador:Cod:9001 Nome:Operador 01|
+08:00:10.120:Entrada Tab Operador :Operador.................: 9001  1  Operador 01|
+08:00:10.130:COMANDO ==> (GAVETA)  PARAMETRO(NAO MOSTRAR MSG RETORNO)
+08:00:12.000:COMANDO ==> (OPERADOR)  PARAMETRO(Operador 01)
+08:01:05.000:ABRE CUPOM FISCAL:PROCESSA ABERTURA CUPOM|
+08:01:05.100:COMANDO ==> (CUPOM FISCAL)  PARAMETRO()
+08:01:05.200:ABRE CUPOM FISCAL: COO:1001|
+08:01:05.300:FPrinc.ProcessaTeclaRecebida:cdp|
+08:01:05.300:ENTRADA DADOS:7891000460498|
+08:01:05.300:REGISTRO ITEM:1 X 7891000460498|
+08:01:05.300:VerificaGradeTrib(Query.SQL.Text):SELECT * FROM gradetrb WHERE codgrade = '19053100'|
+08:01:05.300:TVenda.GravaItem.cmdSql(1): INSERT INTO venda (tipo, status, st_canc, caixa, cupom, ope, data, dados, valor_un, valor, preconormal, codbarra, codbarrapdv, descricao, unidade, quant) VALUES ('VIT', 'P', 'N', '001', '1001', '9001', '271026080105:271026080105', '|7891000460498|CAFE TORRADO 500G|1890|1000|1890|0|004|0|N|0012|000000000000001|||0||||0|4|F||||||Marca|10000|N||||||0|', 1890, 1890, 1890, '7891000460498', '', 'CAFE TORRADO 500G', 'Un', 1.0);|
+08:01:05.300:COMANDO ==> (REGISTRA ITEM)  PARAMETRO()  /  TOTAIS COO: 1001  (SB: 0 / PG: 0 / DC: 0 / AC: 0)  /  REGISTRA ITEM: 7891000460498  (VL: 18.9 / QT: 1 / TT: 18.9)
+08:01:05.300:TVenda.SomaItem (Final):FCupom.SubTotal: 0|
+08:01:13.000:FPrinc.ProcessaTeclaRecebida:cdp|
+08:01:13.000:ENTRADA DADOS:2117230009333|
+08:01:13.000:REGISTRO ITEM:1 X 0000000011723|
+08:01:13.000:VerificaGradeTrib(Query.SQL.Text):SELECT * FROM gradetrb WHERE codgrade = '19053100'|
+08:01:13.000:TVenda.GravaItem.cmdSql(1): INSERT INTO venda (tipo, status, st_canc, caixa, cupom, ope, data, dados, valor_un, valor, preconormal, codbarra, codbarrapdv, descricao, unidade, quant) VALUES ('VIT', 'P', 'N', '001', '1001', '9001', '271026080113:271026080113', '|0000000011723|PAO FRANCES KG|1199|778|933|0|004|0|S|0012|000000000000001|||0||||0|4|F||||||Marca|10000|N||||2117230009333||0|', 1199, 933, 1199, '0000000011723', '2117230009333', 'PAO FRANCES KG', 'Un', 0.778);|
+08:01:13.000:COMANDO ==> (REGISTRA ITEM)  PARAMETRO()  /  TOTAIS COO: 1001  (SB: 18.9 / PG: 0 / DC: 0 / AC: 0)  /  REGISTRA ITEM: 0000000011723  (VL: 11.99 / QT: 0.778 / TT: 9.33)
+08:01:13.000:TVenda.SomaItem (Final):FCupom.SubTotal: 0|
+08:01:22.000:FPrinc.ProcessaTeclaRecebida:cdp|
+08:01:22.000:ENTRADA DADOS:7896215300065|
+08:01:22.000:REGISTRO ITEM:1 X 7896215300065|
+08:01:22.000:VerificaGradeTrib(Query.SQL.Text):SELECT * FROM gradetrb WHERE codgrade = '19053100'|
+08:01:22.000:TVenda.GravaItem.cmdSql(1): INSERT INTO venda (tipo, status, st_canc, caixa, cupom, ope, data, dados, valor_un, valor, preconormal, codbarra, codbarrapdv, descricao, unidade, quant) VALUES ('VIT', 'P', 'N', '001', '1001', '9001', '271026080122:271026080122', '|7896215300065|LEITE DE COCO 500ML|709|1000|709|0|004|0|N|0012|000000000000001|||0||||0|4|F||||||Marca|10000|N||||||0|', 709, 709, 709, '7896215300065', '', 'LEITE DE COCO 500ML', 'Un', 1.0);|
+08:01:22.000:COMANDO ==> (REGISTRA ITEM)  PARAMETRO()  /  TOTAIS COO: 1001  (SB: 28.23 / PG: 0 / DC: 0 / AC: 0)  /  REGISTRA ITEM: 7896215300065  (VL: 7.09 / QT: 1 / TT: 7.09)
+08:01:22.000:TVenda.SomaItem (Final):FCupom.SubTotal: 0|
+08:01:22.500:COMANDO ==> (DESCONTO ITEM)  PARAMETRO()  /  TOTAIS COO: 1001  (SB: 35.32 / PG: 0 / DC: 0 / AC: 0)
+08:01:22.510:FD_Desconto:  (-) DESCONTO ITEM ANTERIOR        0.28|
+08:01:30.000:CONFIRMA  :Confirma o Cancelamento dos Itens Marcados?^Nro: 003|
+08:01:30.100:COMANDO ==> (CANCELA ITEM)  PARAMETRO(003)  /  TOTAIS COO: 1001  (SB: 35.04 / PG: 0 / DC: 0 / AC: 0)  /  CANCELA ITEM: 7896215300065  (VL: 7.09 / QT: 1 / TT: 7.09)
+08:01:40.000:ProcessaTeclaSubtotal:Inicio|
+08:01:40.010:COMANDO ==> (LE-SUB-TOTAL)  PARAMETRO()  /  TOTAIS COO: 1001  (SB: 28.23 / PG: 0 / DC: 0 / AC: 0)
+08:01:41.000:COMANDO ==> (LE-SUB-TOTAL)  PARAMETRO()  /  TOTAIS COO: 1001  (SB: 28.23 / PG: 0 / DC: 0 / AC: 0)
+08:01:50.000:Processar Pagamento Venda:ACAO: FIN RETORNO: 01 Dinheiro|
+08:01:50.010:Pagamento Venda:Valor: 30.00 Finalizadora: 01 - Dinheiro|
+08:01:50.300:COMANDO ==> (PAGAMENTO)  PARAMETRO()  /  TOTAIS COO: 1001  (SB: 28.23 / PG: 30 / DC: 0 / AC: 0)
+08:01:50.310:AcFinal:mfVenda, 01, S, 30, 0|
+08:01:50.320:AcFinal:mfTroco, 01, S, 1.77, 1|
+08:01:50.330:AcFinal.cmdsql:UPDATE final SET vl_troco = vl_troco + 1.77 WHERE cod = 1|
+08:01:50.400:COMANDO ==> (FECHA CUPOM FISCAL)  PARAMETRO()  /  TOTAIS COO: 1001  (SB: 28.23 / PG: 30 / DC: 0 / AC: 0)
+08:01:55.000:COMANDO ==> (GAVETA)  PARAMETRO(NAO MOSTRAR MSG RETORNO)  /  TOTAIS COO: 1001  (SB: 28.23 / PG: 30 / DC: 0 / AC: 0)
+08:03:00.200:ABRE CUPOM FISCAL: COO:1002|
+08:03:00.300:FPrinc.ProcessaTeclaRecebida:cdp|
+08:03:00.300:ENTRADA DADOS:123|
+08:03:00.300:REGISTRO ITEM:1 X 0000000000123|
+08:03:00.300:VerificaGradeTrib(Query.SQL.Text):SELECT * FROM gradetrb WHERE codgrade = '19053100'|
+08:03:00.300:TVenda.GravaItem.cmdSql(1): INSERT INTO venda (tipo, status, st_canc, caixa, cupom, ope, data, dados, valor_un, valor, preconormal, codbarra, codbarrapdv, descricao, unidade, quant) VALUES ('VIT', 'P', 'N', '001', '1002', '9001', '271026080300:271026080300', '|0000000000123|TOMATE KG|540|1000|540|0|004|0|N|0012|000000000000001|||0||||0|4|F||||||Marca|10000|N||||123||0|', 540, 540, 540, '0000000000123', '123', 'TOMATE KG', 'Un', 1.0);|
+08:03:00.300:COMANDO ==> (REGISTRA ITEM)  PARAMETRO()  /  TOTAIS COO: 1002  (SB: 0 / PG: 0 / DC: 0 / AC: 0)  /  REGISTRA ITEM: 0000000000123  (VL: 5.4 / QT: 1 / TT: 5.4)
+08:03:00.300:TVenda.SomaItem (Final):FCupom.SubTotal: 0|
+08:03:10.000:ProcessaTeclaSubtotal:Inicio|
+08:03:10.010:COMANDO ==> (LE-SUB-TOTAL)  PARAMETRO()  /  TOTAIS COO: 1002  (SB: 5.4 / PG: 0 / DC: 0 / AC: 0)
+08:03:20.010:Pagamento Venda:Valor: 0.00 Finalizadora: 03 - Cartao Credito|
+08:03:25.000:AV ERRO   :(-2) Operacao cancelada|
+08:03:30.010:Pagamento Venda:Valor: 0.00 Finalizadora: 11 - PIX|
+08:03:45.000:Mensagem Sistema:AUTORIZADA / Pressione Limpa Para Cancelar|
+08:03:45.100:AcFinal:mfVenda, 11, S, 5.4, 0|
+08:03:45.200:COMANDO ==> (FECHA CUPOM FISCAL)  PARAMETRO()  /  TOTAIS COO: 1002  (SB: 5.4 / PG: 5.4 / DC: 0 / AC: 0)
+08:05:00.200:ABRE CUPOM FISCAL: COO:1003|
+08:05:00.300:FPrinc.ProcessaTeclaRecebida:cdp|
+08:05:00.300:ENTRADA DADOS:7891000460498|
+08:05:00.300:REGISTRO ITEM:1 X 7891000460498|
+08:05:00.300:VerificaGradeTrib(Query.SQL.Text):SELECT * FROM gradetrb WHERE codgrade = '19053100'|
+08:05:00.300:TVenda.GravaItem.cmdSql(1): INSERT INTO venda (tipo, status, st_canc, caixa, cupom, ope, data, dados, valor_un, valor, preconormal, codbarra, codbarrapdv, descricao, unidade, quant) VALUES ('VIT', 'P', 'N', '001', '1003', '9001', '271026080500:271026080500', '|7891000460498|CAFE TORRADO 500G|1890|1000|1890|0|004|0|N|0012|000000000000001|||0||||0|4|F||||||Marca|10000|N||||||0|', 1890, 1890, 1890, '7891000460498', '', 'CAFE TORRADO 500G', 'Un', 1.0);|
+08:05:00.300:COMANDO ==> (REGISTRA ITEM)  PARAMETRO()  /  TOTAIS COO: 1003  (SB: 0 / PG: 0 / DC: 0 / AC: 0)  /  REGISTRA ITEM: 7891000460498  (VL: 18.9 / QT: 1 / TT: 18.9)
+08:05:00.300:TVenda.SomaItem (Final):FCupom.SubTotal: 0|
+08:05:05.000:ENTRADA DADOS:3145|
+08:05:05.010:MostraMensagemItemNaoCadastrado: cod: 0000000003145 tp: VDA origem: T|
+08:05:10.000:ValidaSupervisorTecla:CodAcao: 116|
+08:05:10.010:Entrada Dados:Informe a Senha do Supervisor|
+08:05:12.000:Código Supervisor: 108 - 6=0741705|
+08:05:12.010:Supervisor OK:108-Supervisor 01|
+08:05:13.000:CancelamentoCupom:Inicio|
+08:05:13.100:COMANDO ==> (CANCELA CUPOM)  PARAMETRO()  /  TOTAIS COO: 1003  (SB: 18.9 / PG: 0 / DC: 0 / AC: 0)
+08:10:00.000:Entrada Dados:Confirme o Valor Para Sangria em Dinheiro|
+08:10:02.000:COMANDO ==> (SANGRIA)  PARAMETRO(SANGRIA)
+08:10:02.100:AcFinal:mfSangria, 01, S, 40, 1|
+08:20:00.000:COMANDO ==> (RL-X)  PARAMETRO()
+08:20:05.000:COMANDO ==> (OPERADOR)  PARAMETRO()

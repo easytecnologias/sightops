@@ -1,6 +1,7 @@
 """Processa as linhas do PDV conforme chegam do coletor (um caixa, um dia).
 
-O coletor manda linhas cruas numeradas do Espiao e do Teclas. Aqui elas viram
+O coletor manda linhas cruas numeradas do Espiao e do Teclas (ou do CM, no
+caixa sem Espiao: pdv_cm converte para o formato do Espiao). Aqui elas viram
 eventos, itens (com o jeito que entraram: scanner, manual, menu...) e o resumo
 de cada cupom -- incrementalmente, para a tela Ao vivo.
 
@@ -21,6 +22,7 @@ from decimal import Decimal
 from typing import Any, Dict, List, Optional
 
 from app.services import pdv_leitor as L
+from app.services.pdv_cm import ConversorCM
 
 ESPERA_MAX = 15.0  # s de relogio: Espiao nao espera o Teclas mais que isso
 
@@ -96,11 +98,19 @@ class ProcessadorDia(object):
         self.cupom: Optional[str] = None
         self.operador = "?"
         self.cupons: Dict[str, Dict[str, Any]] = {}
-        self.ultimo_seq = {"Espiao": 0, "Teclas": 0}
+        self.ultimo_seq = {"Espiao": 0, "Teclas": 0, "CM": 0}
+        # De onde vem a venda neste dia: o primeiro que gerar evento ganha o dia
+        # inteiro ("espiao" ou "cm"). Assim, se ligarem o Espiao no meio do dia,
+        # a venda nao conta duas vezes; o dia seguinte ja comeca pelo Espiao.
+        self.fonte = ""
+        self.conversor: Optional[ConversorCM] = None
 
     # ------------------------------------------------------------ entrada
-    def receber(self, espiao=(), teclas=(), agora: Optional[float] = None, final: bool = False) -> Dict[str, Any]:
-        """espiao/teclas: [(seq, linha)] em ordem. Linha ja vista (seq <= ultimo) e ignorada."""
+    def receber(self, espiao=(), teclas=(), cm=(), agora: Optional[float] = None, final: bool = False) -> Dict[str, Any]:
+        """espiao/teclas/cm: [(seq, linha)] em ordem. Linha ja vista (seq <= ultimo) e ignorada.
+
+        cm: linhas do CM, para caixa sem Espiao; viram eventos de Espiao com
+        seq = seq_do_cm * 10 + k (pdv_cm.converter)."""
         agora = time.time() if agora is None else agora
         for seq, texto in teclas:
             if seq <= self.ultimo_seq["Teclas"]:
@@ -111,9 +121,25 @@ class ProcessadorDia(object):
             if seq <= self.ultimo_seq["Espiao"]:
                 continue
             self.ultimo_seq["Espiao"] = seq
+            if self.fonte == "cm":
+                continue
             ev = L.ler_linha_espiao(texto)
             if ev is not None:
+                self.fonte = "espiao"
                 self.pendentes.append((seq, ev, agora))
+        for seq, texto in cm:
+            if seq <= self.ultimo_seq["CM"]:
+                continue
+            self.ultimo_seq["CM"] = seq
+            if self.fonte == "espiao":
+                continue
+            if self.conversor is None:
+                self.conversor = ConversorCM()
+            for k, linha in enumerate(self.conversor.linha(texto)[:10]):
+                ev = L.ler_linha_espiao(linha)
+                if ev is not None:
+                    self.fonte = "cm"
+                    self.pendentes.append((seq * 10 + k, ev, agora))
         return self._liberar(agora, final)
 
     def previa(self) -> Dict[str, Any]:

@@ -277,7 +277,9 @@ def instalar(caixa_id: str, url_base: str, pasta: str = "/home/rpdv/frente/Cm",
             passo("Conferir o caixa", False, _limpar(out, [senha]) or "sem python3 ou sem a pasta do PDV")
             _gravar_estado(caixa_id, "falhou", fp)
             return {"ok": False, "passos": passos}
-        passo("Conferir o caixa", True, out.strip().splitlines()[0] + " · pasta do PDV encontrada")
+        sem_espiao = out.strip().splitlines()[-1].strip() == "0"  # ultima linha: quantos Espiao do caixa
+        passo("Conferir o caixa", True, out.strip().splitlines()[0] + " · pasta do PDV encontrada" +
+              (" · sem Espiao: as vendas vão sair do CM" if sem_espiao else ""))
         cod, out = _rodar(cli, "sudo -S -p '' true", entrada=senha + "\n", timeout=20)
         if cod != 0:
             passo("Permissão de administrador (sudo)", False, "o usuário não tem sudo neste caixa ou a senha não vale para o sudo")

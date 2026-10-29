@@ -5,6 +5,10 @@ Le os arquivos Espiao e Teclas do dia (/home/rpdv/frente/Cm/EspiaoDDMMAA.NNN)
 e manda as linhas novas, numeradas, para o SightOps. Nao abre porta, nao baixa
 video, nao interpreta nada: quem interpreta e o servidor.
 
+Caixa sem Espiao (opcao da estacao desligada na retaguarda): le o CM do dia no
+lugar dele. Do CM so vao as linhas que o servidor usa (MARCADORES) e o INSERT
+do item vai cortado no comeco do VALUES: o CM tem 10 a 40 MB por dia.
+
 - Posicao de leitura persistida: so avanca quando o servidor confirma.
 - Meia-noite: continua lendo o arquivo de ontem ate ele parar de crescer
   (FECHAR_APOS segundos depois da virada) e passa para o de hoje.
@@ -13,7 +17,8 @@ video, nao interpreta nada: quem interpreta e o servidor.
 
 Configuracao: /etc/sightops-pdv/coletor.json
   {"url": "https://<sightops>/api/pdv/coletor/lote", "caixa": "<id>", "token": "pdv_...",
-   "pasta": "/home/rpdv/frente/Cm", "estacao": 1}
+   "pasta": "/home/rpdv/frente/Cm", "estacao": 1, "fonte": "auto"}
+  fonte: "auto" (Espiao se existir, senao CM), "espiao" ou "cm".
 """
 from __future__ import print_function
 
@@ -25,16 +30,48 @@ import time
 import urllib.error
 import urllib.request
 
-VERSAO = "1.0.0"
+VERSAO = "1.1.0"
 CONFIG = os.environ.get("SIGHTOPS_PDV_CONFIG", "/etc/sightops-pdv/coletor.json")
 ESTADO = os.environ.get("SIGHTOPS_PDV_ESTADO", "/var/lib/sightops-pdv/estado.json")
-ARQUIVOS = ("Espiao", "Teclas")
 INTERVALO = 2.0          # s entre leituras
 HEARTBEAT = 30.0         # s sem linha nova -> manda lote vazio
 MAX_LINHAS = 2000        # por envio
 MAX_BYTES = 1024 * 1024  # lidos por arquivo por ciclo
 FECHAR_APOS = 600        # s depois da meia-noite para dar o arquivo de ontem por encerrado
 ESPERA_MAX = 60.0        # s de espera maxima entre tentativas sem rede
+ESPERA_ESPIAO = 120      # s depois da meia-noite antes de decidir que o dia e de CM
+
+# Linhas do CM que o servidor usa -- IGUAL a app/services/pdv_cm.py (um teste confere).
+MARCADORES_CM = (
+    "COMANDO ==> (",
+    "Entrada Operador:",
+    "ABRE CUPOM FISCAL: COO:",
+    "ENTRADA DADOS:",
+    "INSERT INTO venda",
+    "ProcessaTeclaSubtotal:Inicio",
+    "Pagamento Venda:Valor:",
+    "AcFinal:mf",
+    "FD_Desconto:",
+    "Desconto SubTotal:",
+    "ValidaSupervisorTecla:CodAcao",
+    "digo Supervisor:",
+    "Supervisor OK:",
+    "MostraMensagemItemNaoCadastrado",
+)
+TAM_VALUES = 320
+
+
+def linha_cm(texto):
+    """Linha do CM que vale mandar (None = descarta). INSERT vai cortado."""
+    if not any(m in texto for m in MARCADORES_CM):
+        return None
+    i = texto.find("INSERT INTO venda")
+    j = texto.find(" VALUES (", i) if i >= 0 else -1
+    if j < 0:
+        return texto
+    k = texto.find(":", 9)  # 'HH:MM:SS.mmm:' -> o ':' depois dos milissegundos
+    prefixo = texto[:k + 1] if 0 < k < i else ""
+    return prefixo + "INSERT INTO venda VALUES (" + texto[j + 9:j + 9 + TAM_VALUES]
 
 
 def log(*a):
@@ -129,7 +166,8 @@ class Coletor(object):
         segundos_hoje = agora.hour * 3600 + agora.minute * 60 + agora.second
         out = []
         for dia in (ontem, hoje):
-            for tipo in ARQUIVOS:
+            fonte = self._fonte(dia, dia == hoje and segundos_hoje < ESPERA_ESPIAO)
+            for tipo in ("Teclas",) + ((fonte,) if fonte else ()):
                 nome = nome_arquivo(tipo, dia, self.estacao)
                 st = self.estado.get(nome) or {}
                 if dia == ontem and (st.get("fim") or nome not in self.estado and segundos_hoje > FECHAR_APOS):
@@ -137,6 +175,25 @@ class Coletor(object):
                 encerrado = dia == ontem and segundos_hoje > FECHAR_APOS
                 out.append((tipo, dia, nome, encerrado))
         return out
+
+    def _fonte(self, dia, cedo):
+        """'Espiao' ou 'CM' para o dia ('' = ainda nao da para saber). Depois de
+        escolhida, a fonte fica ate o fim do dia (o servidor tambem nao mistura)."""
+        forcada = str(self.cfg.get("fonte") or "auto").lower()
+        if forcada == "espiao":
+            return "Espiao"
+        if forcada == "cm":
+            return "CM"
+        esp, cm = nome_arquivo("Espiao", dia, self.estacao), nome_arquivo("CM", dia, self.estacao)
+        if esp in self.estado:
+            return "Espiao"
+        if cm in self.estado:
+            return "CM"
+        if os.path.exists(os.path.join(self.pasta, esp)):
+            return "Espiao"
+        if not cedo and os.path.exists(os.path.join(self.pasta, cm)):
+            return "CM"  # na virada do dia o Espiao nasce uns segundos depois do CM
+        return ""
 
     def ciclo(self):
         """Uma leitura + envio. Devolve quantas linhas foram aceitas (ou -1 em erro)."""
@@ -148,10 +205,14 @@ class Coletor(object):
             linhas, off, seq = ler_novas(caminho, st["offset"], st["seq"], encerrado,
                                          max_linhas=max(0, MAX_LINHAS - total))
             total += len(linhas)
+            lidas = bool(linhas)
+            if tipo == "CM":  # so o que o servidor usa; o seq continua o da linha no arquivo
+                linhas = [(s, x) for s, x in ((s, linha_cm(t)) for s, t in linhas) if x is not None]
             if linhas:
                 lotes.append({"arquivo": tipo, "dia": dia.isoformat(), "linhas": [[s, t] for s, t in linhas]})
             pendente[nome] = {"offset": off, "seq": seq, "fim": bool(encerrado and off >= self._tam(caminho)),
-                              "chave": "%s/%s" % (tipo, dia.isoformat()), "ultimo": seq if linhas else None}
+                              "chave": "%s/%s" % (tipo, dia.isoformat()), "ultimo": linhas[-1][0] if linhas else None,
+                              "so_descartadas": lidas and not linhas}
         if not lotes and time.time() - self.ultimo_envio < HEARTBEAT:
             self._marcar_fim(pendente)
             return 0
@@ -175,6 +236,12 @@ class Coletor(object):
 
     def _marcar_fim(self, pendente):
         mudou = False
+        for nome, p in pendente.items():
+            # trecho do CM so com linhas descartadas: nada a confirmar, avanca aqui
+            # (senao relia o mesmo trecho a cada ciclo ate aparecer linha util)
+            if p.get("so_descartadas"):
+                self.estado[nome] = {"offset": p["offset"], "seq": p["seq"], "fim": False}
+                mudou = True
         for nome, p in pendente.items():
             st = self.estado.get(nome)
             if p["fim"] and p["ultimo"] is None and st is not None and not st.get("fim"):
