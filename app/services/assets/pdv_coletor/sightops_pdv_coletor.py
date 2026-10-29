@@ -39,7 +39,8 @@ MAX_LINHAS = 2000        # por envio
 MAX_BYTES = 1024 * 1024  # lidos por arquivo por ciclo
 FECHAR_APOS = 600        # s depois da meia-noite para dar o arquivo de ontem por encerrado
 ESPERA_MAX = 60.0        # s de espera maxima entre tentativas sem rede
-ESPERA_ESPIAO = 120      # s depois da meia-noite antes de decidir que o dia e de CM
+ESPERA_ESPIAO = 300      # s depois da meia-noite antes de decidir que o dia e de CM
+                         # (o gerador do Espiao, sightops_pdv_espiao.py, cria o dele aos 180 s)
 
 # Linhas do CM que o servidor usa -- IGUAL a app/services/pdv_cm.py (um teste confere).
 MARCADORES_CM = (
@@ -53,7 +54,8 @@ MARCADORES_CM = (
     "AcFinal:mf",
     "FD_Desconto:",
     "Desconto SubTotal:",
-    "ValidaSupervisorTecla:CodAcao",
+    "Informe a Senha do Supervisor",
+    "FINAL PAGAMENTO",
     "digo Supervisor:",
     "Supervisor OK:",
     "MostraMensagemItemNaoCadastrado",

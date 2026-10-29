@@ -4,6 +4,8 @@
 # Uso (como root):
 #   sh instalar.sh --config <coletor.json>      # SightOps: token num arquivo 600, nunca na linha de comando
 #   sh instalar.sh <url> <id do caixa> <token> [pasta] [estacao]   # manual
+# Instala tambem o gerador do Espiao: so escreve o Espiao do dia quando o caixa
+# nao grava o seu (estacao com o Espiao desligado); senao fica parado.
 # Nao mexe na ponte do gravador nem em nenhum outro servico do caixa.
 set -eu
 
@@ -36,9 +38,19 @@ PASTA="$(python3 -c 'import json; print(json.load(open("/etc/sightops-pdv/coleto
 install -d -m 755 /opt/sightops-pdv
 install -m 644 "$DIR/sightops_pdv_coletor.py" /opt/sightops-pdv/sightops_pdv_coletor.py
 install -m 644 "$DIR/sightops-pdv-coletor.service" /etc/systemd/system/sightops-pdv-coletor.service
+if [ -f "$DIR/sightops_pdv_espiao.py" ]; then
+  install -m 644 "$DIR/pdv_cm.py" /opt/sightops-pdv/pdv_cm.py
+  install -m 644 "$DIR/sightops_pdv_espiao.py" /opt/sightops-pdv/sightops_pdv_espiao.py
+  install -m 644 "$DIR/sightops-pdv-espiao.service" /etc/systemd/system/sightops-pdv-espiao.service
+fi
 systemctl daemon-reload
 systemctl enable sightops-pdv-coletor >/dev/null 2>&1
 systemctl restart sightops-pdv-coletor
+if [ -f /etc/systemd/system/sightops-pdv-espiao.service ]; then
+  systemctl enable sightops-pdv-espiao >/dev/null 2>&1
+  systemctl restart sightops-pdv-espiao
+fi
 sleep 3
 systemctl --no-pager --lines=5 status sightops-pdv-coletor || true
+systemctl --no-pager --lines=3 status sightops-pdv-espiao 2>/dev/null || true
 echo "Pronto. Acompanhe com: journalctl -u sightops-pdv-coletor -f"

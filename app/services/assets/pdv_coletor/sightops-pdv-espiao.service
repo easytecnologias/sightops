@@ -1,0 +1,23 @@
+[Unit]
+Description=SightOps - gerador do Espiao (caixa sem Espiao: escreve a partir do CM)
+After=local-fs.target
+
+[Service]
+Type=simple
+User=rpdv
+Group=rpdv
+ExecStart=/usr/bin/python3 /opt/sightops-pdv/sightops_pdv_espiao.py
+Restart=always
+RestartSec=5
+# Leve de proposito: o caixa e quem manda. Prioridade baixa de CPU e disco.
+Nice=10
+IOSchedulingClass=idle
+MemoryMax=96M
+# Ubuntu 18.04 (systemd 237, cgroup v1) le esta; MemoryMax so vale no v2.
+MemoryLimit=96M
+# Le o CM e o Teclas e escreve so o proprio Espiao na pasta do PDV (/home).
+ProtectSystem=full
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=multi-user.target

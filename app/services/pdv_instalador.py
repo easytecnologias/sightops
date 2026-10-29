@@ -27,7 +27,10 @@ from app.services import db_store
 from app.services import pdv_store
 
 ASSETS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "pdv_coletor")
-ARQUIVOS = ("sightops_pdv_coletor.py", "sightops-pdv-coletor.service", "instalar.sh")
+ARQUIVOS = ("sightops_pdv_coletor.py", "sightops-pdv-coletor.service", "instalar.sh",
+            "sightops_pdv_espiao.py", "sightops-pdv-espiao.service", "pdv_cm.py")
+# pdv_cm.py e o mesmo conversor do servidor: o gerador do Espiao no caixa usa ele
+_ORIGEM = {"pdv_cm.py": os.path.join(os.path.dirname(os.path.abspath(__file__)), "pdv_cm.py")}
 SERVICO = "sightops-pdv-coletor"
 # Medido no PDV1 da VITAL (27/10/2026) pelo tunel: a conversa SSH leva de 2 a
 # 20 s (o sshd do caixa resolve o nome de quem conecta e o roteador da loja
@@ -294,7 +297,7 @@ def instalar(caixa_id: str, url_base: str, pasta: str = "/home/rpdv/frente/Cm",
         try:
             sftp.mkdir(destino, 0o700)
             for nome in ARQUIVOS:
-                sftp.put(os.path.join(ASSETS, nome), "%s/%s" % (destino, nome))
+                sftp.put(_ORIGEM.get(nome) or os.path.join(ASSETS, nome), "%s/%s" % (destino, nome))
             # O token vai num arquivo 600, nunca na linha de comando (o sudo
             # gravaria no auth.log e qualquer usuario veria no ps).
             with sftp.open("%s/coletor.json" % destino, "w") as f:
@@ -337,7 +340,9 @@ def status(caixa_id: str, abrir: Optional[Callable] = None) -> Dict[str, Any]:
             c.execute("UPDATE pdv_caixas SET ssh_hostkey=? WHERE tenant_slug=? AND id=?", (fp, pdv_store._tenant(), caixa_id))
     try:
         _, ativo = _rodar(cli, "systemctl is-active %s; systemctl show -p ActiveEnterTimestamp --value %s" % (SERVICO, SERVICO), timeout=15)
-        _, log = _rodar(cli, "journalctl -u %s -n 15 --no-pager 2>/dev/null || true" % SERVICO, timeout=15)
+        # o log junta o coletor e o gerador do Espiao (caixa sem Espiao proprio)
+        _, log = _rodar(cli, "journalctl -u %s -u sightops-pdv-espiao -n 20 --no-pager 2>/dev/null || true" % SERVICO,
+                        timeout=15)
         linhas = ativo.strip().splitlines()
         return {"ok": True, "ativo": (linhas[0] if linhas else "") == "active", "estado": linhas[0] if linhas else "",
                 "desde": linhas[1] if len(linhas) > 1 else "", "log": _limpar(log, [cx["_senha"]])}
