@@ -288,6 +288,21 @@ let _monitoringTab = 'attention';
 // Site escolhido no topo da tela: filtra todos os cards, a tabela e as gavetas.
 let _monitoringScope = (() => { try { return localStorage.getItem('sightops.monitoring.site') || ''; } catch (_) { return ''; } })();
 
+// Conectores fora (por entity_id) e o que depende deles. Atras de conector fora
+// nao da para afirmar nada sobre o equipamento: ele fica "sem visibilidade",
+// nunca conta como disponivel nem como fora.
+function monitoringConectoresFora() {
+  const fora = new Map();
+  _monitoringEntities.forEach(row => {
+    if (row.entity_type === 'connector' && row.status === 'down') fora.set(String(row.entity_id || ''), row);
+  });
+  return fora;
+}
+
+function monitoringIsBlind(row, fora = monitoringConectoresFora()) {
+  return row.entity_type !== 'connector' && fora.has(String(row.connector_id || ''));
+}
+
 function monitoringScoped() {
   return _monitoringScope ? _monitoringEntities.filter(row => String(row.site || '').trim() === _monitoringScope) : _monitoringEntities;
 }
@@ -323,37 +338,50 @@ function renderMonitoringScopeSelect() {
   select.hidden = sites.length < 2 && !_monitoringScope;
 }
 
-// Com "Todos os sites", um bloco por site embaixo dos cards: quanto esta no ar
-// em cada um e quantos estao fora. Clicar filtra a tela por aquele site.
+// Com "Todos os sites", a situacao de cada site embaixo dos cards. Site com o
+// conector fora nao ganha porcentagem: o que esta atras dele nao tem leitura.
 function renderMonitoringSitesStrip() {
   const el = document.getElementById('monitoringSitesStrip');
   if (!el) return;
+  const fora = monitoringConectoresFora();
   const groups = new Map();
   _monitoringEntities.forEach(row => {
     const site = String(row.site || '').trim() || 'Sem site';
-    if (!groups.has(site)) groups.set(site, { site, total: 0, up: 0, down: 0, attention: 0 });
+    if (!groups.has(site)) groups.set(site, { site, total: 0, up: 0, down: 0, attention: 0, blind: 0, conectores: [] });
     const g = groups.get(site);
     g.total += 1;
-    if (row.status === 'up') g.up += 1;
+    if (row.entity_type === 'connector' && row.status === 'down') g.conectores.push(row);
+    if (monitoringIsBlind(row, fora)) g.blind += 1;
+    else if (row.status === 'up') g.up += 1;
     else if (row.status === 'down') g.down += 1;
     else if (row.status === 'unstable' || row.status === 'unknown') g.attention += 1;
   });
   if (_monitoringScope || groups.size < 2) { el.hidden = true; el.innerHTML = ''; return; }
-  const list = [...groups.values()].sort((a, b) => (a.up / a.total) - (b.up / b.total) || a.site.localeCompare(b.site, 'pt-BR', { numeric: true }));
+  const peso = g => (g.conectores.length ? 0 : g.down ? 1 : g.attention ? 2 : 3);
+  const list = [...groups.values()].sort((a, b) => peso(a) - peso(b) || a.site.localeCompare(b.site, 'pt-BR', { numeric: true }));
   el.hidden = false;
-  el.innerHTML = `<div class="mn-cap">Por site</div><div class="mn-sites-list">${list.map(g => {
-    const pct = (g.up / g.total) * 100;
-    const cls = g.down ? 'bad' : (g.attention ? 'warn' : 'ok');
-    const estado = g.down ? `${g.down} fora` : (g.attention ? `${g.attention} em atencao` : 'tudo online');
-    const semSite = g.site === 'Sem site';
-    return `<button type="button" class="mn-site ${cls}" data-monitoring-scope="${esc(semSite ? '' : g.site)}"${semSite ? ' disabled' : ''}>
-      <span class="mn-site-top"><span class="mn-site-name" title="${esc(g.site)}">${esc(g.site)}</span><span class="mn-site-pct">${pct.toFixed(1).replace('.', ',')}%</span></span>
-      <span class="mn-bar"><i class="up" style="width:${pct}%"></i><i class="down" style="width:${(g.down / g.total) * 100}%"></i><i class="warn" style="width:${(g.attention / g.total) * 100}%"></i></span>
-      <span class="mn-site-meta">${g.total} equip. · <b>${esc(estado)}</b></span>
-    </button>`;
-  }).join('')}</div>`;
-  el.querySelectorAll('[data-monitoring-scope]').forEach(button => {
-    button.addEventListener('click', () => monitoringSetScope(button.dataset.monitoringScope));
+  el.innerHTML = `<table class="mn-sitetab">
+    <thead><tr><th>Site</th><th class="n">Equipamentos</th><th class="n opt">Disponiveis</th><th class="n opt">Indisponiveis</th><th class="n opt">Sem leitura</th><th>Situacao</th></tr></thead>
+    <tbody>${list.map(g => {
+      let situacao = '<span class="mn-sit ok">Normal</span>';
+      if (g.conectores.length) {
+        const desde = Math.min(...g.conectores.map(c => monitoringTime(c.last_changed_at)).filter(Boolean));
+        situacao = `<span class="mn-sit bad">Conector indisponivel${desde ? ` ha ${esc(monitoringElapsed(desde))}` : ''}</span><span class="mn-sit-sub">${g.blind} equipamento${g.blind === 1 ? '' : 's'} sem visibilidade</span>`;
+      } else if (g.down) situacao = `<span class="mn-sit bad">${g.down} indisponive${g.down === 1 ? 'l' : 'is'}</span>`;
+      else if (g.attention) situacao = `<span class="mn-sit warn">${g.attention} sem leitura ou instave${g.attention === 1 ? 'l' : 'is'}</span>`;
+      const semSite = g.site === 'Sem site';
+      return `<tr${semSite ? '' : ` data-monitoring-scope="${esc(g.site)}" tabindex="0"`}>
+        <td><strong>${esc(g.site)}</strong></td>
+        <td class="n">${g.total}</td>
+        <td class="n opt">${g.conectores.length ? '<span class="mn-muted">--</span>' : `${g.up} de ${g.total}`}</td>
+        <td class="n opt">${g.down || '--'}</td>
+        <td class="n opt">${(g.attention + g.blind) || '--'}</td>
+        <td>${situacao}</td>
+      </tr>`;
+    }).join('')}</tbody></table>`;
+  el.querySelectorAll('[data-monitoring-scope]').forEach(tr => {
+    tr.addEventListener('click', () => monitoringSetScope(tr.dataset.monitoringScope));
+    tr.addEventListener('keydown', ev => { if (ev.key === 'Enter') monitoringSetScope(tr.dataset.monitoringScope); });
   });
 }
 
@@ -405,10 +433,13 @@ function renderMonitoringHealth() {
   if (!el) return;
   const rows = monitoringScoped();
   const total = rows.length;
-  const up = rows.filter(row => row.status === 'up').length;
-  const down = rows.filter(row => row.status === 'down').length;
-  const attention = rows.filter(row => row.status === 'unstable' || row.status === 'unknown').length;
-  const pct = total ? (up / total) * 100 : 0;
+  const fora = monitoringConectoresFora();
+  const blind = rows.filter(row => monitoringIsBlind(row, fora)).length;
+  const vis = rows.filter(row => !monitoringIsBlind(row, fora));
+  const up = vis.filter(row => row.status === 'up').length;
+  const down = vis.filter(row => row.status === 'down').length;
+  const attention = vis.filter(row => row.status === 'unstable' || row.status === 'unknown').length;
+  const pct = vis.length ? (up / vis.length) * 100 : 0;
   const lastCheck = Math.max(0, ...rows.map(row => monitoringTime(row.last_checked_at)));
   const stale = rows.filter(monitoringIsStale).length;
   const changed24h = rows.filter(row => {
@@ -420,16 +451,18 @@ function renderMonitoringHealth() {
   el.innerHTML = `
     <div>
       <div class="mn-cap">Saude do parque</div>
-      <div class="mn-score"><strong>${total ? pct.toFixed(1).replace('.', ',') : '--'}%</strong><span>disponivel</span></div>
+      <div class="mn-score"><strong>${vis.length ? pct.toFixed(1).replace('.', ',') : '--'}%</strong><span>disponivel${blind ? ` dos ${vis.length} com leitura` : ''}</span></div>
       <div class="mn-bar" role="img" aria-label="${up} up, ${down} down, ${attention} em atencao">
         <i class="up" style="width:${total ? (up / total) * 100 : 0}%"></i>
         <i class="down" style="width:${total ? (down / total) * 100 : 0}%"></i>
         <i class="warn" style="width:${total ? (attention / total) * 100 : 0}%"></i>
+        <i class="blind" style="width:${total ? (blind / total) * 100 : 0}%"></i>
       </div>
       <div class="mn-legend">
         <span class="up"><i class="mn-dot up"></i><b>${up}</b> up</span>
         <span class="down"><i class="mn-dot down"></i><b>${down}</b> down</span>
         <span class="warn"><i class="mn-dot warn"></i><b>${attention}</b> atencao</span>
+        ${blind ? `<span class="blind"><i class="mn-dot blind"></i><b>${blind}</b> sem visibilidade (conector fora)</span>` : ''}
       </div>
     </div>
     <div>
@@ -450,6 +483,7 @@ function renderMonitoringHealth() {
 // cairam juntas na mesma faixa sao UM problema de rede, nao dez problemas.
 function monitoringIncidentGroups() {
   const groups = new Map();
+  const foraCon = monitoringConectoresFora();
   monitoringScoped().filter(monitoringIsAttention).forEach(row => {
     const prefix = monitoringIpPrefix(monitoringHostOf(row));
     const site = String(row.site || '').trim();
@@ -465,7 +499,8 @@ function monitoringIncidentGroups() {
     // dentro de 10 minutos. Espalhado no tempo e coincidencia, nao evento unico.
     const network = group.rows.length >= 3 && !!group.prefix && spread <= 600000;
     const onlyStale = group.rows.every(row => row.status === 'unknown' || monitoringIsStale(row));
-    return { ...group, oldest, network, onlyStale, count: group.rows.length };
+    const blind = group.rows.every(row => monitoringIsBlind(row, foraCon));
+    return { ...group, oldest, network: network && !blind, onlyStale: onlyStale && !blind, blind, count: group.rows.length };
   });
   list.sort((a, b) => b.count - a.count || a.oldest - b.oldest);
   return list;
@@ -497,8 +532,9 @@ function renderMonitoringIncidents() {
     const visible = group.rows.slice(0, 4);
     const hidden = group.count - visible.length;
     const tags = [];
+    if (group.blind) tags.push('<span class="badge badge-gray">conector indisponivel</span>');
     if (group.network) tags.push('<span class="badge badge-red">provavel rede</span>');
-    else if (group.count === 1) tags.push('<span class="badge badge-gray">isolada</span>');
+    else if (group.count === 1 && !group.blind) tags.push('<span class="badge badge-gray">isolada</span>');
     if (group.onlyStale) tags.push('<span class="badge badge-amber">dado velho</span>');
     if (group.prefix) tags.push(`<span class="badge badge-gray">${esc(group.prefix)}.0/24</span>`);
     const label = MONITORING_LABELS[group.rows[0].entity_type] || group.rows[0].entity_type;
@@ -506,8 +542,10 @@ function renderMonitoringIncidents() {
     <details class="mn-inc${group.onlyStale ? ' warn' : ''}"${index === 0 ? ' open' : ''}>
       <summary class="mn-inc-head">
         <span class="mn-inc-main">
-          <span class="mn-inc-title">${esc(group.site || 'Sem site')} · ${group.count} ${esc(group.count === 1 ? label.replace(/s$/, '') : label).toLowerCase()} ${group.onlyStale ? 'sem verificacao' : 'fora'} ${tags.join(' ')}</span>
-          <span class="mn-inc-sub">${group.network
+          <span class="mn-inc-title">${esc(group.site || 'Sem site')} · ${group.count} ${esc(group.count === 1 ? label.replace(/s$/, '') : label).toLowerCase()} ${group.blind ? 'sem visibilidade' : (group.onlyStale ? 'sem verificacao' : 'fora')} ${tags.join(' ')}</span>
+          <span class="mn-inc-sub">${group.blind
+            ? 'O conector do site esta indisponivel; o estado destes equipamentos nao pode ser verificado.'
+            : group.network
             ? 'Mudaram de estado na mesma janela de tempo e na mesma faixa de IP.'
             : (group.count === 1 ? 'Ocorrencia isolada neste site.' : 'Mesmo site, sem evidencia de causa comum.')}</span>
         </span>
@@ -615,17 +653,19 @@ function renderMonitoringSites() {
 function renderMonitoringKpis() {
   // Contado das entidades (e nao do /summary) para seguir o site escolhido no topo.
   const types = {};
+  const fora = monitoringConectoresFora();
   monitoringScoped().forEach(row => {
-    const t = types[row.entity_type] || (types[row.entity_type] = { total: 0, up: 0, down: 0, unstable: 0, unknown: 0 });
+    const t = types[row.entity_type] || (types[row.entity_type] = { total: 0, up: 0, down: 0, unstable: 0, unknown: 0, blind: 0 });
     t.total += 1;
-    if (row.status in t) t[row.status] += 1;
+    if (monitoringIsBlind(row, fora)) t.blind += 1;
+    else if (row.status in t) t[row.status] += 1;
   });
   const el = document.getElementById('monitoringKpis');
   if (!el) return;
   const items = Object.entries(MONITORING_LABELS).map(([key, label]) => {
-    const item = types[key] || { total: 0, up: 0, down: 0, unstable: 0, unknown: 0 };
+    const item = types[key] || { total: 0, up: 0, down: 0, unstable: 0, unknown: 0, blind: 0 };
     const attention = (item.unstable || 0) + (item.unknown || 0);
-    return { key, label, total: item.total || 0, up: item.up || 0, down: item.down || 0, attention };
+    return { key, label, total: item.total || 0, up: item.up || 0, down: item.down || 0, attention, blind: item.blind || 0 };
   });
   const used = items.filter(item => item.total > 0).sort((a, b) => b.total - a.total);
   const empty = items.filter(item => !item.total);
@@ -635,10 +675,11 @@ function renderMonitoringKpis() {
     let state = '<span class="mn-inv-state">tudo online</span>';
     if (item.down) state = `<span class="mn-inv-state bad">${item.down} fora</span>`;
     else if (item.attention) state = `<span class="mn-inv-state warn">${item.attention} em atencao</span>`;
+    else if (item.blind) state = `<span class="mn-inv-state">${item.blind} sem visibilidade</span>`;
     return `<button class="mn-inv" type="button" data-monitoring-type="${esc(item.key)}" aria-label="Abrir detalhes de ${esc(item.label)}">
       <span class="mn-inv-label">${esc(item.label)}</span>
       <span class="mn-inv-total">${item.total}</span>
-      <span class="mn-inv-bar"><i class="up" style="width:${pct(item.up)}%"></i><i class="down" style="width:${pct(item.down)}%"></i><i class="warn" style="width:${pct(item.attention)}%"></i></span>
+      <span class="mn-inv-bar"><i class="up" style="width:${pct(item.up)}%"></i><i class="down" style="width:${pct(item.down)}%"></i><i class="warn" style="width:${pct(item.attention)}%"></i><i class="blind" style="width:${pct(item.blind)}%"></i></span>
       ${state}
       <i data-lucide="chevron-right" class="mn-inv-arrow"></i>
     </button>`;
@@ -746,40 +787,49 @@ function mnRelQuando(iso) {
   return Number.isNaN(d.getTime()) ? iso : d.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
 }
 
+function mnRelPctMeta(v, meta) {
+  if (v == null) return '<span class="mn-muted">n/d</span>';
+  return v < meta ? `<b class="mn-rel-bad">${mnRelPct(v)}</b>` : mnRelPct(v);
+}
+
 function mnRelRender(r) {
   const el = document.getElementById('mnRelResultado');
   const rs = r.resumo, an = r.anterior, meta = r.meta_pct;
-  if (!rs.equipamentos) { el.innerHTML = '<p class="mn-muted">Nenhum equipamento monitorado com estes filtros.</p>'; return; }
-  const dif = (a, b, menorMelhor, fmt) => {
-    if (a == null || b == null) return '<span class="mn-muted">sem periodo anterior</span>';
+  if (!rs.equipamentos) { el.innerHTML = '<p class="mn-muted">Nao ha equipamentos monitorados com os filtros informados.</p>'; return; }
+  const num = v => Number(v || 0).toLocaleString('pt-BR');
+  const pp = v => `${v.toFixed(2).replace('.', ',')} p.p.`;
+  const variacao = (a, b, fmt) => {
+    if (a == null || b == null) return '--';
     const d = a - b;
-    if (Math.abs(d) < 0.005) return '<span class="mn-muted">igual ao anterior</span>';
-    const melhor = menorMelhor ? d < 0 : d > 0;
-    return `<span class="${melhor ? 'mn-rel-ok' : 'mn-rel-bad'}">${d > 0 ? '▲' : '▼'} ${esc(fmt(Math.abs(d)))}</span> <span class="mn-muted">vs anterior</span>`;
+    if (Math.abs(d) < 0.005) return 'sem variacao';
+    return `${d > 0 ? '+' : '−'}${fmt(Math.abs(d))}`;
   };
-  const grupo = (titulo, cab, lista) => lista.length < 2 ? '' : `
-    <h3>${esc(titulo)}</h3>
-    <div class="table-wrap"><table class="data-table mn-rel-tab"><thead><tr><th>${esc(cab)}</th><th>Equip.</th><th>Disponivel</th><th>Quedas</th><th>Tempo fora</th><th>Fora agora</th></tr></thead><tbody>
-    ${lista.map(g => `<tr><td><strong>${esc(g.nome)}</strong></td><td>${g.equipamentos}</td><td class="mn-rel-${mnRelCor(g.disponibilidade, meta)}"><b>${mnRelPct(g.disponibilidade)}</b></td><td>${g.quedas || '--'}</td><td>${mnRelDur(g.fora_s)}</td><td>${g.fora_agora ? `<b class="mn-rel-bad">${g.fora_agora}</b>` : '--'}</td></tr>`).join('')}
-    </tbody></table></div>`;
+  const linha = (rot, a, b, fa, fv) => `<tr><td>${esc(rot)}</td><td class="n">${fa(a)}</td><td class="n">${fa(b)}</td><td class="n">${esc(variacao(a, b, fv))}</td></tr>`;
+  const ant = `${r.anterior_de.split('-').reverse().join('/')} a ${r.anterior_ate.split('-').reverse().join('/')}`;
+  const tab = (cab, numericas, linhas) => `<div class="table-wrap"><table class="mn-rel-tab"><thead><tr>${cab.map((c, i) => `<th${numericas.includes(i) ? ' class="n"' : ''}>${esc(c)}</th>`).join('')}</tr></thead><tbody>${linhas}</tbody></table></div>`;
+  const grupo = (titulo, cab, lista) => lista.length < 2 ? '' : `<h3>${esc(titulo)}</h3>` + tab(
+    [cab, 'Equip.', 'Disponib.', 'Cobertura', 'Ocorr.', 'Indisponivel', 'Sem visib.'], [1, 2, 3, 4, 5, 6],
+    lista.map(g => `<tr><td><strong>${esc(g.nome)}</strong></td><td class="n">${g.equipamentos}</td><td class="n">${mnRelPctMeta(g.disponibilidade, meta)}</td><td class="n">${mnRelPct(g.cobertura)}</td><td class="n">${g.quedas || '--'}</td><td class="n">${mnRelDur(g.fora_s)}</td><td class="n">${mnRelDur(g.sem_visibilidade_s)}</td></tr>`).join(''));
   el.innerHTML = `
-    <div class="mn-rel-kpis">
-      <div><span class="mn-cap">Disponibilidade</span><strong class="mn-rel-${mnRelCor(rs.disponibilidade, meta)}">${mnRelPct(rs.disponibilidade)}</strong><small>meta ${mnRelPct(meta)} · ${dif(rs.disponibilidade, an.disponibilidade, false, v => `${v.toFixed(2).replace('.', ',')} pp`)}</small></div>
-      <div><span class="mn-cap">Quedas</span><strong>${rs.quedas}</strong><small>em ${rs.com_queda} equip. · ${dif(rs.quedas, an.quedas, true, v => String(v))}</small></div>
-      <div><span class="mn-cap">Tempo fora (somado)</span><strong>${mnRelDur(rs.fora_s)}</strong><small>${dif(rs.fora_s, an.fora_s, true, mnRelDur)}</small></div>
-      <div><span class="mn-cap">Fora agora</span><strong class="${rs.fora_agora ? 'mn-rel-bad' : ''}">${rs.fora_agora}</strong><small>${rs.abaixo_meta} abaixo da meta no periodo</small></div>
-    </div>
-    ${r.destaques.length ? `<ul class="mn-rel-destaques">${r.destaques.map(d => `<li>${esc(d)}</li>`).join('')}</ul>` : ''}
-    ${grupo('Por site', 'Site', r.por_site)}
-    ${grupo('Por tipo', 'Tipo', r.por_tipo)}
-    ${r.piores.length ? `<h3>Equipamentos que mais ficaram fora</h3>
-    <div class="table-wrap"><table class="data-table mn-rel-tab"><thead><tr><th>Equipamento</th><th>Site</th><th>Disponivel</th><th>Quedas</th><th>Tempo fora</th></tr></thead><tbody>
-    ${r.piores.slice(0, 10).map(e => `<tr><td><strong>${esc(e.equipamento)}</strong><br><span class="mn-muted">${esc(e.tipo_rotulo)}</span></td><td>${esc(e.site)}</td><td class="mn-rel-${mnRelCor(e.disponibilidade, meta)}"><b>${mnRelPct(e.disponibilidade)}</b></td><td>${e.quedas}</td><td>${mnRelDur(e.fora_s)}</td></tr>`).join('')}
-    </tbody></table></div>` : '<p class="mn-muted">Nenhuma queda no periodo.</p>'}
-    ${r.quedas.length ? `<h3>Ultimas quedas <span class="mn-muted">(${r.quedas_total} no periodo; todas no PDF)</span></h3>
-    <div class="table-wrap"><table class="data-table mn-rel-tab"><thead><tr><th>Equipamento</th><th>Site</th><th>Caiu</th><th>Voltou</th><th>Duracao</th></tr></thead><tbody>
-    ${r.quedas.slice(0, 15).map(q => `<tr><td><strong>${esc(q.equipamento)}</strong></td><td>${esc(q.site)}</td><td>${esc(mnRelQuando(q.inicio))}${q.comecou_antes ? ' <span class="mn-muted">(antes)</span>' : ''}</td><td>${q.aberta ? '<b class="mn-rel-bad">ainda fora</b>' : esc(mnRelQuando(q.fim))}</td><td>${mnRelDur(q.duracao_s)}</td></tr>`).join('')}
-    </tbody></table></div>` : ''}`;
+    <h3>Indicadores do periodo <span class="mn-muted">comparados a ${esc(ant)}</span></h3>
+    ${tab(['Indicador', 'Periodo', 'Periodo anterior', 'Variacao'], [1, 2, 3], [
+      linha('Disponibilidade (media ponderada pelo tempo)', rs.disponibilidade, an.disponibilidade, mnRelPct, pp),
+      linha('Cobertura de monitoramento', rs.cobertura, an.cobertura, mnRelPct, pp),
+      linha('Ocorrencias de indisponibilidade', rs.quedas, an.quedas, num, num),
+      linha('Tempo indisponivel acumulado', rs.fora_s, an.fora_s, mnRelDur, mnRelDur),
+      linha('Indisponibilidades de conector', rs.quedas_conector, an.quedas_conector, num, num),
+      linha('Tempo sem visibilidade (conector indisponivel)', rs.sem_visibilidade_s, an.sem_visibilidade_s, mnRelDur, mnRelDur),
+      linha(`Equipamentos abaixo da meta (${mnRelPct(meta)})`, rs.abaixo_meta, an.abaixo_meta, num, num),
+    ].join(''))}
+    ${grupo('Disponibilidade por site', 'Site', r.por_site)}
+    ${grupo('Disponibilidade por tipo', 'Tipo', r.por_tipo)}
+    ${r.conectores.length ? `<h3>Indisponibilidade de conectores</h3>` + tab(['Conector', 'Site', 'Inicio', 'Fim', 'Duracao', 'Equip. afetados'], [4, 5],
+      r.conectores.slice(0, 15).map(c => `<tr><td><strong>${esc(c.conector)}</strong></td><td>${esc(c.site)}</td><td>${esc(mnRelQuando(c.inicio))}</td><td>${c.aberta ? '<b class="mn-rel-bad">em aberto</b>' : esc(mnRelQuando(c.fim))}</td><td class="n">${mnRelDur(c.duracao_s)}</td><td class="n">${c.afetados}</td></tr>`).join('')) : ''}
+    ${r.atencao.length ? `<h3>Pontos de atencao</h3>` + tab(['Severidade', 'Equipamento', 'Site', 'Descricao'], [],
+      r.atencao.slice(0, 15).map(a => `<tr><td>${a.nivel === 'alto' ? '<b class="mn-rel-bad">Alta</b>' : 'Media'}</td><td><strong>${esc(a.equipamento)}</strong></td><td>${esc(a.site)}</td><td>${esc(a.texto)}</td></tr>`).join('')) : ''}
+    ${r.quedas.length ? `<h3>Ultimas ocorrencias de indisponibilidade <span class="mn-muted">${num(r.quedas_total)} no periodo; registro completo no PDF</span></h3>` + tab(['Equipamento', 'Site', 'Inicio', 'Fim', 'Duracao'], [4],
+      r.quedas.slice(0, 15).map(q => `<tr><td><strong>${esc(q.equipamento)}</strong></td><td>${esc(q.site)}</td><td>${esc(mnRelQuando(q.inicio))}${q.comecou_antes ? ' *' : ''}</td><td>${q.aberta ? '<b class="mn-rel-bad">em aberto</b>' : esc(mnRelQuando(q.fim))}</td><td class="n">${mnRelDur(q.duracao_s)}</td></tr>`).join('')) : ''}
+    <p class="mn-rel-nota">Disponibilidade = 1 − tempo indisponivel ÷ tempo com leitura. Enquanto o conector do site esta indisponivel, os equipamentos dependentes ficam sem visibilidade: esse tempo nao conta como disponivel nem como indisponivel. n/d = cobertura abaixo de ${r.cobertura_minima_pct}%.</p>`;
 }
 
 async function mnRelGerar() {

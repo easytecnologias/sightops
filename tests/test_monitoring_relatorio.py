@@ -1,7 +1,7 @@
 """Linha do tempo do relatorio de disponibilidade (monitoring_relatorio)."""
 from datetime import datetime, timedelta, timezone
 
-from app.services.monitoring_relatorio import _linha_do_tempo, _pct
+from app.services.monitoring_relatorio import _linha_do_tempo, _pct, _sem_visibilidade
 
 INI = datetime(2026, 10, 1, 3, tzinfo=timezone.utc)
 FIM = INI + timedelta(days=1)
@@ -42,3 +42,24 @@ def test_sem_evento_nenhum_vale_o_estado_atual_desde_a_ultima_mudanca():
 def test_disponibilidade_ignora_tempo_sem_medida():
     assert _pct(0, 0) is None
     assert _pct(3600, 36000) == 90.0
+
+
+def test_conector_fora_vira_sem_visibilidade_e_nao_queda():
+    h = lambda x: INI + timedelta(hours=x)
+    # camera caiu 20 min antes do conector ser confirmado fora (10h-14h); voltou junto
+    camera = [(h(0), h(9.66), "up"), (h(9.66), h(14), "down"), (h(14), h(24), "up")]
+    t = _sem_visibilidade(camera, [(h(10), h(14))])
+    assert _soma(t) == {"up": 9.66 + 10, "blind": 14 - 9.66}
+
+
+def test_camera_que_respondia_antes_do_conector_cair_continua_no_ar():
+    h = lambda x: INI + timedelta(hours=x)
+    t = _sem_visibilidade([(h(0), h(24), "up")], [(h(10), h(14))])
+    assert _soma(t) == {"up": 20, "blind": 4}
+
+
+def test_queda_logo_apos_o_conector_voltar_e_a_mesma_falha():
+    h = lambda x: INI + timedelta(hours=x)
+    camera = [(h(0), h(14.03), "up"), (h(14.03), h(14.12), "down"), (h(14.12), h(24), "up")]
+    t = _sem_visibilidade(camera, [(h(10), h(14))])
+    assert "down" not in _soma(t)
