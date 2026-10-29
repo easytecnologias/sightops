@@ -25,6 +25,9 @@ from app.services import pdv_leitor as L
 from app.services.pdv_cm import ConversorCM
 
 ESPERA_MAX = 15.0  # s de relogio: Espiao nao espera o Teclas mais que isso
+# Evento que veio do CM: seq = SEQ_CM + seq_do_cm*10 + k, numa faixa que nunca cruza
+# a do Espiao (linha do arquivo) na chave (tenant, caixa, dia, seq) de pdv_eventos.
+SEQ_CM = 1000000000
 
 
 def centavos(valor: Any) -> int:
@@ -110,7 +113,7 @@ class ProcessadorDia(object):
         """espiao/teclas/cm: [(seq, linha)] em ordem. Linha ja vista (seq <= ultimo) e ignorada.
 
         cm: linhas do CM, para caixa sem Espiao; viram eventos de Espiao com
-        seq = seq_do_cm * 10 + k (pdv_cm.converter)."""
+        seq = SEQ_CM + seq_do_cm * 10 + k."""
         agora = time.time() if agora is None else agora
         for seq, texto in teclas:
             if seq <= self.ultimo_seq["Teclas"]:
@@ -139,7 +142,7 @@ class ProcessadorDia(object):
                 ev = L.ler_linha_espiao(linha)
                 if ev is not None:
                     self.fonte = "cm"
-                    self.pendentes.append((seq * 10 + k, ev, agora))
+                    self.pendentes.append((SEQ_CM + seq * 10 + k, ev, agora))
         return self._liberar(agora, final)
 
     def previa(self) -> Dict[str, Any]:
