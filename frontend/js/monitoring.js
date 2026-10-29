@@ -285,6 +285,78 @@ async function openMonitoringAttentionDrawer(activeType = 'all', activeSite = nu
 const MONITORING_ATTENTION = ['down', 'unstable', 'unknown'];
 let _monitoringTab = 'attention';
 
+// Site escolhido no topo da tela: filtra todos os cards, a tabela e as gavetas.
+let _monitoringScope = (() => { try { return localStorage.getItem('sightops.monitoring.site') || ''; } catch (_) { return ''; } })();
+
+function monitoringScoped() {
+  return _monitoringScope ? _monitoringEntities.filter(row => String(row.site || '').trim() === _monitoringScope) : _monitoringEntities;
+}
+
+function monitoringSetScope(site) {
+  _monitoringScope = site || '';
+  try { localStorage.setItem('sightops.monitoring.site', _monitoringScope); } catch (_) { /* sem storage: so nesta aba */ }
+  const select = document.getElementById('monitoringScope');
+  if (select) select.value = _monitoringScope;
+  const tableSite = document.getElementById('monitoringSite');
+  if (tableSite) { tableSite.value = _monitoringScope; tableSite.hidden = !!_monitoringScope; }
+  renderMonitoringAll();
+}
+
+function renderMonitoringAll() {
+  renderMonitoringHealth();
+  renderMonitoringSitesStrip();
+  renderMonitoringIncidents();
+  renderMonitoringKpis();
+  renderMonitoringTabs();
+  renderMonitoringRows();
+  lucide.createIcons();
+}
+
+function renderMonitoringScopeSelect() {
+  const select = document.getElementById('monitoringScope');
+  if (!select) return;
+  const sites = [...new Set(_monitoringEntities.map(row => String(row.site || '').trim()).filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b, 'pt-BR', { numeric: true }));
+  if (_monitoringScope && !sites.includes(_monitoringScope)) _monitoringScope = '';
+  select.innerHTML = '<option value="">Todos os sites</option>' + sites.map(site => `<option value="${esc(site)}">${esc(site)}</option>`).join('');
+  select.value = _monitoringScope;
+  select.hidden = sites.length < 2 && !_monitoringScope;
+}
+
+// Com "Todos os sites", um bloco por site embaixo dos cards: quanto esta no ar
+// em cada um e quantos estao fora. Clicar filtra a tela por aquele site.
+function renderMonitoringSitesStrip() {
+  const el = document.getElementById('monitoringSitesStrip');
+  if (!el) return;
+  const groups = new Map();
+  _monitoringEntities.forEach(row => {
+    const site = String(row.site || '').trim() || 'Sem site';
+    if (!groups.has(site)) groups.set(site, { site, total: 0, up: 0, down: 0, attention: 0 });
+    const g = groups.get(site);
+    g.total += 1;
+    if (row.status === 'up') g.up += 1;
+    else if (row.status === 'down') g.down += 1;
+    else if (row.status === 'unstable' || row.status === 'unknown') g.attention += 1;
+  });
+  if (_monitoringScope || groups.size < 2) { el.hidden = true; el.innerHTML = ''; return; }
+  const list = [...groups.values()].sort((a, b) => (a.up / a.total) - (b.up / b.total) || a.site.localeCompare(b.site, 'pt-BR', { numeric: true }));
+  el.hidden = false;
+  el.innerHTML = `<div class="mn-cap">Por site</div><div class="mn-sites-list">${list.map(g => {
+    const pct = (g.up / g.total) * 100;
+    const cls = g.down ? 'bad' : (g.attention ? 'warn' : 'ok');
+    const estado = g.down ? `${g.down} fora` : (g.attention ? `${g.attention} em atencao` : 'tudo online');
+    const semSite = g.site === 'Sem site';
+    return `<button type="button" class="mn-site ${cls}" data-monitoring-scope="${esc(semSite ? '' : g.site)}"${semSite ? ' disabled' : ''}>
+      <span class="mn-site-top"><span class="mn-site-name" title="${esc(g.site)}">${esc(g.site)}</span><span class="mn-site-pct">${pct.toFixed(1).replace('.', ',')}%</span></span>
+      <span class="mn-bar"><i class="up" style="width:${pct}%"></i><i class="down" style="width:${(g.down / g.total) * 100}%"></i><i class="warn" style="width:${(g.attention / g.total) * 100}%"></i></span>
+      <span class="mn-site-meta">${g.total} equip. · <b>${esc(estado)}</b></span>
+    </button>`;
+  }).join('')}</div>`;
+  el.querySelectorAll('[data-monitoring-scope]').forEach(button => {
+    button.addEventListener('click', () => monitoringSetScope(button.dataset.monitoringScope));
+  });
+}
+
 function monitoringIsAttention(row) {
   return MONITORING_ATTENTION.includes(row.status);
 }
@@ -331,7 +403,7 @@ function monitoringIsStale(row) {
 function renderMonitoringHealth() {
   const el = document.getElementById('monitoringHealth');
   if (!el) return;
-  const rows = _monitoringEntities;
+  const rows = monitoringScoped();
   const total = rows.length;
   const up = rows.filter(row => row.status === 'up').length;
   const down = rows.filter(row => row.status === 'down').length;
@@ -363,7 +435,7 @@ function renderMonitoringHealth() {
     <div>
       <div class="mn-cap">Parque monitorado</div>
       <div class="mn-score"><strong>${total}</strong><span>equipamento${total === 1 ? '' : 's'}</span></div>
-      <div class="mn-caption">Em ${sites.size} site${sites.size === 1 ? '' : 's'}.</div>
+      <div class="mn-caption">${_monitoringScope ? `Site <b>${esc(_monitoringScope)}</b>.` : `Em ${sites.size} site${sites.size === 1 ? '' : 's'}.`}</div>
       <div class="mn-caption"><b>${changed24h}</b> mudaram de estado nas ultimas 24 h.</div>
     </div>
     <div>
@@ -378,7 +450,7 @@ function renderMonitoringHealth() {
 // cairam juntas na mesma faixa sao UM problema de rede, nao dez problemas.
 function monitoringIncidentGroups() {
   const groups = new Map();
-  _monitoringEntities.filter(monitoringIsAttention).forEach(row => {
+  monitoringScoped().filter(monitoringIsAttention).forEach(row => {
     const prefix = monitoringIpPrefix(monitoringHostOf(row));
     const site = String(row.site || '').trim();
     const key = `${site}|${prefix || `tipo:${row.entity_type}`}`;
@@ -485,7 +557,7 @@ function renderMonitoringRows() {
   const type = document.getElementById('monitoringType')?.value || '';
   const status = document.getElementById('monitoringStatus')?.value || '';
   const site = document.getElementById('monitoringSite')?.value || '';
-  const rows = _monitoringEntities.filter(row => {
+  const rows = monitoringScoped().filter(row => {
     if (_monitoringTab === 'attention' && !monitoringIsAttention(row)) return false;
     if (type && row.entity_type !== type) return false;
     if (status && row.status !== status) return false;
@@ -519,8 +591,8 @@ function monitoringSetTab(tab) {
 }
 
 function renderMonitoringTabs() {
-  const attention = _monitoringEntities.filter(monitoringIsAttention).length;
-  const all = _monitoringEntities.length;
+  const attention = monitoringScoped().filter(monitoringIsAttention).length;
+  const all = monitoringScoped().length;
   const tabAttention = document.querySelector('[data-monitoring-tab="attention"]');
   const tabAll = document.querySelector('[data-monitoring-tab="all"]');
   if (tabAttention) tabAttention.textContent = `Com problema (${attention})`;
@@ -540,8 +612,14 @@ function renderMonitoringSites() {
   if (sites.includes(selected)) select.value = selected;
 }
 
-function renderMonitoringKpis(summary) {
-  const types = summary?.types || {};
+function renderMonitoringKpis() {
+  // Contado das entidades (e nao do /summary) para seguir o site escolhido no topo.
+  const types = {};
+  monitoringScoped().forEach(row => {
+    const t = types[row.entity_type] || (types[row.entity_type] = { total: 0, up: 0, down: 0, unstable: 0, unknown: 0 });
+    t.total += 1;
+    if (row.status in t) t[row.status] += 1;
+  });
   const el = document.getElementById('monitoringKpis');
   if (!el) return;
   const items = Object.entries(MONITORING_LABELS).map(([key, label]) => {
@@ -569,7 +647,7 @@ function renderMonitoringKpis(summary) {
     : '');
 
   el.querySelectorAll('[data-monitoring-type]').forEach(card => {
-    card.addEventListener('click', () => openMonitoringDrawer(card.dataset.monitoringType, 'all'));
+    card.addEventListener('click', () => openMonitoringDrawer(card.dataset.monitoringType, 'all', _monitoringScope || null));
   });
 }
 
@@ -577,18 +655,13 @@ async function loadMonitoring() {
   const summaryText = document.getElementById('monitoringSummaryText');
   if (summaryText) summaryText.textContent = 'Carregando estados...';
   try {
-    const [summary, entities] = await Promise.all([
-      apiJson('/api/monitoring/summary', { forceRefresh: true }),
-      apiJson('/api/monitoring/entities?limit=2000', { forceRefresh: true }),
-    ]);
+    const entities = await apiJson('/api/monitoring/entities?limit=2000', { forceRefresh: true });
     _monitoringEntities = entities?.entities || [];
-    renderMonitoringHealth();
-    renderMonitoringIncidents();
-    renderMonitoringKpis(summary);
+    renderMonitoringScopeSelect();
     renderMonitoringSites();
-    renderMonitoringTabs();
-    renderMonitoringRows();
-    lucide.createIcons();
+    const tableSite = document.getElementById('monitoringSite');
+    if (tableSite) { tableSite.hidden = !!_monitoringScope; if (_monitoringScope) tableSite.value = _monitoringScope; }
+    renderMonitoringAll();
   } catch (error) {
     if (summaryText) summaryText.textContent = `Falha ao carregar: ${error.message || error}`;
   }
@@ -611,11 +684,172 @@ async function refreshMonitoring() {
 
 function bindMonitoring() {
   document.getElementById('btnMonitoringRefresh')?.addEventListener('click', refreshMonitoring);
+  document.getElementById('monitoringScope')?.addEventListener('change', event => monitoringSetScope(event.target.value));
+  bindMonitoringReport();
   document.getElementById('monitoringSearch')?.addEventListener('input', renderMonitoringRows);
   document.getElementById('monitoringType')?.addEventListener('change', renderMonitoringRows);
   document.getElementById('monitoringStatus')?.addEventListener('change', renderMonitoringRows);
   document.getElementById('monitoringSite')?.addEventListener('change', renderMonitoringRows);
   document.querySelectorAll('[data-monitoring-tab]').forEach(button => {
     button.addEventListener('click', () => { monitoringSetTab(button.dataset.monitoringTab); renderMonitoringRows(); });
+  });
+}
+
+// ---------------------------------------------------------------- relatorio
+// Disponibilidade do periodo (tempo no ar, quedas, tempo fora). A tela mostra
+// o resumo; o PDF (A4, logo do cliente) traz tudo, inclusive a lista de quedas.
+
+function mnRelIso(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function mnRelPeriodo(tipo) {
+  const hoje = new Date();
+  let de = new Date(hoje), ate = new Date(hoje);
+  if (tipo === 'mes') de = new Date(hoje.getFullYear(), hoje.getMonth(), 1);
+  else if (tipo === 'mes-passado') { de = new Date(hoje.getFullYear(), hoje.getMonth() - 1, 1); ate = new Date(hoje.getFullYear(), hoje.getMonth(), 0); }
+  else de.setDate(hoje.getDate() - (Number(tipo) || 7) + 1);
+  document.getElementById('mnRelDe').value = mnRelIso(de);
+  document.getElementById('mnRelAte').value = mnRelIso(ate);
+}
+
+function mnRelQuery() {
+  const q = new URLSearchParams();
+  [['de', 'mnRelDe'], ['ate', 'mnRelAte'], ['site', 'mnRelSite'], ['tipo', 'mnRelTipo']].forEach(([k, id]) => {
+    const v = document.getElementById(id)?.value || '';
+    if (v) q.set(k, v);
+  });
+  return q.toString();
+}
+
+function mnRelPct(v) {
+  return v == null ? '--' : `${Number(v).toFixed(2).replace('.', ',')}%`;
+}
+
+function mnRelDur(seg) {
+  seg = Math.floor(Number(seg) || 0);
+  if (!seg) return '--';
+  const d = Math.floor(seg / 86400), h = Math.floor((seg % 86400) / 3600), m = Math.floor((seg % 3600) / 60);
+  if (d) return `${d}d ${h}h`;
+  if (h) return `${h}h ${String(m).padStart(2, '0')}m`;
+  return m ? `${m} min` : `${seg}s`;
+}
+
+function mnRelCor(v, meta) {
+  if (v == null) return '';
+  return v >= meta ? 'ok' : (v >= 95 ? 'warn' : 'bad');
+}
+
+function mnRelQuando(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? iso : d.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+}
+
+function mnRelRender(r) {
+  const el = document.getElementById('mnRelResultado');
+  const rs = r.resumo, an = r.anterior, meta = r.meta_pct;
+  if (!rs.equipamentos) { el.innerHTML = '<p class="mn-muted">Nenhum equipamento monitorado com estes filtros.</p>'; return; }
+  const dif = (a, b, menorMelhor, fmt) => {
+    if (a == null || b == null) return '<span class="mn-muted">sem periodo anterior</span>';
+    const d = a - b;
+    if (Math.abs(d) < 0.005) return '<span class="mn-muted">igual ao anterior</span>';
+    const melhor = menorMelhor ? d < 0 : d > 0;
+    return `<span class="${melhor ? 'mn-rel-ok' : 'mn-rel-bad'}">${d > 0 ? '▲' : '▼'} ${esc(fmt(Math.abs(d)))}</span> <span class="mn-muted">vs anterior</span>`;
+  };
+  const grupo = (titulo, cab, lista) => lista.length < 2 ? '' : `
+    <h3>${esc(titulo)}</h3>
+    <div class="table-wrap"><table class="data-table mn-rel-tab"><thead><tr><th>${esc(cab)}</th><th>Equip.</th><th>Disponivel</th><th>Quedas</th><th>Tempo fora</th><th>Fora agora</th></tr></thead><tbody>
+    ${lista.map(g => `<tr><td><strong>${esc(g.nome)}</strong></td><td>${g.equipamentos}</td><td class="mn-rel-${mnRelCor(g.disponibilidade, meta)}"><b>${mnRelPct(g.disponibilidade)}</b></td><td>${g.quedas || '--'}</td><td>${mnRelDur(g.fora_s)}</td><td>${g.fora_agora ? `<b class="mn-rel-bad">${g.fora_agora}</b>` : '--'}</td></tr>`).join('')}
+    </tbody></table></div>`;
+  el.innerHTML = `
+    <div class="mn-rel-kpis">
+      <div><span class="mn-cap">Disponibilidade</span><strong class="mn-rel-${mnRelCor(rs.disponibilidade, meta)}">${mnRelPct(rs.disponibilidade)}</strong><small>meta ${mnRelPct(meta)} · ${dif(rs.disponibilidade, an.disponibilidade, false, v => `${v.toFixed(2).replace('.', ',')} pp`)}</small></div>
+      <div><span class="mn-cap">Quedas</span><strong>${rs.quedas}</strong><small>em ${rs.com_queda} equip. · ${dif(rs.quedas, an.quedas, true, v => String(v))}</small></div>
+      <div><span class="mn-cap">Tempo fora (somado)</span><strong>${mnRelDur(rs.fora_s)}</strong><small>${dif(rs.fora_s, an.fora_s, true, mnRelDur)}</small></div>
+      <div><span class="mn-cap">Fora agora</span><strong class="${rs.fora_agora ? 'mn-rel-bad' : ''}">${rs.fora_agora}</strong><small>${rs.abaixo_meta} abaixo da meta no periodo</small></div>
+    </div>
+    ${r.destaques.length ? `<ul class="mn-rel-destaques">${r.destaques.map(d => `<li>${esc(d)}</li>`).join('')}</ul>` : ''}
+    ${grupo('Por site', 'Site', r.por_site)}
+    ${grupo('Por tipo', 'Tipo', r.por_tipo)}
+    ${r.piores.length ? `<h3>Equipamentos que mais ficaram fora</h3>
+    <div class="table-wrap"><table class="data-table mn-rel-tab"><thead><tr><th>Equipamento</th><th>Site</th><th>Disponivel</th><th>Quedas</th><th>Tempo fora</th></tr></thead><tbody>
+    ${r.piores.slice(0, 10).map(e => `<tr><td><strong>${esc(e.equipamento)}</strong><br><span class="mn-muted">${esc(e.tipo_rotulo)}</span></td><td>${esc(e.site)}</td><td class="mn-rel-${mnRelCor(e.disponibilidade, meta)}"><b>${mnRelPct(e.disponibilidade)}</b></td><td>${e.quedas}</td><td>${mnRelDur(e.fora_s)}</td></tr>`).join('')}
+    </tbody></table></div>` : '<p class="mn-muted">Nenhuma queda no periodo.</p>'}
+    ${r.quedas.length ? `<h3>Ultimas quedas <span class="mn-muted">(${r.quedas_total} no periodo; todas no PDF)</span></h3>
+    <div class="table-wrap"><table class="data-table mn-rel-tab"><thead><tr><th>Equipamento</th><th>Site</th><th>Caiu</th><th>Voltou</th><th>Duracao</th></tr></thead><tbody>
+    ${r.quedas.slice(0, 15).map(q => `<tr><td><strong>${esc(q.equipamento)}</strong></td><td>${esc(q.site)}</td><td>${esc(mnRelQuando(q.inicio))}${q.comecou_antes ? ' <span class="mn-muted">(antes)</span>' : ''}</td><td>${q.aberta ? '<b class="mn-rel-bad">ainda fora</b>' : esc(mnRelQuando(q.fim))}</td><td>${mnRelDur(q.duracao_s)}</td></tr>`).join('')}
+    </tbody></table></div>` : ''}`;
+}
+
+async function mnRelGerar() {
+  const btn = document.getElementById('btnMnRelGerar');
+  const el = document.getElementById('mnRelResultado');
+  btn.disabled = true;
+  el.innerHTML = '<p class="mn-muted">Calculando...</p>';
+  try {
+    const r = await apiJson(`/api/monitoring/relatorio?${mnRelQuery()}`, { forceRefresh: true });
+    document.getElementById('mnRelDe').value = r.de;
+    document.getElementById('mnRelAte').value = r.ate;
+    mnRelRender(r);
+  } catch (error) {
+    el.innerHTML = `<p class="mn-rel-bad">Nao foi possivel gerar: ${esc(error.message || error)}</p>`;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function mnRelPdf() {
+  const btn = document.getElementById('btnMnRelPdf');
+  btn.disabled = true;
+  try {
+    const res = await api(`/api/monitoring/relatorio/pdf?${mnRelQuery()}`);
+    if (!res || !res.ok) {
+      const det = res ? (await res.json().catch(() => ({}))).detail : '';
+      throw new Error(det || 'Falha ao gerar o PDF.');
+    }
+    const nome = (res.headers.get('Content-Disposition') || '').match(/filename="([^"]+)"/)?.[1] || 'disponibilidade.pdf';
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(await res.blob());
+    a.download = nome;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  } catch (error) {
+    showToast(error.message || 'Falha ao gerar o PDF.', true);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function openMonitoringReport() {
+  const site = document.getElementById('mnRelSite');
+  const sites = [...new Set(_monitoringEntities.map(row => String(row.site || '').trim()).filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b, 'pt-BR', { numeric: true }));
+  site.innerHTML = '<option value="">Todos os sites</option>' + sites.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join('');
+  site.value = _monitoringScope;
+  const tipo = document.getElementById('mnRelTipo');
+  const tipos = [...new Set(_monitoringEntities.map(row => row.entity_type))];
+  const atual = tipo.value;
+  tipo.innerHTML = '<option value="">Todos os tipos</option>' + tipos.map(t => `<option value="${esc(t)}">${esc(MONITORING_LABELS[t] || t)}</option>`).join('');
+  if (tipos.includes(atual)) tipo.value = atual;
+  if (!document.getElementById('mnRelDe').value) mnRelPeriodo('7');
+  document.getElementById('modalMonitoringReport').classList.remove('hidden');
+  lucide.createIcons();
+  mnRelGerar();
+}
+
+function closeMonitoringReport() {
+  document.getElementById('modalMonitoringReport')?.classList.add('hidden');
+}
+
+function bindMonitoringReport() {
+  document.getElementById('btnMonitoringReport')?.addEventListener('click', openMonitoringReport);
+  document.getElementById('btnMnRelGerar')?.addEventListener('click', mnRelGerar);
+  document.getElementById('btnMnRelPdf')?.addEventListener('click', mnRelPdf);
+  document.querySelectorAll('[data-mn-rel-close]').forEach(b => b.addEventListener('click', closeMonitoringReport));
+  document.querySelectorAll('[data-mn-rel-periodo]').forEach(b => b.addEventListener('click', () => { mnRelPeriodo(b.dataset.mnRelPeriodo); mnRelGerar(); }));
+  // So X, Fechar ou Esc fecham (clique fora nao: perdia o que estava aberto).
+  document.addEventListener('keydown', event => {
+    if (event.key === 'Escape' && !document.getElementById('modalMonitoringReport')?.classList.contains('hidden')) closeMonitoringReport();
   });
 }

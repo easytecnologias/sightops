@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Dict
 from app.core import permissions
-from fastapi import APIRouter, Body, HTTPException, Request
+from fastapi import APIRouter, Body, HTTPException, Request, Response
 
 from app.services.monitoring_service import (
     config_health,
@@ -28,6 +28,34 @@ def api_monitoring_summary() -> Dict[str, Any]:
 def api_monitoring_entities(entity_type: str = "", status: str = "", limit: int = 500) -> Dict[str, Any]:
     rows = permissions.filtrar_por_site(list_entities(entity_type=entity_type, status=status, limit=limit), ("site",))
     return {"ok": True, "count": len(rows), "entities": rows}
+
+
+@router.get("/relatorio")
+def api_monitoring_relatorio(de: str = "", ate: str = "", site: str = "", tipo: str = "") -> Dict[str, Any]:
+    """Disponibilidade do periodo: tempo no ar, quedas e tempo fora por equipamento."""
+    from app.services.monitoring_relatorio import gerar
+
+    return gerar(de=de, ate=ate, site=site, tipo=tipo, sites=permissions.sites_da_sessao())
+
+
+@router.get("/relatorio/pdf")
+def api_monitoring_relatorio_pdf(de: str = "", ate: str = "", site: str = "", tipo: str = "") -> Response:
+    """O mesmo relatorio em PDF A4 (logo do cliente)."""
+    import re as _re
+    import unicodedata
+
+    from app.core.tenant_context import get_current_user, tenant_report_logo_path
+    from app.services.monitoring_relatorio import gerar
+    from app.services.monitoring_relatorio_pdf import gerar_pdf
+
+    r = gerar(de=de, ate=ate, site=site, tipo=tipo, sites=permissions.sites_da_sessao())
+    logo = tenant_report_logo_path("inventory")
+    usuario = str((get_current_user() or {}).get("username") or "")
+    pdf = gerar_pdf(r, usuario=usuario, logo=logo if logo.exists() else None)
+    base = unicodedata.normalize("NFKD", f"disponibilidade {r['site'] or 'todos'} {r['de']} {r['ate']}")
+    nome = _re.sub(r"[^A-Za-z0-9]+", "-", base.encode("ascii", "ignore").decode()).strip("-").lower() or "disponibilidade"
+    return Response(content=pdf, media_type="application/pdf",
+                    headers={"Content-Disposition": f'attachment; filename="{nome}.pdf"', "Cache-Control": "no-store"})
 
 
 @router.get("/profiles")
