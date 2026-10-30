@@ -50,7 +50,10 @@ def _agora() -> str:
 
 def _caixa(c: Any, caixa_id: str) -> Dict[str, Any]:
     r = c.execute("SELECT * FROM pdv_caixas WHERE tenant_slug=? AND id=?", (pdv_store._tenant(), caixa_id)).fetchone()
-    if not r:
+    # caixa de loja que o usuario nao acessa: como se nao existisse (acesso SSH,
+    # status do coletor, instalacao). Na thread da instalacao nao ha usuario: o
+    # pedido ja foi conferido aqui, na requisicao, antes de ela comecar.
+    if not r or not pdv_store._do_usuario([dict(r)]):
         raise ValueError("Caixa não encontrado.")
     return dict(r)
 
