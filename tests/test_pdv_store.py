@@ -368,3 +368,16 @@ def test_usuario_restrito_a_uma_loja_so_ve_ela(banco, monkeypatch):
     # coletor e laco de fundo nao tem usuario: continuam vendo tudo
     monkeypatch.setattr(permissions, "sites_da_sessao", lambda: None)
     assert len(S.listar_caixas()) == 2
+
+
+def test_linha_com_nul_nao_trava_o_lote(banco):
+    """PostgreSQL recusa NUL em texto; o lote inteiro dava 500 e o coletor travava."""
+    from app.services import db_store
+    c1 = _caixa()
+    cx = S.autenticar(c1["id"], c1["token"])
+    sujo = [[i, l.replace("|", "\x00|", 1) if i == 3 else l] for i, l in ESP]
+    r = _enviar(cx, sujo, TEC, agora=10_000.0)
+    assert r["aceito"]["Espiao/%s" % DIA] == ESP[-1][0]
+    with db_store._conn() as c:
+        linhas = [x["linha"] for x in c.execute("SELECT linha FROM pdv_linhas WHERE caixa_id=?", (c1["id"],)).fetchall()]
+    assert linhas and not any("\x00" in l for l in linhas)
