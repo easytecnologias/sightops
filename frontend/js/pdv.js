@@ -100,6 +100,7 @@ function pdvParar() {
   if (_pdvTimer) { clearInterval(_pdvTimer); _pdvTimer = null; }
   if (_pdvVivo.timer) { clearInterval(_pdvVivo.timer); _pdvVivo.timer = null; }
   if (_pdvVivo.handle) { try { _pdvVivo.handle.stop(); } catch (_) {} _pdvVivo.handle = null; }
+  if (typeof pdvPararGravacao === 'function') pdvPararGravacao();
 }
 
 function pdvSemCaixa(boxId) {
@@ -717,35 +718,58 @@ function pdvEventoTexto(e) {
   return `${nome}${desc}${valor}`;
 }
 
+// Video do cupom/item: a GRAVACAO toca no player padrao do SightOps (o mesmo
+// do ao vivo), pelo /api/nvr/driver/playback -- igual a Gravacoes e a
+// Investigacao. Comeca na hora, sem baixar arquivo, e a rota ja confere que o
+// gravador e do cliente e de site que a pessoa acessa. Do PDV so sai o horario
+// ja no relogio do gravador (/api/pdv/video).
+let _pdvGravacao = null;
+let _pdvGravacaoTimer = null;
+
+function pdvPararGravacao() {
+  if (_pdvGravacaoTimer) { clearInterval(_pdvGravacaoTimer); _pdvGravacaoTimer = null; }
+  if (_pdvGravacao) { try { _pdvGravacao.stop(); } catch (_) {} _pdvGravacao = null; }
+}
+
 async function pdvVerVideo(caixaId, ts) {
   const box = document.getElementById('pdvVideoBox');
   if (!box) return;
+  pdvPararGravacao();
   box.innerHTML = '<p class="pdv-nota">Calculando o horário no gravador...</p>';
   const j = await apiJson(`/api/pdv/video/${encodeURIComponent(caixaId)}?ts=${encodeURIComponent(ts)}&antes=15&depois=45`, { forceRefresh: true });
   if (!j?.host) { box.innerHTML = '<p class="pdv-nota pdv-erro">Este caixa ainda não tem gravador e canal configurados.</p>'; return; }
   const aviso = j.relogio_medido ? `gravador ${j.gravador_menos_caixa_s >= 0 ? '+' : ''}${j.gravador_menos_caixa_s} s em relação ao caixa`
     : 'relógio do gravador ainda não medido: o vídeo pode estar alguns segundos deslocado';
-  box.innerHTML = `<p class="pdv-nota">Baixando do gravador ${esc(j.inicio.slice(11))} a ${esc(j.fim.slice(11))} (${esc(aviso)})... leva mais ou menos o tempo do trecho.</p>`;
-  const res = await api('/api/nvr/driver/trecho/iniciar', {
-    method: 'POST', body: JSON.stringify({ host: j.host, http_port: 80, canal: j.canal, inicio: j.inicio, fim: j.fim, connector_id: j.connector_id }),
+  box.innerHTML = `
+    <div class="pdv-gravacao">
+      <video id="pdvGravVideo" class="pdv-video" autoplay muted playsinline controls></video>
+      <p class="pdv-nota" id="pdvGravAviso">Abrindo a gravação do gravador...</p>
+    </div>
+    <p class="pdv-nota">Começa às ${esc(j.inicio.slice(11))} no gravador, 15 s antes do momento (caixa ${esc(j.momento_caixa.slice(11))} · gravador ${esc(j.momento_gravador.slice(11))}) · ${esc(aviso)}.</p>`;
+  const video = document.getElementById('pdvGravVideo');
+  if (!video || typeof mountLiveStream !== 'function') return;
+  _pdvGravacao = mountLiveStream(video, {
+    registrar: async () => {
+      const res = await api('/api/nvr/driver/playback', {
+        method: 'POST', body: JSON.stringify({ host: j.host, http_port: 80, canal: j.canal, inicio: j.inicio, connector_id: j.connector_id }),
+      });
+      const r = await res?.json().catch(() => ({}));
+      if (res?.status === 428) throw new Error('O gravador não tem senha guardada no SightOps.');
+      if (res?.status === 403) throw new Error('Este gravador é de uma loja que você não acessa.');
+      if (!res?.ok || !r?.stream_name) throw new Error(r?.detail || 'Não consegui abrir a gravação.');
+      return r.stream_name;
+    },
+    onStatus: texto => {
+      const a = document.getElementById('pdvGravAviso');
+      if (!a) return;
+      a.hidden = !texto;
+      if (texto) a.textContent = texto;
+    },
   });
-  const ini = await res?.json().catch(() => ({}));
-  if (!res?.ok || !ini?.job_id) {
-    box.innerHTML = `<p class="pdv-nota pdv-erro">${esc(res?.status === 428 ? 'O gravador não tem senha guardada no SightOps.' : (ini?.detail || 'Não consegui pedir o vídeo ao gravador.'))}</p>`;
-    return;
-  }
-  for (let i = 0; i < 120; i++) {
-    await new Promise(ok => setTimeout(ok, 2000));
-    if (!document.getElementById('pdvVideoBox')) return;
-    const st = await apiJson(`/api/nvr/driver/trecho/status?job_id=${ini.job_id}`, { forceRefresh: true });
-    if (st?.estado === 'pronto') {
-      box.innerHTML = `<video class="pdv-video" src="${esc(st.url)}" controls autoplay muted playsinline></video>
-        <p class="pdv-nota">Hora no caixa ${esc(j.momento_caixa.slice(11))} · no gravador ${esc(j.momento_gravador.slice(11))} · ${esc(aviso)}.</p>`;
-      return;
-    }
-    if (st?.estado === 'erro') { box.innerHTML = `<p class="pdv-nota pdv-erro">${esc(st.erro || 'O gravador não entregou o trecho.')}</p>`; return; }
-  }
-  box.innerHTML = '<p class="pdv-nota pdv-erro">O gravador demorou demais para entregar o trecho.</p>';
+  // saiu da tela (ou o cupom foi trocado): para de puxar video pelo link da loja
+  _pdvGravacaoTimer = setInterval(() => {
+    if (!pdvVisivel('viewPdvCupons') || !document.getElementById('pdvGravVideo')) pdvPararGravacao();
+  }, 2000);
 }
 
 // ---------------------------------------------------------------- configuracoes
