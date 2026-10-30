@@ -75,7 +75,7 @@ MODULOS: List[Dict[str, Any]] = [
      "views": ["rotas-vivo", "rotas-viagens", "rotas-cadastro", "rotas-frota", "rotas-pnate"],
      "prefixos": ["/api/rotas"]},
     {"key": "pdv", "label": "Ponto de venda (auditoria de caixa)",
-     "views": ["pdv-vivo", "pdv-visao", "pdv-revisao", "pdv-cupons", "pdv-operadores"],
+     "views": ["pdv-lojas", "pdv-vivo", "pdv-visao", "pdv-revisao", "pdv-cupons", "pdv-operadores"],
      "prefixos": ["/api/pdv"]},
     {"key": "investigacao", "label": "Investigação e IA", "views": ["playback", "ia-nvr"],
      "prefixos": ["/api/playback", "/api/ia"]},

@@ -71,10 +71,33 @@ def _publico(r: Dict[str, Any]) -> Dict[str, Any]:
     return out
 
 
+def _do_usuario(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """So os caixas dos sites (lojas) que o usuario da sessao acessa. Sem
+    restricao (ou laco de fundo, coletor): todos."""
+    from app.core.permissions import filtrar_por_site
+    return filtrar_por_site(rows, ("site",))
+
+
+def _ids_liberados(c: Any, tenant: str) -> Optional[List[str]]:
+    """Ids dos caixas que a sessao ve; None = sem restricao de site."""
+    from app.core.permissions import sites_da_sessao
+    if sites_da_sessao() is None:
+        return None
+    return [r["id"] for r in _do_usuario(_rows(c, "SELECT id, site FROM pdv_caixas WHERE tenant_slug=?", (tenant,)))]
+
+
+def _filtro_ids(coluna: str, ids: Optional[List[str]]) -> Tuple[str, tuple]:
+    if ids is None:
+        return "", ()
+    if not ids:
+        return " AND 1=0", ()
+    return " AND %s IN (%s)" % (coluna, ",".join("?" * len(ids))), tuple(ids)
+
+
 def listar_caixas() -> List[Dict[str, Any]]:
     with db_store._conn() as c:
         rows = _rows(c, "SELECT * FROM pdv_caixas WHERE tenant_slug=? ORDER BY numero, nome", (_tenant(),))
-    return [_publico(r) for r in rows]
+    return [_publico(r) for r in _do_usuario(rows)]
 
 
 def salvar_caixa(payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -358,7 +381,7 @@ def janela_video(caixa_id: str, ts: str, antes: int = 20, depois: int = 20) -> D
 
 def _caixa_do_cliente(c: Any, tenant: str, caixa_id: str) -> Dict[str, Any]:
     r = _row(c, "SELECT * FROM pdv_caixas WHERE tenant_slug=? AND id=?", (tenant, caixa_id))
-    if not r:
+    if not r or not _do_usuario([r]):  # caixa de loja que o usuario nao acessa: como se nao existisse
         raise ValueError("Caixa não encontrado.")
     return r
 
@@ -373,6 +396,10 @@ def buscar_cupons(dia: str, caixa_id: str = "", operador: str = "", situacao: st
     if caixa_id:
         sql += " AND k.caixa_id=?"
         p.append(caixa_id)
+    with db_store._conn() as c:
+        extra, ids = _filtro_ids("k.caixa_id", _ids_liberados(c, tenant))
+    sql += extra
+    p += list(ids)
     if operador:
         sql += " AND k.operador=?"
         p.append(operador)
@@ -459,7 +486,10 @@ def resumo_dia(dia: str, caixa_id: str = "") -> Dict[str, Any]:
         filtro += " AND caixa_id=?"
         p.append(caixa_id)
     with db_store._conn() as c:
-        modos = {r["modo"]: {"n": int(r["n"]), "centavos": int(r["v"] or 0)} for r in _rows(
+        extra, ids = _filtro_ids("caixa_id", _ids_liberados(c, tenant))
+        filtro += extra
+        p += list(ids)
+        modos ={r["modo"]: {"n": int(r["n"]), "centavos": int(r["v"] or 0)} for r in _rows(
             c, "SELECT modo, COUNT(1) AS n, SUM(valor_centavos) AS v FROM pdv_itens WHERE %s GROUP BY modo" % filtro, tuple(p))}
         cup = {r["situacao"]: int(r["n"]) for r in _rows(
             c, "SELECT situacao, COUNT(1) AS n FROM pdv_cupons WHERE %s GROUP BY situacao" % filtro, tuple(p))}
@@ -473,6 +503,104 @@ def resumo_dia(dia: str, caixa_id: str = "") -> Dict[str, Any]:
     itens = sum(m["n"] for m in modos.values())
     return {"dia": dia, "itens": itens, "modos": modos, "cupons": cup,
             "vendido_centavos": int((vendido or {}).get("v") or 0), "eventos": ev, "por_caixa": por_caixa}
+
+
+SEM_LOJA = "Sem loja definida"
+EM_VENDA_ATE_S = 600     # cupom aberto e evento ha menos disso: o caixa esta vendendo
+PARADO_APOS_S = 3600     # sem venda ha mais disso, com outro caixa da loja vendendo: parado
+LOJA_ATIVA_S = 1800      # a loja conta como aberta se algum caixa teve evento ha menos disso
+TIPOS_ALERTA = ("CIT", "CCV", "CCG", "ITEMSEMCAD", "DST", "SGR")
+
+
+def _soma(itens: Iterable[Dict[str, Any]], campo: str) -> int:
+    return sum(int(i.get(campo) or 0) for i in itens)
+
+
+def lojas_dia(dia: str, agora: Optional[datetime] = None, limite_alertas: int = 8) -> Dict[str, Any]:
+    """Tela Lojas: os caixas agrupados pelo site (loja) de cada um, com os numeros
+    do dia, a situacao de cada caixa agora (so no dia de hoje) e as ultimas
+    ocorrencias. So as lojas que o usuario da sessao acessa."""
+    tenant, dia = _tenant(), _dia(dia)
+    agora = agora or datetime.now(timezone.utc)
+    hoje = dia == agora.astimezone().strftime("%Y-%m-%d")
+    with db_store._conn() as c:
+        caixas = _do_usuario(_rows(c, "SELECT * FROM pdv_caixas WHERE tenant_slug=? ORDER BY numero, nome", (tenant,)))
+        ids = [x["id"] for x in caixas]
+        extra, pids = _filtro_ids("caixa_id", ids)
+        base = "tenant_slug=? AND dia=?" + extra
+        p = (tenant, dia) + pids
+        vend = {r["caixa_id"]: r for r in _rows(
+            c, "SELECT caixa_id, COUNT(1) AS n, SUM(total_centavos) AS v FROM pdv_cupons WHERE %s AND situacao='fechado' "
+               "GROUP BY caixa_id" % base, p)}
+        itens = {r["caixa_id"]: r for r in _rows(
+            c, "SELECT caixa_id, COUNT(1) AS n, SUM(CASE WHEN modo='scanner' THEN 1 ELSE 0 END) AS bip FROM pdv_itens "
+               "WHERE %s GROUP BY caixa_id" % base, p)}
+        ev: Dict[Tuple[str, str], int] = {(r["caixa_id"], r["tipo"]): int(r["n"]) for r in _rows(
+            c, "SELECT caixa_id, tipo, COUNT(1) AS n FROM pdv_eventos WHERE %s AND tipo IN ('CIT','ITEMSEMCAD') "
+               "GROUP BY caixa_id, tipo" % base, p)}
+        ultimo = {r["caixa_id"]: r for r in _rows(
+            c, "SELECT k.caixa_id, k.situacao, k.operador, k.itens, k.total_centavos FROM pdv_cupons k "
+               "WHERE k.tenant_slug=? AND k.dia=?%s AND k.aberto_em=(SELECT MAX(k2.aberto_em) FROM pdv_cupons k2 "
+               "WHERE k2.tenant_slug=k.tenant_slug AND k2.caixa_id=k.caixa_id AND k2.dia=k.dia)"
+               % _filtro_ids("k.caixa_id", ids)[0], p)}
+        alertas = _rows(
+            c, "SELECT caixa_id, ts, tipo, cupom, codigo, descricao, valor_centavos FROM pdv_eventos WHERE %s "
+               "AND tipo IN (%s) ORDER BY ts DESC, seq DESC LIMIT ?" % (base, ",".join("?" * len(TIPOS_ALERTA))),
+            p + TIPOS_ALERTA + (max(0, min(int(limite_alertas), 50)),))
+
+    por_loja: Dict[str, List[Dict[str, Any]]] = {}
+    for x in caixas:
+        contato = _segundos_desde(x.get("ultimo_contato") or "", agora)
+        evento = _segundos_desde(x.get("ultimo_evento") or "", agora, int(x.get("relogio_pdv_offset_s") or 0))
+        v, it, u = vend.get(x["id"]) or {}, itens.get(x["id"]) or {}, ultimo.get(x["id"]) or {}
+        cx = {"id": x["id"], "nome": x["nome"], "numero": x["numero"], "evento_s": evento,
+              "cupons": int(v.get("n") or 0), "vendido_centavos": int(v.get("v") or 0),
+              "itens": int(it.get("n") or 0), "bipados": int(it.get("bip") or 0),
+              "cancelados": ev.get((x["id"], "CIT"), 0), "sem_cadastro": ev.get((x["id"], "ITEMSEMCAD"), 0),
+              "operador": u.get("operador") or "", "estado": None}
+        if hoje:
+            if not x.get("ativo"):
+                cx["estado"] = "desligado"
+            elif contato is None or contato > OFFLINE_APOS_S:
+                cx["estado"] = "sem_coletor"
+            elif u.get("situacao") == "aberto" and evento is not None and evento <= EM_VENDA_ATE_S:
+                cx["estado"] = "em_venda"
+                cx["cupom_itens"], cx["cupom_centavos"] = int(u.get("itens") or 0), int(u.get("total_centavos") or 0)
+            else:
+                cx["estado"] = "livre"
+        por_loja.setdefault(str(x.get("site") or "").strip() or SEM_LOJA, []).append(cx)
+
+    nomes = {x["id"]: (x["nome"], str(x.get("site") or "").strip() or SEM_LOJA) for x in caixas}
+    lojas = []
+    for nome, lista in por_loja.items():
+        if hoje:
+            aberta = any(cx["evento_s"] is not None and cx["evento_s"] <= LOJA_ATIVA_S for cx in lista)
+            for cx in lista:
+                # parado so com a loja funcionando e o caixa tendo vendido hoje: a noite nao acusa
+                if cx["estado"] == "livre" and aberta and cx["cupons"] and (cx["evento_s"] or 0) > PARADO_APOS_S:
+                    cx["estado"], cx["parado_min"] = "parado", int(cx["evento_s"] // 60)
+        itens_l = _soma(lista, "itens")
+        canc = _soma(lista, "cancelados")
+        lojas.append({
+            "nome": nome, "caixas": lista, "n_caixas": len(lista),
+            "coletando": sum(1 for cx in lista if cx["estado"] not in ("sem_coletor", "desligado")),
+            "cupons": _soma(lista, "cupons"), "vendido_centavos": _soma(lista, "vendido_centavos"),
+            "itens": itens_l, "bipados": _soma(lista, "bipados"), "cancelados": canc,
+            "sem_cadastro": _soma(lista, "sem_cadastro"),
+            "revisar": canc + _soma(lista, "sem_cadastro"),
+            "cancelados_por_mil": round(1000.0 * canc / itens_l, 1) if itens_l else 0.0,
+        })
+    lojas.sort(key=lambda l: (-l["vendido_centavos"], l["nome"].upper()))
+    rede = {k: _soma(lojas, k) for k in ("cupons", "vendido_centavos", "itens", "bipados", "cancelados",
+                                          "sem_cadastro", "revisar", "n_caixas", "coletando")}
+    rede["cancelados_por_mil"] = round(1000.0 * rede["cancelados"] / rede["itens"], 1) if rede["itens"] else 0.0
+    sem_coletor = [{"caixa": cx["nome"], "loja": l["nome"]} for l in lojas for cx in l["caixas"]
+                   if cx["estado"] == "sem_coletor"]
+    for cx in (cx for l in lojas for cx in l["caixas"]):
+        cx.pop("evento_s", None)
+    return {"dia": dia, "hoje": hoje, "lojas": lojas, "rede": rede, "sem_coletor": sem_coletor,
+            "alertas": [dict(a, caixa=nomes.get(a["caixa_id"], ("?", ""))[0], loja=nomes.get(a["caixa_id"], ("", ""))[1])
+                        for a in alertas]}
 
 
 def reprocessar_dia(caixa_id: str, dia: str) -> Dict[str, Any]:

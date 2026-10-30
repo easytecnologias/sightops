@@ -82,9 +82,12 @@ function pdvRelogio(c) {
   return `${s >= 0 ? '+' : ''}${s} s`;
 }
 
+let _pdvSites = [];
+
 async function pdvCarregarCaixas() {
   const r = await apiJson('/api/pdv/caixas', { forceRefresh: true });
   _pdvCaixas = r?.caixas || [];
+  _pdvSites = r?.sites || [];
   return _pdvCaixas;
 }
 
@@ -116,6 +119,228 @@ function pdvSemCaixa(boxId) {
 function pdvAbrirConfig() {
   document.querySelector('.nav-item[data-view="settings"]')?.click();
   setTimeout(() => activateSettingsTab('pdv'), 50);
+}
+
+// ---------------------------------------------------------------- lojas
+// Os caixas agrupados pelo site (loja) de cada um. So as lojas que o usuario
+// acessa (o servidor filtra). Situacao "agora" so no dia de hoje.
+
+let _pdvLojasDia = '';
+const PDV_ESTADO_CX = {
+  em_venda: ['em venda', 'pdv-cx-venda'],
+  livre: ['livre', 'pdv-cx-livre'],
+  parado: ['sem venda há mais de 1 h', 'pdv-cx-parado'],
+  sem_coletor: ['sem coletor', 'pdv-cx-sem'],
+  desligado: ['desligado', 'pdv-cx-livre'],
+};
+
+async function loadPdvLojas() {
+  pdvParar();
+  _pdvLojasDia = _pdvLojasDia || pdvHoje();
+  await pdvRenderLojas();
+  _pdvTimer = setInterval(() => {
+    if (!pdvVisivel('viewPdvLojas')) { pdvParar(); return; }
+    if (_pdvLojasDia === pdvHoje()) pdvRenderLojas();
+  }, 30000);
+}
+
+function pdvLojasDia(delta) {
+  _pdvLojasDia = pdvMudarDia(_pdvLojasDia || pdvHoje(), delta);
+  if (_pdvLojasDia > pdvHoje()) _pdvLojasDia = pdvHoje();
+  pdvRenderLojas();
+}
+
+function pdvPorMil(x) {
+  return Number(x || 0).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+}
+
+function pdvAlertaTexto(a) {
+  const v = a.valor_centavos ? ` ${pdvMoeda(a.valor_centavos)}` : '';
+  switch (a.tipo) {
+    case 'CIT': return [`Item cancelado: ${a.descricao || a.codigo || '?'}${v}`, 'pdv-l-vermelho'];
+    case 'CCV': return [`Cupom ${a.cupom} cancelado${v}`, 'pdv-l-vermelho'];
+    case 'CCG': return [`Cupom anterior cancelado${v}`, 'pdv-l-vermelho'];
+    case 'ITEMSEMCAD': return [`Código sem cadastro: ${a.codigo || '?'}`, 'pdv-l-vermelho'];
+    case 'DST': return [`Desconto no subtotal do cupom ${a.cupom}`, 'pdv-l-ambar'];
+    case 'SGR': return [`Sangria${v}`, 'pdv-l-azul'];
+    default: return [a.tipo, 'pdv-l-ambar'];
+  }
+}
+
+function pdvIrAoVivo(caixaId) {
+  if (!caixaId) return;
+  _pdvVivo.caixaId = caixaId;
+  document.querySelector('.nav-item[data-view="pdv-vivo"]')?.click();
+}
+
+async function pdvRenderLojas() {
+  const box = document.getElementById('pdvLojasBody');
+  if (!box) return;
+  const r = await apiJson(`/api/pdv/lojas?dia=${_pdvLojasDia}`, { forceRefresh: true });
+  setText('pdvLojasDia', pdvDiaRotulo(_pdvLojasDia));
+  if (!r || !Array.isArray(r.lojas)) {
+    box.innerHTML = '<p class="pdv-nota">Não foi possível carregar as lojas agora.</p>';
+    return;
+  }
+  if (!r.lojas.length) { pdvSemCaixa('pdvLojasBody'); return; }
+  const rede = r.rede || {};
+  const ticket = rede.cupons ? rede.vendido_centavos / rede.cupons : 0;
+  const semCol = r.sem_coletor || [];
+  const nLojas = r.lojas.length;
+  const umaLoja = nLojas === 1 ? r.lojas[0] : null;
+  setText('pdvLojasTitulo', umaLoja ? umaLoja.nome : 'Lojas da rede');
+  setText('pdvLojasSub', umaLoja ? 'Vendas, caixas e ocorrências da loja, agora.' : 'Vendas, caixas e ocorrências de cada loja, agora.');
+  // a tabela e o painel de ocorrencias lado a lado com a mesma altura: linha de
+  // tabela tem 40 px e ocorrencia ~60, entao mostra ~2/3 de ocorrencias por linha
+  const linhasTabela = umaLoja ? umaLoja.caixas.length + 1 : nLojas + 1;
+  const nAlertas = Math.max(2, Math.round(linhasTabela * 2 / 3));
+  const coletaTxt = semCol.length
+    ? `${esc(semCol[0].caixa)}${nLojas > 1 ? ` da ${esc(semCol[0].loja)}` : ''} sem coletor${semCol.length > 1 ? ` e mais ${semCol.length - 1}` : ''}`
+    : 'todos coletando';
+
+  const cartao = l => {
+    const tk = l.cupons ? l.vendido_centavos / l.cupons : 0;
+    const okCx = l.coletando === l.n_caixas;
+    const alvo = (l.caixas.find(c => c.estado === 'em_venda') || l.caixas[0] || {}).id || '';
+    return `
+      <article class="pdv-l-card pdv-l-s3 pdv-l-loja">
+        <div class="pdv-l-head pdv-l-topo">
+          <div class="pdv-l-stat"><strong class="pdv-l-nome" title="${esc(l.nome)}">${esc(l.nome)}</strong>
+            <span class="pdv-l-sub">${pdvPlural(l.n_caixas, 'caixa')}</span></div>
+          <button type="button" class="pdv-l-link" data-pdv-ir="${esc(alvo)}">Abrir</button>
+        </div>
+        <div class="pdv-l-stat"><span class="pdv-l-k">Vendido ${r.hoje ? 'hoje' : 'no dia'}</span>
+          <strong class="pdv-l-big">${pdvMoeda(l.vendido_centavos)}</strong></div>
+        <div class="pdv-l-tres">
+          <div class="pdv-l-stat"><span class="pdv-l-k">Cupons</span><strong>${pdvNum(l.cupons)}</strong></div>
+          <div class="pdv-l-stat"><span class="pdv-l-k">Ticket</span><strong>${pdvMoeda(tk)}</strong></div>
+          <div class="pdv-l-stat"><span class="pdv-l-k pdv-l-k-ambar">Revisar</span><strong>${pdvNum(l.revisar)}</strong></div>
+        </div>
+        <div class="pdv-l-caixas">
+          <div class="pdv-l-head"><span class="pdv-l-k">${r.hoje ? 'Caixas agora' : 'Caixas'}</span>
+            ${r.hoje ? `<span class="pdv-l-cont ${okCx ? 'ok' : 'ruim'}">${l.coletando} de ${l.n_caixas}</span>` : ''}</div>
+          <div class="pdv-l-cxs">${l.caixas.map(c => {
+            const [txt, cls] = PDV_ESTADO_CX[c.estado] || ['', 'pdv-cx-neutro'];
+            const parado = c.estado === 'parado' && c.parado_min ? ` (${c.parado_min} min)` : '';
+            const tit = `${c.nome}${txt ? ` · ${txt}${parado}` : ''} · ${pdvNum(c.cupons)} ${Number(c.cupons) === 1 ? 'cupom' : 'cupons'} ·${pdvMoeda(c.vendido_centavos)}`;
+            return `<button type="button" class="pdv-l-cx ${cls}" data-pdv-ir="${esc(c.id)}" title="${esc(tit)}"
+              aria-label="${esc(tit)}">${String(c.numero || '').padStart(2, '0')}</button>`;
+          }).join('')}</div>
+        </div>
+      </article>`;
+  };
+
+  const linha = l => `
+    <tr>
+      <td><strong title="${esc(l.nome)}">${esc(l.nome)}</strong></td>
+      <td class="num"><strong>${pdvMoeda(l.vendido_centavos)}</strong></td>
+      <td class="num">${pdvNum(l.cupons)}</td>
+      <td class="num">${pdvMoeda(l.cupons ? l.vendido_centavos / l.cupons : 0)}</td>
+      <td class="num">${pdvPct(l.bipados, l.itens)}</td>
+      <td class="num ${l.cancelados_por_mil > rede.cancelados_por_mil * 1.5 && l.cancelados ? 'pdv-l-ruim' : ''}">${pdvPorMil(l.cancelados_por_mil)}</td>
+      <td class="num">${pdvNum(l.revisar)}</td>
+      <td class="num ${r.hoje && l.coletando < l.n_caixas ? 'pdv-l-ruim' : ''}">${r.hoje ? `${l.coletando}/${l.n_caixas}` : l.n_caixas}</td>
+    </tr>`;
+
+  const linhaCaixa = c => {
+    const [txt, cls] = PDV_ESTADO_CX[c.estado] || ['–', 'pdv-cx-neutro'];
+    const sit = c.estado === 'parado' && c.parado_min ? `sem venda há ${c.parado_min} min` : txt;
+    return `
+    <tr class="pdv-l-clica" data-pdv-ir="${esc(c.id)}" title="Abrir ${esc(c.nome)} ao vivo">
+      <td><strong>${esc(c.nome)}</strong></td>
+      <td>${r.hoje ? `<i class="pdv-l-sit ${cls}" aria-hidden="true"></i>${esc(sit)}` : '<span class="pdv-muted">–</span>'}</td>
+      <td class="num"><strong>${pdvMoeda(c.vendido_centavos)}</strong></td>
+      <td class="num">${pdvNum(c.cupons)}</td>
+      <td class="num">${pdvMoeda(c.cupons ? c.vendido_centavos / c.cupons : 0)}</td>
+      <td class="num">${pdvPct(c.bipados, c.itens)}</td>
+      <td class="num">${pdvNum(c.cancelados)}</td>
+      <td class="num">${pdvNum(c.cancelados + c.sem_cadastro)}</td>
+    </tr>`;
+  };
+
+  const tabelaLojas = `
+        <div class="pdv-l-head pdv-l-titulo"><h2 class="pdv-l-h2">Comparar lojas</h2>
+          <span class="pdv-l-sub">números de ${r.hoje ? 'hoje' : esc(pdvDiaRotulo(r.dia))}</span></div>
+        <div class="pdv-l-rolar"><table class="pdv-l-tb">
+          <colgroup><col><col style="width:128px"><col style="width:80px"><col style="width:96px"><col style="width:84px"><col style="width:112px"><col style="width:76px"><col style="width:64px"></colgroup>
+          <thead><tr><th>Loja</th><th class="num">Vendido</th><th class="num">Cupons</th><th class="num">Ticket</th>
+            <th class="num">Bipados</th><th class="num">Cancel. por mil</th><th class="num">Revisar</th><th class="num">Caixas</th></tr></thead>
+          <tbody>${r.lojas.map(linha).join('')}</tbody>
+          <tfoot><tr><td><strong>Rede</strong></td><td class="num"><strong>${pdvMoeda(rede.vendido_centavos)}</strong></td>
+            <td class="num">${pdvNum(rede.cupons)}</td><td class="num">${pdvMoeda(ticket)}</td><td class="num">${pdvPct(rede.bipados, rede.itens)}</td>
+            <td class="num">${pdvPorMil(rede.cancelados_por_mil)}</td><td class="num">${pdvNum(rede.revisar)}</td>
+            <td class="num">${r.hoje ? `${rede.coletando}/${rede.n_caixas}` : rede.n_caixas}</td></tr></tfoot>
+        </table></div>`;
+
+  const tabelaCaixas = umaLoja ? `
+        <div class="pdv-l-head pdv-l-titulo"><h2 class="pdv-l-h2">Caixas da loja</h2>
+          ${r.hoje ? `<div class="pdv-l-legenda pdv-l-sub">
+            <span><i class="pdv-cx-venda"></i>em venda</span><span><i class="pdv-cx-livre"></i>livre</span>
+            <span><i class="pdv-cx-parado"></i>parado</span><span><i class="pdv-cx-sem"></i>sem coletor</span></div>`
+            : `<span class="pdv-l-sub">números de ${esc(pdvDiaRotulo(r.dia))}</span>`}</div>
+        <div class="pdv-l-rolar"><table class="pdv-l-tb">
+          <colgroup><col style="width:96px"><col><col style="width:128px"><col style="width:80px"><col style="width:96px"><col style="width:84px"><col style="width:92px"><col style="width:76px"></colgroup>
+          <thead><tr><th>Caixa</th><th>Situação</th><th class="num">Vendido</th><th class="num">Cupons</th><th class="num">Ticket</th>
+            <th class="num">Bipados</th><th class="num">Cancelados</th><th class="num">Revisar</th></tr></thead>
+          <tbody>${umaLoja.caixas.map(linhaCaixa).join('')}</tbody>
+          <tfoot><tr><td><strong>Loja</strong></td><td class="pdv-l-sub">${r.hoje ? `${umaLoja.coletando} de ${umaLoja.n_caixas} coletando` : ''}</td>
+            <td class="num"><strong>${pdvMoeda(umaLoja.vendido_centavos)}</strong></td><td class="num">${pdvNum(umaLoja.cupons)}</td>
+            <td class="num">${pdvMoeda(ticket)}</td><td class="num">${pdvPct(umaLoja.bipados, umaLoja.itens)}</td>
+            <td class="num">${pdvNum(umaLoja.cancelados)}</td><td class="num">${pdvNum(umaLoja.revisar)}</td></tr></tfoot>
+        </table></div>` : '';
+
+  const alertas = (r.alertas || []).slice(0, nAlertas).map(a => {
+    const [txt, cor] = pdvAlertaTexto(a);
+    return `
+      <div class="pdv-l-alerta">
+        <i class="${cor}" aria-hidden="true"></i>
+        <div class="pdv-l-stat">
+          <span class="pdv-l-sub pdv-l-uma">${esc(pdvHora(a.ts))} · <strong>${esc(nLojas > 1 ? a.loja : a.caixa)}</strong>${nLojas > 1 ? ` · ${esc(a.caixa)}` : ''}</span>
+          <span class="pdv-l-txt" title="${esc(txt)}">${esc(txt)}</span>
+        </div>
+        <button type="button" class="pdv-l-link" data-pdv-cupom="${esc(a.cupom || '')}" data-pdv-caixa="${esc(a.caixa_id)}"
+          data-pdv-dia="${esc(String(a.ts || '').slice(0, 10))}" title="Abrir o cupom, com os itens e o vídeo">abrir</button>
+      </div>`;
+  }).join('') || '<p class="pdv-l-sub pdv-l-vazio">Nenhuma ocorrência neste dia.</p>';
+
+  box.innerHTML = `
+    <div class="pdv-l-grade">
+      <section class="pdv-l-card pdv-l-s3"><div class="pdv-l-stat"><span class="pdv-l-k">Vendido ${nLojas > 1 ? 'na rede' : 'na loja'}</span>
+        <strong class="pdv-l-big">${pdvMoeda(rede.vendido_centavos)}</strong>
+        <span class="pdv-l-sub">${pdvPlural(nLojas, 'loja')}${r.hoje ? ` · até ${new Date().toTimeString().slice(0, 5)}` : ''}</span></div></section>
+      <section class="pdv-l-card pdv-l-s3"><div class="pdv-l-stat"><span class="pdv-l-k">Cupons</span>
+        <strong class="pdv-l-big">${pdvNum(rede.cupons)}</strong>
+        <span class="pdv-l-sub">ticket médio ${pdvMoeda(ticket)}</span></div></section>
+      <section class="pdv-l-card pdv-l-s3"><div class="pdv-l-stat"><span class="pdv-l-k">Caixas coletando</span>
+        <strong class="pdv-l-big">${r.hoje ? pdvNum(rede.coletando) : '–'} <em>de ${pdvNum(rede.n_caixas)}</em></strong>
+        <span class="pdv-l-sub pdv-l-uma ${semCol.length && r.hoje ? 'pdv-l-ruim' : ''}" title="${r.hoje ? coletaTxt : ''}">${r.hoje ? coletaTxt : 'situação só no dia de hoje'}</span></div></section>
+      <section class="pdv-l-card pdv-l-s3"><div class="pdv-l-stat"><span class="pdv-l-k pdv-l-k-ambar">Para revisar</span>
+        <strong class="pdv-l-big">${pdvNum(rede.revisar)}</strong>
+        <span class="pdv-l-sub pdv-l-uma">${pdvNum(rede.cancelados)} cancelados · ${pdvNum(rede.sem_cadastro)} sem cadastro</span></div></section>
+
+      ${umaLoja ? '' : `<div class="pdv-l-s12 pdv-l-head pdv-l-secao">
+        <h2 class="pdv-l-h2">Lojas</h2>
+        ${r.hoje ? `<div class="pdv-l-legenda pdv-l-sub">
+          <span><i class="pdv-cx-venda"></i>em venda</span><span><i class="pdv-cx-livre"></i>livre</span>
+          <span><i class="pdv-cx-parado"></i>sem venda há mais de 1 h</span><span><i class="pdv-cx-sem"></i>sem coletor</span>
+        </div>` : ''}
+      </div>
+      ${r.lojas.map(cartao).join('')}`}
+
+      <section class="pdv-l-card pdv-l-tabela pdv-l-mais">${umaLoja ? tabelaCaixas : tabelaLojas}</section>
+
+      <aside class="pdv-l-card pdv-l-lado pdv-l-mais pdv-l-agora" aria-label="Últimas ocorrências">
+        <div class="pdv-l-head pdv-l-agora-topo"><h2 class="pdv-l-h2">${r.hoje ? 'Acontecendo agora' : 'Últimas ocorrências'}</h2>
+          <span class="pdv-l-sub">${nLojas > 1 ? 'todas as lojas' : 'da loja'}</span></div>
+        ${alertas}
+        <div class="pdv-l-agora-pe"><button type="button" class="pdv-l-link" data-pdv-cupons>Ver os cupons</button></div>
+      </aside>
+    </div>`;
+  box.querySelectorAll('[data-pdv-ir]').forEach(b => b.addEventListener('click', () => pdvIrAoVivo(b.dataset.pdvIr)));
+  box.querySelectorAll('[data-pdv-cupom]').forEach(b => b.addEventListener('click', () =>
+    pdvIrCupom(b.dataset.pdvCaixa, b.dataset.pdvDia || _pdvLojasDia, b.dataset.pdvCupom)));
+  box.querySelector('[data-pdv-cupons]')?.addEventListener('click', () => document.querySelector('.nav-item[data-view="pdv-cupons"]')?.click());
+  lucide.createIcons();
 }
 
 // ---------------------------------------------------------------- visao geral
@@ -385,17 +610,28 @@ async function pdvAtualizarCupomVivo() {
 
 async function loadPdvCupons() {
   pdvParar();
+  const pedido = _pdvAbrirDepois;  // veio de outra tela (Lojas) para abrir um cupom
+  _pdvAbrirDepois = null;
   const caixas = await pdvCarregarCaixas();
   const sel = document.getElementById('pdvCupFiltroCaixa');
   if (sel) {
-    const atual = sel.value;
+    const atual = pedido ? pedido.caixaId : sel.value;
     sel.innerHTML = '<option value="">Todos os caixas</option>' + caixas.map(c => `<option value="${esc(c.id)}">${esc(c.nome)}</option>`).join('');
     sel.value = atual;
   }
   const dia = document.getElementById('pdvCupFiltroDia');
+  if (dia && pedido) dia.value = pedido.dia;
   if (dia && !dia.value) dia.value = pdvHoje();
   if (!caixas.length) { pdvSemCaixa('pdvCuponsBody'); return; }
-  pdvBuscarCupons();
+  await pdvBuscarCupons();
+  if (pedido?.cupom) pdvAbrirCupom(pedido.caixaId, pedido.dia, pedido.cupom);
+}
+
+let _pdvAbrirDepois = null;
+
+function pdvIrCupom(caixaId, dia, cupom) {
+  _pdvAbrirDepois = { caixaId, dia, cupom };
+  document.querySelector('.nav-item[data-view="pdv-cupons"]')?.click();
 }
 
 async function pdvBuscarCupons() {
@@ -525,7 +761,8 @@ function pdvCamposCaixa(c) {
   return `
       <label>Nome<input name="nome" required maxlength="60" placeholder="PDV 01" value="${esc(c?.nome || '')}"></label>
       <label>Estação<input name="numero" type="number" min="1" max="999" value="${esc(c?.numero || 1)}" title="O .NNN do arquivo do PDV (Espiao271026.001 = 1)"></label>
-      <label>Local<input name="site" maxlength="120" placeholder="Loja" value="${esc(c?.site || '')}"></label>
+      <label>Loja<input name="site" maxlength="120" list="pdvSitesLista" placeholder="Escolha ou digite o nome da loja" value="${esc(c?.site || '')}"
+        title="Os caixas com a mesma loja aparecem juntos em Ponto de venda › Lojas"></label>
       <label>Conector da loja<select name="connector_id">${pdvOpcoesConector(c?.connector_id || '')}</select></label>
       <label>Gravador (IP na loja)<input name="gravador_host" maxlength="120" placeholder="192.168.24.227" value="${esc(c?.gravador_host || '')}"></label>
       <label>Canal da câmera do caixa<input name="gravador_canal" type="number" min="0" max="256" value="${esc(c?.gravador_canal || 0)}"></label>`;
@@ -545,6 +782,7 @@ async function loadPdvConfig(abrirId = '') {
   const [caixas, con] = await Promise.all([pdvCarregarCaixas(), apiJson('/api/connectors', { forceRefresh: true })]);
   _pdvConectores = con?.connectors || con?.items || [];
   box.innerHTML = `
+    <datalist id="pdvSitesLista">${_pdvSites.map(s => `<option value="${esc(s)}"></option>`).join('')}</datalist>
     <div class="table-wrap"><table class="data-table pdv-tabela pdv-tabela-config">
       <thead><tr><th>Caixa</th><th>Gravador e canal</th><th>Coletor</th><th>Relógio</th><th>Instalação</th><th></th></tr></thead>
       <tbody>${caixas.map(c => {
@@ -732,6 +970,8 @@ function pdvAbrirCaixa(caixaId) {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('pdvLojasAnterior')?.addEventListener('click', () => pdvLojasDia(-1));
+  document.getElementById('pdvLojasProximo')?.addEventListener('click', () => pdvLojasDia(1));
   document.getElementById('pdvVisaoAnterior')?.addEventListener('click', () => pdvVisaoDia(-1));
   document.getElementById('pdvVisaoProximo')?.addEventListener('click', () => pdvVisaoDia(1));
   document.getElementById('pdvCupBuscar')?.addEventListener('click', pdvBuscarCupons);

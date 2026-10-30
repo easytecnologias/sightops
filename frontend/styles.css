@@ -14160,3 +14160,86 @@ button.rk-chip { cursor: pointer; }
   .mn-sitetab th,.mn-sitetab td{padding:8px 12px}
   .mn-sitetab .opt{display:none}
 }
+
+/* ---------------------------------------------------------------- PDV · Lojas
+   Grade de 12 colunas, gutter 20, cartao com 20 de padding: os 4 numeros do
+   topo ficam em cima das 4 colunas de lojas e o painel lateral tem a largura
+   de uma coluna. Altura de linha fixa; texto longo em uma linha (reticencias). */
+.pdv-l-grade { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 20px; }
+.pdv-l-s3 { grid-column: span 3; }
+.pdv-l-s9 { grid-column: span 9; }
+.pdv-l-s12 { grid-column: span 12; }
+/* presos as colunas: com 5 lojas a tabela nao sobe para o lado do ultimo cartao */
+.pdv-l-tabela { grid-column: 1 / span 9; }
+.pdv-l-lado { grid-column: 10 / span 3; }
+.pdv-l-card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 20px; min-width: 0; box-sizing: border-box; }
+.pdv-l-stat { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.pdv-l-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; min-width: 0; }
+.pdv-l-k { font-size: 11px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); line-height: 16px; }
+.pdv-l-k-ambar { color: var(--amber); }
+.pdv-l-big { font-size: 22px; font-weight: 700; letter-spacing: -.01em; line-height: 28px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.pdv-l-big em { font-style: normal; font-size: 13px; font-weight: 500; color: var(--muted); }
+.pdv-l-sub { font-size: 12px; color: var(--muted); line-height: 16px; }
+.pdv-l-sub strong { color: var(--text); font-weight: 600; }
+.pdv-l-uma { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pdv-l-ruim { color: var(--danger) !important; font-weight: 600; }
+.pdv-l-h2 { margin: 0; font-size: 15px; font-weight: 600; line-height: 20px; }
+.pdv-l-secao { margin-top: 8px; }
+.pdv-l-mais { margin-top: 8px; }
+.pdv-l-link { border: 0; background: none; padding: 0; color: var(--primary); font: inherit; font-size: 12px; font-weight: 600; line-height: 16px; cursor: pointer; white-space: nowrap; }
+.pdv-l-link:hover { text-decoration: underline; }
+.pdv-l-legenda { display: flex; flex-wrap: wrap; gap: 16px; }
+.pdv-l-legenda span { display: inline-flex; align-items: center; gap: 6px; }
+.pdv-l-legenda i { width: 10px; height: 10px; border-radius: 2px; }
+
+.pdv-l-loja { display: flex; flex-direction: column; gap: 16px; }
+.pdv-l-loja:hover { border-color: #b7c4ca; }
+.pdv-l-topo { align-items: flex-start; }
+.pdv-l-nome { font-size: 14px; line-height: 20px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pdv-l-tres { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; padding-top: 16px; border-top: 1px solid #eef1f3; }
+.pdv-l-tres strong { font-size: 13px; line-height: 18px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.pdv-l-caixas { display: flex; flex-direction: column; gap: 8px; padding-top: 16px; border-top: 1px solid #eef1f3; }
+.pdv-l-cont { font-size: 12px; line-height: 16px; font-weight: 600; }
+.pdv-l-cont.ok { color: var(--primary); }
+.pdv-l-cont.ruim { color: var(--danger); }
+.pdv-l-cxs { display: grid; grid-template-columns: repeat(auto-fill, minmax(22px, 1fr)); gap: 4px; }
+.pdv-l-cx { height: 24px; border: 0; border-radius: 4px; padding: 0; font: inherit; font-size: 11px; font-weight: 600; display: flex; align-items: center; justify-content: center; cursor: pointer; }
+.pdv-l-cx:focus-visible { outline: 2px solid var(--blue); outline-offset: 1px; }
+.pdv-cx-venda { background: var(--primary); color: #ffffff; }
+.pdv-cx-livre { background: var(--border); color: #4b5961; }
+.pdv-cx-parado { background: var(--amber-soft); color: #8a5100; box-shadow: inset 0 0 0 1px var(--amber); }
+.pdv-cx-sem { background: var(--danger-soft); color: #a51f1f; box-shadow: inset 0 0 0 1px var(--danger); }
+.pdv-cx-neutro { background: var(--surface-soft); color: var(--muted); box-shadow: inset 0 0 0 1px var(--border); }
+
+.pdv-l-titulo { margin-bottom: 16px; }
+.pdv-l-rolar { overflow-x: auto; }
+.pdv-l-tb { width: 100%; min-width: 760px; border-collapse: collapse; table-layout: fixed; font-size: 12px; font-variant-numeric: tabular-nums; }
+.pdv-l-tb th { text-align: left; font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); padding: 0 12px 10px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+.pdv-l-tb td { height: 40px; padding: 0 12px; border-bottom: 1px solid #eef1f3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pdv-l-tb tbody tr:last-child td { border-bottom: 0; }
+.pdv-l-tb tfoot td { border-top: 1px solid var(--border); border-bottom: 0; }
+.pdv-l-tb th:first-child, .pdv-l-tb td:first-child { padding-left: 0; }
+.pdv-l-tb th:last-child, .pdv-l-tb td:last-child { padding-right: 0; }
+.pdv-l-tb .num { text-align: right; }
+.pdv-l-clica { cursor: pointer; }
+.pdv-l-clica:hover td { background: var(--surface-soft); }
+.pdv-l-sit { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 8px; vertical-align: -1px; }
+
+.pdv-l-agora { padding: 20px 0 8px; display: flex; flex-direction: column; }
+.pdv-l-agora-topo { padding: 0 20px 12px; border-bottom: 1px solid var(--border); }
+.pdv-l-alerta { display: grid; grid-template-columns: 3px minmax(0, 1fr) auto; column-gap: 12px; align-items: start; padding: 12px 20px; border-bottom: 1px solid #eef1f3; }
+.pdv-l-alerta > i { align-self: stretch; border-radius: 2px; }
+.pdv-l-txt { font-size: 12px; line-height: 17px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pdv-l-vermelho { background: var(--danger); }
+.pdv-l-ambar { background: var(--amber); }
+.pdv-l-azul { background: var(--blue); }
+.pdv-l-vazio { padding: 16px 20px; margin: 0; }
+.pdv-l-agora-pe { margin-top: auto; padding: 12px 20px 4px; }
+
+@media (max-width: 1180px) {
+  .pdv-l-s3 { grid-column: span 6; }
+  .pdv-l-s9, .pdv-l-tabela, .pdv-l-lado { grid-column: 1 / -1; }
+}
+@media (max-width: 640px) {
+  .pdv-l-s3 { grid-column: span 12; }
+}

@@ -60,7 +60,16 @@ async def api_pdv_coletor_lote(request: Request) -> Dict[str, Any]:
 
 @router.get("/caixas")
 def api_pdv_caixas() -> Dict[str, Any]:
-    return {"ok": True, "caixas": pdv_store.listar_caixas()}
+    from app.core import permissions
+    from app.core.tenant_context import get_current_tenant_slug
+
+    caixas = pdv_store.listar_caixas()
+    # lojas para sugerir no cadastro: os sites do cliente e os ja usados nos caixas,
+    # para nao nascer "VITAL - 106" e "VITAL 106" como duas lojas
+    nomes = {str(s["name"]).strip() for s in permissions.sites_do_cliente(get_current_tenant_slug())}
+    nomes |= {str(c.get("site") or "").strip() for c in caixas}
+    sites = [s["site"] for s in permissions.filtrar_por_site([{"site": n} for n in sorted(nomes, key=str.upper) if n], ("site",))]
+    return {"ok": True, "caixas": caixas, "sites": sites}
 
 
 @router.post("/caixas")
@@ -128,6 +137,12 @@ def api_pdv_reprocessar(caixa_id: str, dia: str) -> Dict[str, Any]:
 @router.get("/resumo")
 def api_pdv_resumo(dia: str = "", caixa_id: str = "") -> Dict[str, Any]:
     return {"ok": True, **_executar(pdv_store.resumo_dia, dia or _hoje(), caixa_id)}
+
+
+@router.get("/lojas")
+def api_pdv_lojas(dia: str = "") -> Dict[str, Any]:
+    """Tela Lojas: caixas agrupados pelo site, com a situacao de cada um agora."""
+    return {"ok": True, **_executar(pdv_store.lojas_dia, dia or _hoje())}
 
 
 @router.get("/cupons")
