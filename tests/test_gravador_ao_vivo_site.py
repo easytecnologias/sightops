@@ -65,3 +65,19 @@ def test_ao_vivo_sem_restricao_segue_o_caminho_de_sempre(cadastro, monkeypatch):
     with pytest.raises(HTTPException) as exc:
         D.api_deployments_recorder_live_stream({"recorder_host": "192.168.24.227", "canal": 3, "connector_id": "conV"})
     assert exc.value.status_code == 428  # sem senha guardada: o mesmo de antes
+
+
+def test_restrito_com_mesmo_ip_em_duas_lojas_dele_precisa_do_conector(cadastro):
+    cadastro["sites"] = ["LOJA A", "LOJA B"]
+    with pytest.raises(HTTPException) as exc:
+        R.gravador_liberado("192.168.1.10", "")
+    assert exc.value.status_code == 400
+    assert R.gravador_liberado("192.168.1.10", "conB") == "conB"
+
+
+def test_busca_por_ia_usa_a_mesma_conferencia(cadastro):
+    from app.api.endpoints import ia
+    cadastro["sites"] = ["LOJA A"]
+    ia._exigir_host_liberado("192.168.1.10")
+    with pytest.raises(HTTPException):
+        ia._exigir_host_liberado("192.168.24.227")

@@ -81,10 +81,10 @@ def api_ia_nvr_targets() -> Dict[str, Any]:
 
 
 def _exigir_host_liberado(host: str) -> None:
-    from app.api.endpoints.recorder_driver import _host_liberado
+    # mesma conferencia do video de gravador (cadastro do cliente + site da pessoa)
+    from app.api.endpoints.recorder_driver import gravador_liberado
 
-    if not _host_liberado(str(host or "").strip()):
-        raise HTTPException(status_code=403, detail="gravador fora dos sites liberados para voce")
+    gravador_liberado(str(host or "").strip())
 
 
 def _resolve_ia_password(host: str, user: str, password: str) -> tuple[str, str]:

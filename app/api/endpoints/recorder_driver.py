@@ -82,6 +82,9 @@ def gravador_liberado(host: str, connector_id: str = "") -> str:
     if pedido:
         return pedido
     conectores = {_rec_row_connector(r) for r in linhas} - {""}
+    if sites is not None and len(conectores) > 1:
+        # restrito e o mesmo IP em duas lojas dele: sem o conector nao da para saber qual
+        raise HTTPException(status_code=400, detail="informe o conector do gravador")
     return conectores.pop() if len(conectores) == 1 else ""
 
 
@@ -94,8 +97,12 @@ def _abrir(host: str, http_port: int, connector_id: str = "") -> Gravador:
     if not cred.get("password"):
         raise HTTPException(status_code=428, detail="SEM_CREDENCIAL")
     try:
-        return Gravador(host, cred.get("username") or "admin", cred["password"], http_port,
-                        connector_id or _conector(host))
+        # restrito: so o conector conferido acima ("" = gravador direto, sem conector).
+        # _conector(host) pega a primeira linha do cadastro inteiro, de qualquer loja.
+        from app.core.permissions import sites_da_sessao
+        if not connector_id and sites_da_sessao() is None:
+            connector_id = _conector(host)
+        return Gravador(host, cred.get("username") or "admin", cred["password"], http_port, connector_id)
     except ErroDriver as exc:
         raise HTTPException(status_code=502, detail=sem_senha(str(exc))) from exc
 
