@@ -354,6 +354,17 @@ def test_usuario_restrito_a_uma_loja_so_ve_ela(banco, monkeypatch):
         with pytest.raises(ValueError):
             f()
     assert S.resumo_dia(DIA, b["id"])["itens"] == 0
+    # escrita (admin restrito): nao edita nem "puxa" caixa de outra loja, nao troca o token dele,
+    # nao mexe no acesso SSH nem le o status do coletor dele
+    from app.services import pdv_instalador as I
+    edita_b = {"id": b["id"], "nome": "PDV 02", "numero": 2, "site": "Loja A"}
+    for f in (lambda: S.salvar_caixa(edita_b), lambda: S.novo_token(b["id"]),
+              lambda: S.salvar_caixa({"nome": "PDV 09", "numero": 9, "site": "Loja B"}),
+              lambda: I.salvar_acesso(b["id"], {"pdv_host": "192.168.24.9", "ssh_usuario": "rpdv", "ssh_senha": "x"}),
+              lambda: I.status(b["id"])):
+        with pytest.raises(ValueError):
+            f()
+    assert S.salvar_caixa({"id": a["id"], "nome": "PDV 01", "numero": 1, "site": "Loja A"})["id"] == a["id"]
     # coletor e laco de fundo nao tem usuario: continuam vendo tudo
     monkeypatch.setattr(permissions, "sites_da_sessao", lambda: None)
     assert len(S.listar_caixas()) == 2

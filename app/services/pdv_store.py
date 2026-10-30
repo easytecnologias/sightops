@@ -129,6 +129,10 @@ def salvar_caixa(payload: Dict[str, Any]) -> Dict[str, Any]:
         from app.services.connector_service import get_connector
         if not get_connector(campos["connector_id"], include_token=False, enforce_tenant=True):
             raise ValueError("Conector não encontrado neste cliente.")
+    if not _do_usuario([{"site": campos["site"]}]):
+        # restrito a algumas lojas: nao cria caixa noutra nem "puxa" um caixa de
+        # outra loja para a sua trocando o site
+        raise ValueError("Você só pode pôr caixas nas lojas que acessa.")
     agora = _agora()
     caixa_id = _texto(payload.get("id"), 64)
     with db_store._conn() as c:
@@ -136,8 +140,7 @@ def salvar_caixa(payload: Dict[str, Any]) -> Dict[str, Any]:
         if dup and dup["id"] != caixa_id:
             raise ValueError("Já existe um caixa com esse nome.")
         if caixa_id:
-            if not _row(c, "SELECT id FROM pdv_caixas WHERE tenant_slug=? AND id=?", (tenant, caixa_id)):
-                raise ValueError("Caixa não encontrado.")
+            _caixa_do_cliente(c, tenant, caixa_id)  # do cliente E de loja que o usuario acessa
             antes = _row(c, "SELECT connector_id FROM pdv_caixas WHERE tenant_slug=? AND id=?", (tenant, caixa_id)) or {}
             if (antes.get("connector_id") or "") != campos["connector_id"]:
                 # Outro conector = outra rede: o mesmo IP privado e outra maquina.
@@ -192,6 +195,7 @@ def novo_token(caixa_id: str) -> Dict[str, Any]:
     tenant = _tenant()
     token = "pdv_" + secrets.token_urlsafe(24)
     with db_store._conn() as c:
+        _caixa_do_cliente(c, tenant, caixa_id)  # token de caixa de outra loja derrubaria o coletor dela
         cur = c.execute("UPDATE pdv_caixas SET token_hash=?, token_prefixo=?, updated_at=? WHERE tenant_slug=? AND id=?",
                         (_hash(token), token[:8], _agora(), tenant, caixa_id))
         if not getattr(cur, "rowcount", 1):
