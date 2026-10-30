@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=1793100025">
+  <link rel="stylesheet" href="styles.css?v=1793100030">
   <link rel="stylesheet" href="acesso/acesso.css?v=1792600213">
 </head>
 <body>
@@ -157,6 +157,7 @@
 
         <!-- Ponto de venda (auditoria de caixa) -->
         <div class="nav-section-label">Ponto de venda</div>
+        <button class="nav-item" data-view="pdv-lojas"><i data-lucide="store"></i><span>Lojas</span></button>
         <button class="nav-item" data-view="pdv-vivo"><i data-lucide="cctv"></i><span>Ao vivo</span></button>
         <button class="nav-item" data-view="pdv-visao"><i data-lucide="scan-barcode"></i><span>Visão geral</span></button>
         <button class="nav-item" data-view="pdv-cupons"><i data-lucide="receipt"></i><span>Cupons</span></button>
@@ -2067,6 +2068,22 @@
       <!-- --- VIEWS: CONTROLE DE ROTAS --- transporte escolar; cada viagem so conta
            para o PNATE com as 6 provas (km, rota, alunos, veiculo, motorista, documentos). -->
       <!-- Ponto de venda: auditoria de caixa pelos dados do PDV; o video do gravador e a prova. -->
+      <section class="workspace hidden" id="viewPdvLojas">
+        <div class="page-heading">
+          <div>
+            <p class="eyebrow">Ponto de venda</p>
+            <h1 id="pdvLojasTitulo">Lojas da rede</h1>
+            <p id="pdvLojasSub">Vendas, caixas e ocorrências de cada loja, agora.</p>
+          </div>
+          <div class="page-heading-actions pdv-dia-nav">
+            <button class="secondary-action" type="button" id="pdvLojasAnterior" aria-label="Dia anterior"><i data-lucide="chevron-left"></i></button>
+            <span class="pdv-dia" id="pdvLojasDia">Hoje</span>
+            <button class="secondary-action" type="button" id="pdvLojasProximo" aria-label="Próximo dia"><i data-lucide="chevron-right"></i></button>
+          </div>
+        </div>
+        <div id="pdvLojasBody"></div>
+      </section>
+
       <section class="workspace hidden" id="viewPdvVivo">
         <div class="page-heading">
           <div>
@@ -8123,7 +8140,7 @@
        trechos do app.js original na sequencia em que estavam, entao carregar
        fora de ordem muda o comportamento. Ao adicionar um arquivo novo, entre
        antes de bootstrap.js, que e quem liga os botoes no DOMContentLoaded. -->
-  <script src="js/core.js?v=1793100003"></script>
+  <script src="js/core.js?v=1793100031"></script>
   <script src="js/licencas.js?v=1792600103"></script>
   <script src="js/configuracoes.js?v=1793100004"></script>
   <script src="js/notificacoes.js?v=1792600139"></script>
@@ -8170,7 +8187,7 @@
   <script src="https://unpkg.com/qrcode-generator@1.4.4/qrcode.js"></script>
   <script src="js/alert.js?v=1792804801"></script>
   <script src="js/controleRotas.js?v=1792600341"></script>
-  <script src="js/pdv.js?v=1793100017"></script>
+  <script src="js/pdv.js?v=1793100032"></script>
   <script src="js/tr069.js?v=1791000212"></script>
   <script src="js/bootstrap.js?v=1792600207"></script>
 </body>

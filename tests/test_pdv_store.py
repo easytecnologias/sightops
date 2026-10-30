@@ -268,3 +268,92 @@ def test_ao_vivo_mostra_o_item_na_hora_sem_esperar_a_tecla(banco):
     v = S.ao_vivo(c1["id"])
     assert not any(i.get("provisorio") for i in v["itens"])
     assert S.resumo_dia(DIA)["itens"] == 9
+
+
+# ---------------------------------------------------------------- lojas (sites)
+
+def _caixa_loja(nome, site, numero=1):
+    return S.salvar_caixa({"nome": nome, "numero": numero, "site": site, "gravador_host": "192.168.24.227",
+                           "gravador_canal": numero})
+
+
+def _ajustar(caixa_id, **campos):
+    from app.services import db_store
+    with db_store._conn() as c:
+        for k, v in campos.items():
+            c.execute("UPDATE pdv_caixas SET %s=? WHERE id=?" % k, (v, caixa_id))
+
+
+def _agora_local(hora, minuto=0):
+    from datetime import datetime
+    return datetime(2026, 10, 27, hora, minuto).astimezone()
+
+
+def test_lojas_agrupa_por_site_e_soma(banco):
+    a = _caixa_loja("PDV 01", "Loja A", 1)
+    b = _caixa_loja("PDV 02", "Loja B", 2)
+    s = _caixa_loja("PDV 03", "", 3)
+    for cx in (a, b):
+        _enviar(S.autenticar(cx["id"], cx["token"]), ESP, TEC, agora=10_000.0)
+    _enviar(S.autenticar(a["id"], a["token"]), [], [], agora=20_000.0)
+    _enviar(S.autenticar(b["id"], b["token"]), [], [], agora=20_000.0)
+    r = S.lojas_dia(DIA, agora=_agora_local(9, 10))
+    nomes = [l["nome"] for l in r["lojas"]]
+    assert set(nomes) == {"Loja A", "Loja B", S.SEM_LOJA}
+    la = next(l for l in r["lojas"] if l["nome"] == "Loja A")
+    um = S.resumo_dia(DIA, a["id"])
+    assert la["vendido_centavos"] == um["vendido_centavos"] and la["itens"] == um["itens"]
+    assert la["cancelados"] == um["eventos"].get("CIT", 0) and la["revisar"] == la["cancelados"] + la["sem_cadastro"]
+    assert r["rede"]["vendido_centavos"] == 2 * um["vendido_centavos"] and r["rede"]["n_caixas"] == 3
+    sem = next(l for l in r["lojas"] if l["nome"] == S.SEM_LOJA)
+    assert sem["caixas"][0]["estado"] == "sem_coletor" and r["sem_coletor"] == [{"caixa": "PDV 03", "loja": S.SEM_LOJA}]
+    assert r["alertas"] and {"caixa", "loja", "tipo", "ts"} <= set(r["alertas"][0])
+    assert all(a_["tipo"] in S.TIPOS_ALERTA for a_ in r["alertas"])
+    # outro dia: sem situacao "agora"
+    assert S.lojas_dia("2026-10-26", agora=_agora_local(9, 10))["lojas"] and \
+        all(cx["estado"] is None for l in S.lojas_dia(DIA, agora=_agora_local(9, 10).replace(day=28))["lojas"]
+            for cx in l["caixas"])
+
+
+def test_situacao_de_cada_caixa(banco):
+    a = _caixa_loja("PDV 01", "Loja A", 1)
+    b = _caixa_loja("PDV 02", "Loja A", 2)
+    for cx in (a, b):
+        _enviar(S.autenticar(cx["id"], cx["token"]), ESP, TEC, agora=10_000.0)
+    _ajustar(a["id"], ultimo_evento="2026-10-27 11:55:00")   # vendendo agora
+    _ajustar(b["id"], ultimo_evento="2026-10-27 09:03:20")   # parou as 9h
+    from app.services import db_store
+    with db_store._conn() as c:
+        c.execute("UPDATE pdv_cupons SET situacao='aberto' WHERE caixa_id=? AND cupom='1003'", (a["id"],))
+        c.execute("UPDATE pdv_cupons SET aberto_em='2026-10-27 11:59:00' WHERE caixa_id=? AND cupom='1003'", (a["id"],))
+    est = {cx["nome"]: cx for cx in S.lojas_dia(DIA, agora=_agora_local(12, 0))["lojas"][0]["caixas"]}
+    assert est["PDV 01"]["estado"] == "em_venda"
+    assert est["PDV 02"]["estado"] == "parado" and est["PDV 02"]["parado_min"] >= 170
+    # a noite, com a loja toda parada, ninguem fica "parado"
+    _ajustar(a["id"], ultimo_evento="2026-10-27 19:00:00")
+    est = {cx["nome"]: cx["estado"] for cx in S.lojas_dia(DIA, agora=_agora_local(23, 0))["lojas"][0]["caixas"]}
+    assert est == {"PDV 01": "livre", "PDV 02": "livre"}
+    _ajustar(b["id"], ativo=0)
+    est = {cx["nome"]: cx["estado"] for cx in S.lojas_dia(DIA, agora=_agora_local(23, 0))["lojas"][0]["caixas"]}
+    assert est["PDV 02"] == "desligado"
+
+
+def test_usuario_restrito_a_uma_loja_so_ve_ela(banco, monkeypatch):
+    from app.core import permissions
+    a = _caixa_loja("PDV 01", "Loja A", 1)
+    b = _caixa_loja("PDV 02", "Loja B", 2)
+    for cx in (a, b):
+        _enviar(S.autenticar(cx["id"], cx["token"]), ESP, TEC, agora=10_000.0)
+    um = S.resumo_dia(DIA, a["id"])
+    monkeypatch.setattr(permissions, "sites_da_sessao", lambda: ["LOJA A"])
+    assert [c["nome"] for c in S.listar_caixas()] == ["PDV 01"]
+    assert [l["nome"] for l in S.lojas_dia(DIA)["lojas"]] == ["Loja A"]
+    assert S.resumo_dia(DIA)["vendido_centavos"] == um["vendido_centavos"]
+    assert {k["caixa_id"] for k in S.buscar_cupons(DIA)} == {a["id"]}
+    for f in (lambda: S.ao_vivo(b["id"]), lambda: S.detalhe_cupom(b["id"], DIA, "1001")):
+        with pytest.raises(ValueError):
+            f()
+    assert S.resumo_dia(DIA, b["id"])["itens"] == 0
+    # coletor e laco de fundo nao tem usuario: continuam vendo tudo
+    monkeypatch.setattr(permissions, "sites_da_sessao", lambda: None)
+    assert len(S.listar_caixas()) == 2

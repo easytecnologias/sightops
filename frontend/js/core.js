@@ -633,6 +633,7 @@ const VIEW_META = {
   'alert-members':  { title: 'Pessoas e aparelhos', sub: 'Quem pode pedir ajuda e se o celular esta pronto' },
   'alert-reports':  { title: 'Relatorios do Alerta', sub: 'Pedidos de ajuda e como foram atendidos' },
   'rotas-vivo':     { title: 'Controle de Rotas', sub: 'Ônibus em viagem agora' },
+  'pdv-lojas':      { title: 'Ponto de venda', sub: 'Vendas e caixas de cada loja' },
   'pdv-vivo':       { title: 'Ponto de venda', sub: 'Câmera e cupom de cada caixa agora' },
   'pdv-visao':      { title: 'Ponto de venda', sub: 'Como os itens entraram e a saúde dos caixas' },
   'pdv-cupons':     { title: 'Ponto de venda', sub: 'Cupons, itens e vídeo de cada venda' },
@@ -688,6 +689,7 @@ const VIEW_ID_MAP = {
   'alert-members':   'viewAlertMembers',
   'alert-reports':   'viewAlertReports',
   'rotas-vivo':      'viewRotasVivo',
+  'pdv-lojas':       'viewPdvLojas',
   'pdv-vivo':        'viewPdvVivo',
   'pdv-visao':       'viewPdvVisao',
   'pdv-cupons':      'viewPdvCupons',
@@ -816,6 +818,7 @@ function loadView(view) {
     case 'alert-members':  loadAlertMembers();  break;
     case 'alert-reports':  loadAlertReports();  break;
     case 'rotas-vivo':     loadRotasVivo();     break;
+    case 'pdv-lojas':      loadPdvLojas();      break;
     case 'pdv-vivo':       loadPdvVivo();       break;
     case 'pdv-visao':      loadPdvVisao();      break;
     case 'pdv-cupons':     loadPdvCupons();     break;
