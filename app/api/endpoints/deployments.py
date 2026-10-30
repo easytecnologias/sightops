@@ -1654,18 +1654,18 @@ def api_deployments_recorder_live_stream(payload: Dict[str, Any]) -> Dict[str, A
         canal = 0
     if not host or canal <= 0:
         raise HTTPException(status_code=400, detail="informe host e canal")
-    # Mesma regra da gravacao (/api/nvr/driver/*): quem e restrito a alguns sites
-    # so abre gravador desses sites -- o IP vem do navegador.
-    from app.api.endpoints.recorder_driver import _host_liberado
-    if not _host_liberado(host):
-        raise HTTPException(status_code=403, detail="gravador fora dos sites liberados para voce")
+    # Mesma regra da gravacao (/api/nvr/driver/*): o par IP + conector tem que ser
+    # de um gravador do cadastro, e de site que a pessoa acessa (o IP e o
+    # conector vem do navegador; IP privado se repete entre lojas).
+    from app.api.endpoints.recorder_driver import gravador_liberado
+    conector_conferido = gravador_liberado(host, _text(payload.get("connector_id") or payload.get("remote_connector_id")))
 
     porta_http = payload.get("recorder_http_port") or payload.get("http_port")
     user, password = _credencial_gravador({"recorder_host": host, "http_port": porta_http})
     if not password:
         raise HTTPException(status_code=428, detail="SEM_CREDENCIAL")
 
-    connector_id = _text(payload.get("connector_id") or payload.get("remote_connector_id"))
+    connector_id = conector_conferido  # o do cadastro desse gravador, nao um qualquer do navegador
     if connector_id:
         try:
             register_connector_known_targets(connector_id, [host])

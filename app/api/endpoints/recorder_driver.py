@@ -52,12 +52,44 @@ def _host_liberado(host: str) -> bool:
     return False
 
 
+def gravador_liberado(host: str, connector_id: str = "") -> str:
+    """Confere o gravador que o navegador pediu e devolve o conector a usar.
+
+    O IP e o conector vem do navegador. Gravadores de lojas diferentes podem ter
+    o MESMO IP privado (cada um atras do seu conector), entao o que vale e o par:
+    - conector pedido tem que ser o de algum cadastro desse IP (senao 403: era o
+      jeito de um usuario restrito chegar ao gravador de outra loja);
+    - usuario restrito a sites: o gravador desse par tem que ser de site dele.
+    Sem conector pedido, usa o do cadastro quando ha um so. Gravador fora do
+    cadastro, para quem nao e restrito, segue como antes (decide a credencial).
+    """
+    from app.api.endpoints.nvr import _rec_row_connector
+    from app.core import permissions
+    from app.services.nvr_ai_service import _read_nvr_inventory
+
+    host, pedido = str(host or "").strip(), str(connector_id or "").strip()
+    linhas = [r for r in _read_nvr_inventory() if str(r.get("host") or r.get("ip") or "").strip() == host]
+    if pedido and linhas:
+        linhas = [r for r in linhas if _rec_row_connector(r) == pedido]
+        if not linhas:
+            raise HTTPException(status_code=403, detail="esse conector nao e o deste gravador")
+    sites = permissions.sites_da_sessao()
+    if sites is not None:
+        liberados = {s.strip().upper() for s in sites}
+        linhas = [r for r in linhas if permissions.site_da_linha(r).upper() in liberados]
+        if not linhas:
+            raise HTTPException(status_code=403, detail="gravador fora dos sites liberados para voce")
+    if pedido:
+        return pedido
+    conectores = {_rec_row_connector(r) for r in linhas} - {""}
+    return conectores.pop() if len(conectores) == 1 else ""
+
+
 def _abrir(host: str, http_port: int, connector_id: str = "") -> Gravador:
     host = str(host or "").strip()
     if not host:
         raise HTTPException(status_code=400, detail="informe o gravador")
-    if not _host_liberado(host):
-        raise HTTPException(status_code=403, detail="gravador fora dos sites liberados para voce")
+    connector_id = gravador_liberado(host, connector_id)
     cred = resolve_recorder_credential(host, http_port) or {}
     if not cred.get("password"):
         raise HTTPException(status_code=428, detail="SEM_CREDENCIAL")
