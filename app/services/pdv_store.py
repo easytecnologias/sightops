@@ -358,8 +358,9 @@ def registrar_relogio_dvr(caixa_id: str, gravador_menos_servidor_s: int) -> Dict
 def janela_video(caixa_id: str, ts: str, antes: int = 20, depois: int = 20) -> Dict[str, Any]:
     """Gravador, canal e horario NO RELOGIO DO GRAVADOR para um momento do caixa.
 
-    O download em si e o do driver de gravador (/api/nvr/driver/trecho/iniciar):
-    credencial, IP virtual do conector e reserva por RTSP ja estao la.
+    Quem toca e o player padrao, pela gravacao do driver de gravador
+    (/api/nvr/driver/playback): credencial, IP virtual do conector e filtro de
+    site ja estao la.
     """
     try:
         momento = datetime.strptime(str(ts).replace("T", " ")[:19], "%Y-%m-%d %H:%M:%S")

@@ -160,7 +160,8 @@ def api_pdv_cupom(caixa_id: str, dia: str, cupom: str) -> Dict[str, Any]:
 
 @router.get("/video/{caixa_id}")
 def api_pdv_video(caixa_id: str, ts: str, antes: int = 20, depois: int = 20) -> Dict[str, Any]:
-    """Parametros do trecho para /api/nvr/driver/trecho/iniciar (horario ja no relogio do gravador)."""
+    """Gravador, canal e horario (ja no relogio do gravador) do momento, para o player
+    padrao tocar a gravacao por /api/nvr/driver/playback (como Gravacoes e Investigacao)."""
     return {"ok": True, **_executar(pdv_store.janela_video, caixa_id, ts, antes, depois)}
 
 
