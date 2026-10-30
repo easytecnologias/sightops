@@ -175,6 +175,7 @@ class ConversorCM(object):
         return [l for _, l in self.linha_com_tempo(texto)]
 
     def linha_com_tempo(self, texto):
+        texto = texto.replace("\x00", "")  # lixo binario do log do caixa
         m = _HORA.match(texto.strip())
         if not m:
             return []

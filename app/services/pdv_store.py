@@ -290,7 +290,10 @@ def receber_lote(caixa: Dict[str, Any], payload: Dict[str, Any], agora: Optional
         dia = _dia(l.get("dia"))
         alvo = por_dia.setdefault(dia, {a: [] for a in ARQUIVOS})[arq]
         for item in l.get("linhas") or []:
-            seq, texto = int(item[0]), str(item[1])[:MAX_TAM_LINHA]
+            # NUL (0x00) vem do log binario do caixa e o PostgreSQL recusa a linha:
+            # o lote inteiro dava 500 e o coletor reenviava o mesmo trecho para sempre
+            # (PDV-04 da VITAL parou assim em 29/10 18:18).
+            seq, texto = int(item[0]), str(item[1]).replace("\x00", "")[:MAX_TAM_LINHA]
             if seq < 1:
                 raise ValueError("seq comeca em 1")
             alvo.append((seq, texto))
