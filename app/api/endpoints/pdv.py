@@ -145,6 +145,12 @@ def api_pdv_lojas(dia: str = "") -> Dict[str, Any]:
     return {"ok": True, **_executar(pdv_store.lojas_dia, dia or _hoje())}
 
 
+@router.get("/ao-vivo-loja")
+def api_pdv_ao_vivo_loja(loja: str = "") -> Dict[str, Any]:
+    """Parede do Ao vivo: todos os caixas de uma loja agora, numa chamada so."""
+    return {"ok": True, **_executar(pdv_store.ao_vivo_loja, loja)}
+
+
 @router.get("/cupons")
 def api_pdv_cupons(dia: str = "", caixa_id: str = "", operador: str = "", situacao: str = "",
                    texto: str = "", de: str = "", ate: str = "") -> Dict[str, Any]:

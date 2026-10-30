@@ -611,6 +611,35 @@ def lojas_dia(dia: str, agora: Optional[datetime] = None, limite_alertas: int = 
                         for a in alertas]}
 
 
+def ao_vivo_loja(loja: str = "", agora: Optional[datetime] = None) -> Dict[str, Any]:
+    """Parede do Ao vivo: os caixas de UMA loja agora, cada um com a situacao, o
+    cupom que esta passando e os ultimos itens; os numeros do dia da loja e as
+    ultimas ocorrencias dela. Uma chamada por atualizacao, nao uma por caixa.
+    Sem `loja` (ou loja que a pessoa nao acessa): a primeira das dela."""
+    agora = agora or datetime.now(timezone.utc)
+    dia = agora.astimezone().strftime("%Y-%m-%d")
+    r = lojas_dia(dia, agora=agora, limite_alertas=40)
+    if not r["lojas"]:
+        return {"dia": dia, "lojas": [], "loja": None, "caixas": [], "alertas": []}
+    nomes = [l["nome"] for l in r["lojas"]]
+    escolhida = next((l for l in r["lojas"] if l["nome"] == str(loja or "").strip()), r["lojas"][0])
+    caixas = []
+    for cx in escolhida["caixas"]:
+        v = ao_vivo(cx["id"])  # ja confere cliente e site; traz o que ainda espera tecla
+        k = v.get("cupom") or {}
+        aberto = k.get("situacao") == "aberto" and cx["estado"] == "em_venda"
+        caixas.append(dict(cx, cupom={
+            "cupom": k.get("cupom") or "", "situacao": k.get("situacao") or "", "aberto": aberto,
+            "operador": k.get("operador") or "", "aberto_em": k.get("aberto_em") or "",
+            "fechado_em": k.get("fechado_em") or "", "itens": int(k.get("itens") or 0),
+            "total_centavos": int(k.get("total_centavos") or 0),
+        }, ultimos=[{"ts": i.get("ts"), "descricao": i.get("descricao"), "valor_centavos": int(i.get("valor_centavos") or 0),
+                     "modo": i.get("modo")} for i in (v.get("itens") or [])[:2]] if aberto else []))
+    loja_sem_caixas = {k: v for k, v in escolhida.items() if k != "caixas"}
+    return {"dia": dia, "lojas": nomes, "loja": loja_sem_caixas, "caixas": caixas,
+            "alertas": [a for a in r["alertas"] if a["loja"] == escolhida["nome"]][:8]}
+
+
 def reprocessar_dia(caixa_id: str, dia: str) -> Dict[str, Any]:
     """Refaz eventos, itens e cupons do dia a partir das linhas cruas gravadas."""
     tenant, dia = _tenant(), _dia(dia)

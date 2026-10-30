@@ -381,3 +381,26 @@ def test_linha_com_nul_nao_trava_o_lote(banco):
     with db_store._conn() as c:
         linhas = [x["linha"] for x in c.execute("SELECT linha FROM pdv_linhas WHERE caixa_id=?", (c1["id"],)).fetchall()]
     assert linhas and not any("\x00" in l for l in linhas)
+
+
+def test_parede_do_ao_vivo_por_loja(banco, monkeypatch):
+    from app.core import permissions
+    a = _caixa_loja("PDV 01", "Loja A", 1)
+    b = _caixa_loja("PDV 02", "Loja B", 2)
+    for cx in (a, b):
+        _enviar(S.autenticar(cx["id"], cx["token"]), ESP, TEC, agora=10_000.0)
+    _ajustar(a["id"], ultimo_evento="2026-10-27 11:59:30")
+    from app.services import db_store
+    with db_store._conn() as c:
+        c.execute("UPDATE pdv_cupons SET situacao='aberto' WHERE caixa_id=? AND cupom='1004'", (a["id"],))
+    r = S.ao_vivo_loja("Loja A", agora=_agora_local(12, 0))
+    assert r["lojas"] == ["Loja A", "Loja B"] or set(r["lojas"]) == {"Loja A", "Loja B"}
+    assert r["loja"]["nome"] == "Loja A" and [c["nome"] for c in r["caixas"]] == ["PDV 01"]
+    cx = r["caixas"][0]
+    assert cx["estado"] == "em_venda" and cx["cupom"]["cupom"] == "1004" and cx["cupom"]["aberto"]
+    assert cx["ultimos"] and cx["ultimos"][0]["descricao"] == "WHISKY 1L"
+    assert all(al["loja"] == "Loja A" for al in r["alertas"])
+    # loja que a pessoa nao acessa: cai na dela
+    monkeypatch.setattr(permissions, "sites_da_sessao", lambda: ["LOJA B"])
+    r = S.ao_vivo_loja("Loja A", agora=_agora_local(12, 0))
+    assert r["lojas"] == ["Loja B"] and [c["nome"] for c in r["caixas"]] == ["PDV 02"]

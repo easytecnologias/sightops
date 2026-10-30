@@ -19,7 +19,8 @@ const PDV_SITUACAO = {
 let _pdvCaixas = [];
 let _pdvDia = '';
 let _pdvTimer = null;
-let _pdvVivo = { caixaId: '', handle: null, timer: null, alta: false };
+// modo 'parede' (todos os caixas da loja) ou 'foco' (um caixa, video grande e cupom)
+let _pdvVivo = { caixaId: '', handle: null, timer: null, alta: false, modo: 'parede', loja: '', pedidoFoco: '', parede: new Map() };
 
 // ---------------------------------------------------------------- comum
 
@@ -100,6 +101,8 @@ function pdvParar() {
   if (_pdvTimer) { clearInterval(_pdvTimer); _pdvTimer = null; }
   if (_pdvVivo.timer) { clearInterval(_pdvVivo.timer); _pdvVivo.timer = null; }
   if (_pdvVivo.handle) { try { _pdvVivo.handle.stop(); } catch (_) {} _pdvVivo.handle = null; }
+  _pdvVivo.parede.forEach(h => { try { h.stop(); } catch (_) {} });
+  _pdvVivo.parede.clear();
   if (typeof pdvPararGravacao === 'function') pdvPararGravacao();
 }
 
@@ -171,6 +174,13 @@ function pdvAlertaTexto(a) {
 function pdvIrAoVivo(caixaId) {
   if (!caixaId) return;
   _pdvVivo.caixaId = caixaId;
+  _pdvVivo.pedidoFoco = caixaId;  // abre direto o caixa (pelo menu, abre a parede)
+  document.querySelector('.nav-item[data-view="pdv-vivo"]')?.click();
+}
+
+function pdvIrLoja(nome) {
+  _pdvVivo.loja = nome || '';
+  _pdvVivo.pedidoFoco = '';
   document.querySelector('.nav-item[data-view="pdv-vivo"]')?.click();
 }
 
@@ -202,13 +212,12 @@ async function pdvRenderLojas() {
   const cartao = l => {
     const tk = l.cupons ? l.vendido_centavos / l.cupons : 0;
     const okCx = l.coletando === l.n_caixas;
-    const alvo = (l.caixas.find(c => c.estado === 'em_venda') || l.caixas[0] || {}).id || '';
     return `
       <article class="pdv-l-card pdv-l-s3 pdv-l-loja">
         <div class="pdv-l-head pdv-l-topo">
           <div class="pdv-l-stat"><strong class="pdv-l-nome" title="${esc(l.nome)}">${esc(l.nome)}</strong>
             <span class="pdv-l-sub">${pdvPlural(l.n_caixas, 'caixa')}</span></div>
-          <button type="button" class="pdv-l-link" data-pdv-ir="${esc(alvo)}">Abrir</button>
+          <button type="button" class="pdv-l-link" data-pdv-loja="${esc(l.nome)}" title="Ver os caixas desta loja ao vivo">Abrir</button>
         </div>
         <div class="pdv-l-stat"><span class="pdv-l-k">Vendido ${r.hoje ? 'hoje' : 'no dia'}</span>
           <strong class="pdv-l-big">${pdvMoeda(l.vendido_centavos)}</strong></div>
@@ -338,6 +347,7 @@ async function pdvRenderLojas() {
       </aside>
     </div>`;
   box.querySelectorAll('[data-pdv-ir]').forEach(b => b.addEventListener('click', () => pdvIrAoVivo(b.dataset.pdvIr)));
+  box.querySelectorAll('[data-pdv-loja]').forEach(b => b.addEventListener('click', () => pdvIrLoja(b.dataset.pdvLoja)));
   box.querySelectorAll('[data-pdv-cupom]').forEach(b => b.addEventListener('click', () =>
     pdvIrCupom(b.dataset.pdvCaixa, b.dataset.pdvDia || _pdvLojasDia, b.dataset.pdvCupom)));
   box.querySelector('[data-pdv-cupons]')?.addEventListener('click', () => document.querySelector('.nav-item[data-view="pdv-cupons"]')?.click());
@@ -508,8 +518,190 @@ async function loadPdvVivo() {
   pdvParar();
   const caixas = await pdvCarregarCaixas();
   if (!caixas.length) { pdvSemCaixa('pdvVivoBody'); return; }
-  if (!caixas.some(c => c.id === _pdvVivo.caixaId)) _pdvVivo.caixaId = caixas[0].id;
-  pdvRenderVivo();
+  const foco = _pdvVivo.pedidoFoco;
+  _pdvVivo.pedidoFoco = '';
+  if (foco && caixas.some(c => c.id === foco)) {
+    _pdvVivo.modo = 'foco';
+    _pdvVivo.caixaId = foco;
+    pdvRenderVivo();
+    return;
+  }
+  _pdvVivo.modo = 'parede';
+  await pdvRenderParede();
+}
+
+// ---- parede: todos os caixas da loja, video leve (SD) em cada um
+const PDV_PAREDE_MAX_VIDEOS = 8;  // mais que isso pesa no link da loja: os outros ficam so com o cupom
+const PDV_TILE_CLS = { em_venda: 'pdv-v-venda', parado: 'pdv-v-parado', sem_coletor: 'pdv-v-sem', livre: 'pdv-v-livre', desligado: 'pdv-v-livre' };
+
+function pdvParedeUrl() {
+  return `/api/pdv/ao-vivo-loja?loja=${encodeURIComponent(_pdvVivo.loja || '')}`;
+}
+
+async function pdvRenderParede() {
+  const box = document.getElementById('pdvVivoBody');
+  if (!box) return;
+  const r = await apiJson(pdvParedeUrl(), { forceRefresh: true });
+  if (!r?.loja) { box.innerHTML = '<p class="pdv-nota">Não foi possível carregar os caixas agora.</p>'; return; }
+  _pdvVivo.loja = r.loja.nome;
+  const cad = new Map(_pdvCaixas.map(c => [c.id, c]));
+  const kpi = (id, rot, cls = '') => `<section class="pdv-l-card pdv-l-s3"><div class="pdv-l-stat" id="${id}">
+    <span class="pdv-l-k ${cls}">${rot}</span><strong class="pdv-l-big">–</strong><span class="pdv-l-sub">&nbsp;</span></div></section>`;
+  const tile = (c, i) => {
+    const temVideo = cad.get(c.id)?.gravador_host && cad.get(c.id)?.gravador_canal;
+    return `
+      <article class="pdv-v-tile pdv-l-s3" id="pdvVt-${esc(c.id)}" data-pdv-foco="${esc(c.id)}">
+        <div class="pdv-v-video">
+          ${temVideo && i < PDV_PAREDE_MAX_VIDEOS ? `<video id="pdvVv-${esc(c.id)}" autoplay muted playsinline></video>` : ''}
+          <span class="pdv-v-aviso" data-aviso>${temVideo ? (i < PDV_PAREDE_MAX_VIDEOS ? 'Conectando...' : 'vídeo no foco do caixa') : 'sem câmera configurada'}</span>
+          <span class="pdv-v-lbl pdv-v-nome">${esc(c.nome)}</span>
+          <span class="pdv-v-lbl pdv-v-sit" data-sit></span>
+          <span class="pdv-v-lbl pdv-v-ultimo" data-ultimo hidden></span>
+        </div>
+        <div class="pdv-v-corpo">
+          <div class="pdv-l-head"><strong class="pdv-v-op" data-op>–</strong>
+            <button type="button" class="pdv-l-link" data-pdv-abrir="${esc(c.id)}" aria-label="Abrir ${esc(c.nome)} em tela grande">abrir</button></div>
+          <div class="pdv-v-linhas" data-linhas></div>
+          <div class="pdv-l-head pdv-v-pe"><span class="pdv-l-sub" data-rodape></span><strong class="pdv-v-total" data-total></strong></div>
+        </div>
+      </article>`;
+  };
+  box.innerHTML = `
+    <div class="pdv-l-grade pdv-v-grade">
+      ${kpi('pdvVkVendido', 'Vendido hoje')}${kpi('pdvVkCupons', 'Cupons')}${kpi('pdvVkBip', 'Bipados')}${kpi('pdvVkRev', 'Para revisar', 'pdv-l-k-ambar')}
+      <div class="pdv-l-s12 pdv-l-head pdv-l-secao">
+        <h2 class="pdv-l-h2">Caixas</h2>
+        <div class="pdv-l-legenda pdv-l-sub">
+          <span><i class="pdv-cx-venda"></i>em venda</span><span><i class="pdv-cx-livre"></i>livre</span>
+          <span><i class="pdv-cx-parado"></i>sem venda há mais de 1 h</span><span><i class="pdv-cx-sem"></i>sem coletor</span>
+          ${r.lojas.length > 1 ? `<label class="pdv-v-loja">Loja <select id="pdvVivoLoja">${r.lojas.map(n =>
+            `<option value="${esc(n)}" ${n === r.loja.nome ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select></label>` : ''}
+        </div>
+      </div>
+      <aside class="pdv-l-card pdv-v-lado pdv-l-agora" aria-label="Acontecendo agora na loja">
+        <div class="pdv-l-head pdv-l-agora-topo"><h2 class="pdv-l-h2">Acontecendo agora</h2><span class="pdv-l-sub">da loja</span></div>
+        <div id="pdvVtAlertas"></div>
+        <div class="pdv-l-agora-pe"><button type="button" class="pdv-l-link" data-pdv-cupons>Ver os cupons</button></div>
+      </aside>
+      ${r.caixas.map(tile).join('')}
+    </div>
+    <p class="pdv-nota">O vídeo sai do gravador pelo conector da loja, como as outras câmeras do SightOps; aqui vai leve (SD). Clique num caixa para ver grande, em HD, com o cupom ao lado.</p>`;
+
+  document.getElementById('pdvVivoLoja')?.addEventListener('change', ev => {
+    pdvParar();
+    _pdvVivo.loja = ev.target.value;
+    pdvRenderParede();
+  });
+  box.querySelector('[data-pdv-cupons]')?.addEventListener('click', () => document.querySelector('.nav-item[data-view="pdv-cupons"]')?.click());
+  const abrir = id => { pdvParar(); _pdvVivo.modo = 'foco'; _pdvVivo.caixaId = id; pdvRenderVivo(); };
+  box.querySelectorAll('[data-pdv-foco]').forEach(el => el.addEventListener('click', ev => {
+    if (ev.target.closest('button,a,select,video[controls]')) return;
+    abrir(el.dataset.pdvFoco);
+  }));
+  box.querySelectorAll('[data-pdv-abrir]').forEach(b => b.addEventListener('click', () => abrir(b.dataset.pdvAbrir)));
+  box.addEventListener('click', ev => {
+    const b = ev.target.closest('[data-pdv-cupom]');
+    if (b) pdvIrCupom(b.dataset.pdvCaixa, b.dataset.pdvDia || pdvHoje(), b.dataset.pdvCupom);
+  });
+
+  // video leve de cada caixa, pelo mesmo caminho do ao vivo de gravador do SightOps
+  r.caixas.slice(0, PDV_PAREDE_MAX_VIDEOS).forEach(c => {
+    const x = cad.get(c.id);
+    const video = document.getElementById(`pdvVv-${c.id}`);
+    if (!x || !video || typeof mountLiveStream !== 'function') return;
+    const aviso = () => document.querySelector(`#pdvVt-${CSS.escape(c.id)} [data-aviso]`);
+    _pdvVivo.parede.set(c.id, mountLiveStream(video, {
+      ip: x.gravador_host, user: 'admin', pass: '', subtype: 1, connectorId: x.connector_id,
+      registrar: async () => {
+        const res = await api('/api/deployments/recorder-live-stream', {
+          method: 'POST',
+          body: JSON.stringify({ recorder_host: x.gravador_host, canal: Number(x.gravador_canal), connector_id: x.connector_id, alta: 0 }),
+        });
+        const j = await res?.json().catch(() => ({}));
+        if (res?.status === 428) throw new Error('gravador sem senha guardada');
+        if (res?.status === 403) throw new Error('gravador de loja que você não acessa');
+        if (!res?.ok || !j?.stream_name) throw new Error(j?.detail || 'não consegui abrir o vídeo');
+        return j.stream_name;
+      },
+      onStatus: texto => { const a = aviso(); if (a) { a.hidden = !texto; if (texto) a.textContent = texto; } },
+    }));
+  });
+
+  pdvPintarParede(r);
+  _pdvVivo.timer = setInterval(async () => {
+    if (!pdvVisivel('viewPdvVivo') || _pdvVivo.modo !== 'parede') { pdvParar(); return; }
+    const r2 = await apiJson(pdvParedeUrl(), { forceRefresh: true });
+    if (r2?.loja && r2.loja.nome === _pdvVivo.loja && _pdvVivo.modo === 'parede') pdvPintarParede(r2);
+  }, 3000);
+}
+
+// so troca textos e classes: os videos continuam tocando
+function pdvPintarParede(r) {
+  const l = r.loja;
+  setText('pdvVivoSub', `${l.nome} · ${pdvPlural(l.n_caixas, 'caixa')} · ${l.coletando} coletando`);
+  const pinta = (id, big, sub) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.querySelector('.pdv-l-big').innerHTML = big;
+    const s = el.querySelector('.pdv-l-sub');
+    s.innerHTML = sub;
+    s.title = s.textContent;
+  };
+  const ticket = l.cupons ? l.vendido_centavos / l.cupons : 0;
+  pinta('pdvVkVendido', pdvMoeda(l.vendido_centavos), `até ${new Date().toTimeString().slice(0, 5)}`);
+  pinta('pdvVkCupons', pdvNum(l.cupons), `ticket médio ${pdvMoeda(ticket)}`);
+  pinta('pdvVkBip', pdvPct(l.bipados, l.itens), `${pdvNum(l.itens)} itens passados`);
+  pinta('pdvVkRev', pdvNum(l.revisar), `${pdvNum(l.cancelados)} cancelados · ${pdvNum(l.sem_cadastro)} sem cadastro`);
+
+  (r.caixas || []).forEach(c => {
+    const t = document.getElementById(`pdvVt-${c.id}`);
+    if (!t) return;
+    Object.values(PDV_TILE_CLS).forEach(k => t.classList.remove(k));
+    t.classList.add(PDV_TILE_CLS[c.estado] || 'pdv-v-livre');
+    const k = c.cupom || {};
+    const sit = { em_venda: 'em venda', livre: 'livre', parado: `sem venda há ${c.parado_min || 60} min`,
+      sem_coletor: 'sem coletor', desligado: 'desligado' }[c.estado] || '–';
+    const q = sel => t.querySelector(sel);
+    q('[data-sit]').textContent = sit;
+    q('[data-op]').textContent = k.operador || c.operador || 'sem operador';
+    const ult = (c.ultimos || [])[0];
+    q('[data-ultimo]').hidden = !ult;
+    if (ult) q('[data-ultimo]').innerHTML = `<span>${esc(ult.descricao || '')}</span><b>${esc(pdvMoeda(ult.valor_centavos))}</b>`;
+    const linha = (h, txt, v = '', cls = '') => `<div class="pdv-v-ln ${cls}"><span>${esc(h)}</span><span title="${esc(txt)}">${esc(txt)}</span><span>${esc(v)}</span></div>`;
+    let linhas;
+    if (k.aberto) {
+      linhas = (c.ultimos || []).map(i => linha(pdvHora(i.ts), `${i.descricao || ''}${i.modo === 'manual' ? ' · digitado' : ''}`,
+        pdvMoeda(i.valor_centavos), i.modo === 'manual' ? 'pdv-v-dig' : ''));
+      while (linhas.length < 2) linhas.push(linha('', ''));
+      q('[data-rodape]').textContent = `cupom ${k.cupom} · ${pdvNum(k.itens)} ${Number(k.itens) === 1 ? 'item' : 'itens'}`;
+      q('[data-total]').textContent = pdvMoeda(k.total_centavos);
+      q('[data-total]').classList.remove('pdv-v-apagado');
+    } else {
+      const quando = k.fechado_em ? pdvHora(k.fechado_em).slice(0, 5) : '';
+      linhas = [
+        linha(quando, k.cupom ? 'Última venda' : 'Nenhuma venda hoje', k.cupom ? pdvMoeda(k.total_centavos) : ''),
+        linha('', { livre: k.fechado_em ? `Caixa livre ${pdvHaQuanto(k.fechado_em)}` : 'Caixa livre', parado: 'Parado com a loja aberta',
+          sem_coletor: 'Coletor sem resposta', desligado: 'Desligado no cadastro' }[c.estado] || '',
+          '', c.estado === 'parado' ? 'pdv-v-dig' : (c.estado === 'sem_coletor' ? 'pdv-v-ruim' : '')),
+      ];
+      q('[data-rodape]').textContent = `${pdvNum(c.cupons)} ${Number(c.cupons) === 1 ? 'cupom' : 'cupons'} hoje`;
+      q('[data-total]').textContent = pdvMoeda(c.vendido_centavos);
+      q('[data-total]').classList.add('pdv-v-apagado');
+    }
+    q('[data-linhas]').innerHTML = linhas.join('');
+  });
+
+  const alvo = document.getElementById('pdvVtAlertas');
+  if (alvo) {
+    alvo.innerHTML = (r.alertas || []).slice(0, 7).map(a => {
+      const [txt, cor] = pdvAlertaTexto(a);
+      return `<div class="pdv-l-alerta"><i class="${cor}" aria-hidden="true"></i>
+        <div class="pdv-l-stat"><span class="pdv-l-sub pdv-l-uma">${esc(pdvHora(a.ts))} · <strong>${esc(a.caixa)}</strong></span>
+          <span class="pdv-l-txt" title="${esc(txt)}">${esc(txt)}</span></div>
+        <button type="button" class="pdv-l-link" data-pdv-cupom="${esc(a.cupom || '')}" data-pdv-caixa="${esc(a.caixa_id)}"
+          data-pdv-dia="${esc(String(a.ts || '').slice(0, 10))}" title="Abrir o cupom, com os itens e o vídeo">abrir</button></div>`;
+    }).join('') || '<p class="pdv-l-sub pdv-l-vazio">Nada fora do normal hoje.</p>';
+  }
 }
 
 function pdvRenderVivo() {
@@ -517,6 +709,7 @@ function pdvRenderVivo() {
   const c = _pdvCaixas.find(x => x.id === _pdvVivo.caixaId);
   if (!box || !c) return;
   box.innerHTML = `
+    <div class="pdv-v-voltar"><button type="button" class="secondary-action" data-pdv-parede><i data-lucide="layout-grid"></i> Todos os caixas da loja</button></div>
     <div class="pdv-vivo">
       <section class="pdv-palco">
         <video id="pdvVivoVideo" autoplay muted playsinline></video>
@@ -537,6 +730,12 @@ function pdvRenderVivo() {
       </button>`;
     }).join('')}</section>
     <p class="pdv-nota">O vídeo sai do gravador pelo conector da loja, como as outras câmeras do SightOps. O caixa não transmite vídeo.</p>`;
+  box.querySelector('[data-pdv-parede]')?.addEventListener('click', () => {
+    pdvParar();
+    _pdvVivo.modo = 'parede';
+    _pdvVivo.loja = (c.site || '').trim() || _pdvVivo.loja;
+    pdvRenderParede();
+  });
   document.getElementById('pdvVivoQualidade')?.addEventListener('click', () => {
     pdvParar();
     _pdvVivo.alta = !_pdvVivo.alta;

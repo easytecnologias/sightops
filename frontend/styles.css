@@ -14243,3 +14243,47 @@ button.rk-chip { cursor: pointer; }
 @media (max-width: 640px) {
   .pdv-l-s3 { grid-column: span 12; }
 }
+
+/* ---------------------------------------------------------------- PDV · Ao vivo (parede da loja)
+   Mesma grade da tela Lojas. O painel "Acontecendo agora" fica nas colunas
+   10-12 e cobre duas fileiras de caixas; "dense" deixa os caixas encherem as
+   colunas 1-9 ao lado dele. Caixa livre tem as mesmas linhas do caixa em venda
+   (mesma altura). Borda conta a situacao. */
+.pdv-v-grade { grid-auto-flow: row dense; }
+.pdv-v-lado { grid-column: 10 / span 3; grid-row: span 2; }
+.pdv-v-voltar { margin-bottom: 16px; }
+.pdv-v-loja { display: inline-flex; align-items: center; gap: 8px; color: var(--muted); }
+.pdv-v-loja select { height: 32px; border: 1px solid var(--border); border-radius: 6px; padding: 0 8px; background: var(--surface); color: var(--text); font: inherit; font-size: 12px; }
+.pdv-v-tile { display: flex; flex-direction: column; min-width: 0; background: var(--surface); border-radius: 10px; overflow: hidden; cursor: pointer; box-shadow: 0 0 0 1px var(--border); }
+.pdv-v-tile:hover { box-shadow: 0 0 0 1px #b7c4ca; }
+@keyframes pdvRespira { 0%, 100% { box-shadow: 0 0 0 2px var(--primary), 0 0 0 6px rgba(8, 127, 91, .08); } 50% { box-shadow: 0 0 0 2px var(--primary), 0 0 0 9px rgba(8, 127, 91, .16); } }
+.pdv-v-venda { animation: pdvRespira 3s ease-in-out infinite; }
+.pdv-v-parado { box-shadow: 0 0 0 2px var(--amber), 0 0 0 6px rgba(184, 107, 0, .10); }
+.pdv-v-sem { box-shadow: 0 0 0 2px var(--danger), 0 0 0 6px rgba(201, 42, 42, .08); }
+.pdv-v-livre { box-shadow: 0 0 0 1px var(--border); }
+@media (prefers-reduced-motion: reduce) { .pdv-v-venda { animation: none; box-shadow: 0 0 0 2px var(--primary); } }
+.pdv-v-video { position: relative; aspect-ratio: 16 / 9; background: var(--sidebar); overflow: hidden; }
+.pdv-v-video video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.pdv-v-aviso { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: 0 16px; text-align: center; color: #8fa1a9; font-size: 12px; }
+.pdv-v-lbl { position: absolute; height: 24px; display: flex; align-items: center; gap: 8px; padding: 0 8px; border-radius: 4px; background: rgba(19, 37, 45, .82); color: #ffffff; font-size: 12px; font-weight: 600; box-sizing: border-box; max-width: calc(100% - 24px); }
+.pdv-v-nome { top: 12px; left: 12px; }
+.pdv-v-sit { top: 12px; right: 12px; }
+.pdv-v-venda .pdv-v-sit { background: var(--primary); }
+.pdv-v-parado .pdv-v-sit { background: var(--amber); }
+.pdv-v-sem .pdv-v-sit { background: var(--danger); }
+.pdv-v-ultimo { left: 12px; right: 12px; bottom: 12px; justify-content: space-between; font-weight: 500; font-variant-numeric: tabular-nums; }
+.pdv-v-ultimo span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pdv-v-corpo { display: flex; flex-direction: column; gap: 12px; padding: 16px; flex: 1; }
+.pdv-v-op { font-size: 13px; line-height: 18px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pdv-v-linhas { display: flex; flex-direction: column; gap: 2px; color: var(--muted); }
+.pdv-v-ln { display: grid; grid-template-columns: 56px minmax(0, 1fr) auto; gap: 8px; height: 18px; font-size: 12px; line-height: 18px; font-variant-numeric: tabular-nums; }
+.pdv-v-ln span:nth-child(2) { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pdv-v-ln span:last-child { text-align: right; }
+.pdv-v-dig { color: #8a5100; font-weight: 600; }
+.pdv-v-ruim { color: var(--danger); font-weight: 600; }
+.pdv-v-pe { margin-top: auto; padding-top: 12px; border-top: 1px solid #eef1f3; }
+.pdv-v-total { font-size: 17px; font-weight: 700; line-height: 22px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.pdv-v-apagado { color: #4b5961; }
+@media (max-width: 1180px) {
+  .pdv-v-lado { grid-column: 1 / -1; grid-row: auto; order: 99; }  /* em tela estreita, os caixas primeiro */
+}
