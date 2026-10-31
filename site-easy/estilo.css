@@ -1,0 +1,76 @@
+/* Página institucional da Easy Tecnologia (Cloudflare Pages, raiz de
+   easytecnologias.com.br). Cores do SightOps (frontend/styles.css). */
+:root {
+  --bg: #f3f5f7;
+  --surface: #ffffff;
+  --border: #dfe4e8;
+  --text: #172026;
+  --muted: #66747e;
+  --escuro: #13252d;
+  --primary: #087f5b;
+  --primary-soft: #dff5ec;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0f1a1f;
+    --surface: #16252c;
+    --border: #2a3c44;
+    --text: #e6edf0;
+    --muted: #9aa9b1;
+    --escuro: #0b1418;
+    --primary: #38c493;
+    --primary-soft: #143a2e;
+  }
+}
+* { box-sizing: border-box; }
+html { background: var(--bg); }
+body {
+  margin: 0;
+  font-family: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-size: 16px;
+  line-height: 1.6;
+  color: var(--text);
+  background: var(--bg);
+}
+a { color: var(--primary); }
+.topo { background: var(--escuro); color: #fff; }
+.topo .faixa {
+  max-width: 880px; margin: 0 auto; padding: 18px 16px;
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+}
+.marca { font-weight: 700; font-size: 18px; color: #fff; text-decoration: none; }
+.topo nav a { color: #cfe0e6; text-decoration: none; font-size: 14px; }
+main { max-width: 880px; margin: 0 auto; padding: 32px 16px 56px; }
+.cartao {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 12px; padding: 24px; margin-bottom: 20px;
+}
+h1 { font-size: 28px; line-height: 1.25; margin: 0 0 8px; }
+h2 { font-size: 20px; margin: 28px 0 8px; }
+.cartao h2:first-child { margin-top: 0; }
+p, li { color: var(--text); }
+.sub { color: var(--muted); margin: 0; }
+.selo {
+  display: inline-block; background: var(--primary-soft); color: var(--primary);
+  font-size: 13px; font-weight: 600; padding: 2px 10px; border-radius: 99px;
+}
+.dados { display: grid; grid-template-columns: 160px 1fr; gap: 6px 16px; margin: 0; }
+.dados dt { color: var(--muted); }
+.dados dd { margin: 0; }
+.lista-apps { list-style: none; padding: 0; margin: 0; }
+.lista-apps li { padding: 12px 0; border-top: 1px solid var(--border); }
+.lista-apps li:first-child { border-top: 0; }
+table { width: 100%; border-collapse: collapse; font-size: 15px; }
+th, td { text-align: left; vertical-align: top; padding: 8px 10px 8px 0; border-top: 1px solid var(--border); }
+th { color: var(--muted); font-weight: 600; }
+.rodape { color: var(--muted); font-size: 14px; text-align: center; padding: 0 16px 32px; }
+@media (max-width: 560px) {
+  h1 { font-size: 24px; }
+  .dados { grid-template-columns: 1fr; }
+  .dados dt { margin-top: 8px; }
+  .cartao { padding: 18px; }
+  table, thead, tbody, tr, th, td { display: block; }
+  thead { display: none; }
+  td { border-top: 0; padding: 2px 0; }
+  tr { border-top: 1px solid var(--border); padding: 8px 0; }
+}
