@@ -74,6 +74,14 @@ COR_OUTROS = "#d97706"   # ponto do mapa sem camera (mesmo laranja da legenda "o
 COR_CAIXA = "#92400e"    # caixa de CFTV (quadrado, como o pino do Mapa)
 COR_CTO = "#7c3aed"      # CTO (losango)
 COR_LINHA = "#0e7490"    # linhas do KMZ (fibra/rota)
+COR_A_INSTALAR = "#1971c2"  # ponto com motivo "a instalar"/"previsto": camera planejada
+
+
+def _e_a_instalar(motivo: Dict[str, Any]) -> bool:
+    """Ponto sem camera que e camera PLANEJADA (motivo "Camera a instalar",
+    "previsto"): sai do relatorio como projeto, nao como pendencia."""
+    t = _to_text((motivo or {}).get("motivo")).lower()
+    return "a instalar" in t or t.startswith(("instalar", "previst"))
 # cabos: mesmas cores e nomes do Mapa (frontend/js/mapaCaixas.js CX_CABOS)
 CABOS = {
     "utp5e": ("UTP Cat5e", "#1971c2", False, 100), "utp6": ("UTP Cat6", "#1864ab", False, 100),
@@ -468,7 +476,8 @@ def _pontos_do_mapa(site: str = "", camadas: Optional[List[Dict[str, Any]]] = No
             chave = nome.strip().lower()
             tipo = "caixa" if any(n == chave and _perto(p, c) for n, p in caixas) else _tipo_do_ponto(nome)
             out.append({"nome": nome, "pos": c, "camada": cam["label"], "cor": cor, "tipo": tipo,
-                        "motivo": motivos.get(chave) or {}})
+                        "motivo": motivos.get(chave) or {},
+                        "descricao": _to_text((f.get("properties") or {}).get("description"))})
     return out
 
 
@@ -673,6 +682,18 @@ def _tabela(cabec: List[str], linhas: List[List[Any]], pesos: List[int], styles,
     return t
 
 
+def _legenda_simples(styles, largura: float, itens: List[Tuple[str, str]]) -> Table:
+    celulas = []
+    for cor, txt in itens:
+        celulas += [_p("", styles["small"], fallback=""), _p(txt, styles["small"])]
+    t = Table([celulas], colWidths=[10, min(120, largura / len(itens) - 10)] * len(itens), hAlign="LEFT")
+    cmds = [("VALIGN", (0, 0), (-1, -1), "MIDDLE"), ("LEFTPADDING", (0, 0), (-1, -1), 3)]
+    for i, (cor, _) in enumerate(itens):
+        cmds.append(("BACKGROUND", (2 * i, 0), (2 * i, 0), colors.HexColor(cor)))
+    t.setStyle(TableStyle(cmds))
+    return t
+
+
 def _legenda(styles, largura: float, tem_outros: bool, cor_outros: str,
              extras: Iterable[Tuple[str, str]] = ()) -> Table:
     itens = [(COR_ONLINE, "Online"), (COR_OFFLINE, "Offline"), (COR_SEM_STATUS, "Sem status")]
@@ -767,6 +788,8 @@ def build_map_pdf_report(site: str = "", company_name: str = "", report_color: s
     # so ponto com cara de camera e pendencia: caixa, CTO, poste e CDO sao infraestrutura
     sem_camera = [p for p in pontos if p["tipo"] == "camera" and p["nome"].strip().lower() not in titulos
                   and not (re.fullmatch(r"\d+", p["nome"].strip()) and str(int(p["nome"].strip())) in casados_por_numero)]
+    a_instalar = [p for p in sem_camera if _e_a_instalar(p["motivo"])]
+    sem_camera = [p for p in sem_camera if not _e_a_instalar(p["motivo"])]
     cor_outros = sem_camera[0]["cor"] if sem_camera else COR_OUTROS
     com_pos = [c for c in cams if c["_pos"]]
     areas = agrupar_areas(cams)
@@ -817,13 +840,15 @@ def build_map_pdf_report(site: str = "", company_name: str = "", report_color: s
     comp = f"  -  {company_name}" if _to_text(company_name) else ""
     story.append(_p("Relatorio do mapa", styles["title"]))
     story.append(_p(f"Gerado em {agora.strftime('%d/%m/%Y as %H:%M')}  -  Site: {site_label}  -  "
-                    f"{total} camera{'s' if total != 1 else ''}{comp}", styles["subtitle"]))
+                    f"{total} camera{'s' if total != 1 else ''}"
+                    + (f" + {len(a_instalar)} a instalar" if a_instalar else "") + comp, styles["subtitle"]))
     story.append(_kpis([
         ("Cameras", str(total), INK), ("Online", str(online), OK), ("Offline", str(offline), BAD),
         ("No mapa", f"{len(com_pos)}", INK), ("Com foto", str(com_foto), INK),
         ("Gravando", f"{gravando} de {grav_conhecida}", INK) if grav_conhecida
         else ("Em gravador", f"{em_gravador} de {total}", INK),
-    ], styles, util))
+    ] + ([("A instalar", str(len(a_instalar)), colors.HexColor(COR_A_INSTALAR))] if a_instalar else []),
+        styles, util))
     portas_total = sum(int(cx["cx"].get("portas") or 0) for cx in caixas if cx["tipo"] != "passagem")
     portas_uso = sum(1 for cx in caixas if cx["tipo"] != "passagem" for cb in cx["cabos"] if cb.get("porta"))
     metros_por_tipo: Dict[str, float] = {}
@@ -845,6 +870,7 @@ def build_map_pdf_report(site: str = "", company_name: str = "", report_color: s
     geral = renderizar_mapa(
         [(c["_pos"][0], c["_pos"][1], c["_num"], _cor_status(c["_status"])) for c in com_pos]
         + [(p["pos"][0], p["pos"][1], _numero(p["nome"]), p["cor"]) for p in sem_camera]
+        + [(p["pos"][0], p["pos"][1], _numero(p["nome"]), COR_A_INSTALAR) for p in a_instalar]
         + pinos_caixa + pinos_cto,
         # com a 2a linha de numeros, o mapa encolhe para caber na pagina 1
         1800, 700 if (caixas or ctos) else 860, raio=15, linhas=linhas_rede + linhas_cabos)
@@ -852,7 +878,8 @@ def build_map_pdf_report(site: str = "", company_name: str = "", report_color: s
     if geral is not None:
         story.append(_imagem_pdf(geral, util))
         story.append(Spacer(1, 2 * mm))
-        story.append(_legenda(styles, util, bool(sem_camera), cor_outros, extras_legenda))
+        story.append(_legenda(styles, util, bool(sem_camera), cor_outros,
+                              ([(COR_A_INSTALAR, "Camera a instalar")] if a_instalar else []) + extras_legenda))
     else:
         story.append(_p("Nenhuma camera com posicao no mapa.", styles["small"]))
 
@@ -1055,6 +1082,22 @@ def build_map_pdf_report(site: str = "", company_name: str = "", report_color: s
                     outros.append([_p(nome, styles["small_b"]), _p(str(infra["contagem"][tipo]), styles["small"]),
                                    _p("-", styles["small"])])
             story.append(_tabela(["ELEMENTO", "QUANTIDADE", "EXTENSAO"], outros, [30, 14, 18], styles, accent, lado))
+
+    # ---- cameras planejadas (motivo "a instalar"): mapa e lista para o cliente
+    if a_instalar:
+        story.append(PageBreak())
+        story.append(_p(f"Cameras a instalar ({len(a_instalar)})", styles["title"]))
+        story.append(_p("Posicoes previstas, em azul no mapa da pagina 1. Nome, IP previsto e coordenada de cada camera.", styles["subtitle"]))
+
+        def _ip_previsto(p: Dict[str, Any]) -> str:
+            m = re.search(r"\b(\d{1,3}(?:\.\d{1,3}){3})\b", p.get("descricao") or "")
+            return m.group(1) if m else "-"
+        planejadas = sorted(a_instalar, key=lambda p: (int(_numero(p["nome"]) or 0), p["nome"]))
+        story.append(_tabela(["CAMERA", "IP PREVISTO", "LOCALIZACAO", "CAMADA"],
+                             [[_p(p["nome"], styles["small_b"]), _p(_ip_previsto(p), styles["mono"]),
+                               _p_localizacao({"lat": p["pos"][0], "lon": p["pos"][1]}, styles["mono"]),
+                               _p(p["camada"], styles["small"])] for p in planejadas],
+                             [40, 18, 22, 20], styles, accent, util))
 
     # ---- uma pagina por area
     for i, a in enumerate(areas, 1):
