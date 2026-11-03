@@ -3,6 +3,7 @@ dist/
 .vite/
 *.local
 *.apk
+*.aab
 *.jks
 *.keystore
 android/app/build/
