@@ -823,10 +823,14 @@ function pdvConferencia(r) {
     ['Cupons ainda abertos', c.abertos],
     ['Itens sem cupom', c.sem_cupom],
   ].filter(l => l[1]);
+  const saiu = linhas.reduce((t, l) => t + l[1], 0);
+  const neg = v => `− ${pdvMoeda(Math.abs(v))}`;
   return `
     <table class="pdv-legenda pdv-conferencia">
-      <tbody>${linhas.map(([rot, v, dica]) => `<tr${dica ? ` title="${esc(dica)}"` : ''}><td>− ${rot}</td><td class="num pdv-muted">${pdvMoeda(v)}</td></tr>`).join('')}</tbody>
-      <tfoot><tr><td>= Vendido (cupons fechados)</td><td class="num"><strong>${pdvMoeda(r.vendido_centavos)}</strong></td></tr></tfoot>
+      <tbody>${linhas.map(([rot, v, dica]) => `<tr${dica ? ` title="${esc(dica)}"` : ''}><td>${rot}</td><td class="num pdv-negativo">${v < 0 ? `+ ${pdvMoeda(-v)}` : neg(v)}</td></tr>`).join('')}
+        <tr class="pdv-conf-soma"><td>Total que saiu da soma dos itens</td><td class="num pdv-negativo"><strong>${neg(saiu)}</strong></td></tr></tbody>
+      <tfoot><tr><td>Vendido (cupons fechados)<small class="pdv-sub">${pdvMoeda(c.passado)} ${neg(saiu)}</small></td>
+        <td class="num"><strong>${pdvMoeda(r.vendido_centavos)}</strong></td></tr></tfoot>
     </table>`;
 }
 

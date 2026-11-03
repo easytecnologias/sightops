@@ -14008,6 +14008,9 @@ button.rk-chip { cursor: pointer; }
 .pdv-miniatura.ativa { border: 2px solid var(--primary); }
 
 .pdv-conferencia { margin-top: 12px; }
+.pdv-negativo { color: var(--danger) !important; }
+.pdv-conf-soma td { background: var(--danger-soft); }
+.pdv-conferencia .pdv-sub { display: block; font-size: 11px; color: var(--muted); }
 .pdv-descontos { max-height: 420px; overflow-y: auto; }
 .pdv-conferencia td:first-child { padding-left: 4px; }
 
