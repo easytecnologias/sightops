@@ -13,4 +13,9 @@ ext {
     androidxJunitVersion = '1.2.1'
     androidxEspressoCoreVersion = '3.6.1'
     cordovaAndroidVersion = '10.1.1'
+    // CameraX do leitor de etiqueta (@capacitor-mlkit): o padrao 1.1.0 traz .so em 4 KB e a Play recusa (paginas de 16 KB).
+    androidxCameraCamera2Version = '1.4.2'
+    androidxCameraCoreVersion = '1.4.2'
+    androidxCameraLifecycleVersion = '1.4.2'
+    androidxCameraViewVersion = '1.4.2'
 }
