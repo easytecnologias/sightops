@@ -241,8 +241,12 @@ function apZap(p) {
 }
 
 // Classe da linha: a tarja colorida a esquerda mostra o que pede atencao.
+// Porta aberta pelo botao ou remotamente: o leitor nao diz quem abriu.
+function apAberturaRot(p) { return p.abertura === 'botao' ? 'Aberta pelo botão' : p.abertura === 'remota' ? 'Abertura remota' : ''; }
+
 function apMarca(p) {
   if ((p.aviso || {}).status === 'falha') return 'falhou';
+  if (p.abertura) return '';
   if (!p.pessoa_id) return 'semcad';
   return '';
 }
@@ -316,8 +320,8 @@ function apLinhaPassagem(p, sel) {
   return `<button type="button" class="ap-ev ${apMarca(p)} ${sel ? 'sel' : ''} ${novo ? 'novo' : ''}" data-ap-sel="${esc(p.id)}">
     <span class="ap-tarja"></span>
     <span class="ap-av">${apIniciais(p.nome)}${apFoto(p)}</span>
-    <span class="ap-quem"><b>${esc(p.nome || 'sem nome no leitor')}</b>
-      <small>${esc([p.pessoa_id ? apGrupoDe(p) : ['só no leitor', apUnidade(p.nome, p.site)].filter(Boolean).join(' · '), apPorta(p.porta)].filter(Boolean).join(' · '))}</small></span>
+    <span class="ap-quem"><b>${esc(p.nome || apAberturaRot(p) || 'sem nome no leitor')}</b>
+      <small>${esc([p.pessoa_id ? apGrupoDe(p) : p.abertura ? 'sem identificar quem' : ['só no leitor', apUnidade(p.nome, p.site)].filter(Boolean).join(' · '), apPorta(p.porta)].filter(Boolean).join(' · '))}</small></span>
     <span class="ap-zap">${apZap(p)}</span>
     <span class="ap-chip ${apSaida(p.tipo) ? 'saida' : 'entrada'}">${apSaida(p.tipo) ? 'Saiu' : 'Entrou'}</span>
     <span class="ap-hora monospace">${apHm(apLocal(p.hora))}</span>
@@ -333,8 +337,8 @@ function apDetalhe(p, todas) {
       ${_apSel ? '<button type="button" class="ap-link" data-ap-seguir>seguir a mais recente</button>' : ''}</div>
     <div class="ap-det-topo">
       <div class="ap-foto">${apIniciais(p.nome)}${apFoto(p)}<span class="ap-dir ${apSaida(p.tipo) ? 'saida' : ''}">${apSaida(p.tipo) ? 'SAIU' : 'ENTROU'}</span></div>
-      <div class="ap-info"><b>${esc(p.nome || 'Pessoa não identificada')}</b>
-        <small>${esc(p.pessoa_id ? [apTipo(p.tipo_pessoa, p.site), p.turma || (apUnidade(p.nome, p.site) ? 'unidade ' + apUnidade(p.nome, p.site) : '')].filter(Boolean).join(' · ') : ['só no leitor, fora do cadastro do SightOps', apUnidade(p.nome, p.site) ? 'unidade ' + apUnidade(p.nome, p.site) : ''].filter(Boolean).join(' · ')) || '&nbsp;'}</small>
+      <div class="ap-info"><b>${esc(p.nome || apAberturaRot(p) || 'Pessoa não identificada')}</b>
+        <small>${esc(p.abertura && !p.pessoa_id ? (p.abertura === 'botao' ? 'alguém apertou o botão de abertura; o leitor não identifica quem' : 'aberta à distância (SightOps ou aplicativo), sem rosto') : p.pessoa_id ? [apTipo(p.tipo_pessoa, p.site), p.turma || (apUnidade(p.nome, p.site) ? 'unidade ' + apUnidade(p.nome, p.site) : '')].filter(Boolean).join(' · ') : ['só no leitor, fora do cadastro do SightOps', apUnidade(p.nome, p.site) ? 'unidade ' + apUnidade(p.nome, p.site) : ''].filter(Boolean).join(' · ')) || '&nbsp;'}</small>
         <small>${esc(apPorta(p.porta))} · <span class="monospace">${apHms(apLocal(p.hora))}</span></small>
         ${dele.length > 1 ? `<small>${dele.length} passagens hoje</small>` : ''}
       </div>

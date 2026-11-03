@@ -1578,12 +1578,38 @@ def access_presence_lists(site: str = "", device_id: str = "", door_group_id: st
     return saida
 
 
+# Abertura sem rosto (Method do registro na HTTP API Intelbras): 4 = remota
+# (SightOps, app), 5 = botao de abertura. O leitor nao diz quem abriu: nao e
+# "morador fora do cadastro" e nao entra no "So no leitor".
+_ABERTURA_SEM_ROSTO = {"4": "remota", "5": "botao"}
+
+
+def tipo_de_abertura(event: Dict[str, Any]) -> str:
+    """'remota' / 'botao' para passagem sem pessoa aberta assim; '' no resto."""
+    if str(event.get("person_id") or "").strip():
+        return ""
+    raw = event.get("raw_payload")
+    if isinstance(raw, str):
+        try:
+            import json
+            raw = json.loads(raw or "{}")
+        except ValueError:
+            return ""
+    if not isinstance(raw, dict):
+        return ""
+    tipo = _ABERTURA_SEM_ROSTO.get(str(raw.get("method") or "").strip(), "")
+    if tipo == "botao" and str(raw.get("user_id") or "").strip():
+        return ""   # botao com usuario: o leitor sabe quem foi
+    return tipo
+
+
 def access_report_summary(filters: Dict[str, Any]) -> Dict[str, int]:
     events = list_access_report_events({**filters, "limit": 1000})
     entries = sum(1 for event in events if event.get("event_type") == "entrada")
     exits = sum(1 for event in events if event.get("event_type") == "saida")
     manual_exits = sum(1 for event in events if event.get("event_type") == "saida_manual")
-    without_person = sum(1 for event in events if not str(event.get("person_id") or "").strip())
+    aberturas = sum(1 for event in events if tipo_de_abertura(event))
+    without_person = sum(1 for event in events if not str(event.get("person_id") or "").strip()) - aberturas
     presence = access_presence_summary(
         site=_clean_text(filters.get("site"), 120),
         device_id=_clean_text(filters.get("device_id"), 80),
@@ -1596,6 +1622,7 @@ def access_report_summary(filters: Dict[str, Any]) -> Dict[str, int]:
         "manual_exits": manual_exits,
         "inside_now": int(presence.get("inside_now") or 0),
         "without_person": without_person,
+        "door_opens": aberturas,
     }
 
 

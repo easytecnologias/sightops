@@ -144,10 +144,23 @@ function psLinha(p) {
   </div>`;
 }
 
+// Filtro "N portas" do topo: so quem abre alguma das portas marcadas (pelos
+// grupos ou ja cadastrada nelas), e a situacao/cards contam so essas portas.
+function psNasPortas(todas) {
+  const sel = typeof _apPortas !== 'undefined' && _apPortas.length ? new Set(_apPortas) : null;
+  if (!sel) return todas;
+  const abre = {};
+  (_psDados.grupos || []).forEach(g => { abre[g.id] = (g.leitores || []).some(l => sel.has(l.id)); });
+  return todas
+    .filter(p => (p.grupos || []).some(gid => abre[gid]) || (p.leitores || []).some(x => sel.has(x.leitor_id)))
+    .map(p => ({ ...p, leitores: (p.leitores || []).filter(x => sel.has(x.leitor_id)) }));
+}
+
 function psDesenhar() {
   const el = psCampo('psConteudo');
   if (!el || !_psDados) return;
-  const todas = _psDados.pessoas || [];
+  const todas = psNasPortas(_psDados.pessoas || []);
+  const original = id => (_psDados.pessoas || []).find(p => p.id === id);
   const b = _psBusca.trim().toLowerCase();
   const bDig = psDigitos(b);
   const filtros = psFiltros();
@@ -166,8 +179,8 @@ function psDesenhar() {
     : `<div class="dv-vazio"><i data-lucide="${b ? 'search-x' : 'users'}"></i><b>${b ? 'Ninguém com “' + esc(_psBusca) + '”' : 'Ninguém neste filtro'}</b>
       <p>${b ? 'Busque por nome, CPF, matrícula, turma ou responsável.' : 'Troque o filtro ou cadastre uma pessoa.'}</p></div>`}`;
   el.querySelectorAll('[data-ps-filtro]').forEach(x => x.addEventListener('click', () => { _psFiltro = x.dataset.psFiltro; _psMostrar = 120; psDesenhar(); }));
-  el.querySelectorAll('[data-ps-editar]').forEach(x => x.addEventListener('click', () => psAbrir(todas.find(p => p.id === x.dataset.psEditar))));
-  el.querySelectorAll('.ps-linha').forEach(x => x.addEventListener('dblclick', () => psAbrir(todas.find(p => p.id === x.dataset.ps))));
+  el.querySelectorAll('[data-ps-editar]').forEach(x => x.addEventListener('click', () => psAbrir(original(x.dataset.psEditar))));
+  el.querySelectorAll('.ps-linha').forEach(x => x.addEventListener('dblclick', () => psAbrir(original(x.dataset.ps))));
   el.querySelector('[data-ps-mais]')?.addEventListener('click', () => { _psMostrar += 120; psDesenhar(); });
   if (window.lucide) lucide.createIcons();
 }

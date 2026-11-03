@@ -21,6 +21,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Iterable, List, Optional
 
 from app.services import db_store
+from app.services.access_control_store import tipo_de_abertura
 
 # Status gravados em access_whatsapp_messages (envio + webhook da Meta).
 FALHA = {"failed", "whatsapp_failed"}
@@ -551,7 +552,7 @@ def relatorios(site: str = "", dias: int = 28, agora: Optional[datetime] = None,
     hoje = local_agora.strftime("%Y-%m-%d")
     inicio = (local_agora - timedelta(days=dias - 1)).strftime("%Y-%m-%d") + " 00:00:00"
     portas = [p for p in (portas or []) if p][:50]
-    sql = ("SELECT person_id, person_name_raw, event_type, device_name, occurred_at FROM access_events "
+    sql = ("SELECT person_id, person_name_raw, event_type, device_name, occurred_at, raw_payload FROM access_events "
            "WHERE tenant_slug=? AND occurred_at >= ? AND occurred_at <= ?" + (" AND site=?" if site else "")
            + (f" AND device_id IN ({','.join('?' for _ in portas)})" if portas else ""))
     fim = _local_txt(agora)
@@ -592,6 +593,8 @@ def relatorios(site: str = "", dias: int = 28, agora: Optional[datetime] = None,
         if not quando.startswith(hoje):
             continue
         if not pid:
+            if tipo_de_abertura(e):
+                continue   # botao / remota: o leitor nao identifica ninguem
             nome = _t(e.get("person_name_raw")) or "sem nome no leitor"
             x = so_leitor.setdefault(nome, {"nome": nome, "passagens": 0, "ultima": "", "porta": ""})
             x["passagens"] += 1
@@ -685,6 +688,7 @@ def ao_vivo(site: str = "", limite: int = 40, agora: Optional[datetime] = None,
             "turma": _t(ev.get("class_name")), "tipo_pessoa": _t(ev.get("person_type")),
             "tem_foto": bool(_t(p.get("face_photo_path"))),
             "aviso": _recibo(ev, p) if p else {"status": "sem_pessoa"},
+            "abertura": tipo_de_abertura(ev),
         })
     # Movimento do dia por hora (geral e por porta): o ritmo da portaria e a
     # porta que parou aparecem sem precisar ler numero.
