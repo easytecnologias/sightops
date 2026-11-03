@@ -449,6 +449,8 @@ async function dvSalvar(testar) {
     }
     acToast(p.id ? 'Dispositivo atualizado.' : 'Dispositivo cadastrado.');
     dvFechar();
+    // Local novo entra no seletor do topo sem precisar de F5.
+    if (typeof apCarregarSites === 'function') apCarregarSites().catch(() => {});
     await dvCarregar();
     if (id) {
       const card = document.querySelector(`[data-dv="${CSS.escape(id)}"]`);

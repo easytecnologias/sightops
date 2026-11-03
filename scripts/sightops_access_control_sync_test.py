@@ -194,11 +194,14 @@ def test_retry_pending_provisions_loads_saved_face_photo() -> None:
         update_person_face_photo(person["id"], rel_path)
         upsert_provision_status(person["id"], device["id"], "pending")
 
-        with patch("app.services.access_control_sync.provision_person", return_value={"ok": True, "raw": "OK"}) as mock_provision:
+        # Intelbras ativo vai pelo "so o que falta": consulta o leitor e cadastra sem senha.
+        with patch("app.services.access_control_sync._ja_no_leitor", return_value=False),                 patch("app.services.access_control_device._provision_intelbras_person",
+                      return_value={"ok": True, "raw": "OK"}) as mock_provision:
             result = retry_pending_provisions()
 
         assert result["retried"] == 1
         assert mock_provision.call_args.args[2] == b"face-jpeg"
+        assert mock_provision.call_args.kwargs["senha"] is None
     finally:
         reset_current_tenant_slug(token)
 

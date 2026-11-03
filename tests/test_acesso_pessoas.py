@@ -164,3 +164,13 @@ def test_cpf_por_tipo_de_local(banco, monkeypatch):
     for site in ("ESCOLA", "FIRMA", "SHOW"):
         with pytest.raises(ValueError, match="CPF"):
             S.save_person({"full_name": "SEM CPF", "person_type": "employee", "site": site})
+
+
+def test_nome_do_leitor_conserta_acento_estragado_no_leitor():
+    from app.services.access_control_pessoas import _nome_do_leitor
+    assert _nome_do_leitor("MARIA JOSÃ‰") == "MARIA JOSÉ"
+    assert _nome_do_leitor("MARIA DA GRAÃ‡A A1-09") == "MARIA DA GRAÇA A1-09"
+    assert _nome_do_leitor("CÃ\x81SSIA CRISTINA") == "CÁSSIA CRISTINA"      # 0x81 nao existe no cp1252
+    assert _nome_do_leitor("HUGO NAPOLEÃƒO I43") == "HUGO NAPOLEÃO I43"
+    assert _nome_do_leitor("JOÃO") == "JOÃO"                                 # acento certo fica como esta
+    assert _nome_do_leitor("ADRIZIA.jpg I 29") == "ADRIZIA I 29"

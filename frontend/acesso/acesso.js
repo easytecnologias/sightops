@@ -174,6 +174,7 @@ function apRecarregarTudo() {
   if (typeof _dvDados !== 'undefined') _dvDados = null;
   if (typeof _psDados !== 'undefined') _psDados = null;
   if (typeof _agDados !== 'undefined') { _agDados = null; _agSim = null; }
+  apCarregarSites().catch(() => {});
   apGeral(true).then(g => { apMostrarPerfil(g && g.perfil); }).catch(() => {});
   apAtualizar(true);
 }
@@ -1083,6 +1084,25 @@ function stopAccessPainel() {
   clearInterval(_apRelogio); _apRelogio = null;
 }
 
+// Locais do seletor = sites dos leitores. Antes so era montado ao abrir a
+// tela: local novo (leitor cadastrado agora) so aparecia depois do F5.
+// Chamado ao abrir, no Atualizar e depois de salvar um leitor.
+async function apCarregarSites() {
+  const sel = document.getElementById('apSite');
+  const g = await acJson('/api/access-control/painel/visao-geral');
+  const sites = [...new Set(((g?.leitores || {}).lista || []).map(l => l.site).filter(Boolean))].sort();
+  if (sel) {
+    const antes = _apSite;
+    sel.innerHTML = '<option value="">Todos os sites</option>' + sites.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join('');
+    if (sites.includes(_apSite)) sel.value = _apSite;
+    else if (sites.length === 1) { _apSite = sites[0]; sel.value = _apSite; }
+    else _apSite = '';
+    if (_apSite !== antes) { _apPortas = []; apPortasRotulo(); _apDados.vivo = _apDados.rel = _apDados.relCat = _apDados.geral = null; }
+  }
+  if (!_apSite) { _apDados.geral = g || {}; _apDados.geralEm = Date.now(); }
+  return g;
+}
+
 async function loadAccessPainel() {
   const sel = document.getElementById('apSite');
   if (sel && !sel.dataset.ligado) {
@@ -1095,20 +1115,15 @@ async function loadAccessPainel() {
       _apSel = ''; _apPessoa = '';
       apLigarStream(); apAtualizar(true);
     });
-    document.getElementById('btnApAtualizar')?.addEventListener('click', () => apAtualizar(true));
+    document.getElementById('btnApAtualizar')?.addEventListener('click', () => {
+      apCarregarSites().catch(() => {});
+      apAtualizar(true);
+    });
     document.getElementById('apPortas')?.addEventListener('click', ev => apMenuPortas(ev.currentTarget));
     document.getElementById('apPerfil')?.addEventListener('click', ev => apMenuTipo(ev.currentTarget, ev.currentTarget.dataset.site));
   }
   try {
-    const g = await acJson('/api/access-control/painel/visao-geral');
-    const sites = [...new Set(((g?.leitores || {}).lista || []).map(l => l.site).filter(Boolean))].sort();
-    if (sel) {
-      sel.innerHTML = '<option value="">Todos os sites</option>' + sites.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join('');
-      if (sites.includes(_apSite)) sel.value = _apSite;
-      else if (sites.length === 1) { _apSite = sites[0]; sel.value = _apSite; }
-      else _apSite = '';
-    }
-    if (!_apSite) { _apDados.geral = g || {}; _apDados.geralEm = Date.now(); }
+    const g = await apCarregarSites();
     apMostrarPerfil(g && g.perfil);
   } catch (_) { /* a propria tela mostra o erro ao carregar */ }
   let salva = 'vivo';
@@ -1145,8 +1160,11 @@ function apPortasRotulo() {
   b.title = nomes.join(' + ') || 'Todas as portas';
 }
 
-function apMenuPortas(ancora) {
+async function apMenuPortas(ancora) {
   document.getElementById('apMenuPortas')?.remove();
+  // Nas abas Pessoas/Dispositivos/Grupos a lista de leitores nao e carregada
+  // sozinha: sem isto o local escolhido dizia "Nenhuma porta neste local".
+  if (!_apDados.geral) { try { await apGeral(); } catch (_) { /* cai no aviso abaixo */ } }
   const portas = apPortasDoLocal();
   if (!portas.length) { acToast('Nenhuma porta neste local.'); return; }
   const menu = document.createElement('div');
