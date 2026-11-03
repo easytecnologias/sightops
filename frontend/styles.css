@@ -14244,6 +14244,84 @@ button.rk-chip { cursor: pointer; }
   .pdv-l-s3 { grid-column: span 12; }
 }
 
+/* ---------------------------------------------------------------- PDV · Cupons
+   Mesma grade da tela Lojas (12 colunas, gutter 20). Lista nas colunas 1-7 e o
+   cupom aberto nas 8-12, preso no topo ao rolar: abrir um cupom nao tira a
+   pessoa do lugar na lista. Abaixo de 1180 px o painel desce para baixo dela. */
+.pdv-c-kpis { margin-bottom: 20px; }
+.pdv-c-kpi-clica { cursor: pointer; }
+.pdv-c-kpi-clica:hover { border-color: #b7c4ca; }
+.pdv-c-k-verm { color: var(--danger); }
+.pdv-c-filtros { margin-bottom: 20px; display: flex; flex-direction: column; gap: 16px; }
+.pdv-c-campos { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; }
+.pdv-c-busca { flex: 1 1 260px; min-width: 0; }
+.pdv-c-campo { display: flex; flex-direction: column; gap: 4px; font-size: 11px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); }
+.pdv-c-campo input, .pdv-c-campo select { height: 38px; border: 1px solid var(--border); border-radius: 8px; padding: 0 10px; font: inherit; font-size: 13px; font-weight: 400; letter-spacing: 0; text-transform: none; background: var(--surface); color: var(--text); }
+.pdv-c-campo select { min-width: 150px; }
+.pdv-c-hora input { width: 112px; }
+.pdv-c-limpar { height: 38px; }
+.pdv-c-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.pdv-c-chip { height: 30px; border: 1px solid var(--border); border-radius: 999px; padding: 0 12px; background: var(--surface); color: var(--text); font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+.pdv-c-chip b { font-weight: 600; color: var(--muted); font-variant-numeric: tabular-nums; }
+.pdv-c-chip:hover { border-color: #b7c4ca; }
+.pdv-c-chip.ativo { background: var(--primary); border-color: var(--primary); color: #ffffff; }
+.pdv-c-chip.ativo b { color: #ffffff; opacity: .85; }
+
+.pdv-c-corpo { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 20px; align-items: start; }
+.pdv-c-lista-card { grid-column: 1 / span 7; padding-bottom: 8px; }
+.pdv-c-lista-topo { margin-bottom: 12px; }
+.pdv-c-msg { padding: 24px 0; margin: 0; text-align: center; }
+.pdv-c-tb { min-width: 680px; }
+.pdv-c-tb tbody tr.ativa td { background: var(--primary-soft); }
+.pdv-c-tb tbody tr.ativa td:first-child { box-shadow: inset 3px 0 0 var(--primary); padding-left: 9px; }
+.pdv-c-atencao .pdv-chip { padding: 1px 7px; font-size: 11px; }
+
+.pdv-c-detalhe { grid-column: 8 / span 5; position: sticky; top: 88px; max-height: calc(100vh - 108px); overflow-y: auto; display: flex; flex-direction: column; gap: 16px; }
+.pdv-c-vazio { text-align: center; padding: 40px 8px; display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.pdv-c-vazio .pdv-vazio-icone { margin-bottom: 6px; }
+.pdv-c-vazio p { margin: 0; font-size: 12px; line-height: 18px; color: var(--muted); max-width: 340px; }
+.pdv-c-det-topo { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.pdv-c-num { margin: 2px 0 0; font-size: 22px; line-height: 28px; font-variant-numeric: tabular-nums; }
+.pdv-c-dados { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 20px; margin: 0; padding: 16px 0; border-top: 1px solid #eef1f3; border-bottom: 1px solid #eef1f3; }
+.pdv-c-dados div { min-width: 0; }
+.pdv-c-dados dt { font-size: 11px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); line-height: 16px; }
+.pdv-c-dados dd { margin: 2px 0 0; font-size: 13px; line-height: 18px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pdv-c-total { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+.pdv-c-total span { font-size: 12px; color: var(--muted); }
+.pdv-c-total strong { font-size: 22px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.pdv-c-btvideo { justify-content: center; width: 100%; }
+#pdvVideoBox:empty { display: none; }
+.pdv-c-secao { display: flex; flex-direction: column; }
+.pdv-c-secao > .pdv-l-k { padding-bottom: 6px; border-bottom: 1px solid var(--border); }
+.pdv-c-item { display: flex; align-items: center; gap: 10px; padding: 7px 0; border-bottom: 1px solid #eef1f3; }
+.pdv-c-item .pdv-hora { width: 56px; }
+.pdv-c-item > div { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.pdv-c-item > div strong { font-size: 12.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pdv-c-item > div small { font-size: 11px; color: var(--muted); }
+.pdv-c-item .pdv-valor { white-space: nowrap; }
+.pdv-c-item-canc { background: var(--danger-soft); padding-left: 6px; padding-right: 6px; }
+.pdv-c-item-canc .pdv-valor { text-decoration: line-through; color: var(--danger); }
+.pdv-c-play { flex: none; width: 28px; height: 28px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--muted); display: grid; place-items: center; cursor: pointer; padding: 0; }
+.pdv-c-play:hover { color: var(--primary); border-color: var(--primary); }
+.pdv-c-play svg { width: 14px; height: 14px; }
+.pdv-c-tempo summary { cursor: pointer; font-size: 12px; font-weight: 600; color: var(--primary); padding: 4px 0 8px; }
+.pdv-c-tempo .pdv-evento { margin-bottom: 4px; }
+
+@media (max-width: 1180px) {
+  .pdv-c-lista-card, .pdv-c-detalhe { grid-column: 1 / -1; }
+  .pdv-c-detalhe { position: static; max-height: none; }
+}
+@media (max-width: 640px) {
+  .pdv-c-kpis { gap: 12px; }
+  .pdv-c-kpis .pdv-l-s3 { grid-column: span 6; padding: 14px; }
+  .pdv-c-kpis .pdv-l-big { font-size: 18px; line-height: 24px; }
+  .pdv-c-kpis .pdv-l-sub { white-space: normal; }
+  .pdv-c-campo { flex: 1 1 140px; min-width: 0; }
+  .pdv-c-campo select, .pdv-c-campo input, .pdv-c-hora input { width: 100%; min-width: 0; box-sizing: border-box; }
+  .pdv-c-limpar { flex: 1 1 100%; }
+  .pdv-c-dados { grid-template-columns: minmax(0, 1fr); }
+}
+
 /* ---------------------------------------------------------------- PDV · Ao vivo (parede da loja)
    Mesma grade da tela Lojas. O painel "Acontecendo agora" fica nas colunas
    10-12 e cobre duas fileiras de caixas; "dense" deixa os caixas encherem as

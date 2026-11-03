@@ -808,6 +808,25 @@ async function pdvAtualizarCupomVivo() {
 
 // ---------------------------------------------------------------- cupons
 
+// Lista do dia inteira de uma vez (o servidor so filtra dia e texto); caixa,
+// operador, horario e situacao filtram aqui, para os numeros de cima e os
+// contadores dos botoes baterem sempre com a lista. O cupom abre no painel da
+// direita, sem perder o lugar na lista.
+const PDV_CUP_SITUACOES = [
+  ['', 'Todos', () => true],
+  ['aberto', 'Abertos agora', k => k.situacao === 'aberto'],
+  ['fechado', 'Fechados', k => k.situacao === 'fechado'],
+  ['cancelado', 'Cancelados', k => k.situacao === 'cancelado'],
+  ['item_cancelado', 'Com item cancelado', k => Number(k.itens_cancelados) > 0],
+  ['digitado', 'Com item digitado', k => Number(k.digitados) > 0],
+];
+const PDV_CUP_LIMITE = 5000;
+let _pdvCup = { lista: [], sit: '', sel: '', dia: '', texto: '', limitado: false, busca: null };
+// nesta tela "aberto" (curto) para os avisos da linha caberem numa linha so
+const PDV_CUP_SIT = { ...PDV_SITUACAO, aberto: ['aberto', 'pdv-sit-aberto'] };
+
+function pdvCupChave(k) { return `${k.caixa_id}|${k.dia}|${k.cupom}`; }
+
 async function loadPdvCupons() {
   pdvParar();
   const pedido = _pdvAbrirDepois;  // veio de outra tela (Lojas) para abrir um cupom
@@ -822,9 +841,20 @@ async function loadPdvCupons() {
   const dia = document.getElementById('pdvCupFiltroDia');
   if (dia && pedido) dia.value = pedido.dia;
   if (dia && !dia.value) dia.value = pdvHoje();
-  if (!caixas.length) { pdvSemCaixa('pdvCuponsBody'); return; }
+  if (pedido) _pdvCup.sit = '';
+  if (!caixas.length) {
+    document.getElementById('pdvCupKpis').innerHTML = '';
+    document.getElementById('pdvCupChips').innerHTML = '';
+    pdvSemCaixa('pdvCuponsBody');
+    return;
+  }
   await pdvBuscarCupons();
   if (pedido?.cupom) pdvAbrirCupom(pedido.caixaId, pedido.dia, pedido.cupom);
+  // hoje: a lista se atualiza sozinha (o cupom aberto no painel fica onde esta)
+  _pdvTimer = setInterval(() => {
+    if (!pdvVisivel('viewPdvCupons') || document.hidden) return;
+    if (document.getElementById('pdvCupFiltroDia')?.value === pdvHoje()) pdvBuscarCupons(true);
+  }, 20000);
 }
 
 let _pdvAbrirDepois = null;
@@ -834,71 +864,199 @@ function pdvIrCupom(caixaId, dia, cupom) {
   document.querySelector('.nav-item[data-view="pdv-cupons"]')?.click();
 }
 
-async function pdvBuscarCupons() {
-  const v = id => encodeURIComponent(document.getElementById(id)?.value || '');
-  const q = `dia=${v('pdvCupFiltroDia')}&caixa_id=${v('pdvCupFiltroCaixa')}&situacao=${v('pdvCupFiltroSituacao')}`
-    + `&texto=${v('pdvCupFiltroBusca')}&de=${v('pdvCupFiltroDe')}&ate=${v('pdvCupFiltroAte')}`;
+async function pdvBuscarCupons(silencioso = false) {
+  const dia = document.getElementById('pdvCupFiltroDia')?.value || pdvHoje();
+  const texto = (document.getElementById('pdvCupFiltroBusca')?.value || '').trim();
   const box = document.getElementById('pdvCuponsBody');
   if (!box) return;
-  box.innerHTML = '<p class="pdv-nota">Buscando...</p>';
-  const r = await apiJson(`/api/pdv/cupons?${q}`, { forceRefresh: true });
-  const cupons = r?.cupons || [];
-  box.innerHTML = cupons.length ? `
-    <div class="table-wrap"><table class="data-table pdv-tabela">
-      <thead><tr><th>Hora</th><th>Caixa</th><th>Cupom</th><th>Operador</th><th class="num">Itens</th><th>Entrada</th>
-        <th>Pagamento</th><th class="num">Total</th><th>Situação</th></tr></thead>
-      <tbody>${cupons.map(k => `
-        <tr class="pdv-linha-clicavel" data-pdv-cupom="${esc(k.caixa_id)}|${esc(k.dia)}|${esc(k.cupom)}">
-          <td>${esc(pdvHora(k.aberto_em).slice(0, 5))}</td><td>${esc(k.caixa)}</td><td><strong>${esc(k.cupom)}</strong></td>
-          <td>${esc(k.operador)}</td><td class="num">${pdvNum(k.itens)}</td>
-          <td class="pdv-muted">${pdvPlural(k.bipados, 'bipado')}${k.digitados ? ` · ${pdvPlural(k.digitados, 'digitado')}` : ''}${k.menu ? ` · ${k.menu} menu` : ''}</td>
-          <td>${esc(k.pagamento || '-')}</td><td class="num"><strong>${esc(pdvMoeda(k.total_centavos))}</strong></td>
-          <td>${pdvChip(PDV_SITUACAO, k.situacao)}${k.itens_cancelados ? ` <span class="pdv-chip pdv-sit-alerta">${k.itens_cancelados} item canc.</span>` : ''}</td>
-        </tr>`).join('')}</tbody>
-    </table></div>
-    <p class="pdv-nota">${cupons.length} cupons${cupons.length >= 200 ? ' (mostrando os 200 mais recentes; filtre por horário)' : ''}.</p>
-    <div id="pdvCupomDetalhe"></div>`
-    : '<p class="pdv-nota">Nenhum cupom com esses filtros.</p>';
-  box.querySelectorAll('[data-pdv-cupom]').forEach(tr => tr.addEventListener('click', () => {
-    box.querySelectorAll('.pdv-linha-clicavel').forEach(x => x.classList.toggle('ativa', x === tr));
-    pdvAbrirCupom(...tr.dataset.pdvCupom.split('|'));
-  }));
+  if (dia !== _pdvCup.dia) { _pdvCup.sel = ''; pdvPararGravacao(); }
+  if (!box.querySelector('#pdvCupLista') || (!_pdvCup.sel && !silencioso)) pdvCupEsqueleto(box);
+  if (!silencioso) document.getElementById('pdvCupLista').innerHTML = '<p class="pdv-nota pdv-c-msg">Buscando os cupons...</p>';
+  const pedido = `${dia}|${texto}|${Date.now()}`;
+  _pdvCup.busca = pedido;
+  const r = await apiJson(`/api/pdv/cupons?dia=${encodeURIComponent(dia)}&texto=${encodeURIComponent(texto)}&limite=${PDV_CUP_LIMITE}`, { forceRefresh: true });
+  if (_pdvCup.busca !== pedido) return;  // chegou resposta velha (digitou de novo)
+  if (!r) {
+    if (!silencioso) document.getElementById('pdvCupLista').innerHTML = '<p class="pdv-nota pdv-erro pdv-c-msg">Não consegui buscar os cupons. Tente de novo.</p>';
+    return;
+  }
+  _pdvCup.lista = r.cupons || [];
+  _pdvCup.limitado = _pdvCup.lista.length >= PDV_CUP_LIMITE;
+  _pdvCup.dia = dia;
+  _pdvCup.texto = texto;
+  // operadores do dia (mantem o escolhido mesmo se sumir da lista)
+  const op = document.getElementById('pdvCupFiltroOperador');
+  if (op) {
+    const atual = op.value;
+    const nomes = [...new Set(_pdvCup.lista.map(k => k.operador).filter(Boolean).concat(atual ? [atual] : []))]
+      .sort((a, b) => a.localeCompare(b, 'pt-BR'));
+    op.innerHTML = '<option value="">Todos os operadores</option>' + nomes.map(n => `<option value="${esc(n)}">${esc(n)}</option>`).join('');
+    op.value = atual;
+  }
+  pdvCupDesenhar();
 }
 
-async function pdvAbrirCupom(caixaId, dia, cupom) {
+function pdvCupEsqueleto(box) {
+  box.innerHTML = `
+    <section class="pdv-l-card pdv-c-lista-card">
+      <div class="pdv-l-head pdv-c-lista-topo"><h2 class="pdv-l-h2" id="pdvCupTitulo">Cupons</h2><span class="pdv-l-sub" id="pdvCupRodape"></span></div>
+      <div id="pdvCupLista"></div>
+    </section>
+    <aside class="pdv-l-card pdv-c-detalhe" id="pdvCupomDetalhe">${pdvCupDetalheVazio()}</aside>`;
+  lucide.createIcons();
+}
+
+function pdvCupDetalheVazio() {
+  return `<div class="pdv-c-vazio">
+    <div class="pdv-vazio-icone"><i data-lucide="receipt-text"></i></div>
+    <strong>Escolha um cupom na lista</strong>
+    <p>Aqui aparecem os itens, como cada um entrou no caixa (bipado, digitado ou pelo menu), o que foi cancelado e o vídeo do caixa na hora da venda.</p>
+  </div>`;
+}
+
+function pdvCupBase() {
+  const caixa = document.getElementById('pdvCupFiltroCaixa')?.value || '';
+  const oper = document.getElementById('pdvCupFiltroOperador')?.value || '';
+  const de = document.getElementById('pdvCupFiltroDe')?.value || '';
+  const ate = document.getElementById('pdvCupFiltroAte')?.value || '';
+  return _pdvCup.lista.filter(k => {
+    const h = String(k.aberto_em || '').slice(11, 16);
+    return (!caixa || k.caixa_id === caixa) && (!oper || k.operador === oper)
+      && (!de || h >= de) && (!ate || h <= ate);
+  });
+}
+
+function pdvCupDesenhar() {
+  const lista = document.getElementById('pdvCupLista');
+  if (!lista) return;
+  const base = pdvCupBase();
+  const sit = PDV_CUP_SITUACOES.find(s => s[0] === _pdvCup.sit) || PDV_CUP_SITUACOES[0];
+  const vistos = base.filter(sit[2]);
+
+  // numeros de cima: com os filtros de caixa/operador/horario, sem o de situacao
+  const fechados = base.filter(k => k.situacao === 'fechado');
+  const vendido = fechados.reduce((s, k) => s + Number(k.total_centavos || 0), 0);
+  const itens = base.reduce((s, k) => s + Number(k.itens || 0), 0);
+  const digitados = base.reduce((s, k) => s + Number(k.digitados || 0), 0);
+  const itensCanc = base.reduce((s, k) => s + Number(k.itens_cancelados || 0), 0);
+  const cupCanc = base.filter(k => k.situacao === 'cancelado').length;
+  const abertos = base.filter(k => k.situacao === 'aberto').length;
+  const cupDig = base.filter(k => Number(k.digitados) > 0).length;
+  const pct = itens ? (Math.round(digitados * 1000 / itens) / 10).toLocaleString('pt-BR') : '0';
+  const nCup = n => `${pdvNum(n)} ${n === 1 ? 'cupom' : 'cupons'}`;
+  const kpi = (rotulo, valor, sub, chip = '', cls = '') => `
+    <section class="pdv-l-card pdv-l-s3 ${chip ? 'pdv-c-kpi-clica' : ''}" ${chip ? `data-pdv-sit="${chip}" title="Mostrar só esses cupons"` : ''}>
+      <div class="pdv-l-stat"><span class="pdv-l-k ${cls}">${rotulo}</span><strong class="pdv-l-big">${valor}</strong>
+      <span class="pdv-l-sub pdv-l-uma">${sub}</span></div></section>`;
+  document.getElementById('pdvCupKpis').innerHTML =
+    kpi('Vendido', pdvMoeda(vendido), `${nCup(fechados.length)} fechados · ticket ${pdvMoeda(fechados.length ? vendido / fechados.length : 0)}`)
+    + kpi('Cupons', pdvNum(base.length), `${pdvNum(abertos)} ${abertos === 1 ? 'aberto' : 'abertos'} agora · ${pdvNum(itens)} itens`)
+    + kpi('Itens digitados', pdvNum(digitados), `${pct}% dos itens · em ${nCup(cupDig)}`, cupDig ? 'digitado' : '', 'pdv-l-k-ambar')
+    + kpi('Cancelamentos', pdvNum(itensCanc + cupCanc), `${pdvNum(itensCanc)} ${itensCanc === 1 ? 'item' : 'itens'} · ${pdvNum(cupCanc)} ${cupCanc === 1 ? 'cupom inteiro' : 'cupons inteiros'}`,
+      itensCanc ? 'item_cancelado' : (cupCanc ? 'cancelado' : ''), 'pdv-c-k-verm');
+
+  // botoes de situacao com a contagem
+  document.getElementById('pdvCupChips').innerHTML = PDV_CUP_SITUACOES.map(([id, nome, f]) =>
+    `<button type="button" class="pdv-c-chip ${id === _pdvCup.sit ? 'ativo' : ''}" data-pdv-sit="${id}">${nome} <b>${pdvNum(base.filter(f).length)}</b></button>`).join('');
+
+  const filtrado = vistos.length !== _pdvCup.lista.length;
+  document.getElementById('pdvCupTitulo').textContent = nCup(vistos.length);
+  document.getElementById('pdvCupRodape').innerHTML = (_pdvCup.limitado
+    ? `<span class="pdv-erro">mostrando os ${pdvNum(PDV_CUP_LIMITE)} mais recentes; use o horário</span>`
+    : (filtrado ? `de ${pdvNum(_pdvCup.lista.length)} no dia` : (_pdvCup.dia === pdvHoje() ? 'atualiza sozinho a cada 20 s' : 'no dia')))
+    + (_pdvCup.texto ? ` · com “${esc(_pdvCup.texto)}”` : '');
+
+  if (!vistos.length) {
+    lista.innerHTML = `<p class="pdv-nota pdv-c-msg">${_pdvCup.lista.length ? 'Nenhum cupom com esses filtros.' : (_pdvCup.texto ? 'Nenhum cupom com esse número, produto ou código neste dia.' : 'Nenhum cupom neste dia.')}</p>`;
+  } else {
+    const avisos = k => {
+      const a = [];
+      if (k.situacao === 'aberto') a.push(pdvChip(PDV_CUP_SIT, 'aberto'));
+      if (k.situacao === 'cancelado') a.push(pdvChip(PDV_SITUACAO, 'cancelado'));
+      if (Number(k.itens_cancelados)) a.push(`<span class="pdv-chip pdv-sit-cancelado">${k.itens_cancelados} canc.</span>`);
+      if (Number(k.digitados)) a.push(`<span class="pdv-chip pdv-modo-digitado">${k.digitados} digit.</span>`);
+      if (Number(k.menu)) a.push(`<span class="pdv-chip pdv-modo-menu">${k.menu} menu</span>`);
+      return a.join(' ');
+    };
+    lista.innerHTML = `
+      <div class="pdv-l-rolar"><table class="pdv-l-tb pdv-c-tb">
+        <colgroup><col style="width:60px"><col style="width:84px"><col style="width:80px"><col><col style="width:48px"><col style="width:100px"><col style="width:220px"></colgroup>
+        <thead><tr><th>Hora</th><th>Caixa</th><th>Cupom</th><th>Operador</th><th class="num">Itens</th><th class="num">Total</th><th>Atenção</th></tr></thead>
+        <tbody>${vistos.map(k => `
+          <tr class="pdv-l-clica ${pdvCupChave(k) === _pdvCup.sel ? 'ativa' : ''}" data-pdv-cupom="${esc(pdvCupChave(k))}">
+            <td>${esc(pdvHora(k.aberto_em).slice(0, 5))}</td><td>${esc(k.caixa)}</td><td><strong>${esc(k.cupom)}</strong></td>
+            <td title="${esc(k.operador)}">${esc(k.operador)}</td><td class="num">${pdvNum(k.itens)}</td>
+            <td class="num"><strong>${esc(pdvMoeda(k.total_centavos))}</strong></td><td class="pdv-c-atencao" title="${esc(avisos(k).replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim())}">${avisos(k)}</td>
+          </tr>`).join('')}</tbody>
+      </table></div>`;
+  }
+  // cupom em andamento aberto no painel: acompanha ate fechar (sem atrapalhar o video)
+  const sel = _pdvCup.lista.find(k => pdvCupChave(k) === _pdvCup.sel);
+  const det = document.getElementById('pdvCupomDetalhe');
+  if (sel && det?.dataset.aberto === '1' && !document.getElementById('pdvGravVideo')) {
+    pdvAbrirCupom(sel.caixa_id, sel.dia, sel.cupom, true);
+  }
+}
+
+async function pdvAbrirCupom(caixaId, dia, cupom, silencioso = false) {
   const box = document.getElementById('pdvCupomDetalhe');
   if (!box) return;
-  box.innerHTML = '<p class="pdv-nota">Abrindo o cupom...</p>';
+  const chave = `${caixaId}|${dia}|${cupom}`;
+  if (!silencioso) pdvPararGravacao();
+  _pdvCup.sel = chave;
+  document.querySelectorAll('#pdvCupLista [data-pdv-cupom]').forEach(tr => tr.classList.toggle('ativa', tr.dataset.pdvCupom === chave));
+  if (!silencioso) box.innerHTML = '<p class="pdv-nota pdv-c-msg">Abrindo o cupom...</p>';
   const r = await apiJson(`/api/pdv/cupons/${encodeURIComponent(caixaId)}/${dia}/${encodeURIComponent(cupom)}`, { forceRefresh: true });
-  if (!r?.cupom) { box.innerHTML = '<p class="pdv-nota">Não consegui abrir o cupom.</p>'; return; }
+  if (_pdvCup.sel !== chave) return;  // trocou de cupom enquanto carregava
+  if (!r?.cupom) { if (!silencioso) box.innerHTML = '<p class="pdv-nota pdv-erro pdv-c-msg">Não consegui abrir o cupom.</p>'; return; }
   const k = r.cupom;
+  const itens = r.itens || [];
+  const linha = r.linha_do_tempo || [];
+  const canc = linha.filter(e => e.tipo === 'CIT');
+  const fim = k.fechado_em ? `${k.situacao === 'cancelado' ? 'cancelado' : 'fechado'} às ${esc(pdvHora(k.fechado_em))}` : 'ainda aberto';
+  const modos = ['scanner', 'manual', 'menu'].map(m => [m, itens.filter(i => i.modo === m).length]).filter(x => x[1]);
+  box.dataset.aberto = k.situacao === 'aberto' ? '1' : '0';
   box.innerHTML = `
-    <section class="panel pdv-painel pdv-detalhe">
-      <div class="pdv-panel-head">
-        <div><h2>Cupom ${esc(k.cupom)} · ${esc(r.caixa.nome)} · ${esc(k.operador)}</h2>
-          <small>aberto ${esc(pdvHora(k.aberto_em))}${k.fechado_em ? ` · ${k.situacao === 'cancelado' ? 'cancelado' : 'fechado'} ${esc(pdvHora(k.fechado_em))}` : ''} · ${esc(k.pagamento || 'sem pagamento')}</small></div>
-        <button class="secondary-action" type="button" data-pdv-video="${esc(k.aberto_em)}"><i data-lucide="video"></i> Ver vídeo do cupom</button>
-      </div>
-      <div id="pdvVideoBox"></div>
-      <div class="pdv-detalhe-grade">
-        <div class="table-wrap"><table class="data-table pdv-tabela">
-          <thead><tr><th>Hora</th><th>Código</th><th>Produto</th><th class="num">Qtd</th><th class="num">Valor</th><th>Como entrou</th><th></th></tr></thead>
-          <tbody>${(r.itens || []).map(i => `<tr>
-            <td>${esc(pdvHora(i.ts))}</td><td>${esc(i.codigo)}</td><td>${esc(i.descricao)}</td><td class="num">${esc(i.quant)}</td>
-            <td class="num">${esc(pdvMoeda(i.valor_centavos))}</td><td>${pdvChip(PDV_MODOS, i.modo)}</td>
-            <td><button class="secondary-action pdv-mini" type="button" data-pdv-video="${esc(i.ts)}" title="Vídeo deste item"><i data-lucide="video"></i></button></td>
-          </tr>`).join('')}</tbody>
-        </table></div>
-        <div class="pdv-linha-tempo">
-          <h3>Linha do tempo do caixa</h3>
-          ${(r.linha_do_tempo || []).map(e => `<div class="pdv-evento pdv-ev-${esc(e.tipo)}">
-            <span class="pdv-hora">${esc(pdvHora(e.ts))}</span><span>${esc(pdvEventoTexto(e))}</span></div>`).join('')}
-        </div>
-      </div>
-    </section>`;
+    <div class="pdv-c-det-topo">
+      <div><span class="pdv-l-k">Cupom</span><h2 class="pdv-c-num">${esc(k.cupom)}</h2></div>
+      ${pdvChip(PDV_CUP_SIT, k.situacao)}
+    </div>
+    <dl class="pdv-c-dados">
+      <div><dt>Caixa</dt><dd>${esc(r.caixa.nome)}</dd></div>
+      <div><dt>Operador</dt><dd title="${esc(k.operador)}">${esc(k.operador || '-')}</dd></div>
+      <div><dt>Horário</dt><dd>${esc(pdvHora(k.aberto_em))} · ${fim}</dd></div>
+      <div><dt>Pagamento</dt><dd title="${esc(k.pagamento || '')}">${esc(k.pagamento || 'sem pagamento')}</dd></div>
+    </dl>
+    <div class="pdv-c-total"><span>${pdvNum(itens.length)} ${itens.length === 1 ? 'item' : 'itens'}${modos.length ? ' · ' + modos.map(([m, n]) => `${n} ${PDV_MODOS[m][0]}${n === 1 ? '' : 's'}`).join(' · ') : ''}</span>
+      <strong>${esc(pdvMoeda(k.total_centavos))}</strong></div>
+    <button class="primary-action pdv-c-btvideo" type="button" data-pdv-video="${esc(k.aberto_em)}"><i data-lucide="video"></i> Ver vídeo do cupom</button>
+    <div id="pdvVideoBox"></div>
+    ${canc.length ? `<div class="pdv-c-secao"><span class="pdv-l-k pdv-c-k-verm">Itens cancelados (${canc.length})</span>
+      ${canc.map(e => `<div class="pdv-c-item pdv-c-item-canc">
+        <span class="pdv-hora">${esc(pdvHora(e.ts))}</span>
+        <div><strong>${esc(e.descricao || e.codigo || 'item')}</strong><small>${esc(e.codigo || '')}</small></div>
+        <span class="pdv-valor">${esc(pdvMoeda(e.valor_centavos))}</span>
+        <button class="pdv-c-play" type="button" data-pdv-video="${esc(e.ts)}" title="Vídeo deste cancelamento"><i data-lucide="play"></i></button>
+      </div>`).join('')}</div>` : ''}
+    <div class="pdv-c-secao"><span class="pdv-l-k">Itens</span>
+      ${itens.map(i => `<div class="pdv-c-item">
+        <span class="pdv-hora">${esc(pdvHora(i.ts))}</span>
+        <div><strong>${esc(i.descricao || i.codigo)}</strong><small>${esc(i.codigo)}${Number(i.quant) && Number(i.quant) !== 1 ? ` · ${esc(String(i.quant).replace('.', ','))} un` : ''}</small></div>
+        ${i.modo === 'scanner' ? '' : pdvChip(PDV_MODOS, i.modo)}
+        <span class="pdv-valor">${esc(pdvMoeda(i.valor_centavos))}</span>
+        <button class="pdv-c-play" type="button" data-pdv-video="${esc(i.ts)}" title="Vídeo deste item"><i data-lucide="play"></i></button>
+      </div>`).join('') || '<p class="pdv-nota">Nenhum item ainda.</p>'}
+    </div>
+    <details class="pdv-c-secao pdv-c-tempo"><summary>Tudo o que aconteceu no caixa (${linha.length})</summary>
+      ${linha.map(e => `<div class="pdv-evento pdv-ev-${esc(e.tipo)}">
+        <span class="pdv-hora">${esc(pdvHora(e.ts))}</span><span>${esc(pdvEventoTexto(e))}</span></div>`).join('')}
+    </details>`;
   box.querySelectorAll('[data-pdv-video]').forEach(b => b.addEventListener('click', () => pdvVerVideo(caixaId, b.dataset.pdvVideo)));
   lucide.createIcons();
-  box.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  if (silencioso) return;
+  // tela estreita: o painel fica embaixo da lista, entao rola ate ele
+  if (window.matchMedia('(max-width: 1180px)').matches) box.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  else box.scrollTop = 0;
 }
 
 const PDV_EVENTO_NOME = {
@@ -1197,9 +1355,37 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('pdvLojasProximo')?.addEventListener('click', () => pdvLojasDia(1));
   document.getElementById('pdvVisaoAnterior')?.addEventListener('click', () => pdvVisaoDia(-1));
   document.getElementById('pdvVisaoProximo')?.addEventListener('click', () => pdvVisaoDia(1));
-  document.getElementById('pdvCupBuscar')?.addEventListener('click', pdvBuscarCupons);
-  document.getElementById('pdvCupFiltroBusca')?.addEventListener('keydown', ev => { if (ev.key === 'Enter') pdvBuscarCupons(); });
-  ['pdvCupFiltroDia', 'pdvCupFiltroCaixa', 'pdvCupFiltroSituacao'].forEach(id =>
-    document.getElementById(id)?.addEventListener('change', pdvBuscarCupons));
+  // Cupons: filtros aplicam sozinhos. Dia e texto vao ao servidor; o resto filtra a lista ja carregada.
+  let pdvCupDigitando = null;
+  document.getElementById('pdvCupFiltroBusca')?.addEventListener('input', () => {
+    clearTimeout(pdvCupDigitando);
+    pdvCupDigitando = setTimeout(() => pdvBuscarCupons(), 450);
+  });
+  document.getElementById('pdvCupFiltroBusca')?.addEventListener('keydown', ev => {
+    if (ev.key === 'Enter') { clearTimeout(pdvCupDigitando); pdvBuscarCupons(); }
+  });
+  document.getElementById('pdvCupFiltroDia')?.addEventListener('change', () => pdvBuscarCupons());
+  ['pdvCupFiltroCaixa', 'pdvCupFiltroOperador', 'pdvCupFiltroDe', 'pdvCupFiltroAte'].forEach(id =>
+    document.getElementById(id)?.addEventListener('change', pdvCupDesenhar));
+  document.getElementById('pdvCupLimpar')?.addEventListener('click', () => {
+    ['pdvCupFiltroBusca', 'pdvCupFiltroCaixa', 'pdvCupFiltroOperador', 'pdvCupFiltroDe', 'pdvCupFiltroAte'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.value = '';
+    });
+    _pdvCup.sit = '';
+    pdvBuscarCupons();
+  });
+  // botoes de situacao, cartoes clicaveis e linhas (delegado: sao redesenhados)
+  document.getElementById('viewPdvCupons')?.addEventListener('click', ev => {
+    const sit = ev.target.closest('[data-pdv-sit]');
+    if (sit) {
+      const v = sit.dataset.pdvSit;
+      _pdvCup.sit = v && _pdvCup.sit === v ? '' : v;  // clicar de novo volta a Todos
+      pdvCupDesenhar();
+      return;
+    }
+    const tr = ev.target.closest('#pdvCupLista [data-pdv-cupom]');
+    if (tr) pdvAbrirCupom(...tr.dataset.pdvCupom.split('|'));
+  });
   document.querySelector('[data-settings-tab="pdv"]')?.addEventListener('click', () => loadPdvConfig());
 });

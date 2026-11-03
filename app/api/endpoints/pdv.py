@@ -153,10 +153,12 @@ def api_pdv_ao_vivo_loja(loja: str = "") -> Dict[str, Any]:
 
 @router.get("/cupons")
 def api_pdv_cupons(dia: str = "", caixa_id: str = "", operador: str = "", situacao: str = "",
-                   texto: str = "", de: str = "", ate: str = "") -> Dict[str, Any]:
+                   texto: str = "", de: str = "", ate: str = "", limite: int = 200) -> Dict[str, Any]:
+    # A tela Cupons pede o dia inteiro (limite alto) e filtra situacao/caixa/operador
+    # no navegador, para os contadores baterem com a lista.
     return {"ok": True, "cupons": _executar(pdv_store.buscar_cupons, dia or _hoje(), caixa_id=caixa_id,
                                             operador=operador, situacao=situacao, texto=texto,
-                                            hora_de=de, hora_ate=ate)}
+                                            hora_de=de, hora_ate=ate, limite=limite)}
 
 
 @router.get("/cupons/{caixa_id}/{dia}/{cupom}")

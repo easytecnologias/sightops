@@ -428,7 +428,7 @@ def buscar_cupons(dia: str, caixa_id: str = "", operador: str = "", situacao: st
                 "i.caixa_id=k.caixa_id AND i.dia=k.dia AND i.cupom=k.cupom AND (i.codigo=? OR UPPER(i.descricao) LIKE ?)))")
         p += [t, t.lstrip("0"), "%" + t.upper() + "%"]
     sql += " ORDER BY k.aberto_em DESC LIMIT ?"
-    p.append(max(1, min(int(limite or 200), 1000)))
+    p.append(max(1, min(int(limite or 200), 5000)))
     with db_store._conn() as c:
         return _rows(c, sql, tuple(p))
 
