@@ -581,6 +581,38 @@ async def _access_control_sync_loop() -> None:
         await asyncio.sleep(interval)
 
 
+async def _access_control_escuta_loop() -> None:
+    """Escuta ao vivo dos leitores (access_control_escuta): passagem em ~1 s
+    em vez de esperar a busca periodica. A cada minuto confere quais leitores
+    estao ativos. SIGHTOPS_ACCESS_CONTROL_ESCUTA=0 desliga (fica so a busca)."""
+    if os.getenv("SIGHTOPS_ACCESS_CONTROL_ESCUTA", "1").strip() == "0":
+        return
+    from app.services import access_control_escuta as escuta
+
+    await asyncio.sleep(10)
+    try:
+        while True:
+            try:
+                alvo: dict[str, list[str]] = {}
+                for tenant_slug in await asyncio.to_thread(list_monitoring_tenants):
+                    token = set_current_tenant_slug(tenant_slug)
+                    try:
+                        alvo[tenant_slug] = [
+                            d["id"] for d in await asyncio.to_thread(list_access_devices) if d.get("active")
+                        ]
+                    finally:
+                        reset_current_tenant_slug(token)
+                estado = await asyncio.to_thread(escuta.reconciliar, alvo)
+                app.state.access_control_escuta = {k: v for k, v in estado.items() if k != "lista"}
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.exception("access control escuta loop failed")
+            await asyncio.sleep(60)
+    finally:
+        escuta.parar_todas()
+
+
 async def _telegram_bot_loop() -> None:
     """Robo do Telegram da Easy: le as mensagens (getUpdates, espera longa de
     25 s) para o "/vincular CODIGO" que liga o grupo de um cliente. Sem robo
@@ -756,6 +788,9 @@ async def startup_events() -> None:
     app.state.access_control_sync_task = asyncio.create_task(
         _access_control_sync_loop(), name="access-control-sync-loop"
     )
+    app.state.access_control_escuta_task = asyncio.create_task(
+        _access_control_escuta_loop(), name="access-control-escuta-loop"
+    )
     app.state.live_stream_cleanup_task = asyncio.create_task(
         _live_stream_cleanup_loop(), name="live-stream-cleanup-loop"
     )
@@ -777,6 +812,7 @@ async def shutdown_events() -> None:
         "olt_telemetry_task",
         "olt_sync_task",
         "access_control_sync_task",
+        "access_control_escuta_task",
         "live_stream_cleanup_task",
         "alert_escalation_task",
         "access_email_task",

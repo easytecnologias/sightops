@@ -174,6 +174,7 @@ function apRecarregarTudo() {
   if (typeof _dvDados !== 'undefined') _dvDados = null;
   if (typeof _psDados !== 'undefined') _psDados = null;
   if (typeof _agDados !== 'undefined') { _agDados = null; _agSim = null; }
+  apCarregarSites().catch(() => {});
   apGeral(true).then(g => { apMostrarPerfil(g && g.perfil); }).catch(() => {});
   apAtualizar(true);
 }
@@ -240,8 +241,16 @@ function apZap(p) {
 }
 
 // Classe da linha: a tarja colorida a esquerda mostra o que pede atencao.
+// Porta aberta pelo botao ou remotamente: o leitor nao diz quem abriu.
+function apAberturaRot(p) { return p.abertura === 'botao' ? 'Aberta pelo botão' : p.abertura === 'remota' ? 'Abertura remota' : ''; }
+
+// Quem e "a mesma pessoa" no percurso e no "So esta pessoa". Sem pessoa e sem
+// nome (botao, rosto nao reconhecido) cada tipo fica separado.
+function apChave(p) { return p.pessoa_id || p.nome || '#' + (p.abertura || 'sem-nome'); }
+
 function apMarca(p) {
   if ((p.aviso || {}).status === 'falha') return 'falhou';
+  if (p.abertura) return '';
   if (!p.pessoa_id) return 'semcad';
   return '';
 }
@@ -258,7 +267,7 @@ function apFiltradas(lista) {
   const f = (AP_FILTROS.find(x => x[0] === _apFiltro) || AP_FILTROS[0])[2];
   const b = _apBusca.trim().toLowerCase();
   return lista.filter(p => f(p)
-    && (!_apPessoa || (p.pessoa_id || p.nome) === _apPessoa)
+    && (!_apPessoa || apChave(p) === _apPessoa)
     && (!b || [p.nome, p.turma, p.porta, apUnidade(p.nome, p.site)].some(x => String(x || '').toLowerCase().includes(b))));
 }
 
@@ -315,8 +324,8 @@ function apLinhaPassagem(p, sel) {
   return `<button type="button" class="ap-ev ${apMarca(p)} ${sel ? 'sel' : ''} ${novo ? 'novo' : ''}" data-ap-sel="${esc(p.id)}">
     <span class="ap-tarja"></span>
     <span class="ap-av">${apIniciais(p.nome)}${apFoto(p)}</span>
-    <span class="ap-quem"><b>${esc(p.nome || 'sem nome no leitor')}</b>
-      <small>${esc([p.pessoa_id ? apGrupoDe(p) : ['só no leitor', apUnidade(p.nome, p.site)].filter(Boolean).join(' · '), apPorta(p.porta)].filter(Boolean).join(' · '))}</small></span>
+    <span class="ap-quem"><b>${esc(p.nome || apAberturaRot(p) || 'sem nome no leitor')}</b>
+      <small>${esc([p.pessoa_id ? apGrupoDe(p) : p.abertura ? 'sem identificar quem' : ['só no leitor', apUnidade(p.nome, p.site)].filter(Boolean).join(' · '), apPorta(p.porta)].filter(Boolean).join(' · '))}</small></span>
     <span class="ap-zap">${apZap(p)}</span>
     <span class="ap-chip ${apSaida(p.tipo) ? 'saida' : 'entrada'}">${apSaida(p.tipo) ? 'Saiu' : 'Entrou'}</span>
     <span class="ap-hora monospace">${apHm(apLocal(p.hora))}</span>
@@ -325,15 +334,15 @@ function apLinhaPassagem(p, sel) {
 
 function apDetalhe(p, todas) {
   if (!p) return `<section class="panel ap-det"><div class="panel-header ap-cab"><div><h3>Passagem</h3></div></div><p class="ap-vazio ap-pad">Nenhuma passagem hoje.</p></section>`;
-  const chave = p.pessoa_id || p.nome;
-  const dele = todas.filter(x => (x.pessoa_id || x.nome) === chave).slice().reverse();
+  const chave = apChave(p);
+  const dele = todas.filter(x => apChave(x) === chave).slice().reverse();
   return `<section class="panel ap-det">
     <div class="panel-header ap-cab"><div><h3>${_apSel ? 'Passagem selecionada' : 'Última passagem'}</h3><p>${apHa(apLocal(p.hora))}</p></div>
       ${_apSel ? '<button type="button" class="ap-link" data-ap-seguir>seguir a mais recente</button>' : ''}</div>
     <div class="ap-det-topo">
       <div class="ap-foto">${apIniciais(p.nome)}${apFoto(p)}<span class="ap-dir ${apSaida(p.tipo) ? 'saida' : ''}">${apSaida(p.tipo) ? 'SAIU' : 'ENTROU'}</span></div>
-      <div class="ap-info"><b>${esc(p.nome || 'Pessoa não identificada')}</b>
-        <small>${esc(p.pessoa_id ? [apTipo(p.tipo_pessoa, p.site), p.turma || (apUnidade(p.nome, p.site) ? 'unidade ' + apUnidade(p.nome, p.site) : '')].filter(Boolean).join(' · ') : ['só no leitor, fora do cadastro do SightOps', apUnidade(p.nome, p.site) ? 'unidade ' + apUnidade(p.nome, p.site) : ''].filter(Boolean).join(' · ')) || '&nbsp;'}</small>
+      <div class="ap-info"><b>${esc(p.nome || apAberturaRot(p) || 'Pessoa não identificada')}</b>
+        <small>${esc(p.abertura && !p.pessoa_id ? (p.abertura === 'botao' ? 'alguém apertou o botão de abertura; o leitor não identifica quem' : 'aberta à distância (SightOps ou aplicativo), sem rosto') : p.pessoa_id ? [apTipo(p.tipo_pessoa, p.site), p.turma || (apUnidade(p.nome, p.site) ? 'unidade ' + apUnidade(p.nome, p.site) : '')].filter(Boolean).join(' · ') : ['só no leitor, fora do cadastro do SightOps', apUnidade(p.nome, p.site) ? 'unidade ' + apUnidade(p.nome, p.site) : ''].filter(Boolean).join(' · ')) || '&nbsp;'}</small>
         <small>${esc(apPorta(p.porta))} · <span class="monospace">${apHms(apLocal(p.hora))}</span></small>
         ${dele.length > 1 ? `<small>${dele.length} passagens hoje</small>` : ''}
       </div>
@@ -459,7 +468,7 @@ function apDesenharVivo(d) {
   if (!sel) { _apSel = ''; sel = lista[0] || todas[0]; }
   _apTopoVisto = todas[0] ? todas[0].id : '';
   const conta = id => todas.filter((AP_FILTROS.find(x => x[0] === id) || AP_FILTROS[0])[2]).length;
-  const pessoaNome = _apPessoa ? ((todas.find(p => (p.pessoa_id || p.nome) === _apPessoa) || {}).nome || 'pessoa') : '';
+  const pessoaNome = _apPessoa ? ((p => p ? p.nome || apAberturaRot(p) || 'sem nome' : 'pessoa')(todas.find(p => apChave(p) === _apPessoa))) : '';
 
   el.innerHTML = `
     ${apSaude(d)}
@@ -1083,6 +1092,25 @@ function stopAccessPainel() {
   clearInterval(_apRelogio); _apRelogio = null;
 }
 
+// Locais do seletor = sites dos leitores. Antes so era montado ao abrir a
+// tela: local novo (leitor cadastrado agora) so aparecia depois do F5.
+// Chamado ao abrir, no Atualizar e depois de salvar um leitor.
+async function apCarregarSites() {
+  const sel = document.getElementById('apSite');
+  const g = await acJson('/api/access-control/painel/visao-geral');
+  const sites = [...new Set(((g?.leitores || {}).lista || []).map(l => l.site).filter(Boolean))].sort();
+  if (sel) {
+    const antes = _apSite;
+    sel.innerHTML = '<option value="">Todos os sites</option>' + sites.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join('');
+    if (sites.includes(_apSite)) sel.value = _apSite;
+    else if (sites.length === 1) { _apSite = sites[0]; sel.value = _apSite; }
+    else _apSite = '';
+    if (_apSite !== antes) { _apPortas = []; apPortasRotulo(); _apDados.vivo = _apDados.rel = _apDados.relCat = _apDados.geral = null; }
+  }
+  if (!_apSite) { _apDados.geral = g || {}; _apDados.geralEm = Date.now(); }
+  return g;
+}
+
 async function loadAccessPainel() {
   const sel = document.getElementById('apSite');
   if (sel && !sel.dataset.ligado) {
@@ -1095,20 +1123,15 @@ async function loadAccessPainel() {
       _apSel = ''; _apPessoa = '';
       apLigarStream(); apAtualizar(true);
     });
-    document.getElementById('btnApAtualizar')?.addEventListener('click', () => apAtualizar(true));
+    document.getElementById('btnApAtualizar')?.addEventListener('click', () => {
+      apCarregarSites().catch(() => {});
+      apAtualizar(true);
+    });
     document.getElementById('apPortas')?.addEventListener('click', ev => apMenuPortas(ev.currentTarget));
     document.getElementById('apPerfil')?.addEventListener('click', ev => apMenuTipo(ev.currentTarget, ev.currentTarget.dataset.site));
   }
   try {
-    const g = await acJson('/api/access-control/painel/visao-geral');
-    const sites = [...new Set(((g?.leitores || {}).lista || []).map(l => l.site).filter(Boolean))].sort();
-    if (sel) {
-      sel.innerHTML = '<option value="">Todos os sites</option>' + sites.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join('');
-      if (sites.includes(_apSite)) sel.value = _apSite;
-      else if (sites.length === 1) { _apSite = sites[0]; sel.value = _apSite; }
-      else _apSite = '';
-    }
-    if (!_apSite) { _apDados.geral = g || {}; _apDados.geralEm = Date.now(); }
+    const g = await apCarregarSites();
     apMostrarPerfil(g && g.perfil);
   } catch (_) { /* a propria tela mostra o erro ao carregar */ }
   let salva = 'vivo';
@@ -1145,8 +1168,11 @@ function apPortasRotulo() {
   b.title = nomes.join(' + ') || 'Todas as portas';
 }
 
-function apMenuPortas(ancora) {
+async function apMenuPortas(ancora) {
   document.getElementById('apMenuPortas')?.remove();
+  // Nas abas Pessoas/Dispositivos/Grupos a lista de leitores nao e carregada
+  // sozinha: sem isto o local escolhido dizia "Nenhuma porta neste local".
+  if (!_apDados.geral) { try { await apGeral(); } catch (_) { /* cai no aviso abaixo */ } }
   const portas = apPortasDoLocal();
   if (!portas.length) { acToast('Nenhuma porta neste local.'); return; }
   const menu = document.createElement('div');

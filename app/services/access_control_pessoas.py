@@ -244,11 +244,29 @@ def excluir(person_id: str, remover=None) -> Dict[str, Any]:
 
 # ---------------------------------------------------------------- trazer do leitor
 
+def _acento_do_leitor(nome: str) -> str:
+    """'MARIA JOSÃ‰' -> 'MARIA JOSÉ'. O nome vem estragado do proprio leitor
+    (o programa da Intelbras gravou UTF-8 lido como Windows-1252), entao o
+    conserto e aqui. Se nao voltar a ser UTF-8 valido, fica como veio."""
+    if "Ã" not in nome and "Â" not in nome:
+        return nome
+
+    def byte(ch: str) -> bytes:
+        try:
+            return ch.encode("cp1252")
+        except UnicodeEncodeError:
+            return ch.encode("latin-1")   # 0x81, 0x8d, 0x8f, 0x90, 0x9d nao existem no cp1252
+    try:
+        return b"".join(byte(ch) for ch in nome).decode("utf-8")
+    except (UnicodeEncodeError, UnicodeDecodeError):
+        return nome
+
+
 def _nome_do_leitor(nome: str) -> str:
     """'ADRIZIA.jpg I 29' -> 'ADRIZIA I 29': quem cadastrou no leitor colou o
-    nome do arquivo da foto junto do nome."""
+    nome do arquivo da foto junto do nome. Acento estragado e consertado."""
     import re
-    return " ".join(re.sub(r"\.(jpe?g|png|bmp|webp)\b", " ", _t(nome), flags=re.I).split())
+    return " ".join(re.sub(r"\.(jpe?g|png|bmp|webp)\b", " ", _acento_do_leitor(_t(nome)), flags=re.I).split())
 
 
 def trazer_do_leitor(device_id: str, site: str = "", usuario: str = "", progresso=None,

@@ -1153,6 +1153,21 @@ def api_access_control_painel_ao_vivo(site: str = Query(""), limit: int = Query(
     return ao_vivo(site=_site_do_painel(site), limite=limit, portas=[p.strip() for p in portas.split(",") if p.strip()])
 
 
+@router.get("/painel/ao-vivo/ultima")
+def api_access_control_painel_ao_vivo_ultima(site: str = Query(""), portas: str = Query("")) -> Dict[str, Any]:
+    """So a passagem mais recente (id e hora). O app consulta a cada 2 s e so
+    baixa o Ao vivo inteiro quando o id muda: dentro do APK o CapacitorHttp
+    nao entrega o /live/stream (resposta continua), e baixar o Ao vivo a cada
+    2 s pesaria no servidor (0,7 s cada)."""
+    filtros: Dict[str, Any] = {"period": "today", "site": _site_do_painel(site), "limit": 1}
+    lista = [p.strip() for p in portas.split(",") if p.strip()]
+    if len(lista) == 1:
+        filtros["device_id"] = lista[0]
+    eventos = list_access_report_events(filtros)
+    ultimo = eventos[0] if eventos else {}
+    return {"id": str(ultimo.get("id") or ""), "hora": str(ultimo.get("occurred_at") or "")}
+
+
 @router.get("/painel/relatorios")
 def api_access_control_painel_relatorios(site: str = Query(""), dias: int = Query(28), portas: str = Query("")) -> Dict[str, Any]:
     from app.services.access_control_painel import relatorios

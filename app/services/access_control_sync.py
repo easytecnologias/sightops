@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List
 
 from fastapi import HTTPException
@@ -87,6 +87,30 @@ def _resolve_event_person(event: Dict[str, Any], people: List[Dict[str, Any]]) -
     return None
 
 
+def _resolve_por_id_no_cliente(event: Dict[str, Any]) -> Dict[str, Any] | None:
+    """Pessoa cadastrada em OUTRO local do mesmo cliente (ex.: morador da
+    Reserva que tambem abre o Jardins II). O ID no leitor e unico no cliente;
+    o nome do leitor tambem precisa bater, porque ID antigo pode ter ficado
+    num leitor com outra pessoa (ex.: 5008 GABRIEL GOMES no Lago, junho)."""
+    uid = _digits(event.get("user_id") or event.get("UserID") or event.get("controller_user_id"))
+    if not uid:
+        return None
+    pessoa = next((p for p in list_people() if _digits(p.get("controller_user_id")) == uid), None)
+    if not pessoa:
+        return None
+    import unicodedata
+    from app.services.access_control_pessoas import _nome_do_leitor
+
+    def comparavel(txt: Any) -> str:
+        txt = unicodedata.normalize("NFKD", _nome_do_leitor(str(txt or "")).replace("-", " "))
+        return " ".join("".join(c for c in txt if not unicodedata.combining(c)).casefold().split())
+    nome_leitor = comparavel(event.get("person_name_raw") or event.get("person_name") or event.get("UserName"))
+    nome = comparavel(pessoa.get("full_name"))
+    if nome_leitor and nome and not nome_leitor.startswith(nome):
+        return None
+    return pessoa
+
+
 def _resolve_event_type(event: Dict[str, Any], device_role: str) -> str:
     raw_value = str(event.get("event_type") or "").strip()
     if raw_value:
@@ -104,7 +128,7 @@ def _record_device_event(device: Dict[str, Any], event: Dict[str, Any], *, sourc
     device_role = normalize_access_direction(device.get("access_direction"))
     people = list_people(site=device.get("site", ""))
     event_type = _resolve_event_type(event, device_role)
-    person = _resolve_event_person(event, people)
+    person = _resolve_event_person(event, people) or _resolve_por_id_no_cliente(event)
     person_name = (
         event.get("person_name_raw")
         or event.get("person_name")
@@ -149,6 +173,42 @@ def record_device_event(device_id: str, event: Dict[str, Any], *, source: str = 
     except ValueError:
         logger.warning("Nao foi possivel atualizar status do dispositivo %s", device_id)
     return _record_device_event(device, event, source=source)
+
+
+_FUSO_LOCAL = timezone(timedelta(hours=-3))
+
+
+def _ja_no_leitor(device: Dict[str, Any], uid: str) -> bool:
+    """Pergunta ao leitor so por este UserID (so leitura)."""
+    from app.services.access_control_device import _get, _parse_record_table
+    resp = _get(device, "/cgi-bin/recordFinder.cgi",
+                {"action": "find", "name": "AccessControlCard", "condition.UserID": uid})
+    return any(_digits(r.get("UserID")) == uid for r in _parse_record_table(resp.text))
+
+
+def _enviar_ao_leitor(device: Dict[str, Any], person: Dict[str, Any]) -> Dict[str, Any]:
+    """Envio automatico (salvar pessoa, grupo, regra) com a regra do "Enviar so
+    o que falta" (access_control_envio): no Intelbras, quem ja esta no leitor
+    NAO e tocado, e quem falta entra sem senha, com validade de 10 anos e a foto.
+    Antes era sempre insertMulti com senha 123456 e validade fixa: recusado para
+    quem ja estava (falha repetida para sempre) e senha conhecida para quem faltava.
+    Pessoa desativada e outros fabricantes seguem o caminho antigo."""
+    uid = _digits(person.get("controller_user_id"))
+    ativa = person.get("active") not in (False, 0, "0")
+    if uid and ativa:
+        from app.services.access_control_device import _is_intelbras_device, _provision_intelbras_person
+        if _is_intelbras_device(device):
+            if _ja_no_leitor(device, uid):
+                return {"ok": True, "ja_estava": True, "controller_user_id": uid}
+            agora = datetime.now(timezone.utc).astimezone(_FUSO_LOCAL)
+            try:
+                fim = agora.replace(year=agora.year + 10)
+            except ValueError:   # 29/02
+                fim = agora.replace(year=agora.year + 10, day=28)
+            return _provision_intelbras_person(
+                device, person, load_person_face_photo(person), senha=None,
+                valido_de=agora.strftime("%Y-%m-%d 00:00:00"), valido_ate=fim.strftime("%Y-%m-%d 23:59:59"))
+    return provision_person(device, person, load_person_face_photo(person))
 
 
 def resolve_target_devices_for_person(person_id: str) -> List[Dict[str, Any]]:
@@ -222,7 +282,7 @@ def provision_person_everywhere(person: Dict[str, Any]) -> Dict[str, Any]:
             results.append({"device_id": device["id"], "status": "failed", "error": error_text})
             continue
         try:
-            provision_person(full_device, person, load_person_face_photo(person))
+            _enviar_ao_leitor(full_device, person)
             upsert_provision_status(person["id"], device["id"], "ok")
             results.append({"device_id": device["id"], "status": "ok", "error": ""})
         except HTTPException as exc:
@@ -296,7 +356,7 @@ def retry_one_pending_provision(item: Dict[str, Any], people_by_id: Dict[str, An
         )
         return False
     try:
-        provision_person(device, person, load_person_face_photo(person))
+        _enviar_ao_leitor(device, person)
         upsert_provision_status(item["person_id"], item["device_id"], "ok")
     except HTTPException as exc:
         upsert_provision_status(item["person_id"], item["device_id"], "failed", str(exc.detail))
