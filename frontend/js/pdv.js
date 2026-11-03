@@ -392,6 +392,7 @@ async function pdvRenderVisao() {
   setText('pdvVisaoDia', pdvDiaRotulo(_pdvDia));
   if (!caixas.length) { pdvSemCaixa('pdvVisaoBody'); return; }
   const r = resumo || {};
+  _pdvResumo = r;
   const m = r.modos || {};
   const n = k => (m[k]?.n || 0);
   const v = k => (m[k]?.centavos || 0);
@@ -415,10 +416,10 @@ async function pdvRenderVisao() {
     { k: 'sem', rot: 'Sem tecla', n: n('sem_tecla') + n('outro'), v: v('sem_tecla') + v('outro'), cls: 'sem' },
   ];
   const ocorrencias = [
-    ['x-circle', 'Itens cancelados', cancItens, itens ? `${(1000 * cancItens / itens).toLocaleString('pt-BR', { maximumFractionDigits: 2 })} por mil itens` : ''],
-    ['ban', 'Cupons cancelados', cancCupons, ''],
-    ['percent', 'Descontos em item', ev.DIT || 0, ''],
-    ['badge-percent', 'Descontos no subtotal', ev.DST || 0, ''],
+    ['x-circle', 'Itens cancelados', cancItens, itens ? `${(1000 * cancItens / itens).toLocaleString('pt-BR', { maximumFractionDigits: 2 })} por mil itens` : '', 'itens_cancelados'],
+    ['ban', 'Cupons cancelados', cancCupons, '', 'cupons_cancelados'],
+    ['percent', 'Descontos em item', ev.DIT || 0, '', 'desc_item'],
+    ['badge-percent', 'Descontos no subtotal', ev.DST || 0, '', 'desc_subtotal'],
     ['scan-search', 'Código sem cadastro', ev.ITEMSEMCAD || 0, ''],
     ['hand-coins', 'Sangrias', ev.SGR || 0, ''],
     ['archive', 'Gaveta aberta', ev.GAV || 0, ''],
@@ -469,8 +470,8 @@ async function pdvRenderVisao() {
 
       <section class="panel pdv-painel">
         <div class="pdv-panel-head"><h2>Ocorrências do dia</h2><small>para revisar com o vídeo</small></div>
-        <ul class="pdv-ocorrencias">${ocorrencias.map(([ic, rot, qtd, sub]) => `
-          <li class="${qtd ? '' : 'zero'}"><i data-lucide="${ic}"></i>
+        <ul class="pdv-ocorrencias">${ocorrencias.map(([ic, rot, qtd, sub, lista]) => `
+          <li class="${qtd ? '' : 'zero'} ${qtd && lista ? 'pdv-clica-lista' : ''}" ${qtd && lista ? `data-pdv-lista="${lista}" title="Ver os cupons"` : ''}><i data-lucide="${ic}"></i>
             <span>${rot}${sub ? `<small>${sub}</small>` : ''}</span><strong>${pdvNum(qtd)}</strong></li>`).join('')}
         </ul>
       </section>
@@ -500,6 +501,7 @@ async function pdvRenderVisao() {
         }).join('')}</tbody>
       </table></div>
     </section>`;
+  box.querySelectorAll('[data-pdv-lista]').forEach(el => el.addEventListener('click', () => pdvListaLateral(el.dataset.pdvLista)));
   box.querySelectorAll('[data-pdv-vivo]').forEach(b => b.addEventListener('click', () => {
     _pdvVivo.caixaId = b.dataset.pdvVivo;
     document.querySelector('.nav-item[data-view="pdv-vivo"]')?.click();
@@ -812,23 +814,119 @@ function pdvConferencia(r) {
   const c = r.conferencia;
   if (!c) return '';
   const linhas = [
-    ['Cupons cancelados inteiros', c.cupons_cancelados],
-    ['Itens cancelados', c.itens_cancelados],
-    ['Descontos em item', c.desc_item],
-    ['Descontos no subtotal do cupom', c.desc_subtotal],
+    ['Cupons cancelados inteiros', c.cupons_cancelados, '', 'cupons_cancelados'],
+    ['Itens cancelados', c.itens_cancelados, '', 'itens_cancelados'],
+    ['Descontos em item', c.desc_item, '', 'desc_item'],
+    ['Descontos no subtotal do cupom', c.desc_subtotal, '', 'desc_subtotal'],
     ['Descontos sem registro no PDV', c.desc_outros, 'diferença entre os itens e o total do cupom sem evento de desconto (centavos de arredondamento e outros)'],
-    ['Cupons ainda abertos', c.abertos],
+    ['Cupons ainda abertos', c.abertos, '', 'abertos'],
     ['Itens sem cupom', c.sem_cupom],
   ].filter(l => l[1]);
   const saiu = linhas.reduce((t, l) => t + l[1], 0);
   const neg = v => `− ${pdvMoeda(Math.abs(v))}`;
   return `
     <table class="pdv-legenda pdv-conferencia">
-      <tbody>${linhas.map(([rot, v, dica]) => `<tr${dica ? ` title="${esc(dica)}"` : ''}><td>${rot}</td><td class="num pdv-negativo">${v < 0 ? `+ ${pdvMoeda(-v)}` : neg(v)}</td></tr>`).join('')}
+      <tbody>${linhas.map(([rot, v, dica, lista]) => `<tr${dica ? ` title="${esc(dica)}"` : ''}${lista ? ` class="pdv-clica-lista" data-pdv-lista="${lista}" title="Ver os cupons"` : ''}><td>${rot}${lista ? ' <i data-lucide="chevron-right" class="pdv-seta-lista"></i>' : ''}</td><td class="num pdv-negativo">${v < 0 ? `+ ${pdvMoeda(-v)}` : neg(v)}</td></tr>`).join('')}
         <tr class="pdv-conf-soma"><td>Total que saiu da soma dos itens</td><td class="num pdv-negativo"><strong>${neg(saiu)}</strong></td></tr></tbody>
       <tfoot><tr><td>Vendido (cupons fechados)<small class="pdv-sub">${pdvMoeda(c.passado)} ${neg(saiu)}</small></td>
         <td class="num"><strong>${pdvMoeda(r.vendido_centavos)}</strong></td></tr></tfoot>
     </table>`;
+}
+
+// Painel lateral: os cupons de uma linha da conferencia / das ocorrencias.
+// Usa a lista de cupons do dia e a de descontos que ja vem no resumo.
+let _pdvResumo = null;
+const PDV_LISTAS = {
+  cupons_cancelados: 'Cupons cancelados inteiros',
+  itens_cancelados: 'Cupons com item cancelado',
+  desc_item: 'Cupons com desconto em item',
+  desc_subtotal: 'Cupons com desconto no subtotal',
+  abertos: 'Cupons ainda abertos',
+};
+
+function pdvLateralFechar() {
+  const d = document.getElementById('pdvLateral');
+  if (!d) return;
+  d.classList.remove('open');
+  setTimeout(() => { d.classList.add('hidden'); document.getElementById('pdvLateralFundo')?.classList.add('hidden'); }, 270);
+}
+
+function pdvLateralCriar() {
+  if (document.getElementById('pdvLateral')) return;
+  // fecha so pelo X ou Esc (regra do sistema: clicar fora nao fecha)
+  document.body.insertAdjacentHTML('beforeend', `
+    <div id="pdvLateralFundo" class="dash-drawer-overlay hidden"></div>
+    <aside id="pdvLateral" class="dash-drawer pdv-lateral hidden" aria-label="Cupons">
+      <div class="dash-drawer-header">
+        <div><h2 class="pdv-l-h2" id="pdvLateralTitulo"></h2><span class="pdv-l-sub" id="pdvLateralSub"></span></div>
+        <button class="icon-button" type="button" id="pdvLateralX" title="Fechar (Esc)"><i data-lucide="x"></i></button>
+      </div>
+      <div class="pdv-lateral-corpo" id="pdvLateralCorpo"></div>
+    </aside>`);
+  document.getElementById('pdvLateralX').addEventListener('click', pdvLateralFechar);
+  document.addEventListener('keydown', ev => {
+    if (ev.key === 'Escape' && document.getElementById('pdvLateral')?.classList.contains('open')) pdvLateralFechar();
+  });
+  document.getElementById('pdvLateralCorpo').addEventListener('click', ev => {
+    const el = ev.target.closest('[data-pdv-abrir]');
+    if (!el) return;
+    pdvLateralFechar();
+    pdvIrCupom(...el.dataset.pdvAbrir.split('|'));
+  });
+}
+
+async function pdvListaLateral(tipo) {
+  pdvLateralCriar();
+  const d = document.getElementById('pdvLateral');
+  const corpo = document.getElementById('pdvLateralCorpo');
+  document.getElementById('pdvLateralTitulo').textContent = PDV_LISTAS[tipo] || 'Cupons';
+  document.getElementById('pdvLateralSub').textContent = pdvDiaRotulo(_pdvDia);
+  corpo.innerHTML = '<p class="pdv-nota pdv-c-msg">Buscando os cupons...</p>';
+  d.classList.remove('hidden');
+  document.getElementById('pdvLateralFundo').classList.remove('hidden');
+  requestAnimationFrame(() => requestAnimationFrame(() => d.classList.add('open')));
+  lucide.createIcons();
+
+  const r = await apiJson(`/api/pdv/cupons?dia=${encodeURIComponent(_pdvDia)}&limite=5000`, { forceRefresh: true });
+  const cupons = r?.cupons || [];
+  // desconto por cupom (do resumo): soma e quantos itens
+  const desc = new Map();
+  (_pdvResumo?.descontos || []).forEach(x => {
+    if (!(tipo === 'desc_item' && x.tipo === 'item') && !(tipo === 'desc_subtotal' && x.tipo === 'subtotal')) return;
+    const ch = `${x.caixa_id}|${x.cupom}`;
+    const a = desc.get(ch) || { v: 0, n: 0, prods: [] };
+    a.v += x.valor_centavos; a.n += 1;
+    if (x.produto && !a.prods.includes(x.produto)) a.prods.push(x.produto);
+    desc.set(ch, a);
+  });
+  const filtro = {
+    cupons_cancelados: k => k.situacao === 'cancelado',
+    itens_cancelados: k => Number(k.itens_cancelados) > 0,
+    desc_item: k => desc.has(`${k.caixa_id}|${k.cupom}`),
+    desc_subtotal: k => desc.has(`${k.caixa_id}|${k.cupom}`),
+    abertos: k => k.situacao === 'aberto',
+  }[tipo] || (() => false);
+  const lista = cupons.filter(filtro);
+  const destaque = k => {
+    const dd = desc.get(`${k.caixa_id}|${k.cupom}`);
+    if (tipo === 'itens_cancelados') return [`${k.itens_cancelados} ${Number(k.itens_cancelados) === 1 ? 'item cancelado' : 'itens cancelados'}`, ''];
+    if (dd && tipo === 'desc_item') return [`${dd.n} ${dd.n === 1 ? 'desconto' : 'descontos'} · ${dd.prods.slice(0, 2).join(', ')}${dd.prods.length > 2 ? '…' : ''}`, `− ${pdvMoeda(dd.v)}`];
+    if (dd) return ['desconto no subtotal', `− ${pdvMoeda(dd.v)}`];
+    return [`${pdvPlural(k.itens, 'item').replace('items', 'itens')}`, ''];
+  };
+  const somaDesc = lista.reduce((t, k) => t + (desc.get(`${k.caixa_id}|${k.cupom}`)?.v || 0), 0);
+  document.getElementById('pdvLateralSub').textContent = `${pdvDiaRotulo(_pdvDia)} · ${lista.length} ${lista.length === 1 ? 'cupom' : 'cupons'}`
+    + (somaDesc ? ` · − ${pdvMoeda(somaDesc)} de desconto` : '') + ' · clique para abrir';
+  corpo.innerHTML = lista.length ? lista.map(k => {
+    const [txt, val] = destaque(k);
+    return `<button type="button" class="pdv-lateral-item" data-pdv-abrir="${esc(k.caixa_id)}|${esc(k.dia)}|${esc(k.cupom)}">
+      <span class="pdv-hora">${esc(pdvHora(k.aberto_em).slice(0, 5))}</span>
+      <span class="pdv-lateral-meio"><strong>${esc(k.cupom)} · ${esc(k.caixa)}</strong><small>${esc(k.operador)} · ${esc(txt)}</small></span>
+      <span class="pdv-lateral-valores">${val ? `<b class="pdv-negativo">${esc(val)}</b>` : ''}<small>total ${esc(pdvMoeda(k.total_centavos))}</small></span>
+      <i data-lucide="chevron-right"></i>
+    </button>`;
+  }).join('') : '<p class="pdv-nota pdv-c-msg">Nenhum cupom.</p>';
+  lucide.createIcons();
 }
 
 // ---------------------------------------------------------------- cupons

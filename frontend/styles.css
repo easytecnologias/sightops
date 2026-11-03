@@ -14008,6 +14008,20 @@ button.rk-chip { cursor: pointer; }
 .pdv-miniatura.ativa { border: 2px solid var(--primary); }
 
 .pdv-conferencia { margin-top: 12px; }
+.pdv-clica-lista { cursor: pointer; }
+.pdv-clica-lista:hover td, li.pdv-clica-lista:hover { background: var(--surface-soft); }
+.pdv-seta-lista { width: 14px; height: 14px; vertical-align: -2px; color: var(--muted); }
+.pdv-lateral { width: 520px; }
+.pdv-lateral-corpo { flex: 1; overflow-y: auto; }
+.pdv-lateral-item { display: flex; align-items: center; gap: 12px; width: 100%; padding: 12px 20px; border: 0; border-bottom: 1px solid var(--border); background: var(--surface); font: inherit; color: var(--text); text-align: left; cursor: pointer; }
+.pdv-lateral-item:hover { background: var(--surface-soft); }
+.pdv-lateral-item > svg { width: 16px; height: 16px; color: var(--muted); flex: none; }
+.pdv-lateral-meio { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.pdv-lateral-meio strong { font-size: 13px; }
+.pdv-lateral-meio small { font-size: 11.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pdv-lateral-valores { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.pdv-lateral-valores b { font-size: 13px; }
+.pdv-lateral-valores small { font-size: 11.5px; color: var(--muted); }
 .pdv-negativo { color: var(--danger) !important; }
 .pdv-conf-soma td { background: var(--danger-soft); }
 .pdv-conferencia .pdv-sub { display: block; font-size: 11px; color: var(--muted); }
