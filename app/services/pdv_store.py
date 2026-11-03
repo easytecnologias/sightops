@@ -515,7 +515,12 @@ def resumo_dia(dia: str, caixa_id: str = "") -> Dict[str, Any]:
         val_cit = {(r["caixa_id"], r["cupom"]): int(r["v"] or 0) for r in _rows(
             c, "SELECT caixa_id, cupom, SUM(valor_centavos) AS v FROM pdv_eventos WHERE %s AND tipo='CIT' "
                "GROUP BY caixa_id, cupom" % filtro, tuple(p))}
-        lista_cup = _rows(c, "SELECT caixa_id, cupom, situacao, total_centavos FROM pdv_cupons WHERE %s" % filtro, tuple(p))
+        lista_cup = _rows(c, "SELECT caixa_id, cupom, situacao, total_centavos, operador FROM pdv_cupons WHERE %s" % filtro, tuple(p))
+        # Descontos um a um: DIT = desconto no item (traz o produto); DAS = desconto
+        # no subtotal do cupom (vem negativo). O DST so guarda o subtotal, nao o desconto.
+        desc_ev = _rows(c, "SELECT caixa_id, ts, tipo, cupom, codigo, descricao, valor_centavos FROM pdv_eventos "
+                           "WHERE %s AND tipo IN ('DIT','DAS') ORDER BY ts DESC LIMIT 3000" % filtro, tuple(p))
+        nomes_cx = {r["id"]: r["nome"] for r in _rows(c, "SELECT id, nome FROM pdv_caixas WHERE tenant_slug=?", (tenant,))}
     itens = sum(m["n"] for m in modos.values())
     conf = {"passado": sum(val_itens.values()), "cupons_cancelados": 0, "abertos": 0,
             "itens_cancelados": 0, "descontos": 0, "sem_cupom": 0}
@@ -533,9 +538,24 @@ def resumo_dia(dia: str, caixa_id: str = "") -> Dict[str, Any]:
         else:
             conf["abertos"] += v
     conf["sem_cupom"] = sum(v for ch, v in val_itens.items() if ch not in vistos)
+    sit = {(k["caixa_id"], k["cupom"]): k for k in lista_cup}
+    descontos = []
+    conf["desc_item"] = conf["desc_subtotal"] = 0
+    for e in desc_ev:
+        k = sit.get((e["caixa_id"], e["cupom"])) or {}
+        v = abs(int(e["valor_centavos"] or 0))
+        item = e["tipo"] == "DIT"
+        if k.get("situacao") == "fechado":
+            conf["desc_item" if item else "desc_subtotal"] += v
+        descontos.append({"caixa_id": e["caixa_id"], "caixa": nomes_cx.get(e["caixa_id"], ""), "ts": e["ts"],
+                          "cupom": e["cupom"], "operador": k.get("operador", ""), "situacao": k.get("situacao", ""),
+                          "tipo": "item" if item else "subtotal", "codigo": e["codigo"] if item else "",
+                          "produto": e["descricao"] if item else "", "valor_centavos": v})
+    # desconto que aparece no total do cupom sem evento de desconto (centavos de arredondamento e outros)
+    conf["desc_outros"] = conf["descontos"] - conf["desc_item"] - conf["desc_subtotal"]
     return {"dia": dia, "itens": itens, "modos": modos, "cupons": cup,
             "vendido_centavos": int((vendido or {}).get("v") or 0), "eventos": ev, "por_caixa": por_caixa,
-            "conferencia": conf}
+            "conferencia": conf, "descontos": descontos}
 
 
 SEM_LOJA = "Sem loja definida"

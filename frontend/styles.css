@@ -14008,6 +14008,7 @@ button.rk-chip { cursor: pointer; }
 .pdv-miniatura.ativa { border: 2px solid var(--primary); }
 
 .pdv-conferencia { margin-top: 12px; }
+.pdv-descontos { max-height: 420px; overflow-y: auto; }
 .pdv-conferencia td:first-child { padding-left: 4px; }
 
 /* cupons */

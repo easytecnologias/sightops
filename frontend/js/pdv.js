@@ -476,6 +476,8 @@ async function pdvRenderVisao() {
       </section>
     </div>
 
+    ${pdvDescontosPainel(r)}
+
     <section class="panel pdv-painel">
       <div class="pdv-panel-head"><h2>Caixas</h2><small>saúde da coleta · também no Zabbix</small></div>
       <div class="table-wrap"><table class="data-table pdv-tabela pdv-tabela-caixas">
@@ -500,6 +502,7 @@ async function pdvRenderVisao() {
         }).join('')}</tbody>
       </table></div>
     </section>`;
+  box.querySelectorAll('[data-pdv-desc]').forEach(tr => tr.addEventListener('click', () => pdvIrCupom(...tr.dataset.pdvDesc.split('|'))));
   box.querySelectorAll('[data-pdv-vivo]').forEach(b => b.addEventListener('click', () => {
     _pdvVivo.caixaId = b.dataset.pdvVivo;
     document.querySelector('.nav-item[data-view="pdv-vivo"]')?.click();
@@ -814,15 +817,38 @@ function pdvConferencia(r) {
   const linhas = [
     ['Cupons cancelados inteiros', c.cupons_cancelados],
     ['Itens cancelados', c.itens_cancelados],
-    ['Descontos', c.descontos],
+    ['Descontos em item', c.desc_item],
+    ['Descontos no subtotal do cupom', c.desc_subtotal],
+    ['Descontos sem registro no PDV', c.desc_outros, 'diferença entre os itens e o total do cupom sem evento de desconto (centavos de arredondamento e outros)'],
     ['Cupons ainda abertos', c.abertos],
     ['Itens sem cupom', c.sem_cupom],
   ].filter(l => l[1]);
   return `
     <table class="pdv-legenda pdv-conferencia">
-      <tbody>${linhas.map(([rot, v]) => `<tr><td>− ${rot}</td><td class="num pdv-muted">${pdvMoeda(v)}</td></tr>`).join('')}</tbody>
+      <tbody>${linhas.map(([rot, v, dica]) => `<tr${dica ? ` title="${esc(dica)}"` : ''}><td>− ${rot}</td><td class="num pdv-muted">${pdvMoeda(v)}</td></tr>`).join('')}</tbody>
       <tfoot><tr><td>= Vendido (cupons fechados)</td><td class="num"><strong>${pdvMoeda(r.vendido_centavos)}</strong></td></tr></tfoot>
     </table>`;
+}
+
+// Cada desconto do dia: no item (com o produto) ou no subtotal do cupom. Clique abre o cupom.
+function pdvDescontosPainel(r) {
+  const lista = r.descontos;
+  if (!Array.isArray(lista)) return '';
+  const total = lista.reduce((s, d) => s + d.valor_centavos, 0);
+  const nItem = lista.filter(d => d.tipo === 'item').length;
+  return `
+    <section class="panel pdv-painel">
+      <div class="pdv-panel-head"><h2>Descontos do dia</h2>
+        <small>${pdvNum(nItem)} em item · ${pdvNum(lista.length - nItem)} no subtotal · ${pdvMoeda(total)} · clique para abrir o cupom</small></div>
+      ${lista.length ? `<div class="table-wrap pdv-descontos"><table class="data-table pdv-tabela">
+        <thead><tr><th>Hora</th><th>Caixa</th><th>Cupom</th><th>Operador</th><th>Tipo</th><th>Produto</th><th class="num">Desconto</th></tr></thead>
+        <tbody>${lista.map(d => `<tr class="pdv-linha-clicavel" data-pdv-desc="${esc(d.caixa_id)}|${esc(String(d.ts).slice(0, 10))}|${esc(d.cupom)}">
+          <td>${esc(pdvHora(d.ts))}</td><td>${esc(d.caixa)}</td><td><strong>${esc(d.cupom)}</strong></td><td>${esc(d.operador)}</td>
+          <td>${d.tipo === 'item' ? '<span class="pdv-chip pdv-modo-menu">no item</span>' : '<span class="pdv-chip pdv-sit-alerta">no subtotal</span>'}</td>
+          <td>${d.tipo === 'item' ? `${esc(d.produto || d.codigo)} <small class="pdv-muted">${esc(d.codigo)}</small>` : '<span class="pdv-muted">cupom inteiro</span>'}</td>
+          <td class="num"><strong>${pdvMoeda(d.valor_centavos)}</strong></td></tr>`).join('')}</tbody>
+      </table></div>` : '<p class="pdv-nota">Nenhum desconto neste dia.</p>'}
+    </section>`;
 }
 
 // ---------------------------------------------------------------- cupons
@@ -1032,6 +1058,7 @@ async function pdvAbrirCupom(caixaId, dia, cupom, silencioso = false) {
   const itens = r.itens || [];
   const linha = r.linha_do_tempo || [];
   const canc = linha.filter(e => e.tipo === 'CIT');
+  const desc = linha.filter(e => e.tipo === 'DIT' || e.tipo === 'DAS');
   const fim = k.fechado_em ? `${k.situacao === 'cancelado' ? 'cancelado' : 'fechado'} às ${esc(pdvHora(k.fechado_em))}` : 'ainda aberto';
   const modos = ['scanner', 'manual', 'menu'].map(m => [m, itens.filter(i => i.modo === m).length]).filter(x => x[1]);
   box.dataset.aberto = k.situacao === 'aberto' ? '1' : '0';
@@ -1056,6 +1083,13 @@ async function pdvAbrirCupom(caixaId, dia, cupom, silencioso = false) {
         <div><strong>${esc(e.descricao || e.codigo || 'item')}</strong><small>${esc(e.codigo || '')}</small></div>
         <span class="pdv-valor">${esc(pdvMoeda(e.valor_centavos))}</span>
         <button class="pdv-c-play" type="button" data-pdv-video="${esc(e.ts)}" title="Vídeo deste cancelamento"><i data-lucide="play"></i></button>
+      </div>`).join('')}</div>` : ''}
+    ${desc.length ? `<div class="pdv-c-secao"><span class="pdv-l-k pdv-l-k-ambar">Descontos (${pdvMoeda(desc.reduce((s, e) => s + Math.abs(e.valor_centavos || 0), 0))})</span>
+      ${desc.map(e => `<div class="pdv-c-item">
+        <span class="pdv-hora">${esc(pdvHora(e.ts))}</span>
+        <div><strong>${e.tipo === 'DIT' ? esc(e.descricao || e.codigo || 'item') : 'No subtotal do cupom'}</strong><small>${e.tipo === 'DIT' ? `desconto no item · ${esc(e.codigo || '')}` : 'desconto no cupom inteiro'}</small></div>
+        <span class="pdv-valor">− ${esc(pdvMoeda(Math.abs(e.valor_centavos || 0)))}</span>
+        <button class="pdv-c-play" type="button" data-pdv-video="${esc(e.ts)}" title="Vídeo deste desconto"><i data-lucide="play"></i></button>
       </div>`).join('')}</div>` : ''}
     <div class="pdv-c-secao"><span class="pdv-l-k">Itens</span>
       ${itens.map(i => `<div class="pdv-c-item">
@@ -1082,7 +1116,7 @@ const PDV_EVENTO_NOME = {
   ABRECUPOM: 'Cupom aberto', VIT: 'Item', CIT: 'Item cancelado', SBT: 'Subtotal', FIN: 'Pagamento',
   TRC: 'Troco', FECHACUPOM: 'Cupom fechado', CCV: 'Cupom cancelado', CCG: 'Cancelamento de cupom anterior',
   SUP: 'Liberação de supervisor', SUPERVISOR: 'Supervisor', GER: 'Tecla de gerente', GAV: 'Gaveta aberta',
-  SGR: 'Sangria', DIT: 'Desconto no item', DST: 'Desconto no subtotal', DAS: 'Desconto retirado',
+  SGR: 'Sangria', DIT: 'Desconto no item', DST: 'Subtotal com desconto', DAS: 'Desconto no subtotal',
   MTP: 'Multiplicação', ITEMSEMCAD: 'Código sem cadastro', CSP: 'Consulta de preço', CLIENTE: 'Cliente identificado',
   VENDACF: 'Início da venda', EOP: 'Entrada do operador', SOP: 'Saída do operador',
 };
