@@ -461,9 +461,10 @@ async function pdvRenderVisao() {
             <td class="num pdv-muted">${pdvPct(f.n, itens)}</td>
             <td class="num pdv-muted">${pdvMoeda(f.v)}</td></tr>`).join('')}
           </tbody>
-          <tfoot><tr><td>Total</td><td class="num"><strong>${pdvNum(itens)}</strong></td><td></td>
+          <tfoot><tr><td>Valor passado no caixa</td><td class="num"><strong>${pdvNum(itens)}</strong></td><td></td>
             <td class="num"><strong>${pdvMoeda(fatias.reduce((s, f) => s + f.v, 0))}</strong></td></tr></tfoot>
         </table>
+        ${pdvConferencia(r)}
       </section>
 
       <section class="panel pdv-painel">
@@ -804,6 +805,24 @@ async function pdvAtualizarCupomVivo() {
     <div class="pdv-cupom-total"><span>${pdvNum(k.itens)} itens${k.itens_cancelados ? ` · ${k.itens_cancelados} cancelado${k.itens_cancelados > 1 ? 's' : ''}` : ''}</span>
       <strong>${esc(pdvMoeda(k.total_centavos))}</strong></div>
     ${k.itens_cancelados ? `<div class="pdv-aviso">Item cancelado neste cupom${cancel.size ? '' : ''}. Fica disponível para revisão com o vídeo.</div>` : ''}`;
+}
+
+// Do valor passado no caixa ao Vendido do topo: o que saiu no caminho.
+function pdvConferencia(r) {
+  const c = r.conferencia;
+  if (!c) return '';
+  const linhas = [
+    ['Cupons cancelados inteiros', c.cupons_cancelados],
+    ['Itens cancelados', c.itens_cancelados],
+    ['Descontos', c.descontos],
+    ['Cupons ainda abertos', c.abertos],
+    ['Itens sem cupom', c.sem_cupom],
+  ].filter(l => l[1]);
+  return `
+    <table class="pdv-legenda pdv-conferencia">
+      <tbody>${linhas.map(([rot, v]) => `<tr><td>− ${rot}</td><td class="num pdv-muted">${pdvMoeda(v)}</td></tr>`).join('')}</tbody>
+      <tfoot><tr><td>= Vendido (cupons fechados)</td><td class="num"><strong>${pdvMoeda(r.vendido_centavos)}</strong></td></tr></tfoot>
+    </table>`;
 }
 
 // ---------------------------------------------------------------- cupons

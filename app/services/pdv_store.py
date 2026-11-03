@@ -508,9 +508,34 @@ def resumo_dia(dia: str, caixa_id: str = "") -> Dict[str, Any]:
         por_caixa = {r["caixa_id"]: {"cupons": int(r["n"] or 0), "vendido_centavos": int(r["v"] or 0)} for r in _rows(
             c, "SELECT caixa_id, COUNT(1) AS n, SUM(total_centavos) AS v FROM pdv_cupons WHERE %s AND situacao='fechado' "
                "GROUP BY caixa_id" % filtro, tuple(p))}
+        # Conferencia "valor passado -> vendido", cupom a cupom: o desconto e o que
+        # falta entre os itens do cupom fechado (menos os cancelados) e o total dele.
+        val_itens = {(r["caixa_id"], r["cupom"]): int(r["v"] or 0) for r in _rows(
+            c, "SELECT caixa_id, cupom, SUM(valor_centavos) AS v FROM pdv_itens WHERE %s GROUP BY caixa_id, cupom" % filtro, tuple(p))}
+        val_cit = {(r["caixa_id"], r["cupom"]): int(r["v"] or 0) for r in _rows(
+            c, "SELECT caixa_id, cupom, SUM(valor_centavos) AS v FROM pdv_eventos WHERE %s AND tipo='CIT' "
+               "GROUP BY caixa_id, cupom" % filtro, tuple(p))}
+        lista_cup = _rows(c, "SELECT caixa_id, cupom, situacao, total_centavos FROM pdv_cupons WHERE %s" % filtro, tuple(p))
     itens = sum(m["n"] for m in modos.values())
+    conf = {"passado": sum(val_itens.values()), "cupons_cancelados": 0, "abertos": 0,
+            "itens_cancelados": 0, "descontos": 0, "sem_cupom": 0}
+    vistos = set()
+    for k in lista_cup:
+        chave = (k["caixa_id"], k["cupom"])
+        vistos.add(chave)
+        v = val_itens.get(chave, 0)
+        if k["situacao"] == "fechado":
+            canc = val_cit.get(chave, 0)
+            conf["itens_cancelados"] += canc
+            conf["descontos"] += v - canc - int(k["total_centavos"] or 0)
+        elif k["situacao"] == "cancelado":
+            conf["cupons_cancelados"] += v
+        else:
+            conf["abertos"] += v
+    conf["sem_cupom"] = sum(v for ch, v in val_itens.items() if ch not in vistos)
     return {"dia": dia, "itens": itens, "modos": modos, "cupons": cup,
-            "vendido_centavos": int((vendido or {}).get("v") or 0), "eventos": ev, "por_caixa": por_caixa}
+            "vendido_centavos": int((vendido or {}).get("v") or 0), "eventos": ev, "por_caixa": por_caixa,
+            "conferencia": conf}
 
 
 SEM_LOJA = "Sem loja definida"
