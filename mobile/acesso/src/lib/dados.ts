@@ -1,4 +1,5 @@
-import { useQuery } from '@tanstack/react-query';
+import { useEffect, useRef } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { obter } from './api';
 import { useLocal } from './local';
 
@@ -69,13 +70,33 @@ export function useVisaoGeral(site = '') {
   });
 }
 
-/** `porta` = id de um leitor: so as passagens dele (quem esta dentro continua do local inteiro). */
+/** `porta` = id de um leitor: so as passagens dele (quem esta dentro continua do local inteiro).
+ *  Passagem nova em ~2 s: a cada 2 s pergunta so o id da ultima passagem (rota leve) e baixa o
+ *  Ao vivo inteiro quando ele muda. O /live/stream do navegador nao serve aqui: o CapacitorHttp
+ *  nao entrega resposta continua. Os 20 s ficam de reserva. */
 export function useAoVivo(porta = '') {
   const site = useLocal();
+  const cliente = useQueryClient();
+  const filtro = `${site ? `&site=${encodeURIComponent(site)}` : ''}${porta ? `&portas=${encodeURIComponent(porta)}` : ''}`;
+  const ultima = useQuery({
+    queryKey: ['aovivo-ultima', site, porta],
+    queryFn: () => obter<{ id: string }>(`/api/access-control/painel/ao-vivo/ultima?x=1${filtro}`),
+    refetchInterval: 2_000,
+    refetchIntervalInBackground: false,
+    retry: false,
+  });
+  const idUltima = ultima.data?.id ?? '';
+  const visto = useRef('');
+  useEffect(() => {
+    if (!idUltima) return;
+    if (visto.current && visto.current !== idUltima) {
+      cliente.invalidateQueries({ queryKey: ['aovivo', site, porta] });
+    }
+    visto.current = idUltima;
+  }, [idUltima, cliente, site, porta]);
   return useQuery({
     queryKey: ['aovivo', site, porta],
-    queryFn: () => obter<AoVivo>(`/api/access-control/painel/ao-vivo?limit=15`
-      + `${site ? `&site=${encodeURIComponent(site)}` : ''}${porta ? `&portas=${encodeURIComponent(porta)}` : ''}`),
+    queryFn: () => obter<AoVivo>(`/api/access-control/painel/ao-vivo?limit=15${filtro}`),
     refetchInterval: 20_000,
     staleTime: 10_000,
   });
