@@ -244,6 +244,10 @@ function apZap(p) {
 // Porta aberta pelo botao ou remotamente: o leitor nao diz quem abriu.
 function apAberturaRot(p) { return p.abertura === 'botao' ? 'Aberta pelo botão' : p.abertura === 'remota' ? 'Abertura remota' : ''; }
 
+// Quem e "a mesma pessoa" no percurso e no "So esta pessoa". Sem pessoa e sem
+// nome (botao, rosto nao reconhecido) cada tipo fica separado.
+function apChave(p) { return p.pessoa_id || p.nome || '#' + (p.abertura || 'sem-nome'); }
+
 function apMarca(p) {
   if ((p.aviso || {}).status === 'falha') return 'falhou';
   if (p.abertura) return '';
@@ -263,7 +267,7 @@ function apFiltradas(lista) {
   const f = (AP_FILTROS.find(x => x[0] === _apFiltro) || AP_FILTROS[0])[2];
   const b = _apBusca.trim().toLowerCase();
   return lista.filter(p => f(p)
-    && (!_apPessoa || (p.pessoa_id || p.nome) === _apPessoa)
+    && (!_apPessoa || apChave(p) === _apPessoa)
     && (!b || [p.nome, p.turma, p.porta, apUnidade(p.nome, p.site)].some(x => String(x || '').toLowerCase().includes(b))));
 }
 
@@ -330,8 +334,8 @@ function apLinhaPassagem(p, sel) {
 
 function apDetalhe(p, todas) {
   if (!p) return `<section class="panel ap-det"><div class="panel-header ap-cab"><div><h3>Passagem</h3></div></div><p class="ap-vazio ap-pad">Nenhuma passagem hoje.</p></section>`;
-  const chave = p.pessoa_id || p.nome;
-  const dele = todas.filter(x => (x.pessoa_id || x.nome) === chave).slice().reverse();
+  const chave = apChave(p);
+  const dele = todas.filter(x => apChave(x) === chave).slice().reverse();
   return `<section class="panel ap-det">
     <div class="panel-header ap-cab"><div><h3>${_apSel ? 'Passagem selecionada' : 'Última passagem'}</h3><p>${apHa(apLocal(p.hora))}</p></div>
       ${_apSel ? '<button type="button" class="ap-link" data-ap-seguir>seguir a mais recente</button>' : ''}</div>
@@ -464,7 +468,7 @@ function apDesenharVivo(d) {
   if (!sel) { _apSel = ''; sel = lista[0] || todas[0]; }
   _apTopoVisto = todas[0] ? todas[0].id : '';
   const conta = id => todas.filter((AP_FILTROS.find(x => x[0] === id) || AP_FILTROS[0])[2]).length;
-  const pessoaNome = _apPessoa ? ((todas.find(p => (p.pessoa_id || p.nome) === _apPessoa) || {}).nome || 'pessoa') : '';
+  const pessoaNome = _apPessoa ? ((p => p ? p.nome || apAberturaRot(p) || 'sem nome' : 'pessoa')(todas.find(p => apChave(p) === _apPessoa))) : '';
 
   el.innerHTML = `
     ${apSaude(d)}

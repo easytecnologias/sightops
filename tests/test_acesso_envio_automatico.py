@@ -78,3 +78,17 @@ def test_pessoa_desativada_segue_o_caminho_antigo(banco, monkeypatch):
     _pendente("7001", ativa=False)
     Y.retry_pending_provisions()
     assert chamadas == ["7001"]
+
+
+def test_passagem_liga_morador_de_outro_local_pelo_id_e_nome(monkeypatch):
+    """Morador cadastrado na Reserva que passa no Jardins II: liga pelo ID no
+    leitor (unico no cliente) se o nome bate; ID velho com outro nome, nao."""
+    pessoas = [{"id": "p1", "full_name": "Dinho", "controller_user_id": "1300", "site": "RESERVA"},
+               {"id": "p2", "full_name": "CÁSSIA CRISTINA", "controller_user_id": "5007", "site": "RESERVA"},
+               {"id": "p3", "full_name": "Cleide", "controller_user_id": "5008", "site": "JARDINS II"}]
+    monkeypatch.setattr(Y, "list_people", lambda site="": [p for p in pessoas if not site or p["site"] == site])
+    assert Y._resolve_por_id_no_cliente({"user_id": "1300", "person_name_raw": "Dinho"})["id"] == "p1"
+    assert Y._resolve_por_id_no_cliente({"user_id": "5007", "person_name_raw": "CÃ\x81SSIA CRISTINA DA SILVA"})["id"] == "p2"
+    assert Y._resolve_por_id_no_cliente({"user_id": "5008", "person_name_raw": "GABRIEL GOMES"}) is None
+    assert Y._resolve_por_id_no_cliente({"user_id": "", "person_name_raw": "Dinho"}) is None
+    assert Y._resolve_por_id_no_cliente({"user_id": "9999", "person_name_raw": "X"}) is None

@@ -87,6 +87,30 @@ def _resolve_event_person(event: Dict[str, Any], people: List[Dict[str, Any]]) -
     return None
 
 
+def _resolve_por_id_no_cliente(event: Dict[str, Any]) -> Dict[str, Any] | None:
+    """Pessoa cadastrada em OUTRO local do mesmo cliente (ex.: morador da
+    Reserva que tambem abre o Jardins II). O ID no leitor e unico no cliente;
+    o nome do leitor tambem precisa bater, porque ID antigo pode ter ficado
+    num leitor com outra pessoa (ex.: 5008 GABRIEL GOMES no Lago, junho)."""
+    uid = _digits(event.get("user_id") or event.get("UserID") or event.get("controller_user_id"))
+    if not uid:
+        return None
+    pessoa = next((p for p in list_people() if _digits(p.get("controller_user_id")) == uid), None)
+    if not pessoa:
+        return None
+    import unicodedata
+    from app.services.access_control_pessoas import _nome_do_leitor
+
+    def comparavel(txt: Any) -> str:
+        txt = unicodedata.normalize("NFKD", _nome_do_leitor(str(txt or "")).replace("-", " "))
+        return " ".join("".join(c for c in txt if not unicodedata.combining(c)).casefold().split())
+    nome_leitor = comparavel(event.get("person_name_raw") or event.get("person_name") or event.get("UserName"))
+    nome = comparavel(pessoa.get("full_name"))
+    if nome_leitor and nome and not nome_leitor.startswith(nome):
+        return None
+    return pessoa
+
+
 def _resolve_event_type(event: Dict[str, Any], device_role: str) -> str:
     raw_value = str(event.get("event_type") or "").strip()
     if raw_value:
@@ -104,7 +128,7 @@ def _record_device_event(device: Dict[str, Any], event: Dict[str, Any], *, sourc
     device_role = normalize_access_direction(device.get("access_direction"))
     people = list_people(site=device.get("site", ""))
     event_type = _resolve_event_type(event, device_role)
-    person = _resolve_event_person(event, people)
+    person = _resolve_event_person(event, people) or _resolve_por_id_no_cliente(event)
     person_name = (
         event.get("person_name_raw")
         or event.get("person_name")
