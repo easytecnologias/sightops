@@ -476,8 +476,6 @@ async function pdvRenderVisao() {
       </section>
     </div>
 
-    ${pdvDescontosPainel(r)}
-
     <section class="panel pdv-painel">
       <div class="pdv-panel-head"><h2>Caixas</h2><small>saúde da coleta · também no Zabbix</small></div>
       <div class="table-wrap"><table class="data-table pdv-tabela pdv-tabela-caixas">
@@ -502,7 +500,6 @@ async function pdvRenderVisao() {
         }).join('')}</tbody>
       </table></div>
     </section>`;
-  box.querySelectorAll('[data-pdv-desc]').forEach(tr => tr.addEventListener('click', () => pdvIrCupom(...tr.dataset.pdvDesc.split('|'))));
   box.querySelectorAll('[data-pdv-vivo]').forEach(b => b.addEventListener('click', () => {
     _pdvVivo.caixaId = b.dataset.pdvVivo;
     document.querySelector('.nav-item[data-view="pdv-vivo"]')?.click();
@@ -832,27 +829,6 @@ function pdvConferencia(r) {
       <tfoot><tr><td>Vendido (cupons fechados)<small class="pdv-sub">${pdvMoeda(c.passado)} ${neg(saiu)}</small></td>
         <td class="num"><strong>${pdvMoeda(r.vendido_centavos)}</strong></td></tr></tfoot>
     </table>`;
-}
-
-// Cada desconto do dia: no item (com o produto) ou no subtotal do cupom. Clique abre o cupom.
-function pdvDescontosPainel(r) {
-  const lista = r.descontos;
-  if (!Array.isArray(lista)) return '';
-  const total = lista.reduce((s, d) => s + d.valor_centavos, 0);
-  const nItem = lista.filter(d => d.tipo === 'item').length;
-  return `
-    <section class="panel pdv-painel">
-      <div class="pdv-panel-head"><h2>Descontos do dia</h2>
-        <small>${pdvNum(nItem)} em item · ${pdvNum(lista.length - nItem)} no subtotal · ${pdvMoeda(total)} · clique para abrir o cupom</small></div>
-      ${lista.length ? `<div class="table-wrap pdv-descontos"><table class="data-table pdv-tabela">
-        <thead><tr><th>Hora</th><th>Caixa</th><th>Cupom</th><th>Operador</th><th>Tipo</th><th>Produto</th><th class="num">Desconto</th></tr></thead>
-        <tbody>${lista.map(d => `<tr class="pdv-linha-clicavel" data-pdv-desc="${esc(d.caixa_id)}|${esc(String(d.ts).slice(0, 10))}|${esc(d.cupom)}">
-          <td>${esc(pdvHora(d.ts))}</td><td>${esc(d.caixa)}</td><td><strong>${esc(d.cupom)}</strong></td><td>${esc(d.operador)}</td>
-          <td>${d.tipo === 'item' ? '<span class="pdv-chip pdv-modo-menu">no item</span>' : '<span class="pdv-chip pdv-sit-alerta">no subtotal</span>'}</td>
-          <td>${d.tipo === 'item' ? `${esc(d.produto || d.codigo)} <small class="pdv-muted">${esc(d.codigo)}</small>` : '<span class="pdv-muted">cupom inteiro</span>'}</td>
-          <td class="num"><strong>${pdvMoeda(d.valor_centavos)}</strong></td></tr>`).join('')}</tbody>
-      </table></div>` : '<p class="pdv-nota">Nenhum desconto neste dia.</p>'}
-    </section>`;
 }
 
 // ---------------------------------------------------------------- cupons
