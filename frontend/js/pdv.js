@@ -1344,7 +1344,7 @@ const PDV_RK_CARDS = [
   { id: 'tempo_mediano_s', titulo: 'Atende cada cliente mais rápido', melhor: 'baixo', taxa: true, fmt: pdvRkTempo, sub: x => `por cliente · ${pdvRkDec(x.itens_por_cupom)} itens em média` },
   { id: 'seg_por_item', titulo: 'Passa os itens mais rápido', melhor: 'baixo', taxa: true, fmt: v => `${pdvRkDec(v)} s/item`, sub: x => `${pdvNum(x.itens)} itens` },
   { id: 'ticket', titulo: 'Maior ticket médio', melhor: 'alto', taxa: true, fmt: pdvMoeda, sub: x => `${pdvNum(x.cupons)} cupons` },
-  { id: 'cancelados_por_mil', titulo: 'Cancelamentos de item', melhor: 'baixo', ruim: true, taxa: true, fmt: v => `${pdvRkDec(v)} ‰`, sub: x => `${pdvNum(x.itens_cancelados)} itens · ${pdvMoeda(x.valor_cancelado)}` },
+  { id: 'cancelados_por_mil', titulo: 'Cancelamentos de item', melhor: 'baixo', ruim: true, taxa: true, fmt: v => `${pdvRkDec(v)} ‰`, sub: x => `${pdvNum(x.itens_cancelados)} ${x.itens_cancelados === 1 ? 'item' : 'itens'} · ${pdvMoeda(x.valor_cancelado)}` },
   { id: 'descontos', titulo: 'Descontos dados', melhor: 'baixo', ruim: true, fmt: pdvMoeda, sub: x => `${pdvNum(x.cupons)} cupons no período` },
   { id: 'pct_digitado', titulo: 'Itens digitados em vez de bipados', melhor: 'baixo', ruim: true, taxa: true, fmt: v => `${pdvRkDec(v)}%`, sub: x => `${pdvNum(x.digitados)} de ${pdvNum(x.itens)} itens` },
   { id: 'gaveta_fora', titulo: 'Gaveta aberta fora de venda', melhor: 'baixo', ruim: true, fmt: pdvNum, sub: x => `${pdvNum(x.cupons)} cupons no período` },
@@ -1419,29 +1419,43 @@ function pdvRkDesenhar() {
     </section>`).join('');
 
   // cartoes top 5
+  // Uma lista so por medida, com a posicao de verdade (1 = melhor; empate = mesma posicao).
+  // O cartao mostra os 3 melhores e os 3 piores; "Ver todos" abre a lista inteira.
   const cards = PDV_RK_CARDS.map(card => {
-    const lado = _pdvRk.lado[card.id] || (card.ruim ? 'piores' : 'melhores');
-    const ord = pdvRkLista(card, lista, lado);
+    const ord = pdvRkLista(card, lista, 'melhores');
+    const pos = [];
+    ord.forEach((x, i) => { pos[i] = i && ord[i - 1][card.id] === x[card.id] ? pos[i - 1] : i + 1; });
+    const n = ord.length;
     const todos = !!_pdvRk.todos[card.id];
-    const vis = todos ? ord : ord.slice(0, 5);
     const max = Math.max(...ord.map(x => Math.abs(x[card.id] || 0)), 1);
-    const corBarra = (card.ruim && lado === 'piores') ? 'pdv-r-bar-ruim' : 'pdv-r-bar-bom';
+    const linha = i => {
+      const x = ord[i];
+      const ruim = n > 6 ? i >= n - 3 : false;
+      const bom = n > 6 ? i < 3 : true;
+      return `<li class="${ruim ? 'pior' : (bom ? 'melhor' : '')}">
+          <span class="pdv-r-pos ${ruim ? 'ruim' : (bom ? 'bom' : '')}">${pos[i]}º</span>
+          <span class="pdv-r-meio"><strong class="pdv-l-uma" title="${esc(x.nome)}">${esc(x.nome)}</strong>
+            <small class="pdv-l-uma">${esc(card.sub(x))}</small>
+            <i class="pdv-r-bar"><b class="${ruim ? 'pdv-r-bar-ruim' : 'pdv-r-bar-bom'}" style="width:${Math.max(3, Math.round(100 * Math.abs(x[card.id] || 0) / max))}%"></b></i></span>
+          <span class="pdv-r-val">${esc(card.fmt(x[card.id]))}</span>
+        </li>`;
+    };
+    const idx = [...Array(n).keys()];
+    let corpo;
+    if (!n) corpo = '<li class="pdv-r-vazio">Sem dados suficientes.</li>';
+    else if (todos || n <= 6) corpo = idx.map(linha).join('');
+    else {
+      const melhores = `<li class="pdv-r-sep">Melhores</li>${idx.slice(0, 3).map(linha).join('')}`;
+      const piores = `<li class="pdv-r-sep pdv-r-sep-ruim">Piores</li>${idx.slice(n - 3).map(linha).join('')}`;
+      // nos cartoes de problema (cancelamento, desconto...) o que importa vem primeiro: os piores
+      corpo = card.ruim ? piores + melhores : melhores + piores;
+    }
     return `
     <section class="pdv-l-card pdv-r-s4 pdv-r-card">
       <div class="pdv-l-head"><h2 class="pdv-l-h2 pdv-l-uma" title="${esc(card.titulo)}">${esc(card.titulo)}</h2>
-        <span class="pdv-r-lados">
-          <button type="button" class="${lado === 'melhores' ? 'ativo' : ''}" data-pdv-rk-lado="${card.id}|melhores">Melhores</button>
-          <button type="button" class="${lado === 'piores' ? 'ativo' : ''}" data-pdv-rk-lado="${card.id}|piores">Piores</button>
-        </span></div>
-      <ol class="pdv-r-lista">${vis.map((x, i) => `
-        <li>
-          <span class="pdv-r-pos ${i === 0 ? 'um' : ''}">${i + 1}</span>
-          <span class="pdv-r-meio"><strong class="pdv-l-uma" title="${esc(x.nome)}">${esc(x.nome)}</strong>
-            <small class="pdv-l-uma">${esc(card.sub(x))}</small>
-            <i class="pdv-r-bar"><b class="${corBarra}" style="width:${Math.max(3, Math.round(100 * Math.abs(x[card.id] || 0) / max))}%"></b></i></span>
-          <span class="pdv-r-val">${esc(card.fmt(x[card.id]))}</span>
-        </li>`).join('') || '<li class="pdv-r-vazio">Sem dados suficientes.</li>'}</ol>
-      ${ord.length > 5 ? `<button type="button" class="pdv-l-link" data-pdv-rk-todos="${card.id}">${todos ? 'Mostrar só os 5 primeiros' : `Ver todos (${ord.length})`}</button>` : ''}
+        <span class="pdv-l-sub">${n} no ranking</span></div>
+      <ol class="pdv-r-lista">${corpo}</ol>
+      ${n > 6 ? `<button type="button" class="pdv-l-link" data-pdv-rk-todos="${card.id}">${todos ? 'Mostrar só os 3 melhores e os 3 piores' : `Ver a lista inteira (${n})`}</button>` : ''}
       ${card.taxa || !card.ruim ? `<small class="pdv-r-nota">só quem atendeu ${r.minimo_cupons || 10} cupons ou mais</small>` : ''}
     </section>`;
   }).join('');
@@ -1857,8 +1871,6 @@ document.addEventListener('DOMContentLoaded', () => {
       document.querySelectorAll('#viewPdvCupons [data-pdv-rk-por]').forEach(b => b.classList.toggle('ativo', b === por));
       pdvRkDesenhar(); return;
     }
-    const lado = ev.target.closest('[data-pdv-rk-lado]');
-    if (lado) { const [id, l] = lado.dataset.pdvRkLado.split('|'); _pdvRk.lado[id] = l; pdvRkDesenhar(); return; }
     const todos = ev.target.closest('[data-pdv-rk-todos]');
     if (todos) { const id = todos.dataset.pdvRkTodos; _pdvRk.todos[id] = !_pdvRk.todos[id]; pdvRkDesenhar(); return; }
     const th = ev.target.closest('[data-pdv-rk-col]');
