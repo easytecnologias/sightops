@@ -202,3 +202,41 @@ def excluir(projeto_id: str) -> Dict[str, Any]:
         c.execute("DELETE FROM maquete_projetos WHERE tenant_slug=? AND id=?", (tenant, projeto_id))
     shutil.rmtree(_pasta(tenant, projeto_id), ignore_errors=True)
     return {"ok": True}
+
+
+# --------------------------------------------------------------------------- precos
+
+MAX_PRECOS = 500
+
+
+def _arq_precos(tenant: str) -> Path:
+    return tenant_scoped_path("maquete/precos.json", tenant)
+
+
+def precos() -> Dict[str, Any]:
+    """Tabela de precos do cliente (chave do item -> {descricao, preco, un}), usada em todo orcamento."""
+    arq = _arq_precos(_tenant())
+    dados = _json(arq.read_text(encoding="utf-8"), {}) if arq.is_file() else {}
+    return {"ok": True, "precos": dados if isinstance(dados, dict) else {}}
+
+
+def salvar_precos(payload: Dict[str, Any]) -> Dict[str, Any]:
+    tenant = _tenant()
+    entrada = payload.get("precos")
+    if not isinstance(entrada, dict):
+        raise ValueError("Tabela de preços inválida.")
+    limpo: Dict[str, Any] = {}
+    for k, v in list(entrada.items())[:MAX_PRECOS]:
+        if not isinstance(v, dict):
+            continue
+        try:
+            preco = round(max(0.0, float(v.get("preco") or 0)), 2)
+        except (TypeError, ValueError):
+            continue
+        limpo[str(k)[:80]] = {"preco": preco, "descricao": str(v.get("descricao") or "")[:200], "un": str(v.get("un") or "")[:10]}
+    arq = _arq_precos(tenant)
+    arq.parent.mkdir(parents=True, exist_ok=True)
+    tmp = arq.with_suffix(".tmp")
+    tmp.write_text(json.dumps(limpo, ensure_ascii=False), encoding="utf-8")
+    tmp.replace(arq)
+    return {"ok": True, "itens": len(limpo)}
