@@ -184,6 +184,16 @@ function pdvAlertaTexto(a) {
   }
 }
 
+const PDV_ALERTA_ICONE = {
+  CIT: ['x-circle', 'verm'], CCV: ['ban', 'verm'], CCG: ['ban', 'verm'], ITEMSEMCAD: ['scan-search', 'ambar'],
+  DST: ['percent', 'ambar'], SGR: ['banknote', 'azul'],
+};
+
+function pdvAlertaIcone(a) {
+  const [ic, cor] = PDV_ALERTA_ICONE[a.tipo] || ['alert-circle', 'ambar'];
+  return `<span class="pdv-k-ico pdv-k-${cor}" aria-hidden="true"><i data-lucide="${ic}"></i></span>`;
+}
+
 function pdvIrAoVivo(caixaId) {
   if (!caixaId) return;
   _pdvVivo.caixaId = caixaId;
@@ -284,19 +294,37 @@ async function pdvRenderLojas() {
     </tr>`;
   };
 
+  // Comparar lojas: uma linha por loja, da que mais vendeu para a que menos vendeu,
+  // com a parte dela na venda da rede e os numeros em mini-blocos.
+  const mini = (rot, val, cls = '') => `<span class="pdv-cl-mini ${cls}"><small>${rot}</small><strong>${val}</strong></span>`;
   const tabelaLojas = `
         <div class="pdv-l-head pdv-l-titulo"><h2 class="pdv-l-h2">Comparar lojas</h2>
           <span class="pdv-l-sub">números de ${r.hoje ? 'hoje' : esc(pdvDiaRotulo(r.dia))}</span></div>
-        <div class="pdv-l-rolar"><table class="pdv-l-tb">
-          <colgroup><col><col style="width:128px"><col style="width:80px"><col style="width:96px"><col style="width:84px"><col style="width:112px"><col style="width:76px"><col style="width:64px"></colgroup>
-          <thead><tr><th>Loja</th><th class="num">Vendido</th><th class="num">Cupons</th><th class="num">Ticket</th>
-            <th class="num">Bipados</th><th class="num">Cancel. por mil</th><th class="num">Revisar</th><th class="num">Caixas</th></tr></thead>
-          <tbody>${r.lojas.map(linha).join('')}</tbody>
-          <tfoot><tr><td><strong>Rede</strong></td><td class="num"><strong>${pdvMoeda(rede.vendido_centavos)}</strong></td>
-            <td class="num">${pdvNum(rede.cupons)}</td><td class="num">${pdvMoeda(ticket)}</td><td class="num">${pdvPct(rede.bipados, rede.itens)}</td>
-            <td class="num">${pdvPorMil(rede.cancelados_por_mil)}</td><td class="num">${pdvNum(rede.revisar)}</td>
-            <td class="num">${r.hoje ? `${rede.coletando}/${rede.n_caixas}` : rede.n_caixas}</td></tr></tfoot>
-        </table></div>`;
+        <div class="pdv-cl">${[...r.lojas].sort((a, b) => b.vendido_centavos - a.vendido_centavos).map((l, i) => {
+          const parte = rede.vendido_centavos ? Math.round(100 * l.vendido_centavos / rede.vendido_centavos) : 0;
+          const cancAlto = l.cancelados_por_mil > rede.cancelados_por_mil * 1.5 && l.cancelados;
+          const semCx = r.hoje && l.coletando < l.n_caixas;
+          return `
+          <button type="button" class="pdv-cl-linha" data-pdv-loja="${esc(l.nome)}" title="Ver ${esc(l.nome)} ao vivo">
+            <span class="pdv-r-pos ${i === 0 ? 'bom' : ''}">${i + 1}º</span>
+            <span class="pdv-cl-nome"><strong class="pdv-l-uma">${esc(l.nome)}</strong>
+              <small class="${semCx ? 'pdv-l-ruim' : ''}">${pdvPlural(l.n_caixas, 'caixa')}${r.hoje ? ` · ${l.coletando} de ${l.n_caixas} coletando` : ''}</small></span>
+            <span class="pdv-cl-parte"><i class="pdv-k-barra pdv-k-azul"><b style="width:${Math.max(2, parte)}%"></b></i><small>${parte}% da rede</small></span>
+            ${mini('Cupons', pdvNum(l.cupons))}${mini('Ticket', pdvMoeda(l.cupons ? l.vendido_centavos / l.cupons : 0))}
+            ${mini('Bipados', pdvPct(l.bipados, l.itens))}${mini('Canc. ‰', pdvPorMil(l.cancelados_por_mil), cancAlto ? 'ruim' : '')}
+            ${mini('Revisar', pdvNum(l.revisar), l.revisar ? 'ambar' : '')}
+            <strong class="pdv-cl-total">${pdvMoeda(l.vendido_centavos)}</strong>
+          </button>`;
+        }).join('')}
+          <div class="pdv-cl-linha pdv-cl-rede">
+            <span class="pdv-r-pos">Σ</span>
+            <span class="pdv-cl-nome"><strong>Rede</strong><small>${pdvPlural(nLojas, 'loja')} · ${r.hoje ? `${rede.coletando} de ${rede.n_caixas} caixas coletando` : pdvPlural(rede.n_caixas, 'caixa')}</small></span>
+            <span class="pdv-cl-parte"></span>
+            ${mini('Cupons', pdvNum(rede.cupons))}${mini('Ticket', pdvMoeda(ticket))}${mini('Bipados', pdvPct(rede.bipados, rede.itens))}
+            ${mini('Canc. ‰', pdvPorMil(rede.cancelados_por_mil))}${mini('Revisar', pdvNum(rede.revisar))}
+            <strong class="pdv-cl-total">${pdvMoeda(rede.vendido_centavos)}</strong>
+          </div>
+        </div>`;
 
   const tabelaCaixas = umaLoja ? `
         <div class="pdv-l-head pdv-l-titulo"><h2 class="pdv-l-h2">Caixas da loja</h2>
@@ -319,7 +347,7 @@ async function pdvRenderLojas() {
     const [txt, cor] = pdvAlertaTexto(a);
     return `
       <div class="pdv-l-alerta">
-        <i class="${cor}" aria-hidden="true"></i>
+        ${pdvAlertaIcone(a)}
         <div class="pdv-l-stat">
           <span class="pdv-l-sub pdv-l-uma">${esc(pdvHora(a.ts))} · <strong>${esc(nLojas > 1 ? a.loja : a.caixa)}</strong>${nLojas > 1 ? ` · ${esc(a.caixa)}` : ''}</span>
           <span class="pdv-l-txt" title="${esc(txt)}">${esc(txt)}</span>
@@ -349,9 +377,9 @@ async function pdvRenderLojas() {
       </div>
       ${r.lojas.map(cartao).join('')}`}
 
-      <section class="pdv-l-card pdv-l-tabela pdv-l-mais">${umaLoja ? tabelaCaixas : tabelaLojas}</section>
+      <section class="pdv-l-card pdv-l-tabela pdv-l-mais pdv-sombra">${umaLoja ? tabelaCaixas : tabelaLojas}</section>
 
-      <aside class="pdv-l-card pdv-l-lado pdv-l-mais pdv-l-agora" aria-label="Últimas ocorrências">
+      <aside class="pdv-l-card pdv-l-lado pdv-l-mais pdv-l-agora pdv-sombra" aria-label="Últimas ocorrências">
         <div class="pdv-l-head pdv-l-agora-topo"><h2 class="pdv-l-h2">${r.hoje ? 'Acontecendo agora' : 'Últimas ocorrências'}</h2>
           <span class="pdv-l-sub">${nLojas > 1 ? 'todas as lojas' : 'da loja'}</span></div>
         ${alertas}
@@ -592,7 +620,7 @@ async function pdvRenderParede() {
             `<option value="${esc(n)}" ${n === r.loja.nome ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select></label>` : ''}
         </div>
       </div>
-      <aside class="pdv-l-card pdv-v-lado pdv-l-agora" aria-label="Acontecendo agora na loja">
+      <aside class="pdv-l-card pdv-v-lado pdv-l-agora pdv-sombra" aria-label="Acontecendo agora na loja">
         <div class="pdv-l-head pdv-l-agora-topo"><h2 class="pdv-l-h2">Acontecendo agora</h2><span class="pdv-l-sub">da loja</span></div>
         <div id="pdvVtAlertas"></div>
         <div class="pdv-l-agora-pe"><button type="button" class="pdv-l-link" data-pdv-cupons>Ver os rankings</button></div>
@@ -712,7 +740,7 @@ function pdvPintarParede(r) {
   if (alvo) {
     alvo.innerHTML = (r.alertas || []).slice(0, 7).map(a => {
       const [txt, cor] = pdvAlertaTexto(a);
-      return `<div class="pdv-l-alerta"><i class="${cor}" aria-hidden="true"></i>
+      return `<div class="pdv-l-alerta">${pdvAlertaIcone(a)}
         <div class="pdv-l-stat"><span class="pdv-l-sub pdv-l-uma">${esc(pdvHora(a.ts))} · <strong>${esc(a.caixa)}</strong></span>
           <span class="pdv-l-txt" title="${esc(txt)}">${esc(txt)}</span></div>
         <button type="button" class="pdv-l-link" data-pdv-cupom="${esc(a.cupom || '')}" data-pdv-caixa="${esc(a.caixa_id)}"
@@ -721,12 +749,41 @@ function pdvPintarParede(r) {
   }
 }
 
+async function pdvVivoKpis(caixaId) {
+  const r = await apiJson(`/api/pdv/resumo?dia=${pdvHoje()}&caixa_id=${encodeURIComponent(caixaId)}`, { forceRefresh: true });
+  if (!r || _pdvVivo.caixaId !== caixaId || !document.getElementById('pdvFkVendido')) return;
+  const cup = r.cupons || {};
+  const fechados = cup.fechado || 0;
+  const m = r.modos || {};
+  const bip = m.scanner?.n || 0;
+  const ev = r.eventos || {};
+  const canc = (ev.CIT || 0) + (ev.CCV || 0) + (ev.CCG || 0);
+  const pinta = (id, big, sub) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.querySelector('.pdv-l-big').innerHTML = big;
+    el.querySelector('.pdv-l-sub').innerHTML = sub;
+  };
+  pinta('pdvFkVendido', pdvMoeda(r.vendido_centavos), `até ${new Date().toTimeString().slice(0, 5)}`);
+  pinta('pdvFkCupons', pdvNum(fechados), `ticket médio ${pdvMoeda(fechados ? r.vendido_centavos / fechados : 0)}`);
+  pinta('pdvFkBip', pdvPct(bip, r.itens), `${pdvNum(r.itens)} itens passados`);
+  const barra = document.querySelector('#pdvFkBip .pdv-k-barra b');
+  if (barra) barra.style.width = `${r.itens ? Math.round(100 * bip / r.itens) : 0}%`;
+  pinta('pdvFkRev', pdvNum(canc + (ev.ITEMSEMCAD || 0)), `${pdvNum(canc)} cancelados · ${pdvNum(ev.ITEMSEMCAD || 0)} sem cadastro`);
+}
+
 function pdvRenderVivo() {
   const box = document.getElementById('pdvVivoBody');
   const c = _pdvCaixas.find(x => x.id === _pdvVivo.caixaId);
   if (!box || !c) return;
   box.innerHTML = `
     <div class="pdv-v-voltar"><button type="button" class="secondary-action" data-pdv-parede><i data-lucide="layout-grid"></i> Todos os caixas da loja</button></div>
+    <div class="pdv-l-grade pdv-v-kpis">
+      ${pdvKpi({ id: 'pdvFkVendido', ic: 'banknote', cor: 'azul', rot: `Vendido hoje · ${esc(c.nome)}` })}
+      ${pdvKpi({ id: 'pdvFkCupons', ic: 'receipt-text', cor: 'verde', rot: 'Cupons' })}
+      ${pdvKpi({ id: 'pdvFkBip', ic: 'scan-barcode', cor: 'ciano', rot: 'Bipados', pct: 0 })}
+      ${pdvKpi({ id: 'pdvFkRev', ic: 'scan-eye', cor: 'ambar', rot: 'Para revisar' })}
+    </div>
     <div class="pdv-vivo">
       <section class="pdv-palco">
         <video id="pdvVivoVideo" autoplay muted playsinline></video>
@@ -738,12 +795,13 @@ function pdvRenderVivo() {
         <div class="pdv-palco-aviso" id="pdvVivoAviso">${c.gravador_host && c.gravador_canal ? 'Conectando...' : 'Este caixa ainda não tem gravador e canal configurados.'}</div>
         <div class="pdv-palco-osd" id="pdvVivoOsd" hidden></div>
       </section>
-      <aside class="panel pdv-painel pdv-cupom-vivo" id="pdvCupomVivo"><p class="pdv-nota">Carregando o cupom...</p></aside>
+      <aside class="panel pdv-painel pdv-cupom-vivo pdv-sombra" id="pdvCupomVivo"><p class="pdv-nota">Carregando o cupom...</p></aside>
     </div>
     <section class="pdv-miniaturas">${_pdvCaixas.map(x => {
       const s = pdvSaudeCaixa(x);
       return `<button type="button" class="pdv-miniatura ${x.id === c.id ? 'ativa' : ''}" data-pdv-caixa="${esc(x.id)}">
-        <strong>${esc(x.nome)}</strong><span><span class="pdv-ponto pdv-ponto-${s.cls}"></span>${esc(s.txt)}</span>
+        <span class="pdv-k-ico pdv-k-${x.id === c.id ? 'azul' : 'ciano'}"><i data-lucide="monitor"></i></span>
+        <span class="pdv-mini-txt"><strong>${esc(x.nome)}</strong><span><span class="pdv-ponto pdv-ponto-${s.cls}"></span>${esc(s.txt)}</span></span>
       </button>`;
     }).join('')}</section>
     <p class="pdv-nota">O vídeo sai do gravador pelo conector da loja, como as outras câmeras do SightOps. O caixa não transmite vídeo.</p>`;
@@ -786,9 +844,12 @@ function pdvRenderVivo() {
     });
   }
   pdvAtualizarCupomVivo();
+  pdvVivoKpis(c.id);
+  let voltas = 0;
   _pdvVivo.timer = setInterval(() => {
     if (!pdvVisivel('viewPdvVivo')) { pdvParar(); return; }
     pdvAtualizarCupomVivo();
+    if (++voltas % 15 === 0) pdvVivoKpis(c.id);
   }, 2000);
 }
 

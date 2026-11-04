@@ -14005,7 +14005,14 @@ button.rk-chip { cursor: pointer; }
 .pdv-miniaturas { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 10px; margin-top: 14px; }
 .pdv-miniatura { text-align: left; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); padding: 10px 12px; cursor: pointer; display: flex; flex-direction: column; gap: 4px; font: inherit; color: var(--text); }
 .pdv-miniatura span { font-size: 12px; color: var(--muted); }
-.pdv-miniatura.ativa { border: 2px solid var(--primary); }
+.pdv-miniatura.ativa { border: 2px solid var(--blue); }
+.pdv-miniatura { flex-direction: row; align-items: center; gap: 10px; border-radius: 12px; box-shadow: 0 1px 2px rgba(19,37,45,.04), 0 6px 16px rgba(19,37,45,.05); transition: box-shadow .2s, transform .2s; }
+.pdv-miniatura:hover { transform: translateY(-1px); box-shadow: 0 1px 2px rgba(19,37,45,.05), 0 10px 24px rgba(19,37,45,.09); }
+.pdv-mini-txt { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.pdv-v-kpis { margin-bottom: 20px; }
+.pdv-palco { box-shadow: 0 10px 30px rgba(19,37,45,.18); }
+.pdv-cupom-vivo.pdv-sombra { border: 1px solid var(--border); }
+.pdv-cupom-total strong { color: var(--blue); }
 
 .pdv-conferencia { margin-top: 12px; }
 .pdv-clica-lista { cursor: pointer; }
@@ -14291,7 +14298,7 @@ button.rk-chip { cursor: pointer; }
 
 .pdv-l-agora { padding: 20px 0 8px; display: flex; flex-direction: column; }
 .pdv-l-agora-topo { padding: 0 20px 12px; border-bottom: 1px solid var(--border); }
-.pdv-l-alerta { display: grid; grid-template-columns: 3px minmax(0, 1fr) auto; column-gap: 12px; align-items: start; padding: 12px 20px; border-bottom: 1px solid #eef1f3; }
+.pdv-l-alerta { display: grid; grid-template-columns: 36px minmax(0, 1fr) auto; column-gap: 12px; align-items: center; padding: 12px 20px; border-bottom: 1px solid #eef1f3; }
 .pdv-l-alerta > i { align-self: stretch; border-radius: 2px; }
 .pdv-l-txt { font-size: 12px; line-height: 17px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .pdv-l-vermelho { background: var(--danger); }
@@ -14405,6 +14412,26 @@ button.rk-chip { cursor: pointer; }
 .pdv-k-ambar .pdv-l-k { color: var(--amber); }
 .pdv-l-loja.pdv-k .pdv-l-nome { font-size: 15px; }
 .pdv-r-dest.pdv-k { flex-direction: row; }
+
+.pdv-sombra { border-radius: 14px; box-shadow: 0 1px 2px rgba(19,37,45,.04), 0 8px 24px rgba(19,37,45,.06); }
+/* comparar lojas: ranking visual */
+.pdv-cl { display: flex; flex-direction: column; }
+.pdv-cl-linha { display: grid; grid-template-columns: 30px minmax(120px, 1.2fr) minmax(80px, .8fr) repeat(5, 76px) 118px; align-items: center; column-gap: 10px;
+  width: 100%; min-height: 64px; padding: 10px 8px; border: 0; border-bottom: 1px solid #eef1f3; border-radius: 10px; background: none; font: inherit; color: var(--text); text-align: left; cursor: pointer; }
+button.pdv-cl-linha:hover { background: var(--surface-soft); }
+.pdv-cl-nome { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.pdv-cl-nome strong { font-size: 14px; }
+.pdv-cl-nome small, .pdv-cl-parte small { font-size: 11.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pdv-cl-parte { display: flex; flex-direction: column; gap: 4px; }
+.pdv-cl-parte .pdv-k-barra { margin-top: 0; }
+.pdv-cl-mini { display: flex; flex-direction: column; gap: 1px; padding: 6px 8px; border-radius: 8px; background: var(--surface-soft); min-width: 0; }
+.pdv-cl-mini small { font-size: 10.5px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+.pdv-cl-mini strong { font-size: 13px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.pdv-cl-mini.ruim { background: var(--danger-soft); } .pdv-cl-mini.ruim strong { color: var(--danger); }
+.pdv-cl-mini.ambar { background: var(--amber-soft); } .pdv-cl-mini.ambar strong { color: #8a5100; }
+.pdv-cl-total { font-size: 15px; font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+.pdv-cl-rede { cursor: default; border-bottom: 0; background: var(--surface-soft); margin-top: 8px; }
+@media (max-width: 1400px) { .pdv-cl-linha { grid-template-columns: 30px minmax(120px, 1fr) repeat(3, 76px) 118px; } .pdv-cl-parte, .pdv-cl-linha > .pdv-cl-mini:nth-of-type(n+4) { display: none; } }
 
 /* ---------------------------------------------------------------- PDV · Rankings */
 .pdv-r-filtros { display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-end; margin-bottom: 20px; }
