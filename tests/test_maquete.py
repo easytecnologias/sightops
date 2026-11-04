@@ -84,3 +84,32 @@ def test_textura_nao_sai_da_pasta(ambiente):
             store.textura(r["id"], nome)
     with pytest.raises(LookupError):
         store.obter("../../etc")
+
+
+def test_precos_por_cliente(ambiente):
+    store = ambiente
+    store.salvar_precos({"precos": {"cam:d2_28": {"preco": "289.9", "descricao": "Dome", "un": "un"}, "x": "lixo"}})
+    assert store.precos()["precos"]["cam:d2_28"]["preco"] == 289.9
+    tok = set_current_tenant_slug("cliente-b")
+    try:
+        assert store.precos()["precos"] == {}
+    finally:
+        reset_current_tenant_slug(tok)
+
+
+def test_pdf_relatorio_e_orcamento():
+    from app.services.maquete_pdf import calcular_orcamento, gerar_pdf
+    orc = {"itens": [{"grupo": "Câmeras", "descricao": "Dome 2 MP", "qtd": 3, "un": "un", "preco": 100},
+                     {"grupo": "Cabeamento", "descricao": "Cabo Cat6", "qtd": 2, "un": "cx", "preco": "abc"},
+                     {"grupo": "Câmeras", "descricao": "zero", "qtd": 0, "preco": 50}],
+           "desconto_pct": 10, "condicoes": "Pagamento 50% na aprovação"}
+    o = calcular_orcamento(orc)
+    assert o["subtotal"] == 300 and o["desconto"] == 30 and o["total"] == 270 and o["sem_preco"] == 1 and len(o["itens"]) == 2
+    projeto = {"nome": "Prédio <A>", "local": "Centro", "arquivo": "p.pdf", "escala": "1/50", "pisos": ["Térreo"]}
+    dados = {"resumo": {"cameras": 1, "metros": 30.5, "categoria": "Cat6", "rack": "Parede 12U"},
+             "cameras": [{"cabo": "C-01", "nome": "CAM-01", "piso": "Térreo", "modelo": "Dome", "metros": 30.5}],
+             "rack": [{"u": "U12", "nome": "Patch panel"}], "imagens": [{"titulo": "x", "jpg": "nao-e-imagem"}],
+             "incluirOrcamento": True, "orcamento": orc}
+    for tipo in ("relatorio", "orcamento"):
+        pdf = gerar_pdf(projeto, dict(dados, tipo=tipo))
+        assert pdf[:4] == b"%PDF" and len(pdf) > 1500

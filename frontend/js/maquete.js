@@ -239,6 +239,14 @@
 #viewMaquete .mq-piso input{height:30px}
 #viewMaquete .mq-piso small{font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
 #viewMaquete .mq-piso label{font-size:11px;color:var(--muted);text-align:right}
+#viewMaquete .mq-orc td{height:36px;padding:0 6px}
+#viewMaquete .mq-orc tr.mq-orc-g td{background:var(--surface-soft);font-weight:700;font-size:12px;height:30px}
+#viewMaquete .mq-oin{width:100%;height:28px;border:1px solid transparent;border-radius:4px;padding:0 6px;background:transparent;font:inherit;font-size:12px;color:var(--text)}
+#viewMaquete .mq-oin:hover{border-color:var(--border)} #viewMaquete .mq-oin:focus{border-color:var(--primary);background:var(--surface);outline:none}
+#viewMaquete .mq-oin.n{text-align:right;font-variant-numeric:tabular-nums}
+#viewMaquete .mq-oin.alt{background:var(--amber-soft)} #viewMaquete .mq-oin.vazio{border-color:var(--border);background:var(--surface)}
+#viewMaquete .mq-orc .mq-x{font-size:16px;padding:0 4px}
+#viewMaquete .mq-orc-pe{display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap}
 #viewMaquete .mq-carregando{position:absolute;inset:0;display:grid;place-items:center;color:var(--muted);font-size:13px;background:var(--surface)}
 @media (max-width:1280px){#viewMaquete .mq-kpi{grid-column:span 6}#viewMaquete .mq-s4,#viewMaquete .mq-s8{grid-column:span 12}}
 @media (max-width:1180px){#viewMaquete #mqAbaMaquete{grid-template-rows:none;height:auto}#viewMaquete .mq-view{grid-column:span 12;min-height:560px}#viewMaquete .mq-panel{grid-column:span 12;overflow:visible;display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));align-items:start}}
@@ -494,7 +502,7 @@
     const sec = secao();
     sec.innerHTML = '<div class="mq-card mq-vazio">Abrindo a maquete…</div>';
     try {
-      const [r] = await Promise.all([api(`/api/maquete/projetos/${encodeURIComponent(id)}`), garantirThree(), carregarCadastro()]);
+      const [r] = await Promise.all([api(`/api/maquete/projetos/${encodeURIComponent(id)}`), garantirThree(), carregarCadastro(), carregarPrecos()]);
       const d = r && r.ok ? await r.json() : null;
       if (!d?.projeto) throw new Error('Projeto não encontrado.');
       proj = d.projeto;
@@ -535,6 +543,10 @@
       rack: l.rack && Array.isArray(l.rack.itens) ? l.rack : { tam: '12', rot: 180, itens: [{ k: 'pp6', u: 12 }, { k: 'org', u: 11 }, { k: 'sw16', u: 10 }, { k: 'nvr16', u: 9 }, { k: 'regua', u: 8 }] },
       catCabo: CAT[l.catCabo] ? l.catCabo : 'cat6',
       nomes: l.nomes && typeof l.nomes === 'object' ? Object.assign({}, l.nomes) : {},
+      orc: Object.assign({ precos: {}, qtd: {}, desc: {}, ocultos: [], avulsos: [], desconto_pct: 0, validade_dias: 15,
+        condicoes: ['Pagamento: 50% na aprovação e 50% na entrega.', 'Prazo de instalação: a combinar.',
+          'Garantia: 12 meses para equipamentos e 90 dias para a instalação.'].join('\n'), noRelatorio: true },
+        l.orc && typeof l.orc === 'object' ? l.orc : {}),
       seq: Number(l.seq || 1),
     };
     pisos.forEach((p, i) => { if (!(out.pd[p.id] > 0)) out.pd[p.id] = i === 0 ? 3.0 : 2.8; });
@@ -616,6 +628,7 @@
         <button class="mq-btn sm" type="button" id="mqVoltar" title="Voltar para os projetos">← Projetos</button>
         <div class="mq-etit"><b id="mqNome" title="${h(proj.nome)}">${h(proj.nome)}</b><small id="mqSubTit">${h(subTitulo())}</small></div>
         <span class="mq-salvo" id="mqSalvo">Salvo</span>
+        <button class="mq-btn sm" type="button" id="mqPdf" title="Relatório A4 com as vistas da maquete, câmeras, cabos e rack">Relatório PDF</button>
         <button class="mq-btn sm" type="button" id="mqEditar">Editar dados</button>
         <button class="mq-btn sm del" type="button" id="mqExcluir">Excluir</button>
       </div>
@@ -623,6 +636,7 @@
         <button class="mq-tab on" role="tab" data-mq-aba="maquete" type="button">Maquete</button>
         <button class="mq-tab" role="tab" data-mq-aba="rack" type="button">Rack <span class="mq-cnt" id="mqTRack"></span></button>
         <button class="mq-tab" role="tab" data-mq-aba="cabos" type="button">Cabos <span class="mq-cnt" id="mqTCabos"></span></button>
+        <button class="mq-tab" role="tab" data-mq-aba="orc" type="button">Orçamento <span class="mq-cnt" id="mqTOrc"></span></button>
       </div>
 
       <div class="mq-content" id="mqAbaMaquete">
@@ -717,6 +731,8 @@
           </table></div>
         </div>
       </div>
+
+      <div class="mq-content" id="mqAbaOrc" hidden></div>
 
       <div class="mq-content" id="mqAbaCabos" hidden>
         <div class="mq-kpi"><small>Cabos</small><b id="mqKCab"></b><em id="mqECab"></em></div>
@@ -1034,7 +1050,9 @@
     while (din.children.length) din.remove(din.children[0]);
     alvos = []; labels = []; caminhos = new Map(); contagem = {};
     const calha = $('mqCCalha').checked, mat = R3.mat;
+    metrosCalha = 0;
     PISOS.forEach(pv => segmentos(pv.id).forEach(s => {
+      metrosCalha += s.A.distanceTo(s.B);
       const m = caixaEntre(s.A, s.B, 0.16, 0.05, mat.calha); if (m && calha) { m.userData.piso = pv.id; din.add(m); }
     }));
     L.nodes.forEach(n => {
@@ -1043,6 +1061,7 @@
       const pt = trayPt(n, n.piso);
       if (n.tipo === 'prumada' && p) {
         const a = trayPt(n, p.piso);
+        metrosCalha += Math.max(0, pt.y - a.y);
         if (calha) { const v = new THREE.Mesh(R3.caixa, mat.calha); v.scale.set(0.16, Math.max(0.01, pt.y - a.y), 0.1); v.position.set(a.x, (a.y + pt.y) / 2, a.z); v.userData.piso = 'ambos'; din.add(v); }
         const alvo = new THREE.Mesh(R3.caixa, mat.inv); alvo.scale.set(0.6, Math.max(0.5, pt.y - a.y + 0.4), 0.6); alvo.position.set(a.x, (a.y + pt.y) / 2, a.z);
         alvo.userData.ref = { k: 'node', o: n }; alvo.userData.piso = 'ambos'; din.add(alvo); alvos.push(alvo);
@@ -1055,6 +1074,7 @@
     });
     // rack desce até a calha
     { const r = rackNode(), rt = rackTop(), rp = trayPt(r, r.piso);
+      metrosCalha += Math.max(0, rp.y - rt.y);
       if (calha && rp.y > rt.y) { const d2 = new THREE.Mesh(R3.caixa, mat.calha); d2.scale.set(0.12, rp.y - rt.y, 0.08); d2.position.set(rt.x, (rt.y + rp.y) / 2, rt.z); d2.userData.piso = r.piso; din.add(d2); } }
     objRack();
     ordenadas().forEach((c, i) => {
@@ -1230,13 +1250,14 @@
   function aba(nome) {
     abaAtual = nome;
     document.querySelectorAll('#viewMaquete .mq-tab').forEach(t => t.classList.toggle('on', t.dataset.mqAba === nome));
-    $('mqAbaMaquete').hidden = nome !== 'maquete'; $('mqAbaRack').hidden = nome !== 'rack'; $('mqAbaCabos').hidden = nome !== 'cabos';
-    if (nome === 'rack') renderRack(); if (nome === 'cabos') renderCabos();
+    $('mqAbaMaquete').hidden = nome !== 'maquete'; $('mqAbaRack').hidden = nome !== 'rack'; $('mqAbaCabos').hidden = nome !== 'cabos'; $('mqAbaOrc').hidden = nome !== 'orc';
+    if (nome === 'rack') renderRack(); if (nome === 'cabos') renderCabos(); if (nome === 'orc') renderOrcamento();
   }
   function meter(id, v, cap) { const p = cap ? Math.min(100, v / cap * 100) : 100; const el = $(id); el.style.width = p + '%'; el.className = v > cap ? 'off' : p > 85 ? 'warn' : ''; }
   function resumoAbas() {
     const tot = [...caminhos.values()].reduce((a, r) => a + r.len, 0);
     $('mqTRack').textContent = RACKS[L.rack.tam].u + 'U'; $('mqTCabos').textContent = fmt(tot, 0) + ' m';
+    const to = totaisOrc(linhasOrcamento()).total; $('mqTOrc').textContent = to ? brl(to) : '—';
     if (abaAtual === 'rack') renderRack(); if (abaAtual === 'cabos') renderCabos();
   }
   function avisoCat() {
@@ -1341,6 +1362,257 @@
     const p = V(OX + c.x, base(c.piso), OZ + c.y); voarPara(p, V(p.x + 9, p.y + 11, p.z + 9));
   }
 
+  // ======================================================================
+  // ORÇAMENTO
+  // Lista de material sai da maquete (chave estável por item); o cliente põe
+  // preço (tabela do cliente em /api/maquete/precos), pode mudar quantidade e
+  // descrição, ocultar item e somar itens avulsos. Fica em L.orc.
+  // ======================================================================
+  let tabelaPrecos = {}, metrosCalha = 0;
+  const brl = v => 'R$ ' + fmt(v, 2);
+  // número guardado (289.9) passa direto; texto digitado em pt-BR ("1.234,56") vira número
+  const numIn = v => {
+    if (typeof v === 'number') return Number.isFinite(v) ? v : 0;
+    const s = String(v ?? '').trim();
+    const n = parseFloat(s.includes(',') ? s.replace(/\./g, '').replace(',', '.') : s);
+    return Number.isFinite(n) ? n : 0;
+  };
+
+  function totaisCabo() {
+    const tot = [...caminhos.values()].reduce((a, r) => a + r.len, 0);
+    const maior = [...caminhos.values()].reduce((a, r) => Math.max(a, r.len), 0);
+    return { tot, maior, m10: tot * 1.1, cx305: Math.ceil(tot * 1.1 / 305) };
+  }
+
+  function itensAuto() {
+    const n = L.cams.length, cab = totaisCabo(), cat = CAT[L.catCabo], out = [];
+    const porMod = {};
+    L.cams.forEach(c => { porMod[c.mod] = (porMod[c.mod] || 0) + 1; });
+    Object.entries(porMod).sort((a, b) => natural((MOD[a[0]] || {}).nome, (MOD[b[0]] || {}).nome))
+      .forEach(([k, q]) => out.push({ key: 'cam:' + k, grupo: 'Câmeras', descricao: 'Câmera IP ' + ((MOD[k] || MOD.d2_28).nome), qtd: q, un: 'un' }));
+    if (n) {
+      out.push({ key: 'cabo:' + L.catCabo, grupo: 'Cabeamento', descricao: `Cabo UTP ${cat} · caixa 305 m`, qtd: cab.cx305, un: 'cx' });
+      out.push({ key: 'rj45:' + L.catCabo, grupo: 'Cabeamento', descricao: `Conector RJ45 ${cat}`, qtd: Math.ceil(n * 2 * 1.1), un: 'un' });
+      out.push({ key: 'patch:' + L.catCabo, grupo: 'Cabeamento', descricao: `Patch cord ${cat} 1,5 m`, qtd: n, un: 'un' });
+    }
+    const cx = L.nodes.filter(x => x.tipo === 'caixa').length;
+    if (cx) out.push({ key: 'caixa', grupo: 'Infraestrutura', descricao: 'Caixa de passagem', qtd: cx, un: 'un' });
+    if (metrosCalha > 0.5) out.push({ key: 'calha', grupo: 'Infraestrutura', descricao: `Eletrocalha perfurada · barra 3 m (${fmt(metrosCalha, 0)} m no traçado)`, qtd: Math.ceil(metrosCalha / 3), un: 'br' });
+    out.push({ key: 'rack:' + L.rack.tam, grupo: 'Rack', descricao: 'Rack ' + RACKS[L.rack.tam].nome, qtd: 1, un: 'un' });
+    const porIt = {};
+    L.rack.itens.filter(o => IT[o.k] && dentro(o)).forEach(o => { porIt[o.k] = (porIt[o.k] || 0) + 1; });
+    Object.entries(porIt).forEach(([k, q]) => out.push({ key: 'it:' + k, grupo: 'Rack', descricao: IT[k].nome + (IT[k].u > 1 ? ` (${IT[k].u}U)` : ''), qtd: q, un: 'un' }));
+    if (n) {
+      out.push({ key: 'mo:cam', grupo: 'Mão de obra', descricao: 'Instalação e configuração de câmera', qtd: n, un: 'un' });
+      out.push({ key: 'mo:cabo', grupo: 'Mão de obra', descricao: 'Passagem de cabo', qtd: Math.ceil(cab.tot), un: 'm' });
+    }
+    out.push({ key: 'mo:rack', grupo: 'Mão de obra', descricao: 'Montagem e organização do rack', qtd: 1, un: 'vb' });
+    return out;
+  }
+
+  function linhasOrcamento() {
+    const o = L.orc;
+    const auto = itensAuto().filter(i => !o.ocultos.includes(i.key)).map(i => {
+      const tab = tabelaPrecos[i.key] || {};
+      return Object.assign({}, i, {
+        auto: true, qtdAuto: i.qtd,
+        qtd: o.qtd[i.key] != null ? o.qtd[i.key] : i.qtd,
+        descricao: o.desc[i.key] || tab.descricao || i.descricao,
+        preco: o.precos[i.key] != null ? o.precos[i.key] : (tab.preco || 0),
+      });
+    });
+    const avulsos = o.avulsos.map(a => Object.assign({ auto: false, key: a.id }, a));
+    return auto.concat(avulsos).map(i => Object.assign(i, { total: Math.round(numIn(i.qtd) * numIn(i.preco) * 100) / 100 }));
+  }
+  function totaisOrc(linhas) {
+    const sub = linhas.reduce((a, i) => a + i.total, 0), dp = Math.min(100, Math.max(0, numIn(L.orc.desconto_pct)));
+    const desc = Math.round(sub * dp) / 100;
+    return { sub, dp, desc, total: sub - desc, semPreco: linhas.filter(i => numIn(i.qtd) > 0 && !numIn(i.preco)).length };
+  }
+
+  function renderOrcamento() {
+    const el = $('mqAbaOrc'); if (!el) return;
+    const linhas = linhasOrcamento(), t = totaisOrc(linhas), o = L.orc;
+    if ($('mqTOrc')) $('mqTOrc').textContent = t.total ? brl(t.total) : '—';
+    const grupos = [];
+    linhas.forEach(i => { let g = grupos.find(x => x.nome === i.grupo); if (!g) grupos.push(g = { nome: i.grupo, itens: [] }); g.itens.push(i); });
+    const ocultos = itensAuto().filter(i => o.ocultos.includes(i.key));
+    el.innerHTML = `
+      <div class="mq-kpi"><small>Itens</small><b>${linhas.filter(i => numIn(i.qtd) > 0).length}</b><em>${t.semPreco ? t.semPreco + ' sem preço' : 'todos com preço'}</em></div>
+      <div class="mq-kpi"><small>Subtotal</small><b>${brl(t.sub)}</b><em>material e mão de obra</em></div>
+      <div class="mq-kpi"><small>Desconto</small><b>${brl(t.desc)}</b><em>${fmt(t.dp, 1)}%</em></div>
+      <div class="mq-kpi"><small>Total</small><b>${brl(t.total)}</b><em>válido por ${o.validade_dias} dias</em></div>
+      <div class="mq-card mq-s12">
+        <h2><span class="nm">Itens do orçamento</span><span class="r">
+          <button class="mq-btn sm" type="button" id="mqOrcSalvarPrecos" title="Usa estes preços nos próximos orçamentos deste cliente">Salvar preços como padrão</button>
+          <button class="mq-btn sm pri" type="button" id="mqOrcPdf">Baixar PDF do orçamento</button></span></h2>
+        <div class="mq-muted" style="margin-bottom:10px">As quantidades saem da maquete e mudam quando você mexe nela. Altere o que precisar; o que você alterar fica fixo (↺ volta ao calculado).</div>
+        <div class="mq-tw"><table class="mq-table mq-orc" style="min-width:860px">
+          <colgroup><col><col style="width:110px"><col style="width:56px"><col style="width:140px"><col style="width:130px"><col style="width:64px"></colgroup>
+          <thead><tr><th>Item</th><th class="n">Qtd</th><th>Un</th><th class="n">Preço unit.</th><th class="n">Total</th><th></th></tr></thead>
+          <tbody>${grupos.map(g => `<tr class="mq-orc-g"><td colspan="4">${h(g.nome)}</td><td class="n">${brl(g.itens.reduce((a, i) => a + i.total, 0))}</td><td></td></tr>` +
+            g.itens.map(i => `<tr data-k="${h(i.key)}" data-auto="${i.auto ? 1 : 0}">
+              <td><input class="mq-oin" data-f="descricao" value="${h(i.descricao)}" maxlength="200" aria-label="Descrição"></td>
+              <td><input class="mq-oin n${i.auto && o.qtd[i.key] != null ? ' alt' : ''}" data-f="qtd" inputmode="decimal" value="${h(fmt(numIn(i.qtd), Number.isInteger(numIn(i.qtd)) ? 0 : 2))}" aria-label="Quantidade" title="${i.auto ? 'Calculado: ' + i.qtdAuto : ''}"></td>
+              <td>${i.auto ? h(i.un) : `<input class="mq-oin" data-f="un" value="${h(i.un)}" maxlength="10" aria-label="Unidade">`}</td>
+              <td><input class="mq-oin n${numIn(i.preco) ? '' : ' vazio'}" data-f="preco" inputmode="decimal" value="${numIn(i.preco) ? h(fmt(numIn(i.preco), 2)) : ''}" placeholder="0,00" aria-label="Preço unitário"></td>
+              <td class="n">${numIn(i.preco) ? brl(i.total) : '<span class="mq-muted">a definir</span>'}</td>
+              <td class="n">${i.auto && (o.qtd[i.key] != null || o.desc[i.key]) ? '<button class="mq-x" type="button" data-acao="reset" title="Voltar ao calculado">↺</button>' : ''}<button class="mq-x" type="button" data-acao="del" title="${i.auto ? 'Tirar do orçamento' : 'Remover'}">×</button></td>
+            </tr>`).join('')).join('')}</tbody>
+        </table></div>
+        <div class="mq-orc-pe">
+          <button class="mq-btn sm" type="button" id="mqOrcAvulso">+ Item avulso</button>
+          ${ocultos.length ? `<select class="mq-inp" id="mqOrcVoltar" style="width:auto;height:28px"><option value="">Devolver item tirado (${ocultos.length})</option>${ocultos.map(i => `<option value="${h(i.key)}">${h(i.descricao)}</option>`).join('')}</select>` : ''}
+        </div>
+      </div>
+      <div class="mq-card mq-s8">
+        <h2>Condições</h2>
+        <textarea class="mq-inp" id="mqOrcCond" rows="5" maxlength="2000" style="height:auto;padding:8px 10px;resize:vertical" placeholder="Forma de pagamento, prazo de instalação, garantia…">${h(o.condicoes)}</textarea>
+      </div>
+      <div class="mq-card mq-s4">
+        <h2>Fechamento</h2>
+        <dl class="mq-dl top0">
+          <dt><label for="mqOrcDesc">Desconto (%)</label></dt><dd><input type="number" id="mqOrcDesc" min="0" max="100" step="0.5" value="${numIn(o.desconto_pct)}"></dd>
+          <dt><label for="mqOrcVal">Validade (dias)</label></dt><dd><input type="number" id="mqOrcVal" min="1" max="365" value="${o.validade_dias}"></dd>
+          <dt>Subtotal</dt><dd>${brl(t.sub)}</dd>
+          <dt>Total</dt><dd style="font-size:15px">${brl(t.total)}</dd>
+        </dl>
+        <label class="mq-chk" style="margin-top:8px"><input type="checkbox" id="mqOrcNoRel"${o.noRelatorio ? ' checked' : ''}>Incluir no relatório PDF da maquete</label>
+      </div>`;
+    el.querySelectorAll('tr[data-k] .mq-oin').forEach(inp => inp.onchange = () => {
+      const tr = inp.closest('tr'), k = tr.dataset.k, auto = tr.dataset.auto === '1', f = inp.dataset.f, v = inp.value.trim();
+      if (auto) {
+        if (f === 'qtd') { if (v === '') delete o.qtd[k]; else o.qtd[k] = numIn(v); }
+        if (f === 'preco') o.precos[k] = numIn(v);
+        if (f === 'descricao') { if (v) o.desc[k] = v; else delete o.desc[k]; }
+      } else {
+        const a = o.avulsos.find(x => x.id === k); if (!a) return;
+        a[f] = f === 'qtd' || f === 'preco' ? numIn(v) : v;
+      }
+      marcarMudanca(); renderOrcamento();
+    });
+    el.querySelectorAll('tr[data-k] [data-acao]').forEach(b => b.onclick = () => {
+      const tr = b.closest('tr'), k = tr.dataset.k, auto = tr.dataset.auto === '1';
+      if (b.dataset.acao === 'reset') { delete o.qtd[k]; delete o.desc[k]; }
+      else if (auto) o.ocultos.push(k);
+      else o.avulsos = o.avulsos.filter(x => x.id !== k);
+      marcarMudanca(); renderOrcamento();
+    });
+    $('mqOrcAvulso').onclick = () => { o.avulsos.push({ id: 'a' + (L.seq++), grupo: 'Outros', descricao: 'Item avulso', qtd: 1, un: 'un', preco: 0 }); marcarMudanca(); renderOrcamento(); };
+    if ($('mqOrcVoltar')) $('mqOrcVoltar').onchange = e => { o.ocultos = o.ocultos.filter(k => k !== e.target.value); marcarMudanca(); renderOrcamento(); };
+    $('mqOrcCond').onchange = e => { o.condicoes = e.target.value; marcarMudanca(); };
+    $('mqOrcDesc').onchange = e => { o.desconto_pct = Math.min(100, Math.max(0, numIn(e.target.value))); marcarMudanca(); renderOrcamento(); };
+    $('mqOrcVal').onchange = e => { o.validade_dias = Math.min(365, Math.max(1, Math.round(numIn(e.target.value)) || 15)); marcarMudanca(); renderOrcamento(); };
+    $('mqOrcNoRel').onchange = e => { o.noRelatorio = e.target.checked; marcarMudanca(); };
+    $('mqOrcPdf').onclick = () => gerarPdf('orcamento');
+    $('mqOrcSalvarPrecos').onclick = salvarPrecosPadrao;
+  }
+
+  async function carregarPrecos() {
+    const r = await api('/api/maquete/precos').catch(() => null);
+    const d = r && r.ok ? await r.json().catch(() => ({})) : {};
+    tabelaPrecos = d.precos || {};
+  }
+  async function salvarPrecosPadrao() {
+    const novos = Object.assign({}, tabelaPrecos);
+    linhasOrcamento().filter(i => i.auto && numIn(i.preco) > 0).forEach(i => { novos[i.key] = { preco: numIn(i.preco), descricao: L.orc.desc[i.key] || '', un: i.un }; });
+    const r = await api('/api/maquete/precos', { method: 'PUT', body: JSON.stringify({ precos: novos }) });
+    if (!r || !r.ok) return toast('Não foi possível salvar a tabela de preços.', true);
+    tabelaPrecos = novos;
+    toast('Preços salvos. Valem para os próximos orçamentos deste cliente.');
+  }
+
+  // ======================================================================
+  // PDF (relatório da maquete ou orçamento)
+  // ======================================================================
+  function capturar() {
+    // tira fotos do 3D: vista geral + vista de cima de cada pavimento
+    const { renderer, camera, controls } = R3;
+    const salvo = { pos: camera.position.clone(), alvo: controls.target.clone(), fov: camera.fov, aspect: camera.aspect, vis: PISOS.map(p => grupos[p.id].visible) };
+    const W0 = 1600, H0 = 1000;
+    renderer.setSize(W0, H0, false); camera.aspect = W0 / H0;
+    const fotos = [];
+    const foto = (titulo, rotulosDoPiso) => {
+      camera.updateProjectionMatrix(); camera.lookAt(controls.target);
+      renderer.render(R3.scene, camera);
+      const cv = document.createElement('canvas'); cv.width = W0; cv.height = H0;
+      const g = cv.getContext('2d'); g.drawImage(renderer.domElement, 0, 0, W0, H0);
+      g.font = '600 22px Inter, Arial, sans-serif'; g.textBaseline = 'middle';
+      const v3 = new THREE.Vector3();
+      labels.filter(lb => !lb.apto && !lb.calha && (!rotulosDoPiso || lb.piso === rotulosDoPiso) && grupos[lb.piso] && grupos[lb.piso].visible).forEach(lb => {
+        v3.copy(lb.pos).project(camera); if (v3.z > 1 || Math.abs(v3.x) > 1 || Math.abs(v3.y) > 1) return;
+        const x = (v3.x + 1) / 2 * W0, y = (1 - v3.y) / 2 * H0 - 18, txt = lb.txt, w = g.measureText(txt).width + (lb.dot ? 40 : 20);
+        g.fillStyle = 'rgba(255,255,255,0.95)'; g.strokeStyle = '#c9d1d6'; g.lineWidth = 2;
+        g.beginPath(); g.rect(x - w / 2, y - 16, w, 32); g.fill(); g.stroke();
+        if (lb.dot) { g.fillStyle = { 'mq-d-on': '#087f5b', 'mq-d-off': '#c92a2a', 'mq-d-new': '#1971c2' }[lb.dot] || '#66747e'; g.beginPath(); g.arc(x - w / 2 + 16, y, 6, 0, Math.PI * 2); g.fill(); }
+        g.fillStyle = '#172026'; g.fillText(txt, x - w / 2 + (lb.dot ? 30 : 10), y);
+      });
+      fotos.push({ titulo, jpg: cv.toDataURL('image/jpeg', 0.82).split(',')[1] });
+    };
+    const d = Math.max(W, P);
+    PISOS.forEach(p => { grupos[p.id].visible = true; }); aplicaVis();
+    camera.fov = 40; controls.target.set(0, 1.5, 0); camera.position.set(-d * 0.55, d * 0.6, d * 0.75);
+    foto('Vista geral da maquete', null);
+    PISOS.forEach(p => {
+      PISOS.forEach(q => { grupos[q.id].visible = q.id === p.id; }); aplicaVis();
+      const y = base(p.id), dd = Math.max(p.largura, p.profundidade);
+      // vista de cima com o prédio "deitado" na folha (lado maior na horizontal)
+      controls.target.set(0, y, 0); camera.up.set(p.profundidade > p.largura ? 1 : 0, p.profundidade > p.largura ? 0 : 0, p.profundidade > p.largura ? 0 : -1);
+      camera.position.set(0, y + dd * 1.05, 0.001);
+      foto('Vista de cima · ' + p.nome, p.id);
+      camera.up.set(0, 1, 0);
+    });
+    PISOS.forEach((p, i) => { grupos[p.id].visible = salvo.vis[i]; }); aplicaVis();
+    camera.fov = salvo.fov; camera.position.copy(salvo.pos); controls.target.copy(salvo.alvo); camera.up.set(0, 1, 0);
+    tamanho();
+    return fotos;
+  }
+
+  function dadosPdf(tipo) {
+    const lig = ligacoes(), cab = totaisCabo(), R = RACKS[L.rack.tam];
+    const usados = L.rack.itens.filter(o => IT[o.k] && dentro(o)).reduce((a, o) => a + IT[o.k].u, 0);
+    const poe = L.cams.reduce((a, c) => a + (lig.m.get(c.id).sw ? (MOD[c.mod] || MOD.d2_28).w : 0), 0);
+    const cams = ordenadas().map(c => {
+      const l = lig.m.get(c.id), r = caminhos.get(c.id), d = dori(c), st = stDe(c);
+      return { cabo: l.cabo, nome: c.nome, piso: pisoById(c.piso).nome, modelo: (MOD[c.mod] || MOD.d2_28).nome, abertura: fmt(fovDe(c), 0) + '°',
+        ident: d ? fmt(d.ident, 1) + ' m' : '360°', situacao: ST[st][0], porta: rotPorta(l.pp), via: r ? r.via.join(' › ') : '', metros: r ? Math.round(r.len * 10) / 10 : 0 };
+    });
+    const uso = new Map();
+    L.cams.forEach(c => { const l = lig.m.get(c.id); [l.pp, l.sw, l.nvr].forEach(p => { if (p) uso.set(p.o, (uso.get(p.o) || 0) + 1); }); });
+    const rack = ordemRack().filter(dentro).map(o => {
+      const it = IT[o.k], n = uso.get(o) || 0;
+      return { u: rotU(o.k, o.u), nome: it.nome, uso: it.portas ? `${n} de ${it.portas} portas` : it.canais ? `${n} de ${it.canais} canais` : '' };
+    });
+    const linhas = linhasOrcamento();
+    return {
+      tipo,
+      incluirOrcamento: !!L.orc.noRelatorio,
+      resumo: {
+        cameras: L.cams.length, online: L.cams.filter(c => stDe(c) === 'on').length, projeto: L.cams.filter(c => stDe(c) === 'new').length,
+        metros: Math.round(cab.tot * 10) / 10, metros10: Math.round(cab.m10), caixas305: cab.cx305, maior: Math.round(cab.maior * 10) / 10,
+        categoria: CAT[L.catCabo], caixasPassagem: L.nodes.filter(n => n.tipo === 'caixa').length, eletrocalha: Math.round(metrosCalha),
+        rack: R.nome, rackUsado: `${usados} de ${R.u} U usados`, poe: `${fmt(poe, 1)} de ${lig.poe} W`,
+      },
+      cameras: cams, rack,
+      orcamento: { itens: linhas.map(i => ({ grupo: i.grupo, descricao: i.descricao, qtd: numIn(i.qtd), un: i.un, preco: numIn(i.preco) })),
+        desconto_pct: numIn(L.orc.desconto_pct), condicoes: L.orc.condicoes, validade_dias: L.orc.validade_dias },
+    };
+  }
+
+  async function gerarPdf(tipo) {
+    if (!R3) return;
+    toast(tipo === 'orcamento' ? 'Gerando o PDF do orçamento…' : 'Gerando o relatório com as vistas da maquete…');
+    const dados = dadosPdf(tipo);
+    if (tipo !== 'orcamento') { try { dados.imagens = capturar(); } catch (e) { console.warn('maquete: falha ao capturar', e); dados.imagens = []; } }
+    const r = await api(`/api/maquete/pdf/${encodeURIComponent(proj.id)}`, { method: 'POST', body: JSON.stringify(dados) });
+    if (!r || !r.ok) { const d = r ? await r.json().catch(() => ({})) : {}; return toast(d.detail || 'Não foi possível gerar o PDF.', true); }
+    const blob = await r.blob();
+    const cd = r.headers.get('Content-Disposition') || '', m = cd.match(/filename="([^"]+)"/);
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = m ? m[1] : (tipo + '.pdf');
+    document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 30000);
+    toast('PDF pronto.');
+  }
+
   // ---------- câmera do 3D ----------
   function voarPara(alvo, pos) { voo = { t: 0, a0: R3.controls.target.clone(), p0: R3.camera.position.clone(), a1: alvo, p1: pos }; }
   function olharDe(c) {
@@ -1362,6 +1634,7 @@
   // ---------- eventos ----------
   function ligarEventosFixos() {
     $('mqVoltar').onclick = () => window.loadMaquete();
+    $('mqPdf').onclick = () => gerarPdf('relatorio');
     $('mqEditar').onclick = async () => {
       const d = await editarDados(proj); if (!d) return;
       $('mqNome').textContent = proj.nome; $('mqNome').title = proj.nome; $('mqSubTit').textContent = subTitulo();
