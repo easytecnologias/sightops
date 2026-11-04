@@ -26,7 +26,7 @@ from reportlab.lib.units import mm
 from reportlab.pdfbase.pdfmetrics import stringWidth
 from reportlab.platypus import CondPageBreak, Image, KeepTogether, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
-from app.services.access_control_relatorios_pdf import LARGURA, MARGEM, MUTED, TEXT, _assinatura, _Paginas
+from app.services.access_control_relatorios_pdf import LARGURA, MARGEM, MUTED, TEXT, _Paginas
 
 ESCURO = colors.HexColor("#2b3a42")
 LINHA = colors.HexColor("#d5dce0")
@@ -383,6 +383,20 @@ def _mapa_portas(rack: List[Dict[str, Any]]) -> List[Any]:
     return out
 
 
+def _com_assinatura(h: List[Any], rotulo: str) -> List[Any]:
+    """Fecha o PDF com a assinatura, compacta e nunca sozinha numa folha:
+    se não couber, as últimas linhas antes dela vão junto para a próxima."""
+    linha = Table([[Spacer(1, 1), ""], [Paragraph(_t(rotulo), E["nota"]), ""]], colWidths=[LARGURA * 0.42, LARGURA * 0.58],
+                  rowHeights=[10 * mm, None])
+    linha.setStyle(TableStyle([("LINEBELOW", (0, 0), (0, 0), 0.7, TEXT), ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                               ("TOPPADDING", (0, 0), (-1, -1), 0), ("BOTTOMPADDING", (0, 0), (-1, -1), 0)]))
+    k = 0
+    while k < min(3, len(h)) and isinstance(h[-1 - k], Paragraph):
+        k += 1
+    cauda = h[len(h) - k:] if k else []
+    return h[:len(h) - k] + [KeepTogether(cauda + [Spacer(1, 6), linha])]
+
+
 def _sub_projeto(p: Dict[str, Any]) -> str:
     partes = [p.get("local") or "", p.get("arquivo") or "", ("escala " + p["escala"]) if p.get("escala") else "",
               ", ".join(p.get("pisos") or [])]
@@ -406,7 +420,7 @@ def gerar_pdf(projeto: Dict[str, Any], dados: Dict[str, Any], usuario: str = "",
             ("TOTAL", _rs(calcular_orcamento(dados.get("orcamento") or {})["total"]), "com desconto"),
         ])]
         h += _bloco_orcamento(dados.get("orcamento") or {})
-        h += [Spacer(1, 22), _assinatura("Responsável pelo orçamento")]
+        h = _com_assinatura(h, "Responsável pelo orçamento")
         rodape = f"SightOps · Orçamento · {nome}"
     else:
         h = _relatorio(projeto, dados, usuario, logo)
@@ -495,5 +509,5 @@ def _relatorio(projeto: Dict[str, Any], dados: Dict[str, Any], usuario: str, log
         n += 1
     if dados.get("incluirOrcamento") and dados.get("orcamento"):
         h += [CondPageBreak(70 * mm)] + _bloco_orcamento(dados["orcamento"], f"{n}  ")
-    h += [Spacer(1, 22), _assinatura("Responsável técnico")]
+    h = _com_assinatura(h, "Responsável técnico")
     return h
