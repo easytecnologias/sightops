@@ -451,6 +451,123 @@ def detalhe_cupom(caixa_id: str, dia: str, cupom: str) -> Dict[str, Any]:
     return {"caixa": _publico(cx), "cupom": k, "itens": itens, "linha_do_tempo": linha}
 
 
+RANK_MAX_DIAS = 62
+RANK_DURACAO_MAX_S = 3600   # cupom aberto mais que isso (esquecido aberto) nao entra no tempo
+
+
+def _seg(a: str, b: str) -> Optional[float]:
+    try:
+        return (datetime.strptime(str(b)[:19], "%Y-%m-%d %H:%M:%S")
+                - datetime.strptime(str(a)[:19], "%Y-%m-%d %H:%M:%S")).total_seconds()
+    except (TypeError, ValueError):
+        return None
+
+
+def rankings(de: str, ate: str, loja: str = "") -> Dict[str, Any]:
+    """Numeros por operador e por caixa num periodo, para os rankings do dono:
+    venda, cupons, tempo de atendimento, velocidade, cancelamentos, descontos,
+    digitacao, gaveta fora de venda, sem cadastro e sangria."""
+    tenant = _tenant()
+    de, ate = _dia(de), _dia(ate)
+    if ate < de:
+        de, ate = ate, de
+    if (datetime.strptime(ate, "%Y-%m-%d") - datetime.strptime(de, "%Y-%m-%d")).days > RANK_MAX_DIAS:
+        raise ValueError("Período máximo de %d dias." % RANK_MAX_DIAS)
+    with db_store._conn() as c:
+        caixas = _do_usuario(_rows(c, "SELECT id, nome, site FROM pdv_caixas WHERE tenant_slug=?", (tenant,)))
+        lojas = sorted({(x.get("site") or SEM_LOJA) for x in caixas})
+        if loja:
+            caixas = [x for x in caixas if (x.get("site") or SEM_LOJA) == loja]
+        ids = [x["id"] for x in caixas]
+        cup, ev = [], []
+        if ids:
+            marc = ",".join("?" * len(ids))
+            cup = _rows(c, "SELECT caixa_id, dia, operador, situacao, aberto_em, fechado_em, itens, digitados, menu, "
+                           "itens_cancelados, total_centavos FROM pdv_cupons WHERE tenant_slug=? AND dia>=? AND dia<=? "
+                           "AND caixa_id IN (%s)" % marc, (tenant, de, ate) + tuple(ids))
+            ev = _rows(c, "SELECT caixa_id, operador, tipo, CASE WHEN COALESCE(cupom,'')='' THEN 0 ELSE 1 END AS em_cupom, "
+                          "COUNT(1) AS n, SUM(ABS(valor_centavos)) AS v FROM pdv_eventos WHERE tenant_slug=? AND dia>=? "
+                          "AND dia<=? AND caixa_id IN (%s) AND tipo IN ('CIT','DIT','DAS','ITEMSEMCAD','SGR','GAV') "
+                          "GROUP BY caixa_id, operador, tipo, CASE WHEN COALESCE(cupom,'')='' THEN 0 ELSE 1 END" % marc,
+                     (tenant, de, ate) + tuple(ids))
+    nomes = {x["id"]: x["nome"] for x in caixas}
+    sites = {x["id"]: (x.get("site") or SEM_LOJA) for x in caixas}
+
+    def novo() -> Dict[str, Any]:
+        return {"cupons": 0, "vendido": 0, "itens": 0, "digitados": 0, "cupons_cancelados": 0, "duracoes": [],
+                "seg_itens": 0.0, "itens_tempo": 0, "dias": set(), "outros": set(), "itens_cancelados": 0,
+                "valor_cancelado": 0, "descontos": 0, "sem_cadastro": 0, "sangrias": 0, "valor_sangrias": 0,
+                "gaveta_fora": 0}
+
+    por = {"operador": {}, "caixa": {}}
+    for k in cup:
+        op = (k.get("operador") or "").strip()
+        alvos = [("caixa", k["caixa_id"], op)]
+        if op and op != "?":
+            alvos.append(("operador", op, nomes.get(k["caixa_id"], "")))
+        for tipo, chave, outro in alvos:
+            a = por[tipo].setdefault(chave, novo())
+            a["dias"].add(k["dia"])
+            if outro and outro != "?":
+                a["outros"].add(outro)
+            if k["situacao"] == "cancelado":
+                a["cupons_cancelados"] += 1
+            if k["situacao"] != "fechado":
+                continue
+            itens = int(k.get("itens") or 0)
+            a["cupons"] += 1
+            a["vendido"] += int(k.get("total_centavos") or 0)
+            a["itens"] += itens
+            a["digitados"] += int(k.get("digitados") or 0) + int(k.get("menu") or 0)
+            d = _seg(k.get("aberto_em"), k.get("fechado_em")) if k.get("fechado_em") else None
+            if d is not None and 0 < d <= RANK_DURACAO_MAX_S:
+                a["duracoes"].append(d)
+                if itens:
+                    a["seg_itens"] += d
+                    a["itens_tempo"] += itens
+    campo = {"CIT": ("itens_cancelados", "valor_cancelado"), "DIT": (None, "descontos"), "DAS": (None, "descontos"),
+             "ITEMSEMCAD": ("sem_cadastro", None), "SGR": ("sangrias", "valor_sangrias")}
+    for e in ev:
+        op = (e.get("operador") or "").strip()
+        alvos = [("caixa", e["caixa_id"])]
+        if op and op != "?":
+            alvos.append(("operador", op))
+        for tipo, chave in alvos:
+            a = por[tipo].setdefault(chave, novo())
+            if e["tipo"] == "GAV":
+                if not int(e["em_cupom"] or 0):
+                    a["gaveta_fora"] += int(e["n"] or 0)
+                continue
+            n_campo, v_campo = campo[e["tipo"]]
+            if n_campo:
+                a[n_campo] += int(e["n"] or 0)
+            if v_campo:
+                a[v_campo] += int(e["v"] or 0)
+
+    def fechar(tipo: str, chave: str, a: Dict[str, Any]) -> Dict[str, Any]:
+        dur = sorted(a.pop("duracoes"))
+        horas = sum(dur) / 3600.0
+        out = {k: v for k, v in a.items() if k not in ("dias", "outros", "seg_itens", "itens_tempo")}
+        out.update({
+            "chave": chave, "nome": nomes.get(chave, chave) if tipo == "caixa" else chave,
+            "loja": sites.get(chave, "") if tipo == "caixa" else "",
+            "outros": sorted(a["outros"]), "dias": len(a["dias"]),
+            "ticket": round(a["vendido"] / a["cupons"]) if a["cupons"] else 0,
+            "itens_por_cupom": round(a["itens"] / a["cupons"], 1) if a["cupons"] else 0,
+            "tempo_mediano_s": round(dur[len(dur) // 2]) if dur else None,
+            "seg_por_item": round(a["seg_itens"] / a["itens_tempo"], 1) if a["itens_tempo"] else None,
+            "horas_atendendo": round(horas, 1),
+            "vendido_por_hora": round(a["vendido"] / horas) if horas >= 0.5 else None,
+            "pct_digitado": round(100.0 * a["digitados"] / a["itens"], 1) if a["itens"] else 0,
+            "cancelados_por_mil": round(1000.0 * a["itens_cancelados"] / a["itens"], 1) if a["itens"] else 0,
+        })
+        return out
+
+    return {"de": de, "ate": ate, "loja": loja, "lojas": lojas, "minimo_cupons": 10,
+            "operadores": [fechar("operador", k, v) for k, v in por["operador"].items()],
+            "caixas": [fechar("caixa", k, v) for k, v in por["caixa"].items()]}
+
+
 TIPOS_EVENTO_LISTA = ("ITEMSEMCAD", "SGR", "GAV")
 
 

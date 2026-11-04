@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=1793100072">
+  <link rel="stylesheet" href="styles.css?v=1793100081">
   <link rel="stylesheet" href="acesso/acesso.css?v=1792600213">
 </head>
 <body>
@@ -160,7 +160,7 @@
         <button class="nav-item" data-view="pdv-lojas"><i data-lucide="store"></i><span>Lojas</span></button>
         <button class="nav-item" data-view="pdv-vivo"><i data-lucide="cctv"></i><span>Ao vivo</span></button>
         <button class="nav-item" data-view="pdv-visao"><i data-lucide="scan-barcode"></i><span>Visão geral</span></button>
-        <button class="nav-item" data-view="pdv-cupons"><i data-lucide="receipt"></i><span>Cupons</span></button>
+        <button class="nav-item" data-view="pdv-cupons"><i data-lucide="trophy"></i><span>Rankings</span></button>
 
         </div>
 
@@ -2116,24 +2116,24 @@
         <div class="page-heading">
           <div>
             <p class="eyebrow">Ponto de venda</p>
-            <h1>Cupons</h1>
-            <p>Clique num cupom para ver os itens, como cada um entrou no caixa e o vídeo da venda.</p>
+            <h1>Rankings</h1>
+            <p>Quem vende mais, quem atende mais rápido e onde estão os cancelamentos, descontos e gavetas abertas. <span id="pdvRkQuando"></span></p>
           </div>
         </div>
-        <div class="pdv-l-grade pdv-c-kpis" id="pdvCupKpis"></div>
-        <section class="pdv-l-card pdv-c-filtros">
-          <div class="pdv-c-campos">
-            <label class="search-box pdv-c-busca"><i data-lucide="search"></i><input id="pdvCupFiltroBusca" type="search" placeholder="Nº do cupom, produto ou código de barras"></label>
-            <label class="pdv-c-campo"><span>Dia</span><input type="date" id="pdvCupFiltroDia"></label>
-            <label class="pdv-c-campo"><span>Caixa</span><select id="pdvCupFiltroCaixa"><option value="">Todos os caixas</option></select></label>
-            <label class="pdv-c-campo"><span>Operador</span><select id="pdvCupFiltroOperador"><option value="">Todos os operadores</option></select></label>
-            <label class="pdv-c-campo pdv-c-hora"><span>A partir de</span><input type="time" id="pdvCupFiltroDe"></label>
-            <label class="pdv-c-campo pdv-c-hora"><span>Até</span><input type="time" id="pdvCupFiltroAte"></label>
-            <button class="secondary-action pdv-c-limpar" type="button" id="pdvCupLimpar">Limpar</button>
+        <section class="pdv-l-card pdv-r-filtros">
+          <div class="pdv-r-seg" role="group" aria-label="Período">
+            <button type="button" data-pdv-rk-periodo="hoje">Hoje</button>
+            <button type="button" data-pdv-rk-periodo="ontem">Ontem</button>
+            <button type="button" data-pdv-rk-periodo="7" class="ativo">7 dias</button>
+            <button type="button" data-pdv-rk-periodo="30">30 dias</button>
           </div>
-          <div class="pdv-c-chips" id="pdvCupChips"></div>
+          <label class="pdv-c-campo"><span>Loja</span><select id="pdvRkLoja"><option value="">Todas as lojas</option></select></label>
+          <div class="pdv-r-seg" role="group" aria-label="Comparar">
+            <button type="button" data-pdv-rk-por="operador" class="ativo">Por operador</button>
+            <button type="button" data-pdv-rk-por="caixa">Por caixa</button>
+          </div>
         </section>
-        <div class="pdv-c-corpo" id="pdvCuponsBody"></div>
+        <div id="pdvRkBody"></div>
       </section>
 
       <section class="workspace hidden" id="viewRotasVivo">
@@ -8144,7 +8144,7 @@
        trechos do app.js original na sequencia em que estavam, entao carregar
        fora de ordem muda o comportamento. Ao adicionar um arquivo novo, entre
        antes de bootstrap.js, que e quem liga os botoes no DOMContentLoaded. -->
-  <script src="js/core.js?v=1793100031"></script>
+  <script src="js/core.js?v=1793100080"></script>
   <script src="js/licencas.js?v=1792600103"></script>
   <script src="js/configuracoes.js?v=1793100004"></script>
   <script src="js/notificacoes.js?v=1792600139"></script>
@@ -8191,7 +8191,7 @@
   <script src="https://unpkg.com/qrcode-generator@1.4.4/qrcode.js"></script>
   <script src="js/alert.js?v=1792804801"></script>
   <script src="js/controleRotas.js?v=1792600341"></script>
-  <script src="js/pdv.js?v=1793100077"></script>
+  <script src="js/pdv.js?v=1793100082"></script>
   <script src="js/tr069.js?v=1791000212"></script>
   <script src="js/bootstrap.js?v=1792600207"></script>
 </body>

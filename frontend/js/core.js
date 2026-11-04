@@ -636,7 +636,7 @@ const VIEW_META = {
   'pdv-lojas':      { title: 'Ponto de venda', sub: 'Vendas e caixas de cada loja' },
   'pdv-vivo':       { title: 'Ponto de venda', sub: 'Câmera e cupom de cada caixa agora' },
   'pdv-visao':      { title: 'Ponto de venda', sub: 'Como os itens entraram e a saúde dos caixas' },
-  'pdv-cupons':     { title: 'Ponto de venda', sub: 'Cupons, itens e vídeo de cada venda' },
+  'pdv-cupons':     { title: 'Ponto de venda', sub: 'Rankings de operadores e caixas' },
   'rotas-viagens':  { title: 'Controle de Rotas', sub: 'Viagens e as 6 provas do PNATE' },
   'rotas-cadastro': { title: 'Controle de Rotas', sub: 'Rotas, paradas e alunos' },
   'rotas-frota':    { title: 'Controle de Rotas', sub: 'Veículos, motoristas e vencimentos' },

@@ -161,6 +161,12 @@ def api_pdv_cupons(dia: str = "", caixa_id: str = "", operador: str = "", situac
                                             hora_de=de, hora_ate=ate, limite=limite)}
 
 
+@router.get("/rankings")
+def api_pdv_rankings(de: str = "", ate: str = "", loja: str = "") -> Dict[str, Any]:
+    """Rankings de operadores e caixas no periodo (maximo 62 dias)."""
+    return {"ok": True, **_executar(pdv_store.rankings, de or _hoje(), ate or de or _hoje(), loja)}
+
+
 @router.get("/eventos")
 def api_pdv_eventos(dia: str = "", tipo: str = "") -> Dict[str, Any]:
     """Sangrias, gavetas abertas ou codigos sem cadastro do dia, um a um (com o video)."""
