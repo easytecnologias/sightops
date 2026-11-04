@@ -14386,6 +14386,26 @@ button.rk-chip { cursor: pointer; }
   .pdv-c-dados { grid-template-columns: minmax(0, 1fr); }
 }
 
+/* ---------------------------------------------------------------- PDV · cartao de numero
+   Branco, sombra suave em duas camadas, icone em fundo da propria cor e barra fina
+   de progresso. Mesmo cartao em Lojas, Ao vivo e Rankings. */
+.pdv-k { border-radius: 14px; box-shadow: 0 1px 2px rgba(19,37,45,.04), 0 8px 24px rgba(19,37,45,.06); display: flex; flex-direction: column; gap: 12px; transition: box-shadow .2s, transform .2s; }
+.pdv-k:hover { box-shadow: 0 1px 2px rgba(19,37,45,.05), 0 12px 32px rgba(19,37,45,.10); transform: translateY(-1px); }
+.pdv-k-top { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.pdv-k-ico { width: 36px; height: 36px; border-radius: 10px; display: grid; place-items: center; flex: none; background: var(--k-soft); color: var(--k-cor); }
+.pdv-k-ico svg { width: 18px; height: 18px; }
+.pdv-k .pdv-l-big { font-size: 24px; line-height: 30px; letter-spacing: -.02em; }
+.pdv-k-barra { display: block; height: 6px; border-radius: 99px; background: #eef1f3; margin-top: 8px; overflow: hidden; }
+.pdv-k-barra b { display: block; height: 100%; border-radius: 99px; background: var(--k-cor); transition: width .6s ease; }
+.pdv-k-azul { --k-cor: var(--blue); --k-soft: var(--blue-soft); }
+.pdv-k-verde { --k-cor: var(--primary); --k-soft: var(--primary-soft); }
+.pdv-k-ambar { --k-cor: var(--amber); --k-soft: var(--amber-soft); }
+.pdv-k-verm { --k-cor: var(--danger); --k-soft: var(--danger-soft); }
+.pdv-k-ciano { --k-cor: var(--cyan); --k-soft: var(--cyan-soft); }
+.pdv-k-ambar .pdv-l-k { color: var(--amber); }
+.pdv-l-loja.pdv-k .pdv-l-nome { font-size: 15px; }
+.pdv-r-dest.pdv-k { flex-direction: row; }
+
 /* ---------------------------------------------------------------- PDV · Rankings */
 .pdv-r-filtros { display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-end; margin-bottom: 20px; }
 .pdv-r-seg { display: inline-flex; padding: 3px; gap: 3px; border-radius: 10px; background: var(--surface-soft); border: 1px solid var(--border); }

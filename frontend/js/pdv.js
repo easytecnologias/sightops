@@ -45,6 +45,17 @@ function pdvHora(ts) {
   return String(ts || '').slice(11, 19);
 }
 
+// Cartao de numero do PDV: icone colorido, rotulo, numero, linha de apoio e,
+// quando faz sentido, uma barra fina de progresso (0-100). id = alvo do pdvPinta.
+function pdvKpi({ id = '', ic, cor = 'azul', rot, big = '–', sub = '&nbsp;', pct = null }) {
+  return `<section class="pdv-l-card pdv-l-s3 pdv-k pdv-k-${cor}">
+    <div class="pdv-k-top"><span class="pdv-k-ico"><i data-lucide="${ic}"></i></span><span class="pdv-l-k">${rot}</span></div>
+    <div class="pdv-l-stat" ${id ? `id="${id}"` : ''}><strong class="pdv-l-big">${big}</strong>
+      <span class="pdv-l-sub pdv-l-uma">${sub}</span>
+      ${pct === null ? '' : `<i class="pdv-k-barra"><b style="width:${Math.max(0, Math.min(100, pct))}%"></b></i>`}</div>
+  </section>`;
+}
+
 function pdvChip(mapa, chave) {
   const [txt, cls] = mapa[chave] || [chave || '-', 'pdv-modo-outro'];
   return `<span class="pdv-chip ${cls}">${esc(txt)}</span>`;
@@ -215,14 +226,17 @@ async function pdvRenderLojas() {
     const tk = l.cupons ? l.vendido_centavos / l.cupons : 0;
     const okCx = l.coletando === l.n_caixas;
     return `
-      <article class="pdv-l-card pdv-l-s3 pdv-l-loja">
+      <article class="pdv-l-card pdv-l-s3 pdv-l-loja pdv-k pdv-k-azul">
         <div class="pdv-l-head pdv-l-topo">
+          <div class="pdv-k-top"><span class="pdv-k-ico"><i data-lucide="store"></i></span>
           <div class="pdv-l-stat"><strong class="pdv-l-nome" title="${esc(l.nome)}">${esc(l.nome)}</strong>
-            <span class="pdv-l-sub">${pdvPlural(l.n_caixas, 'caixa')}</span></div>
+            <span class="pdv-l-sub">${pdvPlural(l.n_caixas, 'caixa')}</span></div></div>
           <button type="button" class="pdv-l-link" data-pdv-loja="${esc(l.nome)}" title="Ver os caixas desta loja ao vivo">Abrir</button>
         </div>
         <div class="pdv-l-stat"><span class="pdv-l-k">Vendido ${r.hoje ? 'hoje' : 'no dia'}</span>
-          <strong class="pdv-l-big">${pdvMoeda(l.vendido_centavos)}</strong></div>
+          <strong class="pdv-l-big">${pdvMoeda(l.vendido_centavos)}</strong>
+          ${nLojas > 1 && rede.vendido_centavos ? `<span class="pdv-l-sub">${Math.round(100 * l.vendido_centavos / rede.vendido_centavos)}% da rede</span>
+          <i class="pdv-k-barra"><b style="width:${Math.round(100 * l.vendido_centavos / rede.vendido_centavos)}%"></b></i>` : ''}</div>
         <div class="pdv-l-tres">
           <div class="pdv-l-stat"><span class="pdv-l-k">Cupons</span><strong>${pdvNum(l.cupons)}</strong></div>
           <div class="pdv-l-stat"><span class="pdv-l-k">Ticket</span><strong>${pdvMoeda(tk)}</strong></div>
@@ -317,18 +331,14 @@ async function pdvRenderLojas() {
 
   box.innerHTML = `
     <div class="pdv-l-grade">
-      <section class="pdv-l-card pdv-l-s3"><div class="pdv-l-stat"><span class="pdv-l-k">Vendido ${nLojas > 1 ? 'na rede' : 'na loja'}</span>
-        <strong class="pdv-l-big">${pdvMoeda(rede.vendido_centavos)}</strong>
-        <span class="pdv-l-sub">${pdvPlural(nLojas, 'loja')}${r.hoje ? ` · até ${new Date().toTimeString().slice(0, 5)}` : ''}</span></div></section>
-      <section class="pdv-l-card pdv-l-s3"><div class="pdv-l-stat"><span class="pdv-l-k">Cupons</span>
-        <strong class="pdv-l-big">${pdvNum(rede.cupons)}</strong>
-        <span class="pdv-l-sub">ticket médio ${pdvMoeda(ticket)}</span></div></section>
-      <section class="pdv-l-card pdv-l-s3"><div class="pdv-l-stat"><span class="pdv-l-k">Caixas coletando</span>
-        <strong class="pdv-l-big">${r.hoje ? pdvNum(rede.coletando) : '–'} <em>de ${pdvNum(rede.n_caixas)}</em></strong>
-        <span class="pdv-l-sub pdv-l-uma ${semCol.length && r.hoje ? 'pdv-l-ruim' : ''}" title="${r.hoje ? coletaTxt : ''}">${r.hoje ? coletaTxt : 'situação só no dia de hoje'}</span></div></section>
-      <section class="pdv-l-card pdv-l-s3"><div class="pdv-l-stat"><span class="pdv-l-k pdv-l-k-ambar">Para revisar</span>
-        <strong class="pdv-l-big">${pdvNum(rede.revisar)}</strong>
-        <span class="pdv-l-sub pdv-l-uma">${pdvNum(rede.cancelados)} cancelados · ${pdvNum(rede.sem_cadastro)} sem cadastro</span></div></section>
+      ${pdvKpi({ ic: 'banknote', cor: 'azul', rot: `Vendido ${nLojas > 1 ? 'na rede' : 'na loja'}`, big: pdvMoeda(rede.vendido_centavos),
+        sub: `${pdvPlural(nLojas, 'loja')}${r.hoje ? ` · até ${new Date().toTimeString().slice(0, 5)}` : ''}` })}
+      ${pdvKpi({ ic: 'receipt-text', cor: 'verde', rot: 'Cupons', big: pdvNum(rede.cupons), sub: `ticket médio ${pdvMoeda(ticket)}` })}
+      ${pdvKpi({ ic: 'monitor-check', cor: semCol.length && r.hoje ? 'verm' : 'ciano', rot: 'Caixas coletando',
+        big: `${r.hoje ? pdvNum(rede.coletando) : '–'} <em>de ${pdvNum(rede.n_caixas)}</em>`,
+        sub: r.hoje ? coletaTxt : 'situação só no dia de hoje', pct: r.hoje && rede.n_caixas ? 100 * rede.coletando / rede.n_caixas : null })}
+      ${pdvKpi({ ic: 'scan-eye', cor: 'ambar', rot: 'Para revisar', big: pdvNum(rede.revisar),
+        sub: `${pdvNum(rede.cancelados)} cancelados · ${pdvNum(rede.sem_cadastro)} sem cadastro` })}
 
       ${umaLoja ? '' : `<div class="pdv-l-s12 pdv-l-head pdv-l-secao">
         <h2 class="pdv-l-h2">Lojas</h2>
@@ -550,8 +560,6 @@ async function pdvRenderParede() {
   if (!r?.loja) { box.innerHTML = '<p class="pdv-nota">Não foi possível carregar os caixas agora.</p>'; return; }
   _pdvVivo.loja = r.loja.nome;
   const cad = new Map(_pdvCaixas.map(c => [c.id, c]));
-  const kpi = (id, rot, cls = '') => `<section class="pdv-l-card pdv-l-s3"><div class="pdv-l-stat" id="${id}">
-    <span class="pdv-l-k ${cls}">${rot}</span><strong class="pdv-l-big">–</strong><span class="pdv-l-sub">&nbsp;</span></div></section>`;
   const tile = (c, i) => {
     const temVideo = cad.get(c.id)?.gravador_host && cad.get(c.id)?.gravador_canal;
     return `
@@ -573,7 +581,8 @@ async function pdvRenderParede() {
   };
   box.innerHTML = `
     <div class="pdv-l-grade pdv-v-grade">
-      ${kpi('pdvVkVendido', 'Vendido hoje')}${kpi('pdvVkCupons', 'Cupons')}${kpi('pdvVkBip', 'Bipados')}${kpi('pdvVkRev', 'Para revisar', 'pdv-l-k-ambar')}
+      ${pdvKpi({ id: 'pdvVkVendido', ic: 'banknote', cor: 'azul', rot: 'Vendido hoje' })}${pdvKpi({ id: 'pdvVkCupons', ic: 'receipt-text', cor: 'verde', rot: 'Cupons' })}
+      ${pdvKpi({ id: 'pdvVkBip', ic: 'scan-barcode', cor: 'ciano', rot: 'Bipados', pct: 0 })}${pdvKpi({ id: 'pdvVkRev', ic: 'scan-eye', cor: 'ambar', rot: 'Para revisar' })}
       <div class="pdv-l-s12 pdv-l-head pdv-l-secao">
         <h2 class="pdv-l-h2">Caixas</h2>
         <div class="pdv-l-legenda pdv-l-sub">
@@ -591,6 +600,7 @@ async function pdvRenderParede() {
       ${r.caixas.map(tile).join('')}
     </div>
     <p class="pdv-nota">O vídeo sai do gravador pelo conector da loja, como as outras câmeras do SightOps; aqui vai leve (SD). Clique num caixa para ver grande, em HD, com o cupom ao lado.</p>`;
+  lucide.createIcons();
 
   document.getElementById('pdvVivoLoja')?.addEventListener('change', ev => {
     pdvParar();
@@ -656,6 +666,8 @@ function pdvPintarParede(r) {
   pinta('pdvVkVendido', pdvMoeda(l.vendido_centavos), `até ${new Date().toTimeString().slice(0, 5)}`);
   pinta('pdvVkCupons', pdvNum(l.cupons), `ticket médio ${pdvMoeda(ticket)}`);
   pinta('pdvVkBip', pdvPct(l.bipados, l.itens), `${pdvNum(l.itens)} itens passados`);
+  const barraBip = document.querySelector('#pdvVkBip .pdv-k-barra b');
+  if (barraBip) barraBip.style.width = `${l.itens ? Math.round(100 * l.bipados / l.itens) : 0}%`;
   pinta('pdvVkRev', pdvNum(l.revisar), `${pdvNum(l.cancelados)} cancelados · ${pdvNum(l.sem_cadastro)} sem cadastro`);
 
   (r.caixas || []).forEach(c => {
@@ -1471,7 +1483,7 @@ function pdvRkDesenhar() {
     ['percent', 'Mais descontos', topo('descontos', 'piores'), x => pdvMoeda(x.descontos), 'pdv-r-ambar'],
   ];
   const destaques = dest.map(([ic, rot, x, val, cls]) => `
-    <section class="pdv-l-card pdv-l-s3 pdv-r-dest">
+    <section class="pdv-l-card pdv-l-s3 pdv-r-dest pdv-k">
       <span class="pdv-r-ico ${cls}"><i data-lucide="${ic}"></i></span>
       <div class="pdv-l-stat"><span class="pdv-l-k">${rot}</span>
         ${x ? `<button type="button" class="pdv-r-nome-bt pdv-r-nome pdv-l-uma" data-pdv-rk-ficha="${esc(x.chave)}" title="Ver a ficha de ${esc(x.nome)}">${esc(x.nome)}</button>` : '<strong class="pdv-r-nome">–</strong>'}
