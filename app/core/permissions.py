@@ -64,6 +64,9 @@ MODULOS: List[Dict[str, Any]] = [
     # tinha nivel em "mapa" e nada em "projetos" herda o de "mapa"
     # (niveis_do_usuario), para ninguem ganhar ou perder acesso na separacao.
     {"key": "projetos", "label": "Projetos", "views": ["planning"], "prefixos": ["/api/planning"]},
+    # Maquete 3D nasceu depois: quem tem nivel em "projetos" e nada nela herda
+    # o de projetos (niveis_do_usuario).
+    {"key": "maquete", "label": "Maquete 3D", "views": ["maquete"], "prefixos": ["/api/maquete"]},
     {"key": "monitoramento", "label": "Monitoramento e Zabbix",
      "views": ["monitoring", "script-zabbix", "script-grafana"],
      "prefixos": ["/api/monitoring", "/api/scripts", "/api/telegram"]},
@@ -380,6 +383,8 @@ def niveis_do_usuario(user: Dict[str, Any], dados: Optional[Dict[str, Any]] = No
             definidos.add(m)
     if "mapa" in definidos and "projetos" not in definidos:
         niveis["projetos"] = niveis["mapa"]  # antes era um modulo so
+    if "projetos" in definidos and "maquete" not in definidos:
+        niveis["maquete"] = niveis["projetos"]
     # Telas desmarcadas no editor (arvore do menu): modulo com TODAS as telas
     # desmarcadas fica sem acesso tambem nas rotas, nao so some do menu.
     ocultas = set(cfg.get("telas_ocultas") or [])

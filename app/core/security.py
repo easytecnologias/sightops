@@ -151,6 +151,9 @@ class ApiAuthMiddleware(BaseHTTPMiddleware):
             # Controle de Rotas: cadastro da frota. DELETE sobe para admin
             # sozinho (permissions.e_exclusao).
             (("POST", "DELETE"), "/api/rotas/", "operator"),
+            # Maquete 3D: enviar planta e salvar o que foi montado. DELETE sobe
+            # para admin sozinho (permissions.e_exclusao).
+            (("POST", "PUT", "DELETE"), "/api/maquete/", "operator"),
             # Ponto de venda: caixa, token do coletor e reprocessar o dia
             # mexem na configuracao do cliente -- so administrador.
             (("POST",), "/api/pdv/caixas", "admin"),

@@ -107,6 +107,7 @@
         <div class="nav-section-label">Integracoes</div>
         <button class="nav-item" data-view="script-grafana"><i data-lucide="bar-chart-2"></i><span>Grafana</span></button>
         <button class="nav-item" data-view="kmz"><i data-lucide="map"></i><span>Mapa</span></button>
+        <button class="nav-item" data-view="maquete"><i data-lucide="box"></i><span>Maquete 3D</span></button>
         <button class="nav-item" data-view="script-zabbix"><i data-lucide="eye"></i><span>Zabbix</span></button>
         <button class="nav-item" data-view="connectors"><i data-lucide="plug"></i><span>Conectores</span></button>
 
@@ -4911,6 +4912,9 @@
       </section>
 
       <!-- --- VIEW: PROJETOS / PLANEJAMENTO --- -->
+      <!-- Maquete 3D: conteudo montado por js/maquete.js -->
+      <section class="workspace hidden" id="viewMaquete"></section>
+
       <section class="workspace hidden planning-view" id="viewPlanning">
         <div class="page-heading">
           <div>
@@ -8155,7 +8159,7 @@
        trechos do app.js original na sequencia em que estavam, entao carregar
        fora de ordem muda o comportamento. Ao adicionar um arquivo novo, entre
        antes de bootstrap.js, que e quem liga os botoes no DOMContentLoaded. -->
-  <script src="js/core.js?v=1793100080"></script>
+  <script src="js/core.js?v=1793200002"></script>
   <script src="js/licencas.js?v=1792600103"></script>
   <script src="js/configuracoes.js?v=1793100004"></script>
   <script src="js/notificacoes.js?v=1792600139"></script>
@@ -8203,6 +8207,7 @@
   <script src="js/alert.js?v=1792804801"></script>
   <script src="js/controleRotas.js?v=1792600341"></script>
   <script src="js/pdv.js?v=1793100094"></script>
+  <script src="js/maquete.js?v=1793200001"></script>
   <script src="js/tr069.js?v=1791000212"></script>
   <script src="js/bootstrap.js?v=1792600207"></script>
 </body>

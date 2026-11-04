@@ -700,6 +700,7 @@ MODULE_CATALOG: List[Dict[str, str]] = [
     {"key": "inv-windows", "label": "Windows", "section": "Inventario"},
     {"key": "script-grafana", "label": "Grafana", "section": "Integracoes"},
     {"key": "kmz", "label": "Mapa", "section": "Integracoes"},
+    {"key": "maquete", "label": "Maquete 3D", "section": "Integracoes"},
     {"key": "script-zabbix", "label": "Zabbix", "section": "Integracoes"},
     {"key": "connectors", "label": "Conectores", "section": "Integracoes"},
     {"key": "mnt-cam", "label": "Cameras IP", "section": "Manutencao"},

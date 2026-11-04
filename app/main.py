@@ -67,6 +67,7 @@ from app.api.endpoints import (
     alert_router,
     rotas_router,
     pdv_router,
+    maquete_router,
     mapa_rack_router,
     switch_provedores_router,
     recorder_driver_router,
@@ -160,6 +161,7 @@ app.include_router(access_control_router)
 app.include_router(alert_router)
 app.include_router(rotas_router)
 app.include_router(pdv_router)
+app.include_router(maquete_router)
 app.include_router(mapa_rack_router)
 app.include_router(switch_provedores_router)
 app.include_router(recorder_driver_router)
