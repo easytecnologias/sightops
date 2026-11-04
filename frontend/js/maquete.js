@@ -219,6 +219,26 @@
 #viewMaquete .mq-table .n{text-align:right;font-variant-numeric:tabular-nums}
 #viewMaquete .mq-table tr.click{cursor:pointer} #viewMaquete .mq-table tr.click:hover td{background:var(--surface-soft)}
 #viewMaquete .mq-table tfoot td{font-weight:700;border-bottom:0}
+#viewMaquete .mq-lhead{display:flex;flex-wrap:wrap;gap:10px;align-items:center;padding:12px 14px;border-bottom:1px solid var(--border)}
+#viewMaquete .mq-lhead .search-box{min-width:240px}
+#viewMaquete .mq-lsel{width:auto;min-width:170px;height:36px}
+#viewMaquete .mq-ltab td{vertical-align:middle;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#viewMaquete .mq-ltab tbody tr[data-mq-linha]:hover{background:var(--surface-soft)}
+#viewMaquete .mq-lnome{font-weight:600;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#viewMaquete .mq-lsub{font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px}
+#viewMaquete .mq-lsub.erro{color:var(--danger)}
+#viewMaquete .mq-n{text-align:right;font-variant-numeric:tabular-nums}
+#viewMaquete .mq-lacoes{display:flex;gap:6px;justify-content:flex-end;align-items:center}
+#viewMaquete .mq-ico{width:28px;height:28px;border-radius:6px;border:1px solid var(--border);background:var(--surface);display:inline-grid;place-items:center;cursor:pointer;color:var(--muted);flex:none}
+#viewMaquete .mq-ico svg{width:14px;height:14px}
+#viewMaquete .mq-ico:hover{background:var(--surface-soft);color:var(--text)} #viewMaquete .mq-ico.del:hover{color:var(--danger)}
+#viewMaquete .mq-etit{min-width:0;flex:1;display:flex;flex-direction:column;gap:2px}
+#viewMaquete .mq-etit b{font-size:22px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#viewMaquete .mq-etit small{font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#viewMaquete .mq-piso{border-top:1px solid var(--border);padding:10px 0;display:grid;grid-template-columns:minmax(0,1fr) 80px;gap:6px 10px;align-items:center}
+#viewMaquete .mq-piso input{height:30px}
+#viewMaquete .mq-piso small{font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
+#viewMaquete .mq-piso label{font-size:11px;color:var(--muted);text-align:right}
 #viewMaquete .mq-carregando{position:absolute;inset:0;display:grid;place-items:center;color:var(--muted);font-size:13px;background:var(--surface)}
 @media (max-width:1280px){#viewMaquete .mq-kpi{grid-column:span 6}#viewMaquete .mq-s4,#viewMaquete .mq-s8{grid-column:span 12}}
 @media (max-width:1180px){#viewMaquete #mqAbaMaquete{grid-template-rows:none;height:auto}#viewMaquete .mq-view{grid-column:span 12;min-height:560px}#viewMaquete .mq-panel{grid-column:span 12;overflow:visible;display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));align-items:start}}
@@ -267,18 +287,18 @@
     if (!proj && projetos.some(p => p.status === 'processando')) poll = setTimeout(atualizarLista, 3000);
   }
 
+  // filtro e ordem da lista (busca + local + situação, ordem natural)
+  let filtro = { q: '', local: '', st: '', ordem: 'nome' };
+  const ST_PROJ = { pronto: ['Pronta', 'mq-p-ok'], processando: ['Lendo a planta…', 'mq-p-warn'], erro: ['Não deu para ler', 'mq-p-off'] };
+  const natural = (a, b) => String(a || '').localeCompare(String(b || ''), 'pt', { numeric: true, sensitivity: 'base' });
+  const quando = s => { try { return new Date(s).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }); } catch (_) { return s || ''; } };
+
   function renderLista(carregando) {
     const sec = secao(); if (!sec) return;
-    const quando = s => { try { return new Date(s).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }); } catch (_) { return s; } };
-    const cards = projetos.map(p => {
-      const st = p.status === 'pronto' ? ['Pronta', 'mq-p-ok'] : p.status === 'erro' ? ['Não deu para ler', 'mq-p-off'] : ['Lendo a planta…', 'mq-p-warn'];
-      return `<button type="button" class="mq-card mq-pcard" data-mq-abrir="${h(p.id)}">
-        <div class="mq-row"><b title="${h(p.nome)}">${h(p.nome)}</b><span class="mq-pill ${st[1]}" style="margin-left:auto">${st[0]}</span></div>
-        <small title="${h(p.arquivo)}">${h(p.arquivo || 'planta.pdf')}</small>
-        <small>${p.status === 'erro' ? h(p.erro) : p.status === 'pronto' ? `${p.pisos.length} pavimento(s) · ${h(p.pisos.join(', '))} · escala ${h(p.escala)}` : 'Leva uns 15 segundos'}</small>
-        <small>${p.cameras} câmera(s) · atualizado ${h(quando(p.updated_at))}</small>
-      </button>`;
-    }).join('');
+    const total = projetos.length;
+    const cams = projetos.reduce((a, p) => a + (p.cameras || 0), 0);
+    const metros = projetos.reduce((a, p) => a + (p.metros || 0), 0);
+    const pend = projetos.filter(p => p.status !== 'pronto').length;
     sec.innerHTML = `
       <div class="page-heading">
         <div><p class="eyebrow">Integrações</p><h1>Maquete 3D</h1>
@@ -288,25 +308,158 @@
           <button class="primary-action" type="button" id="mqEnviar"><i data-lucide="upload"></i> Enviar planta</button>
         </div>
       </div>
-      ${carregando ? '<div class="mq-card mq-vazio">Carregando projetos…</div>'
-        : projetos.length ? `<div class="mq-grid">${cards}</div>`
-        : `<div class="mq-card mq-vazio"><b>Nenhuma maquete ainda</b>Clique em <b style="display:inline">Enviar planta</b> e escolha o PDF da planta baixa.<br>Funciona com PDF exportado do CAD (AutoCAD, Revit, SketchUp). PDF escaneado e foto ainda não.</div>`}`;
+      <div class="rotas-kpis">
+        <article class="rotas-kpi"><span>Projetos</span><strong>${total}</strong></article>
+        <article class="rotas-kpi"><span>Câmeras posicionadas</span><strong>${cams}</strong></article>
+        <article class="rotas-kpi"><span>Cabo projetado</span><strong>${fmt(metros, 0)} <small>m</small></strong></article>
+        <article class="rotas-kpi${pend ? ' is-amber' : ''}"><span>Plantas sendo lidas ou com erro</span><strong>${pend}</strong></article>
+      </div>
+      <section class="panel" style="padding:0;overflow:hidden">
+        <div class="mq-lhead">
+          <label class="search-box"><i data-lucide="search"></i><input id="mqBusca" type="search" placeholder="Buscar projeto, local ou arquivo" value="${h(filtro.q)}"></label>
+          <select class="mq-inp mq-lsel" id="mqFLocal" aria-label="Local"></select>
+          <select class="mq-inp mq-lsel" id="mqFSt" aria-label="Situação"></select>
+          <select class="mq-inp mq-lsel" id="mqFOrdem" aria-label="Ordem">
+            <option value="nome">Nome A–Z</option><option value="recente">Mais recentes</option><option value="local">Local A–Z</option>
+          </select>
+        </div>
+        <div class="table-wrap" style="overflow-x:auto">
+          <table class="data-table mq-ltab" style="table-layout:fixed;width:100%;min-width:900px">
+            <colgroup><col><col style="width:16%"><col style="width:17%"><col style="width:84px"><col style="width:92px"><col style="width:132px"><col style="width:132px"><col style="width:132px"></colgroup>
+            <thead><tr><th>Projeto</th><th>Local</th><th>Pavimentos</th><th class="mq-n">Câmeras</th><th class="mq-n">Cabo</th><th>Situação</th><th>Atualizado</th><th></th></tr></thead>
+            <tbody id="mqLBody"></tbody>
+          </table>
+        </div>
+      </section>`;
     if (window.lucide) lucide.createIcons();
     $('mqEnviar').onclick = () => $('mqArquivo').click();
-    $('mqArquivo').onchange = enviarPlanta;
-    sec.querySelectorAll('[data-mq-abrir]').forEach(b => b.onclick = () => {
-      const p = projetos.find(x => x.id === b.dataset.mqAbrir);
-      if (p && p.status === 'pronto') abrir(p.id);
-      else if (p && p.status === 'erro') perguntarExcluir(p);
-      else toast('A planta ainda está sendo lida. Aguarde alguns segundos.');
+    $('mqArquivo').onchange = escolherArquivo;
+    $('mqBusca').oninput = e => { filtro.q = e.target.value; renderLinhas(carregando); };
+    $('mqFLocal').onchange = e => { filtro.local = e.target.value; renderLinhas(carregando); };
+    $('mqFSt').onchange = e => { filtro.st = e.target.value; renderLinhas(carregando); };
+    $('mqFOrdem').value = filtro.ordem;
+    $('mqFOrdem').onchange = e => { filtro.ordem = e.target.value; renderLinhas(carregando); };
+    renderLinhas(carregando);
+  }
+
+  function renderLinhas(carregando) {
+    const q = filtro.q.trim().toLowerCase();
+    const casaBusca = p => !q || [p.nome, p.local, p.arquivo, p.observacao].some(x => String(x || '').toLowerCase().includes(q));
+    // contagem de cada opção considera os outros filtros
+    const base = projetos.filter(casaBusca);
+    const locais = [...new Set(projetos.map(p => p.local || ''))].sort(natural);
+    const SEM = '__sem__', chaveLocal = p => p.local || SEM, casaLocal = p => !filtro.local || chaveLocal(p) === filtro.local;
+    const nLocal = l => base.filter(p => (!filtro.st || p.status === filtro.st) && (p.local || '') === l).length;
+    const nSt = s => base.filter(p => casaLocal(p) && p.status === s).length;
+    $('mqFLocal').innerHTML = `<option value="">Todos os locais (${base.filter(p => !filtro.st || p.status === filtro.st).length})</option>` +
+      locais.map(l => `<option value="${h(l || SEM)}"${(l || SEM) === filtro.local ? ' selected' : ''}>${h(l || 'Sem local')} (${nLocal(l)})</option>`).join('');
+    $('mqFSt').innerHTML = `<option value="">Todas as situações (${base.filter(casaLocal).length})</option>` +
+      Object.entries(ST_PROJ).map(([k, v]) => `<option value="${k}"${k === filtro.st ? ' selected' : ''}>${v[0]} (${nSt(k)})</option>`).join('');
+    let lista = base.filter(p => casaLocal(p) && (!filtro.st || p.status === filtro.st));
+    if (filtro.ordem === 'recente') lista.sort((a, b) => String(b.updated_at).localeCompare(String(a.updated_at)));
+    else if (filtro.ordem === 'local') lista.sort((a, b) => natural(a.local, b.local) || natural(a.nome, b.nome));
+    else lista.sort((a, b) => natural(a.nome, b.nome));
+    const body = $('mqLBody');
+    if (carregando) { body.innerHTML = '<tr class="empty-row"><td colspan="8">Carregando projetos…</td></tr>'; return; }
+    if (!projetos.length) {
+      body.innerHTML = '<tr class="empty-row"><td colspan="8"><b>Nenhuma maquete ainda.</b><br>Clique em <b>Enviar planta</b> e escolha o PDF da planta baixa, exportado do CAD (AutoCAD, Revit, SketchUp). PDF escaneado e foto ainda não são lidos.</td></tr>';
+      return;
+    }
+    if (!lista.length) { body.innerHTML = '<tr class="empty-row"><td colspan="8">Nenhum projeto com esse filtro.</td></tr>'; return; }
+    body.innerHTML = lista.map(p => {
+      const st = ST_PROJ[p.status] || ST_PROJ.processando;
+      const detalhe = p.status === 'erro' ? p.erro : p.arquivo;
+      return `<tr data-mq-linha="${h(p.id)}" style="cursor:${p.status === 'pronto' ? 'pointer' : 'default'}">
+        <td><div class="mq-lnome" title="${h(p.nome)}">${h(p.nome)}</div><div class="mq-lsub${p.status === 'erro' ? ' erro' : ''}" title="${h(detalhe)}">${h(detalhe)}</div></td>
+        <td title="${h(p.local)}">${p.local ? h(p.local) : '<span class="mq-muted">Sem local</span>'}</td>
+        <td title="${h(p.pisos.join(', '))}">${p.status === 'pronto' ? h(p.pisos.join(', ')) : '—'}</td>
+        <td class="mq-n">${p.cameras || 0}</td>
+        <td class="mq-n">${p.metros ? fmt(p.metros, 0) + ' m' : '—'}</td>
+        <td><span class="mq-pill ${st[1]}">${st[0]}</span></td>
+        <td>${h(quando(p.updated_at))}</td>
+        <td><div class="mq-lacoes">
+          <button class="mq-btn sm" type="button" data-mq-abrir="${h(p.id)}"${p.status === 'pronto' ? '' : ' disabled'}>Abrir</button>
+          <button class="mq-ico" type="button" data-mq-editar="${h(p.id)}" title="Editar dados" aria-label="Editar dados de ${h(p.nome)}"><i data-lucide="pencil"></i></button>
+          <button class="mq-ico del" type="button" data-mq-excluir="${h(p.id)}" title="Excluir" aria-label="Excluir ${h(p.nome)}"><i data-lucide="trash-2"></i></button>
+        </div></td></tr>`;
+    }).join('');
+    if (window.lucide) lucide.createIcons();
+    body.querySelectorAll('[data-mq-linha]').forEach(tr => tr.onclick = e => {
+      if (e.target.closest('button, .mq-lacoes')) return;
+      const p = projetos.find(x => x.id === tr.dataset.mqLinha); if (p && p.status === 'pronto') abrir(p.id);
+    });
+    body.querySelectorAll('[data-mq-abrir]').forEach(b => b.onclick = e => { e.stopPropagation(); abrir(b.dataset.mqAbrir); });
+    body.querySelectorAll('[data-mq-editar]').forEach(b => b.onclick = e => {
+      e.stopPropagation();
+      const p = projetos.find(x => x.id === b.dataset.mqEditar); if (p) editarDados(p);
+    });
+    body.querySelectorAll('[data-mq-excluir]').forEach(b => b.onclick = e => {
+      e.stopPropagation();
+      const p = projetos.find(x => x.id === b.dataset.mqExcluir);
+      if (p && window.confirm(`Excluir a maquete "${p.nome}"? Isso apaga a planta e tudo o que foi montado.`)) excluirProjeto(p.id);
     });
   }
 
-  async function enviarPlanta(e) {
+  // "v7_[Prancha A0]_LEGAL_Apto Carlos Silva_02-03.pdf" -> "LEGAL Apto Carlos Silva"
+  function nomeDoArquivo(f) {
+    let s = String(f || '').replace(/\.pdf$/i, '');
+    s = s.replace(/[\[(][^\])]*[\])]/g, ' ').replace(/^v\d+\b/i, ' ').replace(/[_]+/g, ' ');
+    s = s.replace(/\b(rev|r)\s?\d+\b/ig, ' ').replace(/\b\d{1,2}\s*[-de]+\s*\d{1,2}\s*$/i, ' ');
+    return s.replace(/\s+/g, ' ').trim() || 'Planta';
+  }
+
+  async function sugestoesLocal() {
+    if (!cadastro.lista.length) await carregarCadastro().catch(() => {});
+    return [...new Set([...projetos.map(p => p.local), ...cadastro.lista.map(c => c.site)].filter(Boolean))].sort(natural);
+  }
+
+  // Janela "Dados do projeto": nova planta (com arquivo) ou editar. Fecha só por X, Cancelar ou Esc.
+  async function modalDados({ titulo, sub, nome, local, observacao, botao }) {
+    const locais = await sugestoesLocal();
+    return new Promise(resolve => {
+      document.getElementById('mqModalDados')?.remove();
+      const wrap = document.createElement('div');
+      wrap.id = 'mqModalDados'; wrap.className = 'modal-backdrop';
+      wrap.innerHTML = `
+        <div class="modal" style="max-width:520px" role="dialog" aria-modal="true" aria-labelledby="mqMdTitulo">
+          <div class="modal-header">
+            <div><h2 id="mqMdTitulo">${h(titulo)}</h2>${sub ? `<p>${h(sub)}</p>` : ''}</div>
+            <button class="icon-button" type="button" data-mq-md-fechar aria-label="Fechar"><i data-lucide="x"></i></button>
+          </div>
+          <form class="modal-body" id="mqMdForm" autocomplete="off">
+            <div class="form-group"><label for="mqMdNome">Nome do projeto</label><input id="mqMdNome" maxlength="120" required value="${h(nome)}"></div>
+            <div class="form-group"><label for="mqMdLocal">Local</label><input id="mqMdLocal" list="mqMdLocais" maxlength="120" placeholder="Ex.: Condomínio Jardins I" value="${h(local)}">
+              <datalist id="mqMdLocais">${locais.map(l => `<option value="${h(l)}"></option>`).join('')}</datalist></div>
+            <div class="form-group"><label for="mqMdObs">Observação</label><textarea id="mqMdObs" rows="3" maxlength="1000" placeholder="Endereço, responsável, o que falta…">${h(observacao)}</textarea></div>
+          </form>
+          <div class="modal-actions">
+            <button type="button" class="secondary-action" data-mq-md-fechar>Cancelar</button>
+            <button type="submit" form="mqMdForm" class="primary-action">${h(botao)}</button>
+          </div>
+        </div>`;
+      document.body.appendChild(wrap);
+      if (window.lucide) lucide.createIcons();
+      const fechar = v => { document.removeEventListener('keydown', onKey, true); wrap.remove(); resolve(v); };
+      const onKey = e => { if (e.key === 'Escape') { e.stopPropagation(); fechar(null); } };
+      document.addEventListener('keydown', onKey, true);
+      wrap.querySelectorAll('[data-mq-md-fechar]').forEach(b => b.onclick = () => fechar(null));
+      wrap.querySelector('#mqMdForm').onsubmit = e => {
+        e.preventDefault();
+        const n = wrap.querySelector('#mqMdNome').value.trim(); if (!n) return;
+        fechar({ nome: n, local: wrap.querySelector('#mqMdLocal').value.trim(), observacao: wrap.querySelector('#mqMdObs').value.trim() });
+      };
+      setTimeout(() => { const i = wrap.querySelector('#mqMdNome'); i.focus(); i.select(); }, 30);
+    });
+  }
+
+  async function escolherArquivo(e) {
     const f = e.target.files && e.target.files[0]; e.target.value = '';
     if (!f) return;
     if (!/\.pdf$/i.test(f.name)) return toast('Envie a planta em PDF.', true);
-    const fd = new FormData(); fd.append('arquivo', f); fd.append('nome', f.name.replace(/\.pdf$/i, ''));
+    const dados = await modalDados({ titulo: 'Nova maquete', sub: f.name, nome: nomeDoArquivo(f.name), local: '', observacao: '', botao: 'Enviar planta' });
+    if (!dados) return;
+    const fd = new FormData();
+    fd.append('arquivo', f); fd.append('nome', dados.nome); fd.append('local', dados.local); fd.append('observacao', dados.observacao);
     toast('Enviando a planta…');
     const r = await api('/api/maquete/projetos', { method: 'POST', body: fd });
     const d = r ? await r.json().catch(() => ({})) : {};
@@ -315,10 +468,17 @@
     await atualizarLista();
   }
 
-  async function perguntarExcluir(p) {
-    if (!window.confirm(`Não deu para ler "${p.nome}":\n${p.erro}\n\nExcluir este projeto?`)) return;
-    await excluirProjeto(p.id);
+  async function editarDados(p) {
+    const dados = await modalDados({ titulo: 'Dados do projeto', sub: p.arquivo, nome: p.nome, local: p.local || '', observacao: p.observacao || '', botao: 'Salvar' });
+    if (!dados) return null;
+    const r = await api(`/api/maquete/projetos/${encodeURIComponent(p.id)}`, { method: 'PUT', body: JSON.stringify(dados) });
+    if (!r || !r.ok) { const d = r ? await r.json().catch(() => ({})) : {}; toast(d.detail || 'Não foi possível salvar.', true); return null; }
+    Object.assign(p, dados);
+    toast('Dados salvos.');
+    if (!proj) renderLista(false);
+    return dados;
   }
+
   async function excluirProjeto(id) {
     const r = await api(`/api/maquete/projetos/${encodeURIComponent(id)}`, { method: 'DELETE', body: '' });
     if (!r || !r.ok) { const d = r ? await r.json().catch(() => ({})) : {}; return toast(d.detail || 'Não foi possível excluir.', true); }
@@ -374,6 +534,7 @@
       nodes: Array.isArray(l.nodes) ? l.nodes : [],
       rack: l.rack && Array.isArray(l.rack.itens) ? l.rack : { tam: '12', rot: 180, itens: [{ k: 'pp6', u: 12 }, { k: 'org', u: 11 }, { k: 'sw16', u: 10 }, { k: 'nvr16', u: 9 }, { k: 'regua', u: 8 }] },
       catCabo: CAT[l.catCabo] ? l.catCabo : 'cat6',
+      nomes: l.nomes && typeof l.nomes === 'object' ? Object.assign({}, l.nomes) : {},
       seq: Number(l.seq || 1),
     };
     pisos.forEach((p, i) => { if (!(out.pd[p.id] > 0)) out.pd[p.id] = i === 0 ? 3.0 : 2.8; });
@@ -403,6 +564,7 @@
     salvando = true;
     const el = $('mqSalvo'); if (el) el.textContent = 'Salvando…';
     try {
+      L.resumo = { metros: Math.round([...caminhos.values()].reduce((a, x) => a + x.len, 0) * 10) / 10, caixas: L.nodes.filter(n => n.tipo === 'caixa').length };
       const r = await api(`/api/maquete/projetos/${encodeURIComponent(proj.id)}`, { method: 'PUT', body: JSON.stringify({ layout: L }) });
       if (r && r.status === 403) { semPermissao = true; if (el) el.textContent = 'Sem permissão para salvar'; return; }
       if (!r || !r.ok) throw new Error();
@@ -413,11 +575,7 @@
       salvarTimer = setTimeout(salvar, 5000);
     } finally { salvando = false; }
   }
-  async function renomear(nome) {
-    nome = String(nome || '').trim(); if (!nome || nome === proj.nome) return;
-    const r = await api(`/api/maquete/projetos/${encodeURIComponent(proj.id)}`, { method: 'PUT', body: JSON.stringify({ nome }) });
-    if (r && r.ok) { proj.nome = nome; toast('Nome salvo.'); } else toast('Não foi possível renomear.', true);
-  }
+
 
   // ---------- 3D: variáveis do editor ----------
   let R3 = null; // { renderer, scene, camera, controls, ... }
@@ -443,9 +601,11 @@
     tex = {};
   }
 
+  function subTitulo() { return [proj.local || 'Sem local', proj.arquivo].filter(Boolean).join(' · '); }
+
   function montarEditor() {
     const sec = secao();
-    PISOS = proj.leitura.pisos || [];
+    PISOS = (proj.leitura.pisos || []).map(p => Object.assign({}, p, { nomeLido: p.nome, nome: L.nomes[p.id] || p.nome }));
     W = Math.max(...PISOS.map(p => p.largura)); P = Math.max(...PISOS.map(p => p.profundidade));
     OX = -W / 2; OZ = -P / 2;
     sel = null; modoAdd = null; rkSel = null; abaAtual = 'maquete';
@@ -454,8 +614,9 @@
     sec.innerHTML = `
       <div class="mq-ehead">
         <button class="mq-btn sm" type="button" id="mqVoltar" title="Voltar para os projetos">← Projetos</button>
-        <input class="mq-nome" id="mqNome" value="${h(proj.nome)}" aria-label="Nome do projeto" maxlength="120">
+        <div class="mq-etit"><b id="mqNome" title="${h(proj.nome)}">${h(proj.nome)}</b><small id="mqSubTit">${h(subTitulo())}</small></div>
         <span class="mq-salvo" id="mqSalvo">Salvo</span>
+        <button class="mq-btn sm" type="button" id="mqEditar">Editar dados</button>
         <button class="mq-btn sm del" type="button" id="mqExcluir">Excluir</button>
       </div>
       <div class="mq-tabs" role="tablist">
@@ -503,10 +664,13 @@
             <div class="mq-muted" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:8px" title="${h(proj.arquivo)}">${h(proj.arquivo)}</div>
             <dl class="mq-dl">
               <dt>Escala</dt><dd>${h(proj.leitura.escala || '')}</dd>
-              ${PISOS.map(p => `<dt>${h(p.nome)}</dt><dd>${fmt(p.largura, 2)} × ${fmt(p.profundidade, 2)} m</dd>`).join('')}
-              ${PISOS.map(p => `<dt><label for="mqPd_${h(p.id)}">Pé-direito ${h(p.nome)}</label></dt><dd><input id="mqPd_${h(p.id)}" data-mq-pd="${h(p.id)}" type="number" step="0.05" min="2.2" max="8" value="${Number(L.pd[p.id]).toFixed(2)}"></dd>`).join('')}
             </dl>
-            <div class="mq-note">Confira as medidas com a cota da planta. O pé-direito normalmente está no corte; ajuste aqui.</div>
+            ${PISOS.map(p => `<div class="mq-piso">
+              <input class="mq-inp" data-mq-nomepiso="${h(p.id)}" value="${h(p.nome)}" maxlength="40" aria-label="Nome do pavimento" title="Lido na planta: ${h(p.nomeLido)}">
+              <input class="mq-inp" data-mq-pd="${h(p.id)}" type="number" step="0.05" min="2.2" max="8" value="${Number(L.pd[p.id]).toFixed(2)}" aria-label="Pé-direito de ${h(p.nome)} em metros" style="text-align:right">
+              <small>${fmt(p.largura, 2)} × ${fmt(p.profundidade, 2)} m</small><label>pé-direito (m)</label>
+            </div>`).join('')}
+            <div class="mq-note">Dê nome aos pavimentos e confira as medidas com a cota da planta. O pé-direito normalmente está no corte; ajuste aqui.</div>
           </div>
         </aside>
       </div>
@@ -1198,7 +1362,10 @@
   // ---------- eventos ----------
   function ligarEventosFixos() {
     $('mqVoltar').onclick = () => window.loadMaquete();
-    $('mqNome').onchange = e => renomear(e.target.value);
+    $('mqEditar').onclick = async () => {
+      const d = await editarDados(proj); if (!d) return;
+      $('mqNome').textContent = proj.nome; $('mqNome').title = proj.nome; $('mqSubTit').textContent = subTitulo();
+    };
     $('mqExcluir').onclick = () => { if (window.confirm(`Excluir a maquete "${proj.nome}"? Isso apaga a planta e tudo o que foi montado.`)) excluirProjeto(proj.id); };
     document.querySelectorAll('#viewMaquete .mq-tab').forEach(t => t.onclick = () => aba(t.dataset.mqAba));
     document.querySelectorAll('#viewMaquete [data-mq-f]').forEach(b => b.onclick = () => {
@@ -1206,6 +1373,15 @@
       if (b.dataset.mqF !== 'todos') { const y = base(b.dataset.mqF), d = Math.max(W, P); voarPara(V(0, y, 0), V(-d * 0.6, y + d * 0.75, d * 0.9)); }
     });
     document.querySelectorAll('#viewMaquete [data-mq-v]').forEach(b => b.onclick = () => vista(b.dataset.mqV));
+    document.querySelectorAll('#viewMaquete [data-mq-nomepiso]').forEach(i => i.onchange = () => {
+      const id = i.dataset.mqNomepiso, p = PISOS.find(x => x.id === id), v = i.value.trim();
+      if (!p) return;
+      if (!v) { i.value = p.nome; return; }
+      p.nome = v; L.nomes[id] = v;
+      L.nodes.forEach(n => { if (n.tipo === 'prumada' && n.piso === id) n.nome = 'Prumada ' + v; });
+      const b = [...document.querySelectorAll('#viewMaquete [data-mq-f]')].find(x => x.dataset.mqF === id); if (b) b.textContent = v;
+      montarDin(); painelSel(); marcarMudanca();
+    });
     document.querySelectorAll('#viewMaquete [data-mq-pd]').forEach(i => i.onchange = () => {
       const v = parseFloat(String(i.value).replace(',', '.')); if (v >= 2.2 && v <= 8) L.pd[i.dataset.mqPd] = v;
       reconstruir(); painelSel(); marcarMudanca();

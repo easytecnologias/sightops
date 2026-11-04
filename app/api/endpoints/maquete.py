@@ -33,11 +33,13 @@ def api_maquete_listar() -> Dict[str, Any]:
 async def api_maquete_criar(
     arquivo: UploadFile = File(...),
     nome: str = Form(""),
+    local: str = Form(""),
+    observacao: str = Form(""),
     user: Dict[str, Any] = Depends(current_user),
 ) -> Dict[str, Any]:
     pdf = await arquivo.read()
     quem = str(user.get("name") or user.get("username") or "")
-    return _executar(maquete_store.criar, nome, arquivo.filename or "", pdf, quem)
+    return _executar(maquete_store.criar, nome, arquivo.filename or "", pdf, quem, local, observacao)
 
 
 @router.get("/projetos/{projeto_id}")

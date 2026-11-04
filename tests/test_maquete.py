@@ -45,9 +45,11 @@ def test_fluxo_e_isolamento(ambiente):
     assert p["status"] == "pronto" and p["pisos"] == ["Térreo"]
     assert store.textura(r["id"], "piso_0.jpg").read_bytes() == b"jpg"
 
-    store.salvar(r["id"], {"layout": {"cams": [{"id": 1}]}, "nome": "Prédio A"})
+    store.salvar(r["id"], {"layout": {"cams": [{"id": 1}], "resumo": {"metros": 42.5, "caixas": 2}, "nomes": {"p0": "Garagem"}},
+                           "nome": "Prédio A", "local": "Centro", "observacao": "obra nova"})
     p = store.obter(r["id"])["projeto"]
     assert p["nome"] == "Prédio A" and p["cameras"] == 1
+    assert p["local"] == "Centro" and p["observacao"] == "obra nova" and p["metros"] == 42.5 and p["pisos"] == ["Garagem"]
 
     # outro cliente nao ve, nao salva, nao apaga
     tok = set_current_tenant_slug("cliente-b")
