@@ -43,8 +43,8 @@ E = {
     "sub": ParagraphStyle("s", fontName="Helvetica", fontSize=8.5, leading=11, textColor=MUTED),
     "dir": ParagraphStyle("d", fontName="Helvetica", fontSize=7.8, leading=10, textColor=MUTED, alignment=2),
     "sec": ParagraphStyle("sec", fontName="Helvetica-Bold", fontSize=10.5, leading=13, textColor=TEXT,
-                          spaceBefore=14, spaceAfter=2),
-    "secsub": ParagraphStyle("secsub", fontName="Helvetica", fontSize=7.8, leading=10, textColor=MUTED, spaceAfter=6),
+                          spaceBefore=14, spaceAfter=2, keepWithNext=1),
+    "secsub": ParagraphStyle("secsub", fontName="Helvetica", fontSize=7.8, leading=10, textColor=MUTED, spaceAfter=6, keepWithNext=1),
     "texto": ParagraphStyle("tx", fontName="Helvetica", fontSize=9, leading=13, textColor=TEXT),
     "cel": ParagraphStyle("cel", fontName="Helvetica", fontSize=8, leading=10.4, textColor=TEXT),
     "celind": ParagraphStyle("celind", fontName="Helvetica", fontSize=8, leading=10.4, textColor=TEXT, leftIndent=8),
@@ -225,8 +225,9 @@ def _bloco_orcamento(orc: Dict[str, Any], numero: str = "") -> List[Any]:
     if o["sem_preco"]:
         h.append(Paragraph(_t(f"{o['sem_preco']} item(ns) sem preço, marcados \"a definir\", não entram no total."), E["nota"]))
     if o["condicoes"]:
-        h += [Spacer(1, 6), Paragraph("<b>Condições</b>", E["texto"])]
-        h += [Paragraph(_t(ln, 500) or "&nbsp;", E["texto"]) for ln in o["condicoes"].splitlines()[:40]]
+        cond = [Spacer(1, 6), Paragraph("<b>Condições</b>", E["texto"])]
+        cond += [Paragraph(_t(ln, 500) or "&nbsp;", E["texto"]) for ln in o["condicoes"].splitlines()[:40]]
+        h.append(KeepTogether(cond))
     return h
 
 
@@ -383,6 +384,26 @@ def _mapa_portas(rack: List[Dict[str, Any]]) -> List[Any]:
     return out
 
 
+def _titulos_presos(h: List[Any]) -> List[Any]:
+    """Título de seção (e subtítulo) vai sempre junto com o primeiro bloco que vem depois."""
+    out: List[Any] = []
+    i = 0
+    while i < len(h):
+        x = h[i]
+        if isinstance(x, Paragraph) and x.style.name == "sec":
+            grupo = [x]
+            i += 1
+            while i < len(h) and isinstance(h[i], Paragraph) and h[i].style.name == "secsub":
+                grupo.append(h[i]); i += 1
+            if i < len(h):
+                grupo.append(h[i]); i += 1
+            out.append(KeepTogether(grupo))
+            continue
+        out.append(x)
+        i += 1
+    return out
+
+
 def _com_assinatura(h: List[Any], rotulo: str) -> List[Any]:
     """Fecha o PDF com a assinatura, compacta e nunca sozinha numa folha:
     se não couber, as últimas linhas antes dela vão junto para a próxima."""
@@ -390,9 +411,12 @@ def _com_assinatura(h: List[Any], rotulo: str) -> List[Any]:
                   rowHeights=[10 * mm, None])
     linha.setStyle(TableStyle([("LINEBELOW", (0, 0), (0, 0), 0.7, TEXT), ("LEFTPADDING", (0, 0), (-1, -1), 0),
                                ("TOPPADDING", (0, 0), (-1, -1), 0), ("BOTTOMPADDING", (0, 0), (-1, -1), 0)]))
-    k = 0
-    while k < min(3, len(h)) and isinstance(h[-1 - k], Paragraph):
-        k += 1
+    if h and isinstance(h[-1], KeepTogether):      # bloco de condições inteiro vai junto
+        return h[:-1] + [KeepTogether(list(h[-1]._content) + [Spacer(1, 6), linha])]
+    else:
+        k = 0
+        while k < min(3, len(h)) and isinstance(h[-1 - k], Paragraph):
+            k += 1
     cauda = h[len(h) - k:] if k else []
     return h[:len(h) - k] + [KeepTogether(cauda + [Spacer(1, 6), linha])]
 
@@ -449,9 +473,19 @@ def _relatorio(projeto: Dict[str, Any], dados: Dict[str, Any], usuario: str, log
     if projeto.get("observacao"):
         h += [Spacer(1, 8), Paragraph("<b>Observação:</b> " + _t(projeto["observacao"], 1000), E["texto"])]
     n = 1
+    cams = [c for c in (dados.get("cameras") or []) if isinstance(c, dict)]
+    h += _secao(f"{n}  Câmeras", "Identifica rosto ≈ 250 px/m; reconhece pessoa ≈ 125 px/m (valores de catálogo).")
+    if cams:
+        larg = [LARGURA * x for x in (0.06, 0.25, 0.12, 0.2, 0.07, 0.09, 0.09, 0.12)]
+        h.append(_tabela(["Cabo", "Câmera", "Pavimento", "Modelo", "Abert.", "Rosto até", "Situação", "Porta"],
+                         [[c.get("cabo"), c.get("nome"), c.get("piso"), c.get("modelo"), c.get("abertura"),
+                           c.get("ident"), c.get("situacao"), c.get("porta")] for c in cams], larg, numericas=(4, 5)))
+    else:
+        h.append(Paragraph("Nenhuma câmera posicionada.", E["nota"]))
+    n += 1
     plantas = [i for i in imgs if i.get("tipo") in ("planta", None, "")]
     if plantas:
-        h += [CondPageBreak(75 * mm)] + _secao(f"{n}  Pavimentos vistos de cima",
+        h += _secao(f"{n}  Pavimentos vistos de cima",
                                                "Câmeras com o campo de visão e o caminho dos cabos; a cor mostra a situação no momento da emissão.")
         for im in plantas:
             img = _imagem(im.get("jpg") or "", LARGURA, 100 * mm)
@@ -460,7 +494,7 @@ def _relatorio(projeto: Dict[str, Any], dados: Dict[str, Any], usuario: str, log
         n += 1
     povs = [i for i in imgs if i.get("tipo") == "pov"]
     if povs:
-        h += [CondPageBreak(80 * mm)] + _secao(f"{n}  Área coberta por cada câmera", "Campo de visão calculado pela posição, direção e lente de cada câmera na maquete.")
+        h += _secao(f"{n}  Área coberta por cada câmera", "Campo de visão calculado pela posição, direção e lente de cada câmera na maquete.")
         col = 3
         larg = (LARGURA - (col - 1) * 4 * mm) / col
         celulas = []
@@ -473,18 +507,8 @@ def _relatorio(projeto: Dict[str, Any], dados: Dict[str, Any], usuario: str, log
                                    ("RIGHTPADDING", (0, 0), (-1, -1), 4 * mm), ("BOTTOMPADDING", (0, 0), (-1, -1), 8)]))
         h.append(grade)
         n += 1
-    cams = [c for c in (dados.get("cameras") or []) if isinstance(c, dict)]
-    h += [CondPageBreak(50 * mm)] + _secao(f"{n}  Câmeras", "Identifica rosto ≈ 250 px/m; reconhece pessoa ≈ 125 px/m (valores de catálogo).")
     if cams:
-        larg = [LARGURA * x for x in (0.06, 0.25, 0.12, 0.2, 0.07, 0.09, 0.09, 0.12)]
-        h.append(_tabela(["Cabo", "Câmera", "Pavimento", "Modelo", "Abert.", "Rosto até", "Situação", "Porta"],
-                         [[c.get("cabo"), c.get("nome"), c.get("piso"), c.get("modelo"), c.get("abertura"),
-                           c.get("ident"), c.get("situacao"), c.get("porta")] for c in cams], larg, numericas=(4, 5)))
-    else:
-        h.append(Paragraph("Nenhuma câmera posicionada.", E["nota"]))
-    n += 1
-    if cams:
-        h += [CondPageBreak(50 * mm)] + _secao(f"{n}  Cabos", "Medido pelo caminho da eletrocalha, com 3 m de folga no rack e 0,5 m na câmera.")
+        h += _secao(f"{n}  Cabos", "Medido pelo caminho da eletrocalha, com 3 m de folga no rack e 0,5 m na câmera.")
         larg = [LARGURA * x for x in (0.07, 0.3, 0.5, 0.13)]
         linhas = [[c.get("cabo"), c.get("nome"), c.get("via") or "direto no rack", _num(c.get("metros"), 1)] for c in cams]
         linhas.append([_c("", "celb"), _c("Total", "celb"), _c(f"Com 10% de perda: {_num(r.get('metros10'), 0)} m", "cel"),
@@ -493,7 +517,7 @@ def _relatorio(projeto: Dict[str, Any], dados: Dict[str, Any], usuario: str, log
         n += 1
     rack = [x for x in (dados.get("rack") or []) if isinstance(x, dict)][:80]
     if rack:
-        h += [CondPageBreak(60 * mm)] + _secao(f"{n}  Rack · {r.get('rack') or ''}", f"{r.get('rackUsado') or ''} · PoE {r.get('poe') or '—'}")
+        h += _secao(f"{n}  Rack · {r.get('rack') or ''}", f"{r.get('rackUsado') or ''} · PoE {r.get('poe') or '—'}")
         vista = _vista_rack(r.get("rackU"), rack, LARGURA * 0.56)
         if vista:
             lado = _tabela(["Posição", "Equipamento", "Uso"], [[x.get("u"), x.get("curto") or x.get("nome"), x.get("uso") or ""] for x in rack],
@@ -508,6 +532,6 @@ def _relatorio(projeto: Dict[str, Any], dados: Dict[str, Any], usuario: str, log
                              [LARGURA * 0.14, LARGURA * 0.56, LARGURA * 0.3]))
         n += 1
     if dados.get("incluirOrcamento") and dados.get("orcamento"):
-        h += [CondPageBreak(70 * mm)] + _bloco_orcamento(dados["orcamento"], f"{n}  ")
-    h = _com_assinatura(h, "Responsável técnico")
+        h += [CondPageBreak(35 * mm)] + _bloco_orcamento(dados["orcamento"], f"{n}  ")
+    h = _com_assinatura(_titulos_presos(h), "Responsável técnico")
     return h
