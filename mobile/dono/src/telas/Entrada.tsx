@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { entrar } from '../lib/api';
 
-export const VERSAO = '1.0.0';
+export const VERSAO = '1.0.1';
 
 export function Logo({ tamanho = 72 }: { tamanho?: number }) {
   return (

@@ -2,7 +2,7 @@
   "appId": "br.com.easytecnologias.sightops.pdv",
   "appName": "SightOps PDV",
   "webDir": "dist",
-  "android": { "allowMixedContent": false },
+  "android": { "allowMixedContent": false, "adjustMarginsForEdgeToEdge": "force" },
   "server": { "androidScheme": "https" },
   "plugins": {
     "CapacitorHttp": { "enabled": true }

@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   diaRotulo, hm, moeda, num, SEM_LOJA, useCaixas, useCupons, useEventos, useFiltro, useResumo, type Cupom,
 } from '../lib/pdv';
@@ -12,7 +12,7 @@ const ABAS: [string, string][] = [
 ];
 const EV: Record<string, string> = { sangrias: 'SGR', gaveta: 'GAV', semcad: 'ITEMSEMCAD' };
 
-type LinhaV = { chave: string; caixaId: string; html: JSX.Element; valor: number };
+type LinhaV = { chave: string; caixaId: string; cupom: string; html: JSX.Element; valor: number };
 
 export function Conferir() {
   const [qs, setQs] = useSearchParams();
@@ -20,6 +20,8 @@ export function Conferir() {
   const { dia, loja } = useFiltro();
   const [pdv, setPdv] = useState('');
   const [folhaLoja, setFolhaLoja] = useState(false);
+  const [numero, setNumero] = useState('');
+  const ir = useNavigate();
   const caixas = useCaixas();
   const cupons = useCupons(dia);
   const resumo = useResumo(dia, loja);
@@ -36,7 +38,7 @@ export function Conferir() {
   if (aba === 'cancelados' || aba === 'cupons_cancelados') {
     const f = aba === 'cancelados' ? (k: Cupom) => k.itens_cancelados > 0 : (k: Cupom) => k.situacao === 'cancelado';
     linhas = (cupons.data || []).filter(f).map((k) => ({
-      chave: `${k.caixa_id}|${k.cupom}`, caixaId: k.caixa_id, valor: 0,
+      chave: `${k.caixa_id}|${k.cupom}`, caixaId: k.caixa_id, cupom: k.cupom, valor: 0,
       html: <LinhaCupom key={`${k.caixa_id}|${k.cupom}`} k={k} tipo={aba === 'cancelados' ? 'CIT' : 'CCV'}
         txt={aba === 'cancelados' ? `${k.itens_cancelados} ${k.itens_cancelados === 1 ? 'item cancelado' : 'itens cancelados'}` : `${k.itens} itens`} />,
     }));
@@ -55,7 +57,7 @@ export function Conferir() {
     linhas = [...grupos.entries()].map(([ch, g]) => {
       const k = porChave.get(ch);
       if (!k) return null;
-      return { chave: ch, caixaId: k.caixa_id, valor: g.v,
+      return { chave: ch, caixaId: k.caixa_id, cupom: k.cupom, valor: g.v,
         html: <LinhaCupom key={ch} k={k} tipo={g.tipo} valor={`− ${moeda(g.v)}`}
           txt={`${g.n} ${g.n === 1 ? 'desconto' : 'descontos'}${g.prods.length ? ` · ${g.prods.slice(0, 2).join(', ')}` : ' no subtotal'}`} /> };
     }).filter(Boolean) as LinhaV[];
@@ -67,9 +69,9 @@ export function Conferir() {
       const rot = `${nome}${e.codigo && evTipo === 'ITEMSEMCAD' ? ` · ${e.codigo}` : ''}`;
       const k = e.cupom ? porChave.get(`${e.caixa_id}|${e.cupom}`) : undefined;
       const ch = `${e.caixa_id}|${e.ts}`;
-      if (k) return { chave: ch, caixaId: e.caixa_id, valor: e.valor_centavos, html: <LinhaCupom key={ch} k={k} ts={e.ts} txt={rot} valor={e.valor_centavos ? moeda(e.valor_centavos) : ''} /> };
+      if (k) return { chave: ch, caixaId: e.caixa_id, cupom: e.cupom, valor: e.valor_centavos, html: <LinhaCupom key={ch} k={k} ts={e.ts} txt={rot} valor={e.valor_centavos ? moeda(e.valor_centavos) : ''} /> };
       const op = e.operador && e.operador !== '?' ? e.operador : '';
-      return { chave: ch, caixaId: e.caixa_id, valor: e.valor_centavos,
+      return { chave: ch, caixaId: e.caixa_id, cupom: e.cupom || '', valor: e.valor_centavos,
         html: (
           <Link key={ch} to={`/momento/${encodeURIComponent(e.caixa_id)}?ts=${encodeURIComponent(e.ts)}&rot=${encodeURIComponent(`${rot}${e.valor_centavos ? ` · ${moeda(e.valor_centavos)}` : ''}`)}`} className="linha">
             <span className="hora">{hm(e.ts)}</span>
@@ -80,7 +82,9 @@ export function Conferir() {
         ) };
     });
   }
-  linhas = linhas.filter((l) => daLoja.has(l.caixaId) && (!pdv || l.caixaId === pdv));
+  const nBusca = numero.trim().replace(/^0+/, '');
+  linhas = linhas.filter((l) => daLoja.has(l.caixaId) && (!pdv || l.caixaId === pdv)
+    && (!nBusca || l.cupom.replace(/^0+/, '').includes(nBusca)));
   const soma = linhas.reduce((t, l) => t + l.valor, 0);
 
   return (
@@ -96,6 +100,11 @@ export function Conferir() {
           ))}
         </div>
       </section>
+      <form className="busca-num" role="search" onSubmit={(ev) => { ev.preventDefault(); if (numero.trim()) ir(`/busca/${encodeURIComponent(numero.trim())}`); }}>
+        <label>{Icone.busca}<input type="search" inputMode="numeric" placeholder="Nº do cupom" aria-label="Número do cupom"
+          value={numero} onChange={(e) => setNumero(e.target.value)} /></label>
+        <button type="submit">Abrir</button>
+      </form>
       <div className="filtros">
         <button type="button" className="chip" onClick={() => setFolhaLoja(true)}>{Icone.loja}{loja || 'Todas as lojas'}{Icone.baixo}</button>
         <label className="chip">
@@ -108,6 +117,8 @@ export function Conferir() {
       </div>
       <div className="pagina lista-cheia">
         {carregando ? <Carregando /> : erro ? <Erro erro={erro} /> : linhas.length ? <div className="cartao lista">{linhas.map((l) => l.html)}</div>
+          : nBusca ? <div className="col" style={{ alignItems: 'center', gap: 10 }}><Vazio texto={`O cupom ${numero.trim()} não está nesta lista.`} />
+              <button type="button" className="btn2" onClick={() => ir(`/busca/${encodeURIComponent(numero.trim())}`)}>{Icone.busca} Procurar em todos os cupons do dia</button></div>
           : <Vazio texto="Nada aqui neste dia." />}
       </div>
       {folhaLoja ? <EscolherLoja aoFechar={() => setFolhaLoja(false)} /> : null}

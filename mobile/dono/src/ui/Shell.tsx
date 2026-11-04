@@ -9,8 +9,8 @@ export function Shell({ children }: { children: ReactNode }) {
   const cls = ({ isActive }: { isActive: boolean }) => (isActive ? 'ativo' : '');
   return (
     <div className="app">
-      {!online ? <div className="sem-sinal">Sem sinal: mostrando o que já foi carregado.</div> : null}
       <main className="conteudo">{children}</main>
+      {!online ? <div className="sem-sinal">Sem sinal: mostrando o que já foi carregado.</div> : null}
       <nav className="barra-baixo" aria-label="Menu">
         <NavLink to="/" end className={cls}>{Icone.casa}Início</NavLink>
         <NavLink to="/vivo" className={cls}>{Icone.video}Ao vivo</NavLink>

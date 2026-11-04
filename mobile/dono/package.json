@@ -1,7 +1,7 @@
 {
   "name": "sightops-pdv",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.0.1",
   "type": "module",
   "description": "SightOps PDV -- app do dono: vendas do dia, conferir cancelamentos e descontos com o video, rankings e caixas ao vivo",
   "scripts": {
