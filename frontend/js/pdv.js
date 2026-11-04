@@ -1055,6 +1055,7 @@ async function pdvRepTocar(ts) {
   if (!a || !_pdvRep) return;
   const token = ++_pdvRep.token;
   _pdvRep.inicio = null; _pdvRep.tocado = 0; _pdvRep.ultimo = null; _pdvRep.ate = pdvTsMs(ts) - 15000;
+  _pdvRep.atual = null;
   pdvRepPintar();
   document.getElementById('pdvLatAgora').innerHTML = `
     <strong>Cupom ${esc(a.k.cupom)} · ${esc(a.caixaNome)} · ${esc(a.k.operador || '')}</strong>
@@ -1079,30 +1080,44 @@ async function pdvRepTocar(ts) {
 function pdvRepPintar() {
   const lista = document.getElementById('pdvRepLista');
   if (!lista || !_pdvRep) return;
-  const agora = _pdvRep.inicio !== null ? _pdvRep.inicio + _pdvRep.tocado * 1000 : _pdvRep.ate;
-  const vistas = _pdvRep.tudo ? _pdvRep.linhas : _pdvRep.linhas.filter(l => pdvTsMs(l.ts) <= agora);
+  const tocando = _pdvRep.inicio !== null;
+  const agora = tocando ? _pdvRep.inicio + _pdvRep.tocado * 1000 : _pdvRep.ate;
+  // linha atual = o ultimo acontecimento ate o momento do video (fica verde)
+  let iAtual = -1;
+  _pdvRep.linhas.forEach((l, i) => { if (pdvTsMs(l.ts) <= agora) iAtual = i; });
+  const vistas = _pdvRep.tudo ? _pdvRep.linhas : _pdvRep.linhas.slice(0, iAtual + 1);
   const relogio = document.getElementById('pdvRepRelogio');
-  if (relogio && _pdvRep.inicio !== null) relogio.textContent = new Date(agora).toTimeString().slice(0, 8);
-  if (lista.childElementCount === vistas.length && !_pdvRep.tudo) return;
-  const ultimoTs = vistas.length ? vistas[vistas.length - 1].ts : '';
-  lista.innerHTML = vistas.map(l => `
-    <button type="button" class="pdv-rep-linha pdv-rep-${l.tipo} ${l.ts === ultimoTs && !_pdvRep.tudo ? 'nova' : ''}" data-pdv-rep="${esc(l.ts)}">
-      <span class="pdv-hora">${esc(pdvHora(l.ts))}</span>
-      <span class="pdv-rep-txt">${esc(l.txt)}${l.sub ? ` <small>${esc(l.sub)}</small>` : ''}</span>
-      ${l.valor ? `<span class="pdv-valor">${l.valor < 0 ? '− ' : ''}${esc(pdvMoeda(Math.abs(l.valor)))}</span>` : ''}
-    </button>`).join('') || '<p class="pdv-nota">Aguardando o vídeo chegar à abertura do cupom...</p>';
-  const itens = vistas.filter(l => l.tipo === 'VIT');
+  if (relogio && tocando) relogio.textContent = new Date(agora).toTimeString().slice(0, 8);
+  const modo = `${_pdvRep.tudo}|${vistas.length}`;
+  if (_pdvRep.pintado !== modo) {
+    _pdvRep.pintado = modo;
+    lista.innerHTML = vistas.map(l => `
+      <button type="button" class="pdv-rep-linha pdv-rep-${l.tipo}" data-pdv-rep="${esc(l.ts)}">
+        <span class="pdv-hora">${esc(pdvHora(l.ts))}</span>
+        <span class="pdv-rep-txt">${esc(l.txt)}${l.sub ? ` <small>${esc(l.sub)}</small>` : ''}</span>
+        ${l.valor ? `<span class="pdv-valor">${l.valor < 0 ? '− ' : ''}${esc(pdvMoeda(Math.abs(l.valor)))}</span>` : ''}
+      </button>`).join('') || '<p class="pdv-nota">Aguardando o vídeo chegar à abertura do cupom...</p>';
+    _pdvRep.atual = null;
+  }
+  // pinta de verde o que esta passando agora e mantem a linha a vista
+  if (_pdvRep.atual !== iAtual) {
+    _pdvRep.atual = iAtual;
+    const filhos = lista.querySelectorAll('.pdv-rep-linha');
+    filhos.forEach((b, i) => b.classList.toggle('atual', tocando && i === iAtual));
+    const el = tocando && iAtual >= 0 ? filhos[iAtual] : null;
+    if (el) el.scrollIntoView({ block: _pdvRep.tudo ? 'center' : 'end', behavior: 'smooth' });
+  }
+  // conta e total do que ja passou no video (ou do cupom todo, antes do video comecar)
+  const passadas = tocando ? _pdvRep.linhas.slice(0, iAtual + 1) : vistas;
+  const itens = passadas.filter(l => l.tipo === 'VIT');
   const k = _pdvLat.atual?.k;
-  const fechou = vistas.some(l => ['FECHACUPOM', 'CCV'].includes(l.tipo)) || _pdvRep.tudo;
-  const soma = vistas.reduce((t, l) => t + l.valor, 0);
+  const fechou = passadas.some(l => ['FECHACUPOM', 'CCV'].includes(l.tipo)) || (_pdvRep.tudo && !tocando);
+  const soma = passadas.reduce((t, l) => t + l.valor, 0);
   const dif = fechou && k && k.situacao === 'fechado' ? soma - Number(k.total_centavos || 0) : 0;
   document.getElementById('pdvRepConta').textContent = `${itens.length} de ${_pdvRep.linhas.filter(l => l.tipo === 'VIT').length} itens passados`
     + (fechou && k ? ` · total do cupom${dif ? ` (${pdvMoeda(Math.abs(dif))} de ${dif > 0 ? 'desconto' : 'acréscimo'} sem registro no PDV)` : ''}`
       : ' · já com descontos e cancelamentos');
   document.getElementById('pdvRepTotal').textContent = pdvMoeda(fechou && k && k.situacao === 'fechado' ? k.total_centavos : soma);
-  // acompanha descendo
-  const corpo = document.getElementById('pdvLateralCorpo');
-  if (!_pdvRep.tudo) corpo.scrollTop = corpo.scrollHeight;
 }
 
 function pdvLatSairInteiro() {

@@ -14040,7 +14040,8 @@ button.rk-chip { cursor: pointer; }
 .pdv-rep-lista { display: flex; flex-direction: column; padding: 4px 20px; min-height: 120px; }
 .pdv-rep-linha { display: flex; align-items: center; gap: 10px; width: 100%; border: 0; border-bottom: 1px solid #eef1f3; background: none; padding: 8px 4px; font: inherit; font-size: 13px; color: var(--text); text-align: left; cursor: pointer; }
 .pdv-rep-linha:hover { background: var(--surface); }
-.pdv-rep-linha.nova { animation: pdvEntra 2.5s ease-out; }
+.pdv-rep-linha.atual { background: #12b886 !important; color: #ffffff !important; font-weight: 600; box-shadow: 0 0 0 2px #12b886; border-radius: 4px; }
+.pdv-rep-linha.atual small, .pdv-rep-linha.atual .pdv-hora { color: #e6fcf5 !important; }
 .pdv-rep-txt { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .pdv-rep-txt small { color: var(--muted); font-size: 11px; }
 .pdv-rep-CIT, .pdv-rep-CCV, .pdv-rep-CCG { background: var(--danger-soft); color: var(--danger); }
