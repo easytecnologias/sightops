@@ -31,8 +31,8 @@ LINHA = colors.HexColor("#d5dce0")
 SUAVE = colors.HexColor("#f3f5f7")
 VERDE = colors.HexColor("#087f5b")
 
-MAX_IMAGENS = 8
-MAX_IMAGEM = 3 * 1024 * 1024
+MAX_IMAGENS = 40          # capa + 1 por pavimento + 1 por câmera
+MAX_IMAGEM = 4 * 1024 * 1024
 MAX_LINHAS = 600
 
 E = {
@@ -265,6 +265,12 @@ def _relatorio(projeto: Dict[str, Any], dados: Dict[str, Any], usuario: str, log
     nome = projeto.get("nome") or "Projeto"
     r = dados.get("resumo") or {}
     h: List[Any] = [_cabecalho("PROJETO DE CFTV · MAQUETE 3D", nome, _sub_projeto(projeto), usuario, logo)]
+    imgs = [i for i in (dados.get("imagens") or [])[:MAX_IMAGENS] if isinstance(i, dict)]
+    capa = next((i for i in imgs if i.get("tipo") == "capa"), None)
+    if capa:
+        img = _imagem(capa.get("jpg") or "", LARGURA, 128 * mm)
+        if img:
+            h += [Spacer(1, 8), img]
     h += [Spacer(1, 10), _kpis([
         ("CÂMERAS", _num(r.get("cameras"), 0), f"{_num(r.get('online'), 0)} online · {_num(r.get('projeto'), 0)} de projeto"),
         ("CABO UTP " + str(r.get("categoria") or ""), _num(r.get("metros"), 0) + " m",
@@ -275,13 +281,29 @@ def _relatorio(projeto: Dict[str, Any], dados: Dict[str, Any], usuario: str, log
     if projeto.get("observacao"):
         h += [Spacer(1, 8), Paragraph("<b>Observação:</b> " + _t(projeto["observacao"], 1000), E["texto"])]
     n = 1
-    imgs = [i for i in (dados.get("imagens") or [])[:MAX_IMAGENS] if isinstance(i, dict)]
-    if imgs:
-        h += [CondPageBreak(90 * mm)] + _secao(f"{n}  Vistas da maquete", "Câmeras com o campo de visão; a cor mostra a situação no momento da emissão.")
-        for i, im in enumerate(imgs):
-            img = _imagem(im.get("jpg") or "", LARGURA, 118 * mm if i == 0 else 105 * mm)
+    plantas = [i for i in imgs if i.get("tipo") in ("planta", None, "")]
+    if plantas:
+        h += [CondPageBreak(75 * mm)] + _secao(f"{n}  Pavimentos vistos de cima",
+                                               "Câmeras com o campo de visão e o caminho dos cabos; a cor mostra a situação no momento da emissão.")
+        for im in plantas:
+            img = _imagem(im.get("jpg") or "", LARGURA, 100 * mm)
             if img:
                 h.append(KeepTogether([img, Paragraph(_t(im.get("titulo") or ""), E["legenda"]), Spacer(1, 8)]))
+        n += 1
+    povs = [i for i in imgs if i.get("tipo") == "pov"]
+    if povs:
+        h += [CondPageBreak(80 * mm)] + _secao(f"{n}  Área coberta por cada câmera", "Campo de visão calculado pela posição, direção e lente de cada câmera na maquete.")
+        col = 3
+        larg = (LARGURA - (col - 1) * 4 * mm) / col
+        celulas = []
+        for im in povs:
+            img = _imagem(im.get("jpg") or "", larg, larg * 0.625)
+            celulas.append([img, Paragraph(_t(im.get("titulo") or "", 120), E["legenda"])] if img else [Paragraph(_t(im.get("titulo") or ""), E["legenda"])])
+        linhas = [celulas[i:i + col] + [""] * (col - len(celulas[i:i + col])) for i in range(0, len(celulas), col)]
+        grade = Table(linhas, colWidths=[larg + 4 * mm] * (col - 1) + [larg])
+        grade.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP"), ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                                   ("RIGHTPADDING", (0, 0), (-1, -1), 4 * mm), ("BOTTOMPADDING", (0, 0), (-1, -1), 8)]))
+        h.append(grade)
         n += 1
     cams = [c for c in (dados.get("cameras") or []) if isinstance(c, dict)]
     h += [CondPageBreak(50 * mm)] + _secao(f"{n}  Câmeras", "Identifica rosto ≈ 250 px/m; reconhece pessoa ≈ 125 px/m (valores de catálogo).")
