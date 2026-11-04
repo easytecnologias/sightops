@@ -1637,46 +1637,301 @@
   // ======================================================================
   // PDF (relatório da maquete ou orçamento)
   // ======================================================================
-  function capturar() {
-    // tira fotos do 3D: vista geral + vista de cima de cada pavimento
-    const { renderer, camera, controls } = R3;
-    const salvo = { pos: camera.position.clone(), alvo: controls.target.clone(), fov: camera.fov, aspect: camera.aspect, vis: PISOS.map(p => grupos[p.id].visible) };
-    const W0 = 1600, H0 = 1000;
-    renderer.setSize(W0, H0, false); camera.aspect = W0 / H0;
-    const fotos = [];
-    const foto = (titulo, rotulosDoPiso) => {
-      camera.updateProjectionMatrix(); camera.lookAt(controls.target);
-      renderer.render(R3.scene, camera);
-      const cv = document.createElement('canvas'); cv.width = W0; cv.height = H0;
-      const g = cv.getContext('2d'); g.drawImage(renderer.domElement, 0, 0, W0, H0);
-      g.font = '600 22px Inter, Arial, sans-serif'; g.textBaseline = 'middle';
-      const v3 = new THREE.Vector3();
-      labels.filter(lb => !lb.apto && !lb.calha && (!rotulosDoPiso || lb.piso === rotulosDoPiso) && grupos[lb.piso] && grupos[lb.piso].visible).forEach(lb => {
-        v3.copy(lb.pos).project(camera); if (v3.z > 1 || Math.abs(v3.x) > 1 || Math.abs(v3.y) > 1) return;
-        const x = (v3.x + 1) / 2 * W0, y = (1 - v3.y) / 2 * H0 - 18, txt = lb.txt, w = g.measureText(txt).width + (lb.dot ? 40 : 20);
-        g.fillStyle = 'rgba(255,255,255,0.95)'; g.strokeStyle = '#c9d1d6'; g.lineWidth = 2;
-        g.beginPath(); g.rect(x - w / 2, y - 16, w, 32); g.fill(); g.stroke();
-        if (lb.dot) { g.fillStyle = { 'mq-d-on': '#087f5b', 'mq-d-off': '#c92a2a', 'mq-d-new': '#1971c2' }[lb.dot] || '#66747e'; g.beginPath(); g.arc(x - w / 2 + 16, y, 6, 0, Math.PI * 2); g.fill(); }
-        g.fillStyle = '#172026'; g.fillText(txt, x - w / 2 + (lb.dot ? 30 : 10), y);
-      });
-      fotos.push({ titulo, jpg: cv.toDataURL('image/jpeg', 0.82).split(',')[1] });
+  // ======================================================================
+  // IMAGENS DO RELATÓRIO (modo apresentação)
+  // Cena própria, montada a partir da maquete: luz de estúdio, sombra suave,
+  // contorno arquitetônico nas paredes, campo de visão em degradê, cabos
+  // acesos. Renderiza em 2x e reduz (sem serrilhado). Não mexe na cena do
+  // editor, só lê dela (pisos, câmeras, caminhos já calculados).
+  // ======================================================================
+  const CORES_ST = { on: 0x0ca678, off: 0xe03131, unk: 0x868e96, new: 0x1c7ed6 };
+  const CSS_ST = { on: '#0ca678', off: '#e03131', unk: '#868e96', new: '#1c7ed6' };
+
+  let _gradRadial = null;
+  function gradRadial() {
+    if (_gradRadial) return _gradRadial;
+    const cv = document.createElement('canvas'); cv.width = cv.height = 256;
+    const g = cv.getContext('2d'), gr = g.createRadialGradient(128, 128, 0, 128, 128, 128);
+    gr.addColorStop(0, '#ffffff'); gr.addColorStop(0.55, '#8a8a8a'); gr.addColorStop(1, '#262626');
+    g.fillStyle = gr; g.fillRect(0, 0, 256, 256);
+    return (_gradRadial = new THREE.CanvasTexture(cv));
+  }
+  function matLeque(cor, forca, corte) {
+    return new THREE.MeshBasicMaterial({ color: cor, alphaMap: gradRadial(), transparent: true, opacity: forca, depthWrite: false,
+      side: THREE.DoubleSide, clippingPlanes: corte });
+  }
+
+  function cenaApresentacao(opts) {
+    opts = opts || {};
+    const sc = new THREE.Scene();
+    // planos do contorno do prédio: o campo de visão não vaza para fora
+    const mg = 5, corte = [   // até 5 m para fora: câmera de rua mostra a calçada
+      new THREE.Plane(V(1, 0, 0), -(OX - mg)), new THREE.Plane(V(-1, 0, 0), OX + W + mg),
+      new THREE.Plane(V(0, 0, 1), -(OZ - mg)), new THREE.Plane(V(0, 0, -1), OZ + P + mg)];
+    const gcv = document.createElement('canvas'); gcv.width = 4; gcv.height = 512;
+    const gx = gcv.getContext('2d'), gr = gx.createLinearGradient(0, 0, 0, 512);
+    gr.addColorStop(0, '#cfe0ea'); gr.addColorStop(0.55, '#eef4f7'); gr.addColorStop(1, '#ffffff');
+    gx.fillStyle = gr; gx.fillRect(0, 0, 4, 512);
+    const fundo = new THREE.CanvasTexture(gcv); fundo.encoding = THREE.sRGBEncoding; sc.background = fundo;
+
+    const ext = Math.max(W, P);
+    sc.add(new THREE.HemisphereLight(0xffffff, 0x9aa8b1, opts.teto ? 0.85 : 0.55));
+    if (opts.teto) sc.add(new THREE.AmbientLight(0xffffff, 0.35));
+    const sol = new THREE.DirectionalLight(0xfff1dc, opts.teto ? 0.35 : 1.0);
+    sol.position.set(-ext * 0.9, ext * 1.7, ext * 0.75); sol.castShadow = !opts.teto;
+    sol.shadow.mapSize.set(4096, 4096); sol.shadow.bias = -0.0004; sol.shadow.normalBias = 0.03;
+    Object.assign(sol.shadow.camera, { left: -ext, right: ext, top: ext, bottom: -ext, near: 1, far: ext * 6 });
+    sc.add(sol);
+    const contra = new THREE.DirectionalLight(0xd6e8ff, 0.32); contra.position.set(ext, ext * 0.6, -ext); sc.add(contra);
+
+    const chao = new THREE.Mesh(new THREE.CircleGeometry(ext * 3, 64), new THREE.MeshStandardMaterial({ color: 0xe8edf0, roughness: 1 }));
+    chao.rotation.x = -Math.PI / 2; chao.position.y = -0.03; chao.receiveShadow = true; sc.add(chao);
+
+    const caixa = R3.caixa;
+    const mParede = new THREE.MeshStandardMaterial({ color: 0xe9eef0, roughness: 0.85 });
+    const mTopo = new THREE.MeshStandardMaterial({ color: 0x1d353f, roughness: 0.6 });
+    const mVidro = new THREE.MeshStandardMaterial({ color: 0x8fd0e6, roughness: 0.1, metalness: 0.1, transparent: true, opacity: 0.38, depthWrite: false });
+    const mLaje = new THREE.MeshStandardMaterial({ color: 0xdfe5e8, roughness: 0.9 });
+    const mCalha = new THREE.MeshStandardMaterial({ color: 0xaab4bb, roughness: 0.35, metalness: 0.65 });
+    const inst = (lista, mat, sombra) => {
+      const im = new THREE.InstancedMesh(caixa, mat, Math.max(lista.length, 1)), m = new THREE.Matrix4();
+      lista.forEach((b, i) => { m.compose(V(b[0], b[1], b[2]), new THREE.Quaternion(), V(b[3], b[4], b[5])); im.setMatrixAt(i, m); });
+      im.count = lista.length; im.castShadow = im.receiveShadow = sombra; return im;
     };
-    const d = Math.max(W, P);
-    PISOS.forEach(p => { grupos[p.id].visible = true; }); aplicaVis();
-    camera.fov = 40; controls.target.set(0, 1.5, 0); camera.position.set(-d * 0.55, d * 0.6, d * 0.75);
-    foto('Vista geral da maquete', null);
-    PISOS.forEach(p => {
-      PISOS.forEach(q => { grupos[q.id].visible = q.id === p.id; }); aplicaVis();
-      const y = base(p.id), dd = Math.max(p.largura, p.profundidade);
-      // vista de cima com o prédio "deitado" na folha (lado maior na horizontal)
-      controls.target.set(0, y, 0); camera.up.set(p.profundidade > p.largura ? 1 : 0, p.profundidade > p.largura ? 0 : 0, p.profundidade > p.largura ? 0 : -1);
-      camera.position.set(0, y + dd * 1.05, 0.001);
-      foto('Vista de cima · ' + p.nome, p.id);
-      camera.up.set(0, 1, 0);
+    const grupoCones = new THREE.Group(), grupoCorpo = new THREE.Group(), grupoCabos = new THREE.Group();
+    sc.add(grupoCones, grupoCorpo, grupoCabos);
+
+    PISOS.forEach((p, idx) => {
+      const y0 = base(p.id), Hh = Hp(p.id), g = new THREE.Group(); g.position.y = y0; g.userData.piso = p.id; sc.add(g);
+      // laje com espessura e piso com a planta
+      const laje = new THREE.Mesh(caixa, mLaje); laje.scale.set(p.largura + 0.3, 0.22, p.profundidade + 0.3);
+      laje.position.set(OX + p.largura / 2, -0.11, OZ + p.profundidade / 2); laje.castShadow = laje.receiveShadow = true; g.add(laje);
+      const t = tex[p.id] && tex[p.id].image ? tex[p.id] : null;
+      const piso = new THREE.Mesh(new THREE.PlaneGeometry(p.largura, p.profundidade), new THREE.MeshStandardMaterial({ map: t, color: 0xffffff, roughness: 1 }));
+      piso.rotation.x = -Math.PI / 2; piso.position.set(OX + p.largura / 2, 0.004, OZ + p.profundidade / 2); piso.receiveShadow = true; g.add(piso);
+      const corpo = [], topo = [], vidro = [], arestas = [];
+      const bloco = (b, a0, a1, arr) => arr.push([OX + (b[0] + b[2]) / 2, (a0 + a1) / 2, OZ + (b[1] + b[3]) / 2, b[2] - b[0], a1 - a0, b[3] - b[1]]);
+      const contorno = (b, a1) => {
+        const x0 = OX + b[0], x1 = OX + b[2], z0 = OZ + b[1], z1 = OZ + b[3];
+        arestas.push(x0, a1, z0, x1, a1, z0, x1, a1, z0, x1, a1, z1, x1, a1, z1, x0, a1, z1, x0, a1, z1, x0, a1, z0);
+      };
+      (p.paredes || []).forEach(b => { bloco(b, 0, Hh, corpo); bloco(b, Hh, Hh + 0.015, topo); contorno(b, Hh + 0.016); });
+      (p.vaos || []).forEach(v => {
+        const j = JAN[v[4]] || (/^J\d/.test(v[4]) ? [1.0, 1.4] : null);
+        if (j) {
+          bloco(v, 0, j[0], corpo);
+          const tt = Math.min(v[2] - v[0], v[3] - v[1]);
+          const fino = v[2] - v[0] < v[3] - v[1] ? [v[0] + tt * 0.4, v[1], v[2] - tt * 0.4, v[3]] : [v[0], v[1] + tt * 0.4, v[2], v[3] - tt * 0.4];
+          bloco(fino, j[0], Math.min(j[0] + j[1], Hh - 0.05), vidro);
+          if (j[0] + j[1] < Hh) bloco(v, j[0] + j[1], Hh, corpo);
+        } else if (Hh > 2.1) bloco(v, 2.10, Hh, corpo);
+        bloco(v, Hh, Hh + 0.015, topo);
+      });
+      g.add(inst(corpo, mParede, true), inst(topo, mTopo, false), inst(vidro, mVidro, false));
+      const ag = new THREE.BufferGeometry(); ag.setAttribute('position', new THREE.Float32BufferAttribute(arestas, 3));
+      g.add(new THREE.LineSegments(ag, new THREE.LineBasicMaterial({ color: 0x13252d, transparent: true, opacity: 0.6 })));
+      if (opts.teto) {   // teto para a vista de dentro (câmera)
+        const teto = new THREE.Mesh(caixa, new THREE.MeshStandardMaterial({ color: 0xf1f3f4, roughness: 1, side: THREE.DoubleSide }));
+        teto.scale.set(p.largura, 0.12, p.profundidade); teto.position.set(OX + p.largura / 2, Hh + 0.08, OZ + p.profundidade / 2); g.add(teto);
+      }
     });
-    PISOS.forEach((p, i) => { grupos[p.id].visible = salvo.vis[i]; }); aplicaVis();
-    camera.fov = salvo.fov; camera.position.copy(salvo.pos); controls.target.copy(salvo.alvo); camera.up.set(0, 1, 0);
-    tamanho();
+
+    // eletrocalha, prumada e rack
+    PISOS.forEach(pv => segmentos(pv.id).forEach(s => {
+      const dx = s.B.x - s.A.x, dz = s.B.z - s.A.z, l = Math.hypot(dx, dz); if (l < 0.05) return;
+      const m = new THREE.Mesh(caixa, mCalha); m.scale.set(l, 0.06, 0.2);
+      m.position.set((s.A.x + s.B.x) / 2, s.A.y, (s.A.z + s.B.z) / 2); m.rotation.y = -Math.atan2(dz, dx); m.castShadow = true; m.userData.piso = pv.id; grupoCorpo.add(m);
+    }));
+    L.nodes.forEach(n => {
+      const p = byId(n.pai);
+      if (n.tipo === 'prumada' && p) {
+        const a = trayPt(n, p.piso), b = trayPt(n, n.piso);
+        const m = new THREE.Mesh(caixa, mCalha); m.scale.set(0.2, Math.max(0.05, b.y - a.y), 0.12); m.position.set(a.x, (a.y + b.y) / 2, a.z); m.castShadow = true; m.userData.piso = 'prumada'; grupoCorpo.add(m);
+      } else if (n.tipo === 'caixa') {
+        const m = new THREE.Mesh(caixa, new THREE.MeshStandardMaterial({ color: 0x5b6b73, roughness: 0.5, metalness: 0.3 })); m.scale.set(0.34, 0.16, 0.34); m.position.copy(trayPt(n, n.piso)); m.castShadow = true; m.userData.piso = n.piso; grupoCorpo.add(m);
+      }
+    });
+    {
+      const r = rackNode(), R = rackDim(), o = new THREE.Group();
+      o.position.set(OX + r.x, base(r.piso), OZ + r.y); o.rotation.y = -(L.rack.rot || 0) * Math.PI / 180;
+      const corpo = new THREE.Mesh(caixa, new THREE.MeshStandardMaterial({ color: 0x14232a, roughness: 0.45, metalness: 0.4 }));
+      corpo.scale.set(R.w, R.h, R.d); corpo.position.y = R.base + R.h / 2; corpo.castShadow = true; o.add(corpo);
+      const corT = { patch: 0xe9edf0, switch: 0x3b4f58, router: 0x0e6a7a, nvr: 0x0b1418, dio: 0x5b6b73, band: 0x5b6b73, org: 0x25363e, power: 0x172026, blank: 0x24343c };
+      L.rack.itens.filter(x => IT[x.k] && dentro(x)).forEach(x => {
+        const it = IT[x.k], s = new THREE.Mesh(caixa, new THREE.MeshStandardMaterial({ color: corT[it.t], roughness: 0.5, metalness: 0.2 }));
+        s.scale.set(R.w * 0.84, it.u * 0.0445 * 0.88, 0.02); s.position.set(0, R.base + 0.06 + (x.u - 1 + it.u / 2) * 0.0445, R.d / 2 + 0.011); o.add(s);
+        if (it.portas) { const led = new THREE.Mesh(caixa, new THREE.MeshBasicMaterial({ color: 0x40c057 })); led.scale.set(R.w * 0.55, 0.007, 0.004); led.position.copy(s.position); led.position.z += 0.012; o.add(led); }
+      });
+      o.userData.piso = r.piso; grupoCorpo.add(o);
+    }
+
+    // cabos acesos
+    const mCabo = new THREE.MeshStandardMaterial({ color: 0x0b7285, emissive: 0x15aabf, emissiveIntensity: 0.9, roughness: 0.4 });
+    const mHalo = new THREE.MeshBasicMaterial({ color: 0x66d9e8, transparent: true, opacity: 0.18, depthWrite: false, blending: THREE.AdditiveBlending });
+    ordenadas().forEach(c => {
+      const r = caminhos.get(c.id); if (!r || r.pts.length < 2) return;
+      const path = new THREE.CurvePath(); for (let k = 1; k < r.pts.length; k++) path.add(new THREE.LineCurve3(r.pts[k - 1], r.pts[k]));
+      const seg = Math.max(16, r.pts.length * 10);
+      const t1 = new THREE.Mesh(new THREE.TubeGeometry(path, seg, 0.03, 8, false), mCabo), t2 = new THREE.Mesh(new THREE.TubeGeometry(path, seg, 0.09, 8, false), mHalo);
+      t1.userData.piso = t2.userData.piso = c.piso; grupoCabos.add(t1, t2);
+    });
+
+    // câmeras e campo de visão
+    const branco = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.35, metalness: 0.05 });
+    const lente = new THREE.MeshStandardMaterial({ color: 0x0b1215, roughness: 0.15, metalness: 0.6 });
+    const camsPos = [];
+    L.cams.forEach(c => {
+      const m = MOD[c.mod] || MOD.d2_28, st = stDe(c), cor = CORES_ST[st], y0 = base(c.piso);
+      const o = new THREE.Group(); o.position.set(OX + c.x, y0, OZ + c.y);
+      const cab = new THREE.Group(); cab.rotation.y = -c.dir * Math.PI / 180;
+      let hCam = camAlt(c);
+      if (m.tipo === 'bullet') {
+        const c1 = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.075, 0.36, 24), branco); c1.rotation.z = Math.PI / 2; c1.castShadow = true;
+        const vid = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.055, 0.02, 24), lente); vid.rotation.z = Math.PI / 2; vid.position.x = 0.185;
+        const aba = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.012, 0.17), branco); aba.position.set(0.02, 0.085, 0);
+        const corpo = new THREE.Group(); corpo.add(c1, vid, aba); corpo.rotation.z = -0.28; cab.add(corpo);
+        const braco = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.022, 0.28, 12), branco); braco.position.y = hCam + 0.14; o.add(braco);
+      } else if (m.tipo === 'dome') {
+        hCam = Hp(c.piso) - 0.03;
+        const aro = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.15, 0.05, 32), branco); aro.castShadow = true;
+        const bolha = new THREE.Mesh(new THREE.SphereGeometry(0.11, 32, 16, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2), new THREE.MeshStandardMaterial({ color: 0x1b2a31, roughness: 0.08, metalness: 0.4, transparent: true, opacity: 0.9 }));
+        bolha.position.y = -0.02; cab.add(aro, bolha);
+      } else {
+        hCam = Hp(c.piso) - 0.03;
+        const disco = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.15, 0.05, 32), branco); disco.castShadow = true;
+        const l = new THREE.Mesh(new THREE.CircleGeometry(0.06, 24), lente); l.rotation.x = Math.PI / 2; l.position.y = -0.026; cab.add(disco, l);
+      }
+      const led = new THREE.Mesh(new THREE.SphereGeometry(0.03, 12, 8), new THREE.MeshBasicMaterial({ color: cor })); led.position.set(-0.08, 0.09, 0); cab.add(led);
+      cab.position.y = hCam; o.add(cab); o.userData.piso = c.piso; grupoCorpo.add(o);
+      camsPos.push({ c, pos: V(OX + c.x, y0 + hCam, OZ + c.y), st });
+
+      const f = fovDe(c) * Math.PI / 180, r = alcance(c), full = f >= Math.PI * 1.99;
+      const cone = new THREE.Group(); cone.position.copy(o.position);
+      const leque = new THREE.Mesh(full ? new THREE.CircleGeometry(r, 64) : new THREE.CircleGeometry(r, 48, -f / 2, f), matLeque(cor, 0.42, corte));
+      leque.rotation.x = -Math.PI / 2; leque.scale.y = -1; leque.position.y = 0.02; cone.add(leque);
+      if (!full) {
+        const pts = [V(0, hCam, 0)], fan = [];
+        for (let i = 0; i <= 24; i++) { const t = -f / 2 + f * i / 24; pts.push(V(Math.cos(t) * r, 0.02, Math.sin(t) * r)); }
+        for (let i = 1; i < pts.length - 1; i++) fan.push(...pts[0].toArray(), ...pts[i].toArray(), ...pts[i + 1].toArray());
+        const pg = new THREE.BufferGeometry(); pg.setAttribute('position', new THREE.Float32BufferAttribute(fan, 3));
+        cone.add(new THREE.Mesh(pg, new THREE.MeshBasicMaterial({ color: cor, transparent: true, opacity: 0.05, depthWrite: false, side: THREE.DoubleSide, clippingPlanes: corte })));
+        const borda = []; for (let i = 0; i <= 48; i++) { const t = -f / 2 + f * i / 48; borda.push(V(Math.cos(t) * r, 0.03, Math.sin(t) * r)); }
+        cone.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(borda), new THREE.LineBasicMaterial({ color: cor, transparent: true, opacity: 0.7, clippingPlanes: corte })));
+        cone.add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints([pts[0], pts[1], pts[0], pts[pts.length - 1]]), new THREE.LineBasicMaterial({ color: cor, transparent: true, opacity: 0.4, clippingPlanes: corte })));
+      }
+      cone.rotation.y = full ? 0 : -c.dir * Math.PI / 180;
+      cone.userData.piso = c.piso; cone.userData.cam = c; grupoCones.add(cone);
+    });
+    return { sc, sol, grupoCones, grupoCorpo, grupoCabos, camsPos };
+  }
+
+  function desenharEtiqueta(g, x, y, txt, cor, escala, ocupados) {
+    const s = escala || 1;
+    g.save();
+    g.font = `600 ${Math.round(22 * s)}px Inter, Arial, sans-serif`; g.textBaseline = 'middle';
+    const w = g.measureText(txt).width + (cor ? 44 : 24) * s, hh = 38 * s, bx = x - w / 2;
+    let by = y - 66 * s;
+    if (ocupados) {   // sobe a etiqueta até achar lugar livre (fio fica mais longo)
+      const bate = yy => ocupados.some(o => bx < o[2] && bx + w > o[0] && yy < o[3] && yy + hh > o[1]);
+      let tent = 0; while (bate(by) && tent++ < 6) by -= hh + 6 * s;
+      if (bate(by)) { g.restore(); return; }
+      ocupados.push([bx - 4 * s, by - 4 * s, bx + w + 4 * s, by + hh + 4 * s]);
+    }
+    g.strokeStyle = 'rgba(19,37,45,0.55)'; g.lineWidth = 2 * s; g.beginPath(); g.moveTo(x, y - 6 * s); g.lineTo(x, by + hh); g.stroke();
+    g.fillStyle = cor || '#13252d'; g.beginPath(); g.arc(x, y, 5 * s, 0, Math.PI * 2); g.fill();
+    g.shadowColor = 'rgba(15,30,38,0.22)'; g.shadowBlur = 14 * s; g.shadowOffsetY = 4 * s;
+    g.fillStyle = 'rgba(255,255,255,0.97)';
+    const rr = 10 * s; g.beginPath(); g.moveTo(bx + rr, by); g.arcTo(bx + w, by, bx + w, by + hh, rr); g.arcTo(bx + w, by + hh, bx, by + hh, rr); g.arcTo(bx, by + hh, bx, by, rr); g.arcTo(bx, by, bx + w, by, rr); g.fill();
+    g.shadowColor = 'transparent';
+    if (cor) { g.fillStyle = cor; g.beginPath(); g.arc(bx + 20 * s, by + hh / 2, 7 * s, 0, Math.PI * 2); g.fill(); }
+    g.fillStyle = '#13252d'; g.fillText(txt, bx + (cor ? 34 : 12) * s, by + hh / 2);
+    g.restore();
+  }
+
+  function capturar() {
+    // pavimentos afastados para a capa; cabos recalculados com o afastamento
+    const exp0 = $('mqExp').value, afasta = PISOS.length > 1 ? 3.2 : 0;
+    $('mqExp').value = afasta; reconstruir();
+    const fotos = [];
+    const ren = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+    try {
+      ren.setPixelRatio(1); ren.outputEncoding = THREE.sRGBEncoding;
+      ren.toneMapping = THREE.ACESFilmicToneMapping; ren.toneMappingExposure = 0.92; ren.localClippingEnabled = true;
+      ren.shadowMap.enabled = true; ren.shadowMap.type = THREE.PCFSoftShadowMap;
+      let ap = cenaApresentacao(); const cam = new THREE.PerspectiveCamera(32, 1, 0.05, 1000);
+      const v3 = new THREE.Vector3();
+      const foto = (titulo, tipo, w, hgt, etiquetas, legenda) => {
+        const k = 2; ren.setSize(w * k, hgt * k, false); cam.aspect = w / hgt; cam.updateProjectionMatrix();
+        ren.render(ap.sc, cam);
+        const cv = document.createElement('canvas'); cv.width = w; cv.height = hgt;
+        const g = cv.getContext('2d'); g.imageSmoothingEnabled = true; g.imageSmoothingQuality = 'high';
+        g.drawImage(ren.domElement, 0, 0, w, hgt);
+        const ocupados = [];
+        (etiquetas || []).map(e => { v3.copy(e.pos).project(cam); return { e, x: (v3.x + 1) / 2 * w, y: (1 - v3.y) / 2 * hgt, ok: v3.z < 1 && Math.abs(v3.x) < 0.96 && Math.abs(v3.y) < 0.96 }; })
+          .filter(q => q.ok).sort((a, b) => b.y - a.y)
+          .forEach(q => desenharEtiqueta(g, q.x, q.y, q.e.txt, q.e.cor, Math.max(w / 1600 * 0.85, 0.66), ocupados));
+        if (legenda) {
+          g.font = `600 ${Math.round(20 * w / 1600)}px Inter, Arial, sans-serif`; g.textBaseline = 'middle';
+          let x = 28 * w / 1600; const y = hgt - 30 * w / 1600;
+          [['Online', CSS_ST.on], ['Offline', CSS_ST.off], ['Projeto', CSS_ST.new], ['Cabo UTP', '#15aabf']].forEach(([t, c]) => {
+            g.fillStyle = c; g.beginPath(); g.arc(x + 7, y, 7 * w / 1600, 0, Math.PI * 2); g.fill();
+            g.fillStyle = '#33444c'; g.fillText(t, x + 20 * w / 1600, y); x += g.measureText(t).width + 56 * w / 1600;
+          });
+        }
+        fotos.push({ titulo, tipo, jpg: cv.toDataURL('image/jpeg', 0.9).split(',')[1] });
+      };
+      const nomeCam = c => String(c.nome || '').split(' ')[0] || 'Câmera';
+      const etCams = so => ap.camsPos.filter(x => !so || x.c.piso === so).map(x => ({ pos: x.pos.clone().add(V(0, 0.25, 0)), txt: nomeCam(x.c), cor: CSS_ST[x.st] }));
+      const topoY = base(PISOS[PISOS.length - 1].id) + Hp(PISOS[PISOS.length - 1].id);
+      const ext = Math.max(W, P);
+
+      // 1. capa: prédio inteiro, pavimentos afastados, 3/4
+      cam.fov = 28; cam.up.set(0, 1, 0);
+      const alvo = V(0, topoY * 0.42, 0);
+      cam.position.set(-ext * 0.78, topoY * 0.42 + ext * 0.62, ext * 0.98); cam.lookAt(alvo);
+      const etPisos = PISOS.map(p => ({ pos: V(OX - 0.2, base(p.id) + Hp(p.id) * 0.5, OZ + p.profundidade + 0.2), txt: p.nome.toUpperCase(), cor: null }));
+      foto('Maquete do projeto', 'capa', 1600, 1000, etPisos.concat(etCams()), true);
+
+      // 2. cada pavimento visto de cima (só ele, prédio "deitado" na folha)
+      const soPiso = id => ap.sc.traverse(o => { if (o.userData.piso !== undefined) o.visible = !id || o.userData.piso === id; });
+      PISOS.forEach(p => {
+        soPiso(p.id);
+        const y = base(p.id), deitado = p.profundidade > p.largura;
+        const lado = deitado ? p.profundidade : p.largura, outro = deitado ? p.largura : p.profundidade;
+        cam.fov = 24; const asp = 1600 / 900, vt = Math.tan(cam.fov * Math.PI / 360), ht = vt * asp;
+        const dist = Math.max((lado / 2) / ht, (outro / 2) / vt) * 1.12 + Hp(p.id);
+        cam.up.set(deitado ? 1 : 0, 0, deitado ? 0 : -1);
+        cam.position.set(OX + p.largura / 2 + (deitado ? -dist * 0.18 : 0), y + dist, OZ + p.profundidade / 2 + (deitado ? 0 : dist * 0.18));
+        cam.lookAt(V(OX + p.largura / 2, y, OZ + p.profundidade / 2));
+        foto('Vista de cima · ' + p.nome, 'planta', 1600, 900, etCams(p.id), true);
+      });
+      soPiso(null);
+      cam.up.set(0, 1, 0);
+
+      // 3. área coberta por cada câmera: close de cima e de trás, só o pavimento e o cone dela
+      ap.grupoCabos.visible = false;
+      ordenadas().forEach(c => {
+        const x = ap.camsPos.find(q => q.c === c); if (!x) return;
+        soPiso(c.piso);
+        ap.grupoCones.children.forEach(o => { o.visible = o.userData.cam === c; });
+        const realce = ap.grupoCones.children.find(o => o.userData.cam === c), op0 = [];
+        if (realce) realce.traverse(o => { if (o.material) { op0.push([o.material, o.material.opacity]); o.material.opacity = Math.min(1, o.material.opacity * 1.9); } });
+        const f = fovDe(c), r = Math.max(4, alcance(c)), y = base(c.piso), t = c.dir * Math.PI / 180;
+        const d = f >= 180 ? V(0.7, 0, 0.7) : V(Math.cos(t), 0, Math.sin(t));
+        const centro = V(x.pos.x, y, x.pos.z).add(d.clone().multiplyScalar(f >= 180 ? 0 : r * 0.42));
+        cam.fov = 34; cam.up.set(0, 1, 0);
+        cam.position.copy(centro).add(d.clone().multiplyScalar(-r * 0.6)).add(V(-d.z * r * 0.22, r * 1.55 + Hp(c.piso), d.x * r * 0.22));
+        cam.lookAt(centro);
+        foto(`${c.nome} · ${(MOD[c.mod] || MOD.d2_28).nome}`, 'pov', 800, 500,
+          [{ pos: x.pos.clone().add(V(0, 0.25, 0)), txt: String(c.nome || '').split(' ')[0], cor: CSS_ST[x.st] }], false);
+        op0.forEach(([m, v]) => { m.opacity = v; });
+      });
+      soPiso(null); ap.grupoCones.children.forEach(o => { o.visible = true; }); ap.grupoCabos.visible = true;
+      cam.up.set(0, 1, 0);
+    } finally {
+      ren.dispose(); try { ren.forceContextLoss(); } catch (_) {}
+      $('mqExp').value = exp0; reconstruir();
+    }
     return fotos;
   }
 
