@@ -858,6 +858,7 @@ const PDV_LAT_VAZIA = `<div class="pdv-lat-vazia"><i data-lucide="play-circle"><
 function pdvLateralFechar() {
   const d = document.getElementById('pdvLateral');
   if (!d) return;
+  _pdvRep = null;
   pdvPararGravacao();
   _pdvLat.sel = '';
   _pdvLat.atual = null;
@@ -893,6 +894,11 @@ function pdvLateralCriar() {
     if (ev.key === 'Escape' && document.getElementById('pdvLateral')?.classList.contains('open')) pdvLateralFechar();
   });
   document.getElementById('pdvLateralCorpo').addEventListener('click', ev => {
+    if (ev.target.closest('[data-pdv-inteiro]')) { pdvLatInteiro(); return; }
+    if (ev.target.closest('[data-pdv-sair-inteiro]')) { pdvLatSairInteiro(); return; }
+    if (ev.target.closest('[data-pdv-mostrar-tudo]')) { if (_pdvRep) { _pdvRep.tudo = true; pdvRepPintar(); } return; }
+    const rl = ev.target.closest('[data-pdv-rep]');
+    if (rl && _pdvRep) { pdvRepTocar(rl.dataset.pdvRep); return; }
     const mom = ev.target.closest('[data-pdv-momento]');
     if (mom && _pdvLat.atual) { pdvLatTocar(mom.dataset.pdvMomento, mom.dataset.pdvRotulo || ''); return; }
     const el = ev.target.closest('[data-pdv-abrir]');
@@ -902,6 +908,7 @@ function pdvLateralCriar() {
 
 function pdvLateralAbrir(titulo, sub) {
   pdvLateralCriar();
+  _pdvRep = null;
   pdvPararGravacao();
   _pdvLat.sel = '';
   _pdvLat.atual = null;
@@ -984,13 +991,122 @@ async function pdvLatSelecionar(btn) {
       ${k.fechado_em ? pdvLatMomento(k.fechado_em, k.situacao === 'cancelado' ? 'Cancelamento do cupom' : 'Fechamento e pagamento') : ''}
     </div>
     <p class="pdv-nota">Aberto às ${esc(pdvHora(k.aberto_em))} · ${esc(fim)} · ${esc(k.pagamento || 'sem pagamento')} · ${pdvNum(itens.length)} ${itens.length === 1 ? 'item' : 'itens'} · total ${esc(pdvMoeda(k.total_centavos))}</p>
-    <details class="pdv-lat-sec"><summary>Todos os itens do cupom (${pdvNum(itens.length)})</summary>
-      ${itens.map(i => pdvLatMomento(i.ts, `${i.descricao || i.codigo} · ${(PDV_MODOS[i.modo] || [i.modo])[0]}`, pdvMoeda(i.valor_centavos))).join('')}
-    </details>`;
+    <button type="button" class="primary-action pdv-lat-inteiro" data-pdv-inteiro><i data-lucide="play"></i> Ver o cupom inteiro</button>`;
   lucide.createIcons();
-  _pdvLat.atual = { caixaId, k, caixaNome: r.caixa.nome };
+  _pdvLat.atual = { caixaId, k, caixaNome: r.caixa.nome, r };
   const alvo = foco[0];
   pdvLatTocar(alvo ? alvo.ts : k.aberto_em, alvo ? rot(alvo) : 'Abertura do cupom');
+}
+
+// ---- "Ver o cupom inteiro": some a lista, o video comeca na abertura e os itens
+// vao aparecendo no ritmo do video (relogio do caixa = inicio do video + tempo tocado).
+let _pdvRep = null;
+const PDV_REP_EVENTOS = ['CIT', 'DIT', 'DAS', 'CCV', 'CCG', 'SUP', 'SUPERVISOR', 'GER', 'GAV', 'FIN', 'TRC', 'FECHACUPOM', 'ITEMSEMCAD', 'CLIENTE'];
+
+function pdvTsMs(ts) { return new Date(String(ts).replace(' ', 'T')).getTime(); }
+
+function pdvLatInteiro() {
+  const a = _pdvLat.atual;
+  if (!a) return;
+  const corpo = document.getElementById('pdvLateralCorpo');
+  // guarda a lista para voltar do jeito que estava
+  _pdvRep = { lista: corpo.innerHTML, scroll: corpo.scrollTop, filtros: !document.getElementById('pdvLatFiltros').hidden,
+    linhas: [], tudo: false, inicio: null, tocado: 0, ultimo: null, video: null, token: 0 };
+  const itens = (a.r.itens || []).map(i => ({ ts: i.ts, tipo: 'VIT', txt: i.descricao || i.codigo,
+    sub: (PDV_MODOS[i.modo] || [i.modo])[0], valor: Number(i.valor_centavos || 0) }));
+  const eventos = (a.r.linha_do_tempo || []).filter(e => PDV_REP_EVENTOS.includes(e.tipo))
+    .map(e => {
+      // desconto e cancelamento entram negativos na conta; o resto so aparece na linha
+      const menos = ['CIT', 'DIT', 'DAS'].includes(e.tipo);
+      const nome = PDV_EVENTO_NOME[e.tipo] || e.tipo;
+      const desc = ['CIT', 'DIT'].includes(e.tipo) ? ` · ${e.descricao || e.codigo || ''}` : '';
+      return { ts: e.ts, tipo: e.tipo, txt: menos ? nome + desc : pdvEventoTexto(e), sub: '',
+        valor: menos ? -Math.abs(Number(e.valor_centavos || 0)) : 0 };
+    });
+  _pdvRep.linhas = itens.concat(eventos).sort((x, y) => (x.ts < y.ts ? -1 : x.ts > y.ts ? 1 : 0));
+  document.getElementById('pdvLatFiltros').hidden = true;
+  corpo.innerHTML = `
+    <div class="pdv-rep-topo">
+      <button type="button" class="pdv-l-link" data-pdv-sair-inteiro>‹ Voltar à lista</button>
+      <span class="pdv-l-sub">relógio do caixa <strong id="pdvRepRelogio">--:--:--</strong></span>
+    </div>
+    <div class="pdv-rep-lista" id="pdvRepLista"></div>
+    <div class="pdv-rep-pe2"><button type="button" class="pdv-l-link" data-pdv-mostrar-tudo>Mostrar o cupom todo sem esperar o vídeo</button>
+      <span class="pdv-l-sub">clique numa linha para o vídeo ir até ela</span></div>
+    <div class="pdv-rep-pe">
+      <span id="pdvRepConta"></span><strong id="pdvRepTotal">${pdvMoeda(0)}</strong>
+    </div>`;
+  corpo.scrollTop = 0;
+  pdvRepTocar(a.k.aberto_em);
+}
+
+async function pdvRepTocar(ts) {
+  const a = _pdvLat.atual;
+  if (!a || !_pdvRep) return;
+  const token = ++_pdvRep.token;
+  _pdvRep.inicio = null; _pdvRep.tocado = 0; _pdvRep.ultimo = null; _pdvRep.ate = pdvTsMs(ts) - 15000;
+  pdvRepPintar();
+  document.getElementById('pdvLatAgora').innerHTML = `
+    <strong>Cupom ${esc(a.k.cupom)} · ${esc(a.caixaNome)} · ${esc(a.k.operador || '')}</strong>
+    <span>Vendo: o cupom inteiro, a partir de ${esc(pdvHora(ts))}</span>`;
+  const v = await pdvVerVideo(a.caixaId, ts, document.getElementById('pdvLatTela'));
+  if (!_pdvRep || token !== _pdvRep.token || !v) return;
+  _pdvRep.video = v.video;
+  _pdvRep.inicio = v.inicioCaixa;
+  // conta so o tempo realmente tocado (pausa e travada nao avancam a lista)
+  v.video.addEventListener('timeupdate', () => {
+    if (!_pdvRep || token !== _pdvRep.token) return;
+    const t = v.video.currentTime;
+    if (_pdvRep.ultimo !== null) {
+      const d = t - _pdvRep.ultimo;
+      if (d > 0 && d < 2) _pdvRep.tocado += d;
+    }
+    _pdvRep.ultimo = t;
+    pdvRepPintar();
+  });
+}
+
+function pdvRepPintar() {
+  const lista = document.getElementById('pdvRepLista');
+  if (!lista || !_pdvRep) return;
+  const agora = _pdvRep.inicio !== null ? _pdvRep.inicio + _pdvRep.tocado * 1000 : _pdvRep.ate;
+  const vistas = _pdvRep.tudo ? _pdvRep.linhas : _pdvRep.linhas.filter(l => pdvTsMs(l.ts) <= agora);
+  const relogio = document.getElementById('pdvRepRelogio');
+  if (relogio && _pdvRep.inicio !== null) relogio.textContent = new Date(agora).toTimeString().slice(0, 8);
+  if (lista.childElementCount === vistas.length && !_pdvRep.tudo) return;
+  const ultimoTs = vistas.length ? vistas[vistas.length - 1].ts : '';
+  lista.innerHTML = vistas.map(l => `
+    <button type="button" class="pdv-rep-linha pdv-rep-${l.tipo} ${l.ts === ultimoTs && !_pdvRep.tudo ? 'nova' : ''}" data-pdv-rep="${esc(l.ts)}">
+      <span class="pdv-hora">${esc(pdvHora(l.ts))}</span>
+      <span class="pdv-rep-txt">${esc(l.txt)}${l.sub ? ` <small>${esc(l.sub)}</small>` : ''}</span>
+      ${l.valor ? `<span class="pdv-valor">${l.valor < 0 ? '− ' : ''}${esc(pdvMoeda(Math.abs(l.valor)))}</span>` : ''}
+    </button>`).join('') || '<p class="pdv-nota">Aguardando o vídeo chegar à abertura do cupom...</p>';
+  const itens = vistas.filter(l => l.tipo === 'VIT');
+  const k = _pdvLat.atual?.k;
+  const fechou = vistas.some(l => ['FECHACUPOM', 'CCV'].includes(l.tipo)) || _pdvRep.tudo;
+  const soma = vistas.reduce((t, l) => t + l.valor, 0);
+  const dif = fechou && k && k.situacao === 'fechado' ? soma - Number(k.total_centavos || 0) : 0;
+  document.getElementById('pdvRepConta').textContent = `${itens.length} de ${_pdvRep.linhas.filter(l => l.tipo === 'VIT').length} itens passados`
+    + (fechou && k ? ` · total do cupom${dif ? ` (${pdvMoeda(Math.abs(dif))} de ${dif > 0 ? 'desconto' : 'acréscimo'} sem registro no PDV)` : ''}`
+      : ' · já com descontos e cancelamentos');
+  document.getElementById('pdvRepTotal').textContent = pdvMoeda(fechou && k && k.situacao === 'fechado' ? k.total_centavos : soma);
+  // acompanha descendo
+  const corpo = document.getElementById('pdvLateralCorpo');
+  if (!_pdvRep.tudo) corpo.scrollTop = corpo.scrollHeight;
+}
+
+function pdvLatSairInteiro() {
+  if (!_pdvRep) return;
+  const rep = _pdvRep;
+  _pdvRep = null;
+  pdvPararGravacao();
+  const corpo = document.getElementById('pdvLateralCorpo');
+  corpo.innerHTML = rep.lista;
+  corpo.scrollTop = rep.scroll;
+  document.getElementById('pdvLatFiltros').hidden = !rep.filtros;
+  document.querySelector('#pdvLatTela .pdv-videobox').innerHTML = PDV_LAT_VAZIA;
+  document.getElementById('pdvLatAgora').innerHTML = '';
+  lucide.createIcons();
 }
 
 async function pdvListaLateral(tipo) {
@@ -1379,7 +1495,7 @@ async function pdvVerVideo(caixaId, ts, raiz = document) {
   pdvPararGravacao();
   box.innerHTML = '<p class="pdv-nota">Calculando o horário no gravador...</p>';
   const j = await apiJson(`/api/pdv/video/${encodeURIComponent(caixaId)}?ts=${encodeURIComponent(ts)}&antes=15&depois=45`, { forceRefresh: true });
-  if (!j?.host) { box.innerHTML = '<p class="pdv-nota pdv-erro">Este caixa ainda não tem gravador e canal configurados.</p>'; return; }
+  if (!j?.host) { box.innerHTML = '<p class="pdv-nota pdv-erro">Este caixa ainda não tem gravador e canal configurados.</p>'; return null; }
   const aviso = j.relogio_medido ? `gravador ${j.gravador_menos_caixa_s >= 0 ? '+' : ''}${j.gravador_menos_caixa_s} s em relação ao caixa`
     : 'relógio do gravador ainda não medido: o vídeo pode estar alguns segundos deslocado';
   box.innerHTML = `
@@ -1389,7 +1505,7 @@ async function pdvVerVideo(caixaId, ts, raiz = document) {
     </div>
     <p class="pdv-nota">Começa às ${esc(j.inicio.slice(11))} no gravador, 15 s antes do momento (caixa ${esc(j.momento_caixa.slice(11))} · gravador ${esc(j.momento_gravador.slice(11))}) · ${esc(aviso)}.</p>`;
   const video = box.querySelector('.pdv-grav-video');
-  if (!video || typeof mountLiveStream !== 'function') return;
+  if (!video || typeof mountLiveStream !== 'function') return null;
   box.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   _pdvGravacao = mountLiveStream(video, {
     registrar: async () => {
@@ -1414,6 +1530,9 @@ async function pdvVerVideo(caixaId, ts, raiz = document) {
     // saiu da tela, fechou o painel ou trocou de cupom
     if (!video.isConnected || video.offsetParent === null) pdvPararGravacao();
   }, 2000);
+  // o video comeca 15 s antes do momento, no relogio do caixa
+  const m = new Date(String(j.momento_caixa).replace(' ', 'T')).getTime();
+  return { video, inicioCaixa: Number.isNaN(m) ? null : m - 15000 };
 }
 
 // ---------------------------------------------------------------- configuracoes

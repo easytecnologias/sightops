@@ -14031,6 +14031,22 @@ button.rk-chip { cursor: pointer; }
 .pdv-lat-mom { display: flex; align-items: center; gap: 10px; width: 100%; border: 0; border-bottom: 1px solid #eef1f3; background: none; padding: 6px 4px; font: inherit; font-size: 12.5px; color: var(--text); text-align: left; cursor: pointer; border-radius: 4px; }
 .pdv-lat-mom:hover { background: var(--surface); }
 .pdv-lat-mom.ativo { background: var(--primary-soft); font-weight: 600; }
+.pdv-lat-inteiro { align-self: flex-start; }
+.pdv-rep-topo { display: flex; justify-content: space-between; align-items: center; padding: 12px 20px; border-bottom: 1px solid var(--border); position: sticky; top: 0; background: var(--bg); z-index: 1; }
+.pdv-rep-topo strong { font-variant-numeric: tabular-nums; color: var(--text); }
+.pdv-rep-lista { display: flex; flex-direction: column; padding: 4px 20px; min-height: 120px; }
+.pdv-rep-linha { display: flex; align-items: center; gap: 10px; width: 100%; border: 0; border-bottom: 1px solid #eef1f3; background: none; padding: 8px 4px; font: inherit; font-size: 13px; color: var(--text); text-align: left; cursor: pointer; }
+.pdv-rep-linha:hover { background: var(--surface); }
+.pdv-rep-linha.nova { animation: pdvEntra 2.5s ease-out; }
+.pdv-rep-txt { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pdv-rep-txt small { color: var(--muted); font-size: 11px; }
+.pdv-rep-CIT, .pdv-rep-CCV, .pdv-rep-CCG { background: var(--danger-soft); color: var(--danger); }
+.pdv-rep-DIT, .pdv-rep-DAS, .pdv-rep-ITEMSEMCAD, .pdv-rep-SUP, .pdv-rep-SUPERVISOR, .pdv-rep-GER, .pdv-rep-GAV { background: var(--amber-soft); color: #8a5100; }
+.pdv-rep-FIN, .pdv-rep-TRC, .pdv-rep-FECHACUPOM { background: var(--blue-soft); color: #1864ab; }
+.pdv-rep-pe { display: flex; justify-content: space-between; align-items: baseline; padding: 12px 20px; border-top: 2px solid var(--border); position: sticky; bottom: 0; background: var(--bg); }
+.pdv-rep-pe span { font-size: 12.5px; color: var(--muted); }
+.pdv-rep-pe strong { font-size: 20px; font-variant-numeric: tabular-nums; }
+.pdv-rep-pe2 { display: flex; justify-content: space-between; gap: 12px; padding: 4px 20px 16px; }
 .pdv-lat-mom-txt { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .pdv-lat-mom svg { width: 13px; height: 13px; color: var(--primary); flex: none; }
 .pdv-lateral-item > svg { color: var(--primary) !important; width: 20px !important; height: 20px !important; }
