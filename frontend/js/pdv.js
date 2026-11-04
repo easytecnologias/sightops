@@ -902,7 +902,7 @@ function pdvLateralCriar() {
     const mom = ev.target.closest('[data-pdv-momento]');
     if (mom && _pdvLat.atual) { pdvLatTocar(mom.dataset.pdvMomento, mom.dataset.pdvRotulo || ''); return; }
     const el = ev.target.closest('[data-pdv-abrir]');
-    if (el) pdvLatSelecionar(el);
+    if (el) pdvLatSelecionar(el, !!ev.target.closest('[data-pdv-play]'));
   });
 }
 
@@ -932,7 +932,7 @@ function pdvLatLinha(k, txt, val, ts = '') {
       <span class="pdv-hora">${esc(pdvHora(k.aberto_em).slice(0, 5))}</span>
       <span class="pdv-lateral-meio"><strong>${esc(k.cupom)} · ${esc(k.caixa)}</strong><small>${esc(k.operador)}${txt ? ` · ${esc(txt)}` : ''}</small></span>
       <span class="pdv-lateral-valores">${val ? `<b class="pdv-negativo">${esc(val)}</b>` : ''}<small>total ${esc(pdvMoeda(k.total_centavos))}</small></span>
-      <i data-lucide="play-circle"></i>
+      <span class="pdv-lat-play" data-pdv-play title="Ver o vídeo"><i data-lucide="play-circle"></i></span>
     </button>
     <div class="pdv-lat-abre" hidden></div>
   </div>`;
@@ -956,11 +956,19 @@ function pdvLatTocar(ts, rotulo) {
   pdvVerVideo(a.caixaId, ts, document.getElementById('pdvLatTela'));
 }
 
-async function pdvLatSelecionar(btn) {
+// Clicar na linha abre/fecha o cupom; o video so toca no play (da linha ou de um momento).
+async function pdvLatSelecionar(btn, tocar = false) {
   const wrap = btn.closest('.pdv-lat-cupom');
   const [caixaId, dia, cupom] = btn.dataset.pdvAbrir.split('|');
   const chave = btn.dataset.pdvAbrir;
   const corpo = document.getElementById('pdvLateralCorpo');
+  if (!tocar && wrap.classList.contains('ativa')) {
+    wrap.classList.remove('ativa');
+    const x = wrap.querySelector('.pdv-lat-abre');
+    x.hidden = true; x.innerHTML = '';
+    _pdvLat.sel = '';
+    return;
+  }
   corpo.querySelectorAll('.pdv-lat-cupom').forEach(w => {
     const eu = w === wrap;
     w.classList.toggle('ativa', eu);
@@ -989,11 +997,13 @@ async function pdvLatSelecionar(btn) {
     <div class="pdv-lat-sec">
       ${pdvLatMomento(k.aberto_em, 'Abertura do cupom')}
       ${k.fechado_em ? pdvLatMomento(k.fechado_em, k.situacao === 'cancelado' ? 'Cancelamento do cupom' : 'Fechamento e pagamento') : ''}
+      <button type="button" class="pdv-lat-mom pdv-lat-mom-inteiro" data-pdv-inteiro>
+        <span class="pdv-hora">${esc(pdvHora(k.aberto_em))}</span><span class="pdv-lat-mom-txt">Ver o cupom inteiro, item a item</span><i data-lucide="play"></i></button>
     </div>
-    <p class="pdv-nota">Aberto às ${esc(pdvHora(k.aberto_em))} · ${esc(fim)} · ${esc(k.pagamento || 'sem pagamento')} · ${pdvNum(itens.length)} ${itens.length === 1 ? 'item' : 'itens'} · total ${esc(pdvMoeda(k.total_centavos))}</p>
-    <button type="button" class="primary-action pdv-lat-inteiro" data-pdv-inteiro><i data-lucide="play"></i> Ver o cupom inteiro</button>`;
+    <p class="pdv-nota">Aberto às ${esc(pdvHora(k.aberto_em))} · ${esc(fim)} · ${esc(k.pagamento || 'sem pagamento')} · ${pdvNum(itens.length)} ${itens.length === 1 ? 'item' : 'itens'} · total ${esc(pdvMoeda(k.total_centavos))}</p>`;
   lucide.createIcons();
   _pdvLat.atual = { caixaId, k, caixaNome: r.caixa.nome, r };
+  if (!tocar) return;
   const alvo = foco[0];
   pdvLatTocar(alvo ? alvo.ts : k.aberto_em, alvo ? rot(alvo) : 'Abertura do cupom');
 }
@@ -1195,7 +1205,7 @@ async function pdvIrCupom(caixaId, dia, cupom, ts = '') {
   if (!k) { corpo.innerHTML = '<p class="pdv-nota pdv-erro pdv-c-msg">Não consegui achar o cupom.</p>'; return; }
   corpo.innerHTML = pdvLatLinha(k, '', '', ts);
   lucide.createIcons();
-  pdvLatSelecionar(corpo.querySelector('[data-pdv-abrir]'));
+  pdvLatSelecionar(corpo.querySelector('[data-pdv-abrir]'), true);
 }
 
 // ---------------------------------------------------------------- cupons

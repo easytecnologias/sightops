@@ -14024,6 +14024,9 @@ button.rk-chip { cursor: pointer; }
 .pdv-lat-filtros { flex: none; display: flex; gap: 12px; align-items: flex-end; padding: 12px 20px; border-bottom: 1px solid var(--border); background: var(--surface-soft); }
 .pdv-lat-filtros .pdv-c-campo { flex: 1 1 0; min-width: 0; }
 .pdv-lat-filtros select { width: 100%; }
+.pdv-lat-play { flex: none; display: grid; place-items: center; width: 34px; height: 34px; border-radius: 99px; color: var(--primary); }
+.pdv-lat-play:hover { background: var(--primary-soft); }
+.pdv-lat-play svg { width: 22px; height: 22px; }
 .pdv-lat-cupom.ativa > .pdv-lateral-item { background: var(--primary-soft); box-shadow: inset 3px 0 0 var(--primary); }
 .pdv-lat-abre { padding: 8px 20px 14px 90px; background: var(--surface-soft); border-bottom: 1px solid var(--border); display: flex; flex-direction: column; gap: 10px; }
 .pdv-lat-sec { display: flex; flex-direction: column; }
@@ -14031,7 +14034,7 @@ button.rk-chip { cursor: pointer; }
 .pdv-lat-mom { display: flex; align-items: center; gap: 10px; width: 100%; border: 0; border-bottom: 1px solid #eef1f3; background: none; padding: 6px 4px; font: inherit; font-size: 12.5px; color: var(--text); text-align: left; cursor: pointer; border-radius: 4px; }
 .pdv-lat-mom:hover { background: var(--surface); }
 .pdv-lat-mom.ativo { background: var(--primary-soft); font-weight: 600; }
-.pdv-lat-inteiro { align-self: flex-start; }
+.pdv-lat-mom-inteiro .pdv-lat-mom-txt { color: var(--primary); font-weight: 600; }
 .pdv-rep-topo { display: flex; justify-content: space-between; align-items: center; padding: 12px 20px; border-bottom: 1px solid var(--border); position: sticky; top: 0; background: var(--bg); z-index: 1; }
 .pdv-rep-topo strong { font-variant-numeric: tabular-nums; color: var(--text); }
 .pdv-rep-lista { display: flex; flex-direction: column; padding: 4px 20px; min-height: 120px; }
@@ -14049,7 +14052,6 @@ button.rk-chip { cursor: pointer; }
 .pdv-rep-pe2 { display: flex; justify-content: space-between; gap: 12px; padding: 4px 20px 16px; }
 .pdv-lat-mom-txt { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .pdv-lat-mom svg { width: 13px; height: 13px; color: var(--primary); flex: none; }
-.pdv-lateral-item > svg { color: var(--primary) !important; width: 20px !important; height: 20px !important; }
 .pdv-lateral-corpo { flex: 1; overflow-y: auto; }
 .pdv-lateral-item { display: flex; align-items: center; gap: 12px; width: 100%; padding: 12px 20px; border: 0; border-bottom: 1px solid var(--border); background: var(--surface); font: inherit; color: var(--text); text-align: left; cursor: pointer; }
 .pdv-lateral-item:hover { background: var(--surface-soft); }
