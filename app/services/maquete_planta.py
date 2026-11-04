@@ -22,10 +22,13 @@ from typing import Any, Dict, List, Tuple
 
 import numpy as np
 
-try:  # PyMuPDF
-    import fitz  # type: ignore
-except Exception:  # pragma: no cover - so falta se a imagem nao tiver o pacote
-    fitz = None
+try:  # PyMuPDF (2.x avisa que o nome "fitz" vai sair; 1.x so tem fitz)
+    import pymupdf as fitz  # type: ignore
+except Exception:  # pragma: no cover
+    try:
+        import fitz  # type: ignore
+    except Exception:  # so falta se a imagem nao tiver o pacote
+        fitz = None
 
 try:
     import cv2  # type: ignore

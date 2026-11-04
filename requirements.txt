@@ -21,7 +21,7 @@ paramiko>=3.0.0
 # de carona some sem aviso quando o pacote de cima troca de implementacao.
 cryptography>=42.0.0
 opencv-python-headless>=4.9.0
-pymupdf>=1.24
+pymupdf>=1.24,<3
 google-genai>=2.10.0
 # Importada direto (network_tools); vinha so de carona do google-genai.
 httpx>=0.28.0
