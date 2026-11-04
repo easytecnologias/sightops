@@ -11,7 +11,9 @@ import { Conferir } from './telas/Conferir';
 import { Busca, CupomTela, Momento } from './telas/Cupom';
 import { AoVivo, CaixaVivo } from './telas/AoVivo';
 import { Ficha, Rankings } from './telas/Rankings';
-import { Avisos } from './telas/Avisos';
+import { ParaOlhar } from './telas/Olhar';
+import { Equipe } from './telas/Equipe';
+import { Mais } from './telas/Mais';
 
 type Etapa = 'abertura' | 'login' | 'dentro';
 
@@ -56,7 +58,10 @@ export function App() {
       <ProvedorFiltro>
         <Shell>
           <Routes>
-            <Route path="/" element={<Inicio aoSair={() => void sair()} />} />
+            <Route path="/" element={<Inicio />} />
+            <Route path="/olhar" element={<ParaOlhar />} />
+            <Route path="/equipe" element={<Equipe />} />
+            <Route path="/mais" element={<Mais aoSair={() => void sair()} />} />
             <Route path="/conta" element={<Conta />} />
             <Route path="/conferir" element={<Conferir />} />
             <Route path="/cupom/:caixa/:dia/:cupom" element={<CupomTela />} />
@@ -66,7 +71,7 @@ export function App() {
             <Route path="/vivo/:caixa" element={<CaixaVivo />} />
             <Route path="/rankings" element={<Rankings />} />
             <Route path="/ficha/:por/:chave" element={<Ficha />} />
-            <Route path="/avisos" element={<Avisos />} />
+            <Route path="/avisos" element={<Navigate to="/olhar" replace />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </Shell>

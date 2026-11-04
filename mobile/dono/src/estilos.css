@@ -185,3 +185,45 @@ input, select { font: inherit; }
 .folha { width: 100%; max-height: 80%; overflow-y: auto; background: #fff; border-radius: 18px 18px 0 0; padding: 16px 16px calc(16px + env(safe-area-inset-bottom)); display: flex; flex-direction: column; gap: 6px; }
 .opcao { display: flex; align-items: center; gap: 10px; min-height: 48px; padding: 0 12px; border: 1px solid var(--borda); border-radius: 12px; background: #fff; font-size: 14px; font-weight: 600; text-align: left; }
 .opcao.on { border-color: var(--azul); background: var(--azul-suave); color: var(--azul); }
+
+/* 1.1.0: Hoje, Para olhar, Ao vivo com itens passando, Equipe, Mais */
+.com-bolinha { position: relative; display: inline-grid; }
+.bolinha { position: absolute; top: -6px; right: -12px; min-width: 18px; height: 18px; padding: 0 4px; border-radius: 99px; background: var(--verm); color: #fff; font-size: 10px; font-weight: 700; display: grid; place-items: center; border: 2px solid #fff; }
+.grav { font-size: 10.5px; font-weight: 700; padding: 1px 7px; border-radius: 99px; background: var(--suave); color: var(--apagado); }
+.grav.alta { background: var(--verm-suave); color: var(--verm); }
+.grav.media { background: var(--ambar-suave); color: var(--ambar-texto); }
+.selo.verde-ok { background: var(--verde-suave); color: var(--verde); }
+.aviso-dia { display: flex; align-items: center; gap: 12px; padding: 14px 16px; border-radius: 16px; border: 1px solid var(--borda); background: #fff; }
+.aviso-dia small { font-size: 12px; color: var(--apagado); }
+.aviso-dia.normal { background: var(--verde-suave); border-color: #b2e5d0; color: var(--verde); }
+.aviso-dia.atencao { background: var(--ambar-suave); border-color: #f0d49a; color: var(--ambar-texto); }
+.aviso-dia.alerta { background: var(--verm-suave); border-color: #f1b5b5; color: var(--verm); }
+.aviso-dia b { font-size: 14px; }
+.quadros { display: grid; grid-template-columns: repeat(auto-fill, minmax(34px, 1fr)); gap: 6px; }
+.quadro { height: 34px; border-radius: 8px; border: 1px solid var(--borda); font-size: 12px; font-weight: 700; display: grid; place-items: center; padding: 0; }
+.q-venda { background: var(--verde-suave); border-color: #b2e5d0; color: var(--verde); }
+.q-livre { background: var(--suave); color: var(--apagado); }
+.q-parado { background: var(--ambar-suave); border-color: #f0d49a; color: var(--ambar-texto); }
+.q-sem { background: var(--verm-suave); border: 2px solid var(--verm); color: var(--verm); }
+.legenda i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; border: 1px solid var(--borda); }
+.chips-rolam { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; margin: 0 -16px; padding: 0 16px; }
+.chips-rolam::-webkit-scrollbar { display: none; }
+.chip.on { background: var(--azul); border-color: var(--azul); color: #fff; }
+.vazio-ok { flex-direction: row; align-items: center; color: var(--verde); font-weight: 600; }
+.vazio-curto { padding: 4px 0 12px; }
+.seg.largo.tres { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.avatar.peq { width: 36px; height: 36px; font-size: 12.5px; }
+.avatar.ruim { background: var(--verm-suave); color: var(--verm); }
+.cartao.link-azul { justify-content: center; flex-direction: row; font-size: 13px; }
+/* ao vivo: o item que acabou de passar */
+.lista-vivo { display: flex; flex-direction: column; gap: 10px; }
+.cartao.caixa-vivo { padding: 12px 14px; gap: 6px; border-width: 2px; }
+.borda-cinza { border-color: var(--borda); }
+.passando { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--apagado); padding: 2px 0; }
+.passando .hora { width: 58px; }
+.passando.novo { font-size: 14px; color: var(--texto); font-weight: 600; padding: 6px 8px; margin: 0 -8px; border-radius: 10px; background: var(--azul-suave); animation: chegou 1.6s ease-out; }
+.passando.novo .hora { color: var(--azul); }
+.passando.dig.novo { background: var(--ambar-suave); }
+.rodape-vivo { border-top: 1px solid var(--linha); padding-top: 6px; }
+.linha-item.novo { background: var(--azul-suave); margin: 0 -14px; padding: 0 14px; font-weight: 600; animation: chegou 1.6s ease-out; }
+@keyframes chegou { 0% { background: #a5d8ff; transform: translateX(-4px); } 100% { transform: none; } }

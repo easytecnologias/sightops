@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { dec, diaRotulo, hoje, iniciais, moeda, mudarDia, num, tempo, useFiltro, useRankings, type Rank } from '../lib/pdv';
-import { Cabecalho, Carregando, Erro, Pos, Vazio } from '../ui/pecas';
+import { Cabecalho, Carregando, Erro, Icone, Pos, Vazio } from '../ui/pecas';
 
 type Card = { id: keyof Rank; titulo: string; melhor: 'alto' | 'baixo'; ruim?: boolean; taxa?: boolean; fmt: (v: number) => string; sub: (x: Rank) => string };
 const CARDS: Card[] = [
@@ -145,6 +145,7 @@ export function Ficha() {
                 );
               })}
             </section>
+            {por === 'operadores' ? <Link to={`/olhar?op=${encodeURIComponent(x.nome)}`} className="cartao link-azul centro">{Icone.olho} Ver os momentos para olhar desta pessoa</Link> : null}
           </>
         )}
       </div>

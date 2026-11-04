@@ -69,7 +69,7 @@ export type Lojas = { dia: string; hoje: boolean; lojas: Loja[]; rede: Loja; ale
 export type Rank = { chave: string; nome: string; loja: string; outros: string[]; dias: number; cupons: number; vendido: number; itens: number; digitados: number; ticket: number; itens_por_cupom: number; tempo_mediano_s: number | null; seg_por_item: number | null; horas_atendendo: number; vendido_por_hora: number | null; pct_digitado: number; cancelados_por_mil: number; itens_cancelados: number; valor_cancelado: number; cupons_cancelados: number; descontos: number; sem_cadastro: number; sangrias: number; valor_sangrias: number; gaveta_fora: number };
 export type Rankings = { de: string; ate: string; lojas: string[]; minimo_cupons: number; operadores: Rank[]; caixas: Rank[] };
 export type EventoDia = { caixa_id: string; caixa: string; ts: string; cupom: string; operador: string; codigo: string; descricao: string; valor_centavos: number; situacao: string | null; total_centavos: number | null; operador_cupom: string | null };
-export type CaixaVivo = CaixaLoja & { cupom: { cupom: string; situacao: string; aberto: boolean; operador: string; aberto_em: string; itens: number; total_centavos: number }; ultimos: { ts: string; descricao: string; valor_centavos: number; modo: string }[] };
+export type CaixaVivo = CaixaLoja & { cupom: { cupom: string; situacao: string; aberto: boolean; operador: string; aberto_em: string; fechado_em?: string; itens: number; total_centavos: number }; ultimos: { ts: string; descricao: string; valor_centavos: number; modo: string }[] };
 export type Vivo = { dia: string; lojas: string[]; loja: Loja | null; caixas: CaixaVivo[]; alertas: Alerta[] };
 
 /* ───────────── dados ───────────── */
@@ -88,7 +88,7 @@ export const useDetalhe = (caixa: string, dia: string, cupom: string) => useQuer
   queryFn: () => obter<Detalhe>(`/api/pdv/cupons/${q(caixa)}/${dia}/${q(cupom)}`) });
 export const useRankings = (de: string, ate: string, loja: string) => useQuery({ queryKey: ['rankings', de, ate, loja], staleTime: 120_000,
   queryFn: () => obter<Rankings>(`/api/pdv/rankings?de=${de}&ate=${ate}&loja=${q(loja)}`) });
-export const useVivo = (loja: string) => useQuery({ queryKey: ['vivo', loja], refetchInterval: 4000,
+export const useVivo = (loja: string) => useQuery({ queryKey: ['vivo', loja], refetchInterval: 3000,
   queryFn: () => obter<Vivo>(`/api/pdv/ao-vivo-loja?loja=${q(loja)}`) });
 export const useCupomVivo = (caixa: string) => useQuery({ queryKey: ['cupomVivo', caixa], refetchInterval: 2500,
   queryFn: () => obter<{ cupom: Cupom | null; itens: Item[] }>(`/api/pdv/ao-vivo/${q(caixa)}`) });
@@ -138,4 +138,20 @@ export function textoAlerta(a: Alerta) {
     case 'SGR': return `Sangria${v}`;
     default: return a.tipo;
   }
+}
+
+/* ───────────── momentos para olhar (regras do servidor: app/services/pdv_regras.py) ───────────── */
+export type Gravidade = 'alta' | 'media' | 'baixa';
+export type Momento = { regra: string; gravidade: Gravidade; ts: string; seq: number; cupom: string; operador: string; valor_centavos: number; titulo: string; detalhe: string; caixa_id: string; caixa: string; loja: string; dia: string };
+export type ForaDaMedia = { loja: string; operador: string; momentos: number; cupons: number; por_100_cupons: number; loja_por_100_cupons: number; vezes: number; regra_principal: string; regras: Record<string, number> };
+export type Momentos = { dia: string; lojas: string[]; momentos: Momento[]; total: number; gravidades: Record<Gravidade, number>; por_regra: Record<string, Record<Gravidade, number>>; regras: Record<string, string>; fora_da_media: ForaDaMedia[]; media_dias: number };
+export const useMomentos = (dia: string, loja: string) => useQuery({ queryKey: ['momentos', dia, loja], refetchInterval: dia === hoje() ? 60_000 : false,
+  queryFn: () => obter<Momentos>(`/api/pdv/momentos?dia=${dia}&loja=${q(loja)}`) });
+export const GRAV: Record<Gravidade, string> = { alta: 'alta', media: 'média', baixa: 'baixa' };
+export const grave = (m: Momento) => m.gravidade !== 'baixa';
+/** Para onde um momento leva: o cupom no horario, ou so o video daquele segundo. */
+export function destinoMomento(m: Momento) {
+  return m.cupom
+    ? `/cupom/${encodeURIComponent(m.caixa_id)}/${m.dia}/${encodeURIComponent(m.cupom)}?ts=${encodeURIComponent(m.ts)}`
+    : `/momento/${encodeURIComponent(m.caixa_id)}?ts=${encodeURIComponent(m.ts)}&rot=${encodeURIComponent(m.titulo)}`;
 }
