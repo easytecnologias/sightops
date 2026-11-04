@@ -1944,11 +1944,21 @@
       return { cabo: l.cabo, nome: c.nome, piso: pisoById(c.piso).nome, modelo: (MOD[c.mod] || MOD.d2_28).nome, abertura: fmt(fovDe(c), 0) + '°',
         ident: d ? fmt(d.ident, 1) + ' m' : '360°', situacao: ST[st][0], porta: rotPorta(l.pp), via: r ? r.via.join(' › ') : '', metros: r ? Math.round(r.len * 10) / 10 : 0 };
     });
-    const uso = new Map();
-    L.cams.forEach(c => { const l = lig.m.get(c.id); [l.pp, l.sw, l.nvr].forEach(p => { if (p) uso.set(p.o, (uso.get(p.o) || 0) + 1); }); });
+    const uso = new Map(), quem = new Map();
+    ordenadas().forEach(c => {
+      const l = lig.m.get(c.id);
+      [l.pp, l.sw, l.nvr].forEach(p => {
+        if (!p) return;
+        uso.set(p.o, (uso.get(p.o) || 0) + 1);
+        const q = quem.get(p.o) || {}; q[p.porta] = String(c.nome || ''); quem.set(p.o, q);
+      });
+    });
+    // além da tabela, o desenho da frente do rack: posição, altura e portas ocupadas de cada item
     const rack = ordemRack().filter(dentro).map(o => {
       const it = IT[o.k], n = uso.get(o) || 0;
-      return { u: rotU(o.k, o.u), nome: it.nome, uso: it.portas ? `${n} de ${it.portas} portas` : it.canais ? `${n} de ${it.canais} canais` : '' };
+      return { u: rotU(o.k, o.u), nome: it.nome, uso: it.portas ? `${n} de ${it.portas} portas` : it.canais ? `${n} de ${it.canais} canais` : '',
+        topo: topo(o), alt: it.u, t: it.t, curto: it.curto || it.nome, portas: it.portas || 0, canais: it.canais || 0,
+        cat: it.cat ? CAT[it.cat] : '', vent: !!it.vent, ocupadas: quem.get(o) || {} };
     });
     const linhas = linhasOrcamento();
     return {
@@ -1958,7 +1968,7 @@
         cameras: L.cams.length, online: L.cams.filter(c => stDe(c) === 'on').length, projeto: L.cams.filter(c => stDe(c) === 'new').length,
         metros: Math.round(cab.tot * 10) / 10, metros10: Math.round(cab.m10), caixas305: cab.cx305, maior: Math.round(cab.maior * 10) / 10,
         categoria: CAT[L.catCabo], caixasPassagem: L.nodes.filter(n => n.tipo === 'caixa').length, eletrocalha: Math.round(metrosCalha),
-        rack: R.nome, rackUsado: `${usados} de ${R.u} U usados`, poe: `${fmt(poe, 1)} de ${lig.poe} W`,
+        rack: R.nome, rackU: R.u, rackUsado: `${usados} de ${R.u} U usados`, poe: `${fmt(poe, 1)} de ${lig.poe} W`,
       },
       cameras: cams, rack,
       orcamento: { itens: linhas.map(i => ({ grupo: i.grupo, descricao: i.descricao, qtd: numIn(i.qtd), un: i.un, preco: numIn(i.preco) })),

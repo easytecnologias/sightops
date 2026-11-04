@@ -18,10 +18,12 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 from xml.sax.saxutils import escape
 
+from reportlab.graphics.shapes import Circle, Drawing, Line, Rect, String
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib.units import mm
+from reportlab.pdfbase.pdfmetrics import stringWidth
 from reportlab.platypus import CondPageBreak, Image, KeepTogether, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
 from app.services.access_control_relatorios_pdf import LARGURA, MARGEM, MUTED, TEXT, _assinatura, _Paginas
@@ -56,6 +58,7 @@ E = {
     "kpisub": ParagraphStyle("ks", fontName="Helvetica", fontSize=7.4, leading=9.6, textColor=MUTED),
     "nota": ParagraphStyle("nota", fontName="Helvetica", fontSize=7.6, leading=10.4, textColor=MUTED),
     "legenda": ParagraphStyle("leg", fontName="Helvetica", fontSize=7.6, leading=10, textColor=MUTED, spaceBefore=3),
+    "porta": ParagraphStyle("porta", fontName="Helvetica", fontSize=6.3, leading=7.8, textColor=TEXT),
     "total": ParagraphStyle("tot", fontName="Helvetica-Bold", fontSize=11, leading=14, textColor=TEXT, alignment=2),
 }
 
@@ -229,6 +232,157 @@ def _bloco_orcamento(orc: Dict[str, Any], numero: str = "") -> List[Any]:
 
 # ---------------------------------------------------------------- relatorio
 
+# --- vista de frente do rack -------------------------------------------------------
+# (fundo, texto) por tipo de equipamento
+_COR_RACK = {
+    "switch": ("#24343c", "#ffffff"), "router": ("#1d3f52", "#ffffff"), "patch": ("#3b4a52", "#ffffff"),
+    "nvr": ("#1c272d", "#ffffff"), "blank": ("#d5dce0", "#56656e"), "org": ("#46545c", "#ffffff"),
+    "power": ("#2f3a40", "#ffffff"), "dio": ("#55636b", "#ffffff"), "band": ("#e4e9ec", "#2b3a42"),
+}
+_PORTA_LIVRE = colors.HexColor("#0f1b21")
+_PORTA_USADA = colors.HexColor("#20c997")
+LIVRE = '<font color="#a3b1b8">livre</font>'
+
+
+def _int(v: Any, padrao: int = 0) -> int:
+    try:
+        return int(float(v))
+    except (TypeError, ValueError):
+        return padrao
+
+
+def _ocupadas(x: Dict[str, Any]) -> Dict[int, str]:
+    o = x.get("ocupadas")
+    if not isinstance(o, dict):
+        return {}
+    return {_int(k): str(v or "")[:60] for k, v in list(o.items())[:96] if _int(k) > 0}
+
+
+def _vista_rack(total: Any, itens: List[Dict[str, Any]], largura: float) -> Optional[Drawing]:
+    """Frente do rack: U numerada, cada equipamento na posição e altura certas, portas usadas acesas."""
+    total_u = _int(total)
+    itens = [x for x in itens if _int(x.get("topo")) > 0]
+    if not (1 <= total_u <= 60) or not itens:
+        return None
+    uh = min(8.5 * mm, 150 * mm / total_u)
+    num_w, trilho = 7 * mm, 4.5 * mm
+    rack_w = largura - num_w
+    alto = total_u * uh + 2 * trilho
+    d = Drawing(largura, alto)
+    d.add(Rect(num_w, 0, rack_w, alto, rx=1.6 * mm, ry=1.6 * mm, fillColor=colors.HexColor("#13252d"), strokeColor=None))
+    ix, iy, iw = num_w + trilho, trilho, rack_w - 2 * trilho
+    d.add(Rect(ix, iy, iw, total_u * uh, fillColor=colors.HexColor("#eef2f4"), strokeColor=None))
+    fs_u = max(4.2, min(6.5, uh / mm * 0.75))
+    for u in range(1, total_u + 1):
+        y = iy + (u - 1) * uh
+        d.add(Line(ix, y, ix + iw, y, strokeColor=LINHA, strokeWidth=0.3))
+        d.add(String(num_w - 1.4 * mm, y + uh / 2 - fs_u * 0.35, str(u), fontName="Helvetica", fontSize=fs_u,
+                     fillColor=MUTED, textAnchor="end"))
+        for fx in (num_w + trilho * 0.32, num_w + rack_w - trilho * 0.68):   # furos do trilho
+            d.add(Rect(fx, y + uh / 2 - 0.55 * mm, trilho * 0.36, 1.1 * mm, fillColor=colors.HexColor("#5b6b74"), strokeColor=None))
+    for u in range(1, total_u + 1):      # "livre" nas U vazias
+        if not any(_int(x.get("topo")) - max(1, _int(x.get("alt"), 1)) + 1 <= u <= _int(x.get("topo")) for x in itens):
+            d.add(String(ix + iw / 2, iy + (u - 1) * uh + uh / 2 - fs_u * 0.35, "livre", fontName="Helvetica",
+                         fontSize=fs_u, fillColor=colors.HexColor("#a3b1b8"), textAnchor="middle"))
+    for x in itens:
+        alt, topo = max(1, _int(x.get("alt"), 1)), _int(x.get("topo"))
+        base = topo - alt + 1
+        if base < 1 or topo > total_u:
+            continue
+        t = str(x.get("t") or "")
+        fundo_hex, txt_hex = _COR_RACK.get(t, ("#3b4a52", "#ffffff"))
+        fundo, txt = colors.HexColor(fundo_hex), colors.HexColor(txt_hex)
+        y, hh = iy + (base - 1) * uh + 0.3, alt * uh - 0.6
+        d.add(Rect(ix + 0.5, y, iw - 1, hh, rx=0.7, ry=0.7, fillColor=fundo, strokeColor=colors.HexColor("#0b161b"), strokeWidth=0.4))
+        for fx in (ix + 1.6 * mm, ix + iw - 1.6 * mm):     # parafusos da orelha
+            d.add(Circle(fx, y + hh / 2, min(0.7 * mm, hh * 0.12), fillColor=colors.HexColor("#9aa8b1"), strokeColor=None))
+        fs = max(4.4, min(7.2, uh / mm * 0.82))
+        nome_w = iw * 0.4
+        nome = str(x.get("curto") or x.get("nome") or "")
+        while nome and stringWidth(nome, "Helvetica-Bold", fs) > nome_w - 3.5 * mm:
+            nome = nome[:-1]
+        if nome != str(x.get("curto") or x.get("nome") or ""):
+            nome = nome[:-1] + "…"
+        d.add(String(ix + 3.2 * mm, y + hh / 2 - fs * 0.35, nome, fontName="Helvetica-Bold", fontSize=fs, fillColor=txt))
+        zx, zw = ix + nome_w, iw - nome_w - 3.4 * mm
+        cy = y + hh / 2
+        portas = min(_int(x.get("portas")), 48)
+        if t in ("switch", "router", "patch") and portas > 0:
+            usadas = _ocupadas(x)
+            linhas = 2 if (t != "patch" and portas > 12 and hh > 5.5 * mm) else 1
+            cols = math.ceil(portas / linhas)
+            lado = min(zw / cols * 0.74, hh / linhas * 0.56, 3 * mm)
+            passo = min(zw / cols, lado * 1.45)
+            zx = zx + zw - passo * cols          # portas encostadas à direita, como no equipamento
+            for p in range(1, portas + 1):
+                if linhas == 2:
+                    c, lin = (p - 1) // 2, (p - 1) % 2       # ímpares em cima, pares embaixo
+                else:
+                    c, lin = p - 1, 0
+                px = zx + c * passo + (passo - lado) / 2
+                py = cy + (lado * 0.15 if lin == 0 and linhas == 2 else -lado / 2 if linhas == 1 else -lado * 1.15)
+                d.add(Rect(px, py, lado, lado, fillColor=_PORTA_USADA if p in usadas else _PORTA_LIVRE,
+                           strokeColor=colors.HexColor("#7f8f97"), strokeWidth=0.25))
+        elif t == "blank":
+            if x.get("vent"):
+                for k in range(14):
+                    lx = zx - nome_w * 0.4 + k * (zw + nome_w * 0.4) / 14
+                    d.add(Rect(lx, cy - hh * 0.18, (zw + nome_w * 0.4) / 14 * 0.55, hh * 0.36, fillColor=colors.HexColor("#b4bfc5"), strokeColor=None))
+        elif t == "org":
+            d.add(Rect(zx, cy - hh * 0.16, zw, hh * 0.32, rx=0.6, ry=0.6, fillColor=colors.HexColor("#2a353b"), strokeColor=None))
+        elif t == "power":
+            n_tom = 8 if alt == 1 else 0
+            for k in range(n_tom):
+                d.add(Circle(zx + (k + 0.5) * zw / 8, cy, min(hh * 0.26, zw / 8 * 0.32), fillColor=colors.HexColor("#11191d"),
+                             strokeColor=colors.HexColor("#7f8f97"), strokeWidth=0.25))
+            if not n_tom:   # nobreak: visor e LEDs
+                d.add(Rect(zx + zw * 0.55, cy - hh * 0.12, zw * 0.22, hh * 0.24, fillColor=colors.HexColor("#7ad1ff"), strokeColor=None))
+                d.add(Circle(zx + zw * 0.88, cy, min(hh * 0.07, 1 * mm), fillColor=_PORTA_USADA, strokeColor=None))
+        elif t == "nvr":
+            canais = max(1, _int(x.get("canais"), 1))
+            uso = len(_ocupadas(x))
+            d.add(Circle(zx + 3 * mm, cy, min(hh * 0.12, 0.9 * mm), fillColor=_PORTA_USADA if uso else colors.HexColor("#5b6b74"), strokeColor=None))
+            d.add(String(zx + zw, cy - fs * 0.35, f"{uso}/{canais} canais", fontName="Helvetica", fontSize=fs * 0.9,
+                         fillColor=colors.HexColor("#9fb0b8"), textAnchor="end"))
+        elif t == "dio":
+            for k in range(12):
+                d.add(Rect(zx + k * zw / 12 + zw / 48, cy - hh * 0.18, zw / 24, hh * 0.36, fillColor=colors.HexColor("#3b82c4"), strokeColor=None))
+        elif t == "band":
+            d.add(Rect(zx + zw * 0.1, cy - hh * 0.22, zw * 0.34, hh * 0.44, rx=0.6, ry=0.6, fillColor=colors.white, strokeColor=colors.HexColor("#9aa8b1"), strokeWidth=0.3))
+            d.add(Rect(zx + zw * 0.52, cy - hh * 0.22, zw * 0.3, hh * 0.44, rx=0.6, ry=0.6, fillColor=colors.HexColor("#2b3a42"), strokeColor=None))
+    return d
+
+
+def _mapa_portas(rack: List[Dict[str, Any]]) -> List[Any]:
+    """Mapa de cada patch panel: porta por porta, com a câmera ligada."""
+    out: List[Any] = []
+    for x in rack:
+        if str(x.get("t") or "") != "patch":
+            continue
+        portas = min(_int(x.get("portas")), 48)
+        if portas <= 0:
+            continue
+        usadas = _ocupadas(x)
+        cols = 12
+        cel = []
+        for p in range(1, portas + 1):
+            nome = usadas.get(p)
+            quem = _t(nome, 40) if nome else LIVRE
+            cel.append(Paragraph(f"<b>{p}</b><br/>{quem}", E["porta"]))
+        linhas = [cel[i:i + cols] + [""] * (cols - len(cel[i:i + cols])) for i in range(0, len(cel), cols)]
+        tab = Table(linhas, colWidths=[LARGURA / cols] * cols)
+        estilo = [("GRID", (0, 0), (-1, -1), 0.4, LINHA), ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                  ("LEFTPADDING", (0, 0), (-1, -1), 3), ("RIGHTPADDING", (0, 0), (-1, -1), 3),
+                  ("TOPPADDING", (0, 0), (-1, -1), 3), ("BOTTOMPADDING", (0, 0), (-1, -1), 4)]
+        for p in usadas:
+            if 1 <= p <= portas:
+                estilo.append(("BACKGROUND", ((p - 1) % cols, (p - 1) // cols), ((p - 1) % cols, (p - 1) // cols), colors.HexColor("#dff5ec")))
+        tab.setStyle(TableStyle(estilo))
+        titulo = f"Patch panel {x.get('u') or ''}" + (f" · {x.get('cat')}" if x.get("cat") else "") + f" · {len(usadas)} de {portas} portas em uso"
+        out.append(KeepTogether([Spacer(1, 10), Paragraph(_t(titulo), E["celb"]), Spacer(1, 4), tab]))
+    return out
+
+
 def _sub_projeto(p: Dict[str, Any]) -> str:
     partes = [p.get("local") or "", p.get("arquivo") or "", ("escala " + p["escala"]) if p.get("escala") else "",
               ", ".join(p.get("pisos") or [])]
@@ -323,11 +477,21 @@ def _relatorio(projeto: Dict[str, Any], dados: Dict[str, Any], usuario: str, log
                        _c(_num(r.get("metros"), 1), "numb")])
         h.append(_tabela(["Cabo", "Câmera", "Passa por", "Metros"], linhas, larg, numericas=(3,), negrito_ultima=True))
         n += 1
-    rack = [x for x in (dados.get("rack") or []) if isinstance(x, dict)]
+    rack = [x for x in (dados.get("rack") or []) if isinstance(x, dict)][:80]
     if rack:
         h += [CondPageBreak(60 * mm)] + _secao(f"{n}  Rack · {r.get('rack') or ''}", f"{r.get('rackUsado') or ''} · PoE {r.get('poe') or '—'}")
-        h.append(_tabela(["Posição", "Equipamento", "Uso"], [[x.get("u"), x.get("nome"), x.get("uso") or ""] for x in rack],
-                         [LARGURA * 0.14, LARGURA * 0.56, LARGURA * 0.3]))
+        vista = _vista_rack(r.get("rackU"), rack, LARGURA * 0.56)
+        if vista:
+            lado = _tabela(["Posição", "Equipamento", "Uso"], [[x.get("u"), x.get("curto") or x.get("nome"), x.get("uso") or ""] for x in rack],
+                           [LARGURA * 0.4 * f for f in (0.24, 0.46, 0.3)])
+            junto = Table([[vista, lado]], colWidths=[LARGURA * 0.6, LARGURA * 0.4])
+            junto.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP"), ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                                       ("RIGHTPADDING", (0, 0), (-1, -1), 0), ("TOPPADDING", (0, 0), (-1, -1), 0)]))
+            h.append(junto)
+            h += _mapa_portas(rack)
+        else:
+            h.append(_tabela(["Posição", "Equipamento", "Uso"], [[x.get("u"), x.get("nome"), x.get("uso") or ""] for x in rack],
+                             [LARGURA * 0.14, LARGURA * 0.56, LARGURA * 0.3]))
         n += 1
     if dados.get("incluirOrcamento") and dados.get("orcamento"):
         h += [CondPageBreak(70 * mm)] + _bloco_orcamento(dados["orcamento"], f"{n}  ")
