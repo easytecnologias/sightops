@@ -604,6 +604,7 @@
       cancelAnimationFrame(R3.raf);
       window.removeEventListener('pointermove', R3.onMove);
       window.removeEventListener('pointerup', R3.onUp);
+      if (R3.onKey) window.removeEventListener('keydown', R3.onKey);
       R3.ro && R3.ro.disconnect();
       try { R3.renderer.dispose(); } catch (_) {}
       Object.values(tex).forEach(t => { try { t.dispose(); } catch (_) {} });
@@ -942,18 +943,34 @@
     pts.push(rackTop());
     return { pts, via };
   }
+  // Onde o cabo pode entrar na calha neste pavimento: caixas do andar, a
+  // prumada que chega nele e o rack (se o rack estiver neste andar).
+  function entradasDe(piso) {
+    return L.nodes.filter(n => (n.tipo === 'caixa' && n.piso === piso) || (n.tipo === 'prumada' && n.piso === piso) || (n.tipo === 'rack' && n.piso === piso));
+  }
   function caminho(c, idx) {
     const f = c.piso, cp = V(OX + c.x, base(f) + camAlt(c), OZ + c.y), ty = base(f) + trayH(f);
-    let best = null;
-    segmentos(f).forEach(s => {
-      const ab = s.B.clone().sub(s.A), l2 = ab.x * ab.x + ab.z * ab.z;
-      let t = l2 ? ((cp.x - s.A.x) * ab.x + (cp.z - s.A.z) * ab.z) / l2 : 0; t = Math.max(0, Math.min(1, t));
-      const q = V(s.A.x + ab.x * t, ty, s.A.z + ab.z * t), d = Math.hypot(q.x - cp.x, q.z - cp.z);
-      if (!best || d < best.d) best = { d, q, s };
-    });
-    const r = rumo(best.s.p, f);
-    const corner = Math.abs(best.q.x - cp.x) > Math.abs(best.q.z - cp.z) ? V(cp.x, ty, best.q.z) : V(best.q.x, ty, cp.z);
-    let pts = [cp, V(cp.x, ty, cp.z), corner, best.q, ...r.pts];
+    const wps = (Array.isArray(c.pts) ? c.pts : []).map(p => V(OX + p.x, ty, OZ + p.y));
+    const ref = wps.length ? wps[wps.length - 1] : cp;   // a entrada é procurada a partir do último ponto
+    const alvo = c.entrada ? entradasDe(f).find(n => n.id === c.entrada) : null;
+    let entrada, r;
+    if (alvo) {
+      entrada = trayPt(alvo, f); r = rumo(alvo, f);
+    } else {
+      let best = null;
+      segmentos(f).forEach(s => {
+        const ab = s.B.clone().sub(s.A), l2 = ab.x * ab.x + ab.z * ab.z;
+        let t = l2 ? ((ref.x - s.A.x) * ab.x + (ref.z - s.A.z) * ab.z) / l2 : 0; t = Math.max(0, Math.min(1, t));
+        const q = V(s.A.x + ab.x * t, ty, s.A.z + ab.z * t), d = Math.hypot(q.x - ref.x, q.z - ref.z);
+        if (!best || d < best.d) best = { d, q, s };
+      });
+      entrada = best.q; r = rumo(best.s.p, f);
+    }
+    // da câmera sobe até a altura da calha; sem pontos, faz um "L" até a entrada
+    let pts = [cp, V(cp.x, ty, cp.z)];
+    if (wps.length) pts.push(...wps, entrada);
+    else pts.push(Math.abs(entrada.x - cp.x) > Math.abs(entrada.z - cp.z) ? V(cp.x, ty, entrada.z) : V(entrada.x, ty, cp.z), entrada);
+    pts.push(...r.pts);
     pts = pts.filter((p, i) => i === 0 || p.distanceToSquared(pts[i - 1]) > 1e-6);
     let len = 0; for (let i = 1; i < pts.length; i++) len += pts[i].distanceTo(pts[i - 1]);
     const o = ((idx % 7) - 3) * 0.022;
@@ -968,8 +985,21 @@
     });
     const plano = lst => lst.flatMap(x => Array.from({ length: x.n }, (_, p) => ({ o: x.o, top: topo(x.o), porta: p + 1, varios: lst.length > 1 })));
     const P1 = plano(pp), S1 = plano(sw), N1 = plano(nv), m = new Map();
-    ordenadas().forEach((c, i) => m.set(c.id, { cabo: 'C-' + String(i + 1).padStart(2, '0'), pp: P1[i] || null, sw: S1[i] || null, nvr: N1[i] || null }));
-    return { m, pp: P1.length, sw: S1.length, nvr: N1.length, poe: sw.reduce((a, s) => a + s.poe, 0) };
+    // porta escolhida à mão primeiro; o resto ocupa as livres, na ordem das câmeras
+    const usadas = new Set(), escolhida = new Map();
+    ordenadas().forEach(c => {
+      if (!c.pp) return;
+      const o = L.rack.itens[c.pp.i];
+      const slot = P1.find(s => s.o === o && s.porta === c.pp.porta);
+      if (slot && !usadas.has(slot)) { usadas.add(slot); escolhida.set(c.id, slot); }
+    });
+    const livres = P1.filter(s => !usadas.has(s));
+    let k = 0;
+    ordenadas().forEach((c, i) => {
+      const pSlot = escolhida.get(c.id) || livres[k++] || null;
+      m.set(c.id, { cabo: 'C-' + String(i + 1).padStart(2, '0'), pp: pSlot, ppManual: escolhida.has(c.id), sw: S1[i] || null, nvr: N1[i] || null });
+    });
+    return { m, slots: P1, pp: P1.length, sw: S1.length, nvr: N1.length, poe: sw.reduce((a, s) => a + s.poe, 0) };
   }
   const rotPorta = p => p ? (p.varios ? 'U' + p.top + ' · ' : '') + 'porta ' + p.porta : '—';
 
@@ -1090,6 +1120,16 @@
       obj.userData.piso = c.piso; din.add(obj);
     });
     L.cams.forEach(objCam);
+    if (sel && sel.k === 'cam' && Array.isArray(sel.o.pts)) {
+      const c = sel.o, ty = base(c.piso) + trayH(c.piso);
+      c.pts.forEach((p, i) => {
+        const m = new THREE.Mesh(new THREE.SphereGeometry(0.12, 14, 10), new THREE.MeshBasicMaterial({ color: 0x1971c2 }));
+        m.position.set(OX + p.x, ty, OZ + p.y); m.userData.piso = c.piso; din.add(m);
+        const alvo = new THREE.Mesh(new THREE.SphereGeometry(0.45, 8, 6), R3.mat.inv);
+        alvo.position.copy(m.position); alvo.userData.ref = { k: 'wp', o: p, cam: c }; alvo.userData.piso = c.piso; din.add(alvo); alvos.push(alvo);
+        labels.push({ txt: String(i + 1), pos: m.position.clone().add(V(0, 0.35, 0)), piso: c.piso, sel: false, cls: 'cx' });
+      });
+    }
     aplicaVis(); montarRotulos(); resumoAbas(); listaCams();
   }
   const redesenhar = () => { pend = true; };
@@ -1129,7 +1169,10 @@
     if (sel.o.tipo === 'rack') return painelRack();
     return painelNo(sel.o);
   }
-  function selecionar(k, o) { sel = k ? { k, o } : null; montarDin(); painelSel(); }
+  function selecionar(k, o) {
+    if (modoAdd === 'wp' && !(k === 'cam' && sel && sel.o === o)) { modoAdd = null; const cv = $('mqCv'); if (cv) cv.classList.remove('add'); }
+    sel = k ? { k, o } : null; montarDin(); painelSel();
+  }
   function painelProjeto() {
     const card = $('mqSelCard'); const lig = ligacoes(), tot = [...caminhos.values()].reduce((a, r) => a + r.len, 0);
     const poe = L.cams.reduce((a, c) => a + (lig.m.get(c.id)?.sw ? (MOD[c.mod] || MOD.d2_28).w : 0), 0);
@@ -1176,7 +1219,20 @@
         <div class="mq-fld" style="margin:0"><label for="mqSPiso">Pavimento</label><select id="mqSPiso">${PISOS.map(p => `<option value="${h(p.id)}"${p.id === c.piso ? ' selected' : ''}>${h(p.nome)}</option>`).join('')}</select></div>
         <div class="mq-fld" style="margin:0"><label for="mqSAlt">Altura (m)</label><input inputmode="decimal" id="mqSAlt" value="${fmt(camAlt(c), 2)}"></div>
       </div>
-      <div class="mq-cabo">Cabo <b>${lig ? lig.cabo : '—'}</b> · <b>${fmt(r ? r.len : 0)} m</b> até o rack<br>Passa por ${h((r && r.via.join(' › ')) || 'direto')}<br>Patch ${h(rotPorta(lig && lig.pp))} · switch ${h(rotPorta(lig && lig.sw))}</div>
+      <div class="mq-cabo">Cabo <b>${lig ? lig.cabo : '—'}</b> · <b>${fmt(r ? r.len : 0)} m</b> até o rack<br>Passa por ${h((r && r.via.join(' › ')) || 'direto')}<br>Switch ${h(rotPorta(lig && lig.sw))}</div>
+      <div class="mq-fld"><label for="mqSEnt">Entra na calha por</label><select id="mqSEnt">
+        <option value="">Automático (ponto mais perto)</option>
+        ${entradasDe(c.piso).map(n => `<option value="${h(n.id)}"${n.id === c.entrada ? ' selected' : ''}>${h(n.tipo === 'rack' ? 'Direto no rack' : n.nome)}</option>`).join('')}
+      </select></div>
+      <div class="mq-fld"><label>Pontos do caminho</label>
+        <div class="mq-acts2" style="grid-template-columns:1fr auto auto">
+          <button class="mq-btn sm${modoAdd === 'wp' ? ' on' : ''}" type="button" id="mqSWp">${modoAdd === 'wp' ? 'Concluir' : (c.pts && c.pts.length ? '+ Ponto' : 'Desenhar caminho')}</button>
+          <button class="mq-btn sm" type="button" id="mqSWpUndo"${c.pts && c.pts.length ? '' : ' disabled'} title="Tirar o último ponto">↶</button>
+          <button class="mq-btn sm" type="button" id="mqSWpLimpa"${c.pts && c.pts.length ? '' : ' disabled'}>Limpar</button>
+        </div>
+        <span class="mq-muted">${c.pts && c.pts.length ? `${c.pts.length} ponto(s). Arraste os pontos azuis para ajustar.` : 'Clique no piso por onde o cabo passa antes de entrar na calha.'}</span>
+      </div>
+      <div class="mq-fld"><label for="mqSPorta">Porta no patch panel</label><select id="mqSPorta">${opcoesPorta(c, lig)}</select></div>
       <div class="mq-acts2"><button class="mq-btn" type="button" id="mqSOlhar">Ver daqui</button><button class="mq-btn del" type="button" id="mqSRm">Remover</button></div>`;
     $('mqSX').onclick = () => selecionar(null);
     $('mqSCad').onchange = e => {
@@ -1195,7 +1251,40 @@
     $('mqSPiso').onchange = e => { c.piso = e.target.value; c.alt = undefined; montarDin(); painelSel(); marcarMudanca(); };
     $('mqSAlt').onchange = e => { const v = parseFloat(String(e.target.value).replace(',', '.')); if (v > 0.5) c.alt = v; montarDin(); painelSel(); marcarMudanca(); };
     $('mqSOlhar').onclick = () => olharDe(c);
+    $('mqSEnt').onchange = e => { c.entrada = e.target.value || null; montarDin(); painelSel(); marcarMudanca(); };
+    $('mqSWp').onclick = () => {
+      if (modoAdd === 'wp') { fimDesenho(); return; }
+      modoAdd = 'wp'; $('mqCv').classList.add('add');
+      document.querySelectorAll('#viewMaquete [data-mq-add]').forEach(k => k.classList.remove('on'));
+      $('mqHint').textContent = 'Clique no piso para marcar o caminho do cabo · Esc ou "Concluir" para terminar';
+      painelSel();
+    };
+    $('mqSWpUndo').onclick = () => { if (c.pts && c.pts.length) { c.pts.pop(); montarDin(); painelSel(); marcarMudanca(); } };
+    $('mqSWpLimpa').onclick = () => { c.pts = []; montarDin(); painelSel(); marcarMudanca(); };
+    $('mqSPorta').onchange = e => {
+      const v = e.target.value;
+      if (!v) c.pp = null; else { const [i, porta] = v.split(':').map(Number); c.pp = { i, porta }; }
+      montarDin(); painelSel(); marcarMudanca();
+    };
     $('mqSRm').onclick = () => { L.cams = L.cams.filter(x => x !== c); sel = null; montarDin(); painelSel(); marcarMudanca(); toast('Câmera removida da maquete.'); };
+  }
+  function opcoesPorta(c, lig) {
+    const tudo = ligacoes(), dono = new Map();
+    const chave = s => L.rack.itens.indexOf(s.o) + ':' + s.porta;
+    L.cams.forEach(k => { const l = tudo.m.get(k.id); if (l && l.pp && k !== c) dono.set(chave(l.pp), String(k.nome).split(' ')[0]); });
+    const atual = lig && lig.pp;
+    let html = `<option value="">Automática${atual && !lig.ppManual ? ' (' + h(rotPorta(atual)) + ')' : ''}</option>`;
+    tudo.slots.forEach(s => {
+      const i = L.rack.itens.indexOf(s.o), ocup = dono.get(chave(s));
+      const sel = lig && lig.ppManual && atual && atual.o === s.o && atual.porta === s.porta;
+      html += `<option value="${i}:${s.porta}"${sel ? ' selected' : ''}${ocup ? ' disabled' : ''}>${h(rotPorta(s))}${ocup ? ' · ' + h(ocup) : ''}</option>`;
+    });
+    return html;
+  }
+  function fimDesenho() {
+    modoAdd = null; const cv = $('mqCv'); if (cv) cv.classList.remove('add');
+    $('mqHint').textContent = 'Arraste câmera, rack, caixa ou prumada para mover · arraste o fundo para girar';
+    painelSel();
   }
   function atualizaDori(c) {
     const d = dori(c), dds = $('mqSelCard').querySelectorAll('.mq-dori dd');
@@ -1228,7 +1317,7 @@
       <div class="mq-muted" style="margin:12px 0">Arraste na maquete para mudar o caminho. A eletrocalha e a metragem dos cabos acompanham.</div>
       ${n.tipo === 'caixa' ? '<button class="mq-btn del" type="button" id="mqSRm" style="width:100%">Remover caixa</button>' : ''}`;
     $('mqSX').onclick = () => selecionar(null);
-    if ($('mqSRm')) $('mqSRm').onclick = () => { L.nodes.forEach(k => { if (k.pai === n.id) k.pai = n.pai; }); L.nodes = L.nodes.filter(k => k !== n); sel = null; montarDin(); painelSel(); marcarMudanca(); };
+    if ($('mqSRm')) $('mqSRm').onclick = () => { L.nodes.forEach(k => { if (k.pai === n.id) k.pai = n.pai; }); L.cams.forEach(c => { if (c.entrada === n.id) c.entrada = null; }); L.nodes = L.nodes.filter(k => k !== n); sel = null; montarDin(); painelSel(); marcarMudanca(); };
   }
   function listaCams() {
     const el = $('mqCams'); if (!el) return;
@@ -1665,6 +1754,7 @@
     $('mqCApto').onchange = posRotulos;
     document.querySelectorAll('#viewMaquete [data-mq-add]').forEach(b => b.onclick = () => {
       modoAdd = modoAdd === b.dataset.mqAdd ? null : b.dataset.mqAdd;
+      if (sel && sel.k === 'cam') painelSel();
       document.querySelectorAll('#viewMaquete [data-mq-add]').forEach(k => k.classList.toggle('on', k.dataset.mqAdd === modoAdd));
       $('mqCv').classList.toggle('add', !!modoAdd);
       $('mqHint').textContent = modoAdd === 'cam' ? 'Clique no piso onde a câmera vai ficar' : modoAdd === 'caixa' ? 'Clique perto da eletrocalha onde a caixa vai ficar' : 'Arraste câmera, rack, caixa ou prumada para mover · arraste o fundo para girar';
@@ -1736,7 +1826,8 @@
       const click = downPt && Math.hypot(e.clientX - downPt[0], e.clientY - downPt[1]) < 5;
       if (drag) {
         const r = drag.ref, moved = drag.moved; drag = null; R3.controls.enabled = true;
-        if (!moved) selecionar(r.k, r.o); else { sel = { k: r.k, o: r.o }; montarDin(); painelSel(); marcarMudanca(); }
+        if (r.k === 'wp') { sel = { k: 'cam', o: r.cam }; montarDin(); painelSel(); if (moved) marcarMudanca(); }
+        else if (!moved) selecionar(r.k, r.o); else { sel = { k: r.k, o: r.o }; montarDin(); painelSel(); marcarMudanca(); }
         downPt = null; return;
       }
       if (click && e.target === cv) { if (modoAdd) adicionar(e); else if (sel) selecionar(null); }
@@ -1744,11 +1835,21 @@
     };
     window.addEventListener('pointermove', R3.onMove);
     window.addEventListener('pointerup', R3.onUp);
+    R3.onKey = e => { if (e.key === 'Escape' && modoAdd === 'wp') fimDesenho(); };
+    window.addEventListener('keydown', R3.onKey);
     function adicionar(e) {
       raio(e);
       const hit = ray.intersectObjects(PISOS.filter(p => grupos[p.id].visible).map(p => pisoMesh[p.id]))[0];
       if (!hit) return toast('Clique dentro da planta.', true);
       const piso = hit.object.userData.piso, x = snap(hit.point.x - OX), y = snap(hit.point.z - OZ);
+      if (modoAdd === 'wp') {
+        const c = sel && sel.k === 'cam' ? sel.o : null;
+        if (!c) { fimDesenho(); return; }
+        if (piso !== c.piso) return toast('Marque o caminho no pavimento da câmera (' + pisoById(c.piso).nome + ').', true);
+        (c.pts = Array.isArray(c.pts) ? c.pts : []).push({ x, y });
+        montarDin(); painelSel(); marcarMudanca();
+        return;   // continua desenhando até "Concluir" ou Esc
+      }
       if (modoAdd === 'cam') {
         const num = L.cams.length + 1;
         const c = { id: 'c' + (L.seq++), nome: 'CAM-' + String(num).padStart(2, '0') + ' Nova câmera', ip: null, piso, x, y, dir: Math.round(Math.atan2(P / 2 - y, W / 2 - x) * 180 / Math.PI), mod: 'd2_28' };
