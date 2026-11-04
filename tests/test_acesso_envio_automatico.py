@@ -61,6 +61,31 @@ def test_quem_ja_esta_no_leitor_nao_e_tocado_e_fica_ok(banco, leitor_falso):
     assert [r["status"] for r in S.list_provision_status_for_person(p["id"])] == ["ok"]
 
 
+def test_ja_no_leitor_com_foto_recebe_so_a_face(banco, leitor_falso, monkeypatch):
+    """Foto subida depois de a pessoa estar no leitor: o cadastro nao e tocado,
+    mas a face vai. Antes ficava "ok" sem rosto (M. Conceicao, 83 de 111)."""
+    faces = []
+    monkeypatch.setattr(Y, "load_person_face_photo", lambda p: b"\xff\xd8foto")
+    monkeypatch.setattr(D, "send_intelbras_face", lambda d, uid, foto: faces.append((uid, foto)) or "OK")
+    p, _ = _pendente("3921")
+    Y.retry_pending_provisions()
+    assert leitor_falso == []
+    assert faces == [("3921", b"\xff\xd8foto")]
+    assert [r["status"] for r in S.list_provision_status_for_person(p["id"])] == ["ok"]
+
+
+def test_face_recusada_fica_failed_e_nao_ok(banco, leitor_falso, monkeypatch):
+    from fastapi import HTTPException
+
+    def recusa(d, uid, foto):
+        raise HTTPException(status_code=502, detail="Dispositivo recusou a face")
+    monkeypatch.setattr(Y, "load_person_face_photo", lambda p: b"\xff\xd8foto")
+    monkeypatch.setattr(D, "send_intelbras_face", recusa)
+    p, _ = _pendente("3921")
+    Y.retry_pending_provisions()
+    assert [r["status"] for r in S.list_provision_status_for_person(p["id"])] == ["failed"]
+
+
 def test_quem_falta_entra_sem_senha_e_com_validade_de_10_anos(banco, leitor_falso):
     p, _ = _pendente("5008")
     Y.retry_pending_provisions()

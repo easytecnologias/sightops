@@ -199,7 +199,14 @@ def _enviar_ao_leitor(device: Dict[str, Any], person: Dict[str, Any]) -> Dict[st
         from app.services.access_control_device import _is_intelbras_device, _provision_intelbras_person
         if _is_intelbras_device(device):
             if _ja_no_leitor(device, uid):
-                return {"ok": True, "ja_estava": True, "controller_user_id": uid}
+                # O cadastro nao e tocado, mas a foto vai: antes voltava "ok" aqui
+                # e quem ganhou foto depois de estar no leitor nunca recebia o
+                # rosto (escola M. Conceicao: 83 de 111 sem face, tela dizia ok).
+                foto = load_person_face_photo(person)
+                if foto:
+                    from app.services.access_control_device import send_intelbras_face
+                    send_intelbras_face(device, uid, foto)
+                return {"ok": True, "ja_estava": True, "controller_user_id": uid, "face": bool(foto)}
             agora = datetime.now(timezone.utc).astimezone(_FUSO_LOCAL)
             try:
                 fim = agora.replace(year=agora.year + 10)

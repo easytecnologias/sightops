@@ -602,24 +602,26 @@ def _provision_intelbras_person(
         "o cadastro do usuario",
     )
 
-    face_text = ""
-    if photo_bytes:
-        payload = {
-            "FaceList": [
-                {
-                    "UserID": controller_user_id,
-                    "PhotoData": [base64.b64encode(photo_bytes).decode("ascii")],
-                }
-            ]
-        }
-        try:
-            face_text = _post_json(device, "/cgi-bin/AccessFace.cgi?action=insertMulti", payload, "a face")
-        except HTTPException as exc:
-            if "Batch Process Error" not in str(exc.detail):
-                raise
-            face_text = _post_json(device, "/cgi-bin/AccessFace.cgi?action=updateMulti", payload, "a face")
-
+    face_text = send_intelbras_face(device, controller_user_id, photo_bytes) if photo_bytes else ""
     return {"ok": True, "raw": card_text, "face_raw": face_text, "controller_user_id": controller_user_id}
+
+
+def send_intelbras_face(device: Dict[str, Any], controller_user_id: str, photo_bytes: bytes) -> str:
+    """Grava a face de um usuario que ja existe no leitor (insere; se ja tem, troca)."""
+    payload = {
+        "FaceList": [
+            {
+                "UserID": controller_user_id,
+                "PhotoData": [base64.b64encode(photo_bytes).decode("ascii")],
+            }
+        ]
+    }
+    try:
+        return _post_json(device, "/cgi-bin/AccessFace.cgi?action=insertMulti", payload, "a face")
+    except HTTPException as exc:
+        if "Batch Process Error" not in str(exc.detail):
+            raise
+        return _post_json(device, "/cgi-bin/AccessFace.cgi?action=updateMulti", payload, "a face")
 
 
 def provision_person(device: Dict[str, Any], person: Dict[str, Any], photo_bytes: bytes | None = None) -> Dict[str, Any]:
