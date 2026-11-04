@@ -834,8 +834,10 @@ function pdvConferencia(r) {
     </table>`;
 }
 
-// Painel lateral: os cupons de uma linha da conferencia / das ocorrencias.
-// Usa a lista de cupons do dia e a de descontos que ja vem no resumo.
+// Painel lateral: TELA de video fixa em cima e a lista de cupons embaixo.
+// Clicar no cupom toca o video na tela e abre a linha mostrando o que se esta
+// vendo (o item cancelado, o desconto...), com um play para cada momento. Assim
+// a pessoa sabe o que esta conferindo antes e durante o video.
 let _pdvResumo = null;
 const PDV_LISTAS = {
   cupons_cancelados: 'Cupons cancelados inteiros',
@@ -844,15 +846,21 @@ const PDV_LISTAS = {
   desc_subtotal: 'Cupons com desconto no subtotal',
   abertos: 'Cupons ainda abertos',
 };
+// o que conferir em cada lista (eventos do cupom)
+const PDV_LISTA_EVENTO = {
+  itens_cancelados: ['CIT'], desc_item: ['DIT'], desc_subtotal: ['DAS'], cupons_cancelados: ['CCV', 'CCG'],
+};
+let _pdvLat = { tipo: '', sel: '', atual: null };
 
-let _pdvLateralLista = '';  // html da lista, para o "Voltar"
-let _pdvLateralCupom = '';  // cupom aberto no painel (descarta resposta atrasada)
+const PDV_LAT_VAZIA = `<div class="pdv-lat-vazia"><i data-lucide="play-circle"></i>
+  <span>Clique num cupom da lista para ver o vídeo aqui</span></div>`;
 
 function pdvLateralFechar() {
   const d = document.getElementById('pdvLateral');
   if (!d) return;
   pdvPararGravacao();
-  _pdvLateralCupom = '';
+  _pdvLat.sel = '';
+  _pdvLat.atual = null;
   d.classList.remove('open');
   setTimeout(() => { d.classList.add('hidden'); document.getElementById('pdvLateralFundo')?.classList.add('hidden'); }, 270);
 }
@@ -867,78 +875,128 @@ function pdvLateralCriar() {
         <div><h2 class="pdv-l-h2" id="pdvLateralTitulo"></h2><span class="pdv-l-sub" id="pdvLateralSub"></span></div>
         <button class="icon-button" type="button" id="pdvLateralX" title="Fechar (Esc)"><i data-lucide="x"></i></button>
       </div>
+      <div class="pdv-lat-tela" id="pdvLatTela">
+        <div class="pdv-videobox"></div>
+        <div class="pdv-lat-agora" id="pdvLatAgora"></div>
+      </div>
+      <div class="pdv-lat-filtros" id="pdvLatFiltros" hidden>
+        <label class="pdv-c-campo"><span>Loja</span><select id="pdvLatLoja"></select></label>
+        <label class="pdv-c-campo"><span>PDV</span><select id="pdvLatCaixa"></select></label>
+        <span class="pdv-l-sub" id="pdvLatConta"></span>
+      </div>
       <div class="pdv-lateral-corpo" id="pdvLateralCorpo"></div>
     </aside>`);
   document.getElementById('pdvLateralX').addEventListener('click', pdvLateralFechar);
+  document.getElementById('pdvLatLoja').addEventListener('change', () => { pdvLatOpcoesCaixa(); pdvLatDesenhar(); });
+  document.getElementById('pdvLatCaixa').addEventListener('change', pdvLatDesenhar);
   document.addEventListener('keydown', ev => {
     if (ev.key === 'Escape' && document.getElementById('pdvLateral')?.classList.contains('open')) pdvLateralFechar();
   });
   document.getElementById('pdvLateralCorpo').addEventListener('click', ev => {
-    if (ev.target.closest('[data-pdv-voltar]')) { pdvLateralVoltar(); return; }
+    const mom = ev.target.closest('[data-pdv-momento]');
+    if (mom && _pdvLat.atual) { pdvLatTocar(mom.dataset.pdvMomento, mom.dataset.pdvRotulo || ''); return; }
     const el = ev.target.closest('[data-pdv-abrir]');
-    if (!el) return;
-    const [caixaId, dia, cupom] = el.dataset.pdvAbrir.split('|');
-    pdvLateralCupom(caixaId, dia, cupom, { videoTipo: el.dataset.pdvTipo || '', videoTs: el.dataset.pdvTs || '' });
+    if (el) pdvLatSelecionar(el);
   });
 }
 
-function pdvLateralAbrir() {
+function pdvLateralAbrir(titulo, sub) {
   pdvLateralCriar();
+  pdvPararGravacao();
+  _pdvLat.sel = '';
+  _pdvLat.atual = null;
   const d = document.getElementById('pdvLateral');
+  document.getElementById('pdvLateralTitulo').textContent = titulo;
+  document.getElementById('pdvLateralSub').textContent = sub;
+  d.querySelector('.pdv-videobox').innerHTML = PDV_LAT_VAZIA;
+  document.getElementById('pdvLatAgora').innerHTML = '';
+  document.getElementById('pdvLatFiltros').hidden = true;
+  document.getElementById('pdvLateralCorpo').innerHTML = '<p class="pdv-nota pdv-c-msg">Buscando os cupons...</p>';
   d.classList.remove('hidden');
   document.getElementById('pdvLateralFundo').classList.remove('hidden');
   requestAnimationFrame(() => requestAnimationFrame(() => d.classList.add('open')));
-}
-
-function pdvLateralVoltar() {
-  pdvPararGravacao();
-  _pdvLateralCupom = '';
-  const t = JSON.parse(document.getElementById('pdvLateral').dataset.lista || '{}');
-  document.getElementById('pdvLateralTitulo').textContent = t.titulo || 'Cupons';
-  document.getElementById('pdvLateralSub').textContent = t.sub || '';
-  const corpo = document.getElementById('pdvLateralCorpo');
-  corpo.innerHTML = _pdvLateralLista;
-  corpo.scrollTop = 0;
   lucide.createIcons();
 }
 
-// O cupom no painel: dados, descontos, cancelados, itens e o video ja tocando.
-// videoTs = horario exato; videoTipo = primeiro evento desse tipo no cupom (CIT, DIT, DAS, CCV).
-async function pdvLateralCupom(caixaId, dia, cupom, opts = {}) {
-  pdvLateralAbrir();
-  pdvPararGravacao();
+// uma linha da lista (o botao do cupom e, embaixo, o que se abre ao clicar)
+function pdvLatLinha(k, txt, val, ts = '') {
+  return `<div class="pdv-lat-cupom">
+    <button type="button" class="pdv-lateral-item" data-pdv-abrir="${esc(k.caixa_id)}|${esc(k.dia)}|${esc(k.cupom)}" data-pdv-ts="${esc(ts)}">
+      <span class="pdv-hora">${esc(pdvHora(k.aberto_em).slice(0, 5))}</span>
+      <span class="pdv-lateral-meio"><strong>${esc(k.cupom)} · ${esc(k.caixa)}</strong><small>${esc(k.operador)}${txt ? ` · ${esc(txt)}` : ''}</small></span>
+      <span class="pdv-lateral-valores">${val ? `<b class="pdv-negativo">${esc(val)}</b>` : ''}<small>total ${esc(pdvMoeda(k.total_centavos))}</small></span>
+      <i data-lucide="play-circle"></i>
+    </button>
+    <div class="pdv-lat-abre" hidden></div>
+  </div>`;
+}
+
+function pdvLatMomento(ts, rotulo, valor = '') {
+  return `<button type="button" class="pdv-lat-mom" data-pdv-momento="${esc(ts)}" data-pdv-rotulo="${esc(rotulo)}">
+    <span class="pdv-hora">${esc(pdvHora(ts))}</span><span class="pdv-lat-mom-txt">${esc(rotulo)}</span>
+    ${valor ? `<span class="pdv-valor">${esc(valor)}</span>` : ''}<i data-lucide="play"></i></button>`;
+}
+
+// toca o video na tela de cima e diz o que esta sendo mostrado
+function pdvLatTocar(ts, rotulo) {
+  const a = _pdvLat.atual;
+  const d = document.getElementById('pdvLateral');
+  if (!a || !d) return;
+  document.getElementById('pdvLatAgora').innerHTML = `
+    <strong>Cupom ${esc(a.k.cupom)} · ${esc(a.caixaNome)} · ${esc(a.k.operador || '')}</strong>
+    <span>Vendo: ${esc(rotulo)} · às ${esc(pdvHora(ts))} no caixa</span>`;
+  d.querySelectorAll('.pdv-lat-mom').forEach(b => b.classList.toggle('ativo', b.dataset.pdvMomento === ts && b.dataset.pdvRotulo === rotulo));
+  pdvVerVideo(a.caixaId, ts, document.getElementById('pdvLatTela'));
+}
+
+async function pdvLatSelecionar(btn) {
+  const wrap = btn.closest('.pdv-lat-cupom');
+  const [caixaId, dia, cupom] = btn.dataset.pdvAbrir.split('|');
+  const chave = btn.dataset.pdvAbrir;
   const corpo = document.getElementById('pdvLateralCorpo');
-  const lateral = document.getElementById('pdvLateral');
-  if (opts.semVoltar) { lateral.dataset.lista = ''; _pdvLateralLista = ''; }
-  document.getElementById('pdvLateralTitulo').textContent = `Cupom ${cupom}`;
-  document.getElementById('pdvLateralSub').textContent = pdvDiaRotulo(dia);
-  corpo.innerHTML = `${_pdvLateralLista ? '<button type="button" class="pdv-l-link pdv-lateral-voltar" data-pdv-voltar>‹ Voltar à lista</button>' : ''}
-    <div class="pdv-lateral-cupom"></div>`;
-  corpo.scrollTop = 0;
-  const alvo = corpo.querySelector('.pdv-lateral-cupom');
-  const chave = `${caixaId}|${dia}|${cupom}`;
-  _pdvLateralCupom = chave;
-  const r = await pdvAbrirCupom(caixaId, dia, cupom, false, alvo);
-  if (!r || _pdvLateralCupom !== chave) return;
+  corpo.querySelectorAll('.pdv-lat-cupom').forEach(w => {
+    const eu = w === wrap;
+    w.classList.toggle('ativa', eu);
+    if (!eu) { const x = w.querySelector('.pdv-lat-abre'); x.hidden = true; x.innerHTML = ''; }
+  });
+  _pdvLat.sel = chave;
+  const abre = wrap.querySelector('.pdv-lat-abre');
+  abre.hidden = false;
+  abre.innerHTML = '<p class="pdv-nota">Abrindo o cupom...</p>';
+  const r = await apiJson(`/api/pdv/cupons/${encodeURIComponent(caixaId)}/${dia}/${encodeURIComponent(cupom)}`, { forceRefresh: true });
+  if (_pdvLat.sel !== chave) return;
+  if (!r?.cupom) { abre.innerHTML = '<p class="pdv-nota pdv-erro">Não consegui abrir o cupom.</p>'; return; }
   const k = r.cupom;
-  document.getElementById('pdvLateralSub').textContent =
-    `${pdvDiaRotulo(dia)} · ${r.caixa.nome} · ${k.operador || ''}`;
-  let ts = opts.videoTs || '';
-  if (!ts && opts.videoTipo) ts = (r.linha_do_tempo || []).find(e => e.tipo === opts.videoTipo)?.ts || '';
-  pdvVerVideo(caixaId, ts || k.aberto_em, alvo);
+  const linha = r.linha_do_tempo || [];
+  const itens = r.itens || [];
+  // o que conferir: o horario pedido (aviso) ou os eventos da lista de onde veio
+  const ts = btn.dataset.pdvTs || '';
+  const tipos = PDV_LISTA_EVENTO[_pdvLat.tipo] || [];
+  let foco = ts ? linha.filter(e => e.ts === ts && e.tipo !== 'VIT') : linha.filter(e => tipos.includes(e.tipo));
+  if (ts && !foco.length) foco = [{ ts, tipo: '', descricao: '' }];
+  const rot = e => e.tipo ? pdvEventoTexto(e) : 'Momento do aviso';
+  const fim = k.fechado_em ? `${k.situacao === 'cancelado' ? 'cancelado' : 'fechado'} às ${pdvHora(k.fechado_em)}` : 'ainda aberto';
+  abre.innerHTML = `
+    ${foco.length ? `<div class="pdv-lat-sec"><span class="pdv-l-k pdv-l-k-ambar">O que conferir no vídeo</span>
+      ${foco.map(e => pdvLatMomento(e.ts, rot(e))).join('')}</div>` : ''}
+    <div class="pdv-lat-sec">
+      ${pdvLatMomento(k.aberto_em, 'Abertura do cupom')}
+      ${k.fechado_em ? pdvLatMomento(k.fechado_em, k.situacao === 'cancelado' ? 'Cancelamento do cupom' : 'Fechamento e pagamento') : ''}
+    </div>
+    <p class="pdv-nota">Aberto às ${esc(pdvHora(k.aberto_em))} · ${esc(fim)} · ${esc(k.pagamento || 'sem pagamento')} · ${pdvNum(itens.length)} ${itens.length === 1 ? 'item' : 'itens'} · total ${esc(pdvMoeda(k.total_centavos))}</p>
+    <details class="pdv-lat-sec"><summary>Todos os itens do cupom (${pdvNum(itens.length)})</summary>
+      ${itens.map(i => pdvLatMomento(i.ts, `${i.descricao || i.codigo} · ${(PDV_MODOS[i.modo] || [i.modo])[0]}`, pdvMoeda(i.valor_centavos))).join('')}
+    </details>`;
   lucide.createIcons();
+  _pdvLat.atual = { caixaId, k, caixaNome: r.caixa.nome };
+  const alvo = foco[0];
+  pdvLatTocar(alvo ? alvo.ts : k.aberto_em, alvo ? rot(alvo) : 'Abertura do cupom');
 }
 
 async function pdvListaLateral(tipo) {
-  pdvLateralAbrir();
-  pdvPararGravacao();
-  _pdvLateralCupom = '';
+  _pdvLat.tipo = tipo;
+  pdvLateralAbrir(PDV_LISTAS[tipo] || 'Cupons', pdvDiaRotulo(_pdvDia));
   const corpo = document.getElementById('pdvLateralCorpo');
-  document.getElementById('pdvLateralTitulo').textContent = PDV_LISTAS[tipo] || 'Cupons';
-  document.getElementById('pdvLateralSub').textContent = pdvDiaRotulo(_pdvDia);
-  corpo.innerHTML = '<p class="pdv-nota pdv-c-msg">Buscando os cupons...</p>';
-  lucide.createIcons();
-
   const r = await apiJson(`/api/pdv/cupons?dia=${encodeURIComponent(_pdvDia)}&limite=5000`, { forceRefresh: true });
   const cupons = r?.cupons || [];
   // desconto por cupom (do resumo): soma e quantos itens
@@ -964,25 +1022,64 @@ async function pdvListaLateral(tipo) {
     if (tipo === 'itens_cancelados') return [`${k.itens_cancelados} ${Number(k.itens_cancelados) === 1 ? 'item cancelado' : 'itens cancelados'}`, ''];
     if (dd && tipo === 'desc_item') return [`${dd.n} ${dd.n === 1 ? 'desconto' : 'descontos'} · ${dd.prods.slice(0, 2).join(', ')}${dd.prods.length > 2 ? '…' : ''}`, `− ${pdvMoeda(dd.v)}`];
     if (dd) return ['desconto no subtotal', `− ${pdvMoeda(dd.v)}`];
-    return [`${pdvPlural(k.itens, 'item').replace('items', 'itens')}`, ''];
+    return [`${pdvNum(k.itens)} ${Number(k.itens) === 1 ? 'item' : 'itens'}`, ''];
   };
   const somaDesc = lista.reduce((t, k) => t + (desc.get(`${k.caixa_id}|${k.cupom}`)?.v || 0), 0);
-  const sub = `${pdvDiaRotulo(_pdvDia)} · ${lista.length} ${lista.length === 1 ? 'cupom' : 'cupons'}`
-    + (somaDesc ? ` · − ${pdvMoeda(somaDesc)} de desconto` : '') + ' · clique para ver o vídeo';
-  document.getElementById('pdvLateralSub').textContent = sub;
-  document.getElementById('pdvLateral').dataset.lista = JSON.stringify({ titulo: PDV_LISTAS[tipo] || 'Cupons', sub });
-  const tipoVideo = { itens_cancelados: 'CIT', desc_item: 'DIT', desc_subtotal: 'DAS', cupons_cancelados: 'CCV' }[tipo] || '';
-  corpo.innerHTML = lista.length ? lista.map(k => {
-    const [txt, val] = destaque(k);
-    return `<button type="button" class="pdv-lateral-item" data-pdv-abrir="${esc(k.caixa_id)}|${esc(k.dia)}|${esc(k.cupom)}" data-pdv-tipo="${tipoVideo}">
-      <span class="pdv-hora">${esc(pdvHora(k.aberto_em).slice(0, 5))}</span>
-      <span class="pdv-lateral-meio"><strong>${esc(k.cupom)} · ${esc(k.caixa)}</strong><small>${esc(k.operador)} · ${esc(txt)}</small></span>
-      <span class="pdv-lateral-valores">${val ? `<b class="pdv-negativo">${esc(val)}</b>` : ''}<small>total ${esc(pdvMoeda(k.total_centavos))}</small></span>
-      <i data-lucide="play-circle"></i>
-    </button>`;
-  }).join('') : '<p class="pdv-nota pdv-c-msg">Nenhum cupom.</p>';
-  _pdvLateralLista = corpo.innerHTML;
+  _pdvLat.lista = lista.map(k => ({ k, d: destaque(k), v: desc.get(`${k.caixa_id}|${k.cupom}`)?.v || 0 }));
+  // filtros de loja e PDV (as lojas sao os sites dos caixas)
+  const caixas = await pdvCarregarCaixas();
+  _pdvLat.caixas = caixas;
+  const lojas = [...new Set(caixas.map(c => c.site || 'Sem loja definida'))].sort((a, b) => a.localeCompare(b, 'pt-BR'));
+  const selLoja = document.getElementById('pdvLatLoja');
+  const lojaAntes = selLoja.value;
+  selLoja.innerHTML = '<option value="">Todas as lojas</option>' + lojas.map(l => `<option value="${esc(l)}">${esc(l)}</option>`).join('');
+  selLoja.value = lojas.includes(lojaAntes) ? lojaAntes : '';
+  pdvLatOpcoesCaixa();
+  document.getElementById('pdvLatFiltros').hidden = false;
+  pdvLatDesenhar();
+}
+
+function pdvLatOpcoesCaixa() {
+  const loja = document.getElementById('pdvLatLoja').value;
+  const sel = document.getElementById('pdvLatCaixa');
+  const antes = sel.value;
+  const cxs = (_pdvLat.caixas || []).filter(c => !loja || (c.site || 'Sem loja definida') === loja)
+    .sort((a, b) => String(a.nome).localeCompare(String(b.nome), 'pt-BR', { numeric: true }));
+  sel.innerHTML = '<option value="">Todos os PDVs</option>' + cxs.map(c => `<option value="${esc(c.id)}">${esc(c.nome)}</option>`).join('');
+  sel.value = cxs.some(c => c.id === antes) ? antes : '';
+}
+
+function pdvLatDesenhar() {
+  const corpo = document.getElementById('pdvLateralCorpo');
+  const loja = document.getElementById('pdvLatLoja').value;
+  const caixa = document.getElementById('pdvLatCaixa').value;
+  const daLoja = new Set((_pdvLat.caixas || []).filter(c => !loja || (c.site || 'Sem loja definida') === loja).map(c => c.id));
+  const vistos = (_pdvLat.lista || []).filter(x => daLoja.has(x.k.caixa_id) && (!caixa || x.k.caixa_id === caixa));
+  const soma = vistos.reduce((t, x) => t + x.v, 0);
+  document.getElementById('pdvLateralSub').textContent = `${pdvDiaRotulo(_pdvDia)} · ${vistos.length} ${vistos.length === 1 ? 'cupom' : 'cupons'}`
+    + (soma ? ` · − ${pdvMoeda(soma)} de desconto` : '');
+  document.getElementById('pdvLatConta').textContent = vistos.length !== (_pdvLat.lista || []).length ? `${vistos.length} de ${_pdvLat.lista.length}` : '';
+  pdvPararGravacao();
+  _pdvLat.sel = '';
+  _pdvLat.atual = null;
+  document.querySelector('#pdvLatTela .pdv-videobox').innerHTML = PDV_LAT_VAZIA;
+  document.getElementById('pdvLatAgora').innerHTML = '';
+  corpo.innerHTML = vistos.length ? vistos.map(x => pdvLatLinha(x.k, ...x.d)).join('') : '<p class="pdv-nota pdv-c-msg">Nenhum cupom com esses filtros.</p>';
+  corpo.scrollTop = 0;
   lucide.createIcons();
+}
+
+// De um aviso (Lojas, Ao vivo): o painel com a tela e so esse cupom, ja tocando no horario do aviso.
+async function pdvIrCupom(caixaId, dia, cupom, ts = '') {
+  _pdvLat.tipo = '';
+  pdvLateralAbrir(`Cupom ${cupom}`, pdvDiaRotulo(dia));
+  const r = await apiJson(`/api/pdv/cupons?dia=${encodeURIComponent(dia)}&texto=${encodeURIComponent(cupom)}&limite=50`, { forceRefresh: true });
+  const k = (r?.cupons || []).find(x => x.caixa_id === caixaId && x.cupom === cupom);
+  const corpo = document.getElementById('pdvLateralCorpo');
+  if (!k) { corpo.innerHTML = '<p class="pdv-nota pdv-erro pdv-c-msg">Não consegui achar o cupom.</p>'; return; }
+  corpo.innerHTML = pdvLatLinha(k, '', '', ts);
+  lucide.createIcons();
+  pdvLatSelecionar(corpo.querySelector('[data-pdv-abrir]'));
 }
 
 // ---------------------------------------------------------------- cupons
@@ -1038,10 +1135,6 @@ async function loadPdvCupons() {
 
 let _pdvAbrirDepois = null;
 
-// Abre o cupom no painel lateral, com o video ja tocando (no momento `ts`, se vier).
-function pdvIrCupom(caixaId, dia, cupom, ts = '') {
-  pdvLateralCupom(caixaId, dia, cupom, { videoTs: ts, semVoltar: true });
-}
 
 async function pdvBuscarCupons(silencioso = false) {
   const dia = document.getElementById('pdvCupFiltroDia')?.value || pdvHoje();
