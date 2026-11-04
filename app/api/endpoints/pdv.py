@@ -167,6 +167,13 @@ def api_pdv_rankings(de: str = "", ate: str = "", loja: str = "") -> Dict[str, A
     return {"ok": True, **_executar(pdv_store.rankings, de or _hoje(), ate or de or _hoje(), loja)}
 
 
+@router.get("/momentos")
+def api_pdv_momentos(dia: str = "", loja: str = "", caixa_id: str = "", gravidade: str = "") -> Dict[str, Any]:
+    """Momentos para olhar: o que as regras apontaram no dia (gaveta sem venda,
+    cupom cancelado nao refeito, cancelamento, digitacao fora do padrao...)."""
+    return {"ok": True, **_executar(pdv_store.momentos_dia, dia or _hoje(), loja, caixa_id, gravidade)}
+
+
 @router.get("/eventos")
 def api_pdv_eventos(dia: str = "", tipo: str = "") -> Dict[str, Any]:
     """Sangrias, gavetas abertas ou codigos sem cadastro do dia, um a um (com o video)."""

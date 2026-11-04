@@ -426,10 +426,12 @@ function pdvPct(parte, todo) {
 async function pdvRenderVisao() {
   const box = document.getElementById('pdvVisaoBody');
   if (!box) return;
-  let [caixas, resumo] = await Promise.all([
+  let [caixas, resumo, momentos] = await Promise.all([
     pdvCarregarCaixas(),
     apiJson(`/api/pdv/resumo?dia=${_pdvDia}&loja=${encodeURIComponent(_pdvVisaoLoja)}`, { forceRefresh: true }),
+    apiJson(`/api/pdv/momentos?dia=${_pdvDia}&loja=${encodeURIComponent(_pdvVisaoLoja)}`, { forceRefresh: true }),
   ]);
+  _pdvMomentos = momentos;
   pdvVisaoMostrarDia();
   const r = resumo || {};
   const selLoja = document.getElementById('pdvVisaoLoja');
@@ -498,6 +500,8 @@ async function pdvRenderVisao() {
       </article>
     </section>
 
+    ${pdvPainelMomentos(momentos)}
+
     <div class="pdv-grade-2">
       <section class="panel pdv-painel">
         <div class="pdv-panel-head"><h2>Como os itens entraram no caixa</h2><small>dados do próprio PDV</small></div>
@@ -551,6 +555,8 @@ async function pdvRenderVisao() {
       </table></div>
     </section>`;
   box.querySelectorAll('[data-pdv-lista]').forEach(el => el.addEventListener('click', () => pdvListaLateral(el.dataset.pdvLista)));
+  box.querySelectorAll('[data-pdv-mom]').forEach(el => el.addEventListener('click', () => pdvIrMomento(Number(el.dataset.pdvMom))));
+  box.querySelectorAll('[data-pdv-mom-todos]').forEach(el => el.addEventListener('click', () => pdvListaLateral('momentos', el.dataset.pdvMomTodos)));
   box.querySelectorAll('[data-pdv-vivo]').forEach(b => b.addEventListener('click', () => {
     _pdvVivo.caixaId = b.dataset.pdvVivo;
     document.querySelector('.nav-item[data-view="pdv-vivo"]')?.click();
@@ -1331,8 +1337,89 @@ async function pdvListaEventos(tipoEv) {
   });
 }
 
-async function pdvListaLateral(tipo) {
+// ---- Momentos para olhar: o que as regras apontaram (app/services/pdv_regras.py)
+let _pdvMomentos = null;
+const PDV_GRAV = { alta: 'Alta', media: 'Média', baixa: 'Baixa' };
+const PDV_MOM_ICONE = {
+  gaveta_sem_venda: 'archive', cupom_cancelado: 'ban', item_cancelado: 'x-circle',
+  sem_cadastro_digitado: 'scan-search', digitado_fora_padrao: 'keyboard', cupom_parado: 'timer',
+};
+const PDV_MOM_MOSTRA = 6;  // quantos aparecem no quadro; o resto no painel lateral
+
+function pdvPainelMomentos(r) {
+  if (!r) {
+    return `<section class="panel pdv-painel"><div class="pdv-panel-head"><h2>Momentos para olhar</h2></div>
+      <p class="pdv-nota pdv-erro">Não consegui buscar os momentos.</p></section>`;
+  }
+  const g = r.gravidades || {};
+  const graves = (r.momentos || []).filter(m => m.gravidade !== 'baixa');
+  const lista = graves.slice(0, PDV_MOM_MOSTRA);
+  const fora = (r.fora_da_media || []).slice(0, 4);
+  const regra = k => (r.regras || {})[k] || k;
+  const chip = (k, n) => `<button type="button" class="pdv-grav pdv-grav-${k}" data-pdv-mom-todos="${k}" ${n ? '' : 'disabled'}>${PDV_GRAV[k]} <b>${pdvNum(n)}</b></button>`;
+  return `<section class="panel pdv-painel pdv-mom">
+    <div class="pdv-panel-head"><h2>Momentos para olhar</h2>
+      <div class="pdv-mom-chips">${chip('alta', g.alta || 0)}${chip('media', g.media || 0)}${chip('baixa', g.baixa || 0)}
+        <button type="button" class="secondary-action pdv-mini" data-pdv-mom-todos="" ${r.total ? '' : 'disabled'}><i data-lucide="list"></i> Ver todos</button></div></div>
+    ${lista.length ? `<ul class="pdv-mom-lista">${lista.map(m => `
+      <li><button type="button" data-pdv-mom="${(r.momentos || []).indexOf(m)}" title="Ver o vídeo deste momento">
+        <span class="pdv-grav-ponto pdv-grav-${m.gravidade}" title="Gravidade ${PDV_GRAV[m.gravidade]}"></span>
+        <span class="pdv-hora">${esc(pdvHora(m.ts).slice(0, 5))}</span>
+        <i data-lucide="${PDV_MOM_ICONE[m.regra] || 'alert-triangle'}"></i>
+        <span class="pdv-mom-meio"><strong>${esc(m.titulo)}</strong><small>${esc(m.caixa)}${m.operador ? ` · ${esc(m.operador)}` : ''} · ${esc(m.detalhe)}</small></span>
+        <span class="pdv-mom-valor">${m.valor_centavos ? esc(pdvMoeda(m.valor_centavos)) : ''}</span>
+        <i data-lucide="play-circle" class="pdv-mom-play"></i></button></li>`).join('')}</ul>`
+      : `<p class="pdv-nota pdv-mom-vazio"><i data-lucide="check-circle-2"></i> ${r.total ? 'Só momentos de gravidade baixa neste dia.' : 'Nada fora do normal neste dia.'}</p>`}
+    ${graves.length > lista.length ? `<button type="button" class="pdv-mom-mais" data-pdv-mom-todos="">+ ${pdvNum(graves.length - lista.length)} de gravidade alta ou média</button>` : ''}
+    ${fora.length ? `<div class="pdv-mom-fora"><span class="pdv-l-k pdv-l-k-ambar">Fora da média da loja · últimos ${r.media_dias || 7} dias</span>
+      ${fora.map(f => `<span class="pdv-mom-fora-item" title="${pdvNum(f.momentos)} momentos em ${pdvNum(f.cupons)} cupons; a loja tem ${String(f.loja_por_100_cupons).replace('.', ',')} a cada 100 cupons">
+        <strong>${esc(f.operador)}</strong> ${String(f.vezes).replace('.', ',')}× a média · mais ${esc(regra(f.regra_principal).toLowerCase())}</span>`).join('')}</div>` : ''}
+  </section>`;
+}
+
+function pdvMomentoLat(m) {
+  const k = { caixa_id: m.caixa_id, dia: m.dia, cupom: m.cupom, aberto_em: m.ts, caixa: m.caixa, operador: m.operador, total_centavos: 0 };
+  const corpo = `<span class="pdv-hora">${esc(pdvHora(m.ts).slice(0, 5))}</span>
+    <span class="pdv-lateral-meio"><strong><span class="pdv-grav-ponto pdv-grav-${m.gravidade}"></span>${esc(m.titulo)}</strong>
+      <small>${esc(m.caixa)}${m.operador ? ` · ${esc(m.operador)}` : ''}${m.cupom ? ` · cupom ${esc(m.cupom)}` : ''} · ${esc(m.detalhe)}</small></span>
+    <span class="pdv-lateral-valores">${m.valor_centavos ? `<b>${esc(pdvMoeda(m.valor_centavos))}</b>` : ''}<small>${PDV_GRAV[m.gravidade]}</small></span>
+    <span class="pdv-lat-play" data-pdv-play title="Ver o vídeo"><i data-lucide="play-circle"></i></span>`;
+  const html = m.cupom
+    ? `<div class="pdv-lat-cupom"><button type="button" class="pdv-lateral-item" data-pdv-abrir="${esc(m.caixa_id)}|${esc(m.dia)}|${esc(m.cupom)}" data-pdv-ts="${esc(m.ts)}">${corpo}</button>
+        <div class="pdv-lat-abre" hidden></div></div>`
+    : `<div class="pdv-lat-cupom"><button type="button" class="pdv-lateral-item" data-pdv-ev="${esc(m.caixa_id)}|${esc(m.ts)}"
+        data-pdv-rotulo="${esc(m.titulo)}" data-pdv-op="${esc(m.operador)}" data-pdv-cx="${esc(m.caixa)}">${corpo}</button></div>`;
+  return { k, v: m.valor_centavos || 0, html };
+}
+
+// do quadro da Visao geral: so esse momento no painel, ja tocando
+function pdvIrMomento(i) {
+  const m = (_pdvMomentos?.momentos || [])[i];
+  if (!m) return;
+  if (m.cupom) { pdvIrCupom(m.caixa_id, m.dia, m.cupom, m.ts); return; }
+  _pdvLat.tipo = '';
+  pdvLateralAbrir(m.titulo, `${pdvDiaRotulo(m.dia)} · ${m.caixa}`);
+  const corpo = document.getElementById('pdvLateralCorpo');
+  corpo.innerHTML = pdvMomentoLat(m).html;
+  lucide.createIcons();
+  pdvLatTocarEvento(corpo.querySelector('[data-pdv-ev]'));
+}
+
+async function pdvListaLateral(tipo, gravidade = '') {
   _pdvLat.tipo = tipo;
+  if (tipo === 'momentos') {
+    pdvLateralAbrir(gravidade ? `Momentos de gravidade ${PDV_GRAV[gravidade].toLowerCase()}` : 'Momentos para olhar', pdvDiaRotulo(_pdvDia));
+    const r = _pdvMomentos?.dia === _pdvDia ? _pdvMomentos
+      : await apiJson(`/api/pdv/momentos?dia=${encodeURIComponent(_pdvDia)}`, { forceRefresh: true });
+    if (!r) {
+      document.getElementById('pdvLateralCorpo').innerHTML = '<p class="pdv-nota pdv-erro pdv-c-msg">Não consegui buscar os momentos.</p>';
+      return;
+    }
+    _pdvLat.rotuloSoma = '';
+    _pdvLat.lista = (r.momentos || []).filter(m => !gravidade || m.gravidade === gravidade).map(pdvMomentoLat);
+    await pdvLatPrepararFiltros();
+    return;
+  }
   if (tipo.startsWith('ev_')) {
     pdvLateralAbrir(PDV_LISTAS[tipo] || 'Eventos', pdvDiaRotulo(_pdvDia));
     await pdvListaEventos(tipo.slice(3));
@@ -1406,7 +1493,7 @@ function pdvLatDesenhar() {
   const daLoja = new Set((_pdvLat.caixas || []).filter(c => !loja || (c.site || 'Sem loja definida') === loja).map(c => c.id));
   const vistos = (_pdvLat.lista || []).filter(x => daLoja.has(x.k.caixa_id) && (!caixa || x.k.caixa_id === caixa));
   const soma = vistos.reduce((t, x) => t + x.v, 0);
-  const ev = String(_pdvLat.tipo).startsWith('ev_');
+  const ev = String(_pdvLat.tipo).startsWith('ev_') || _pdvLat.tipo === 'momentos';
   document.getElementById('pdvLateralSub').textContent = `${pdvDiaRotulo(_pdvDia)} · ${vistos.length} ${ev ? (vistos.length === 1 ? 'registro' : 'registros') : (vistos.length === 1 ? 'cupom' : 'cupons')}`
     + (soma && _pdvLat.rotuloSoma ? ` · ${_pdvLat.rotuloSoma === 'de desconto' ? '− ' : ''}${pdvMoeda(soma)} ${_pdvLat.rotuloSoma}` : '');
   document.getElementById('pdvLatConta').textContent = vistos.length !== (_pdvLat.lista || []).length ? `${vistos.length} de ${_pdvLat.lista.length}` : '';

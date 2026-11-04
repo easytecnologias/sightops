@@ -404,3 +404,38 @@ def test_parede_do_ao_vivo_por_loja(banco, monkeypatch):
     monkeypatch.setattr(permissions, "sites_da_sessao", lambda: ["LOJA B"])
     r = S.ao_vivo_loja("Loja A", agora=_agora_local(12, 0))
     assert r["lojas"] == ["Loja B"] and [c["nome"] for c in r["caixas"]] == ["PDV 02"]
+
+
+def test_momentos_do_dia_isolados_por_cliente_e_loja(banco, monkeypatch):
+    from app.core import permissions
+    a = _caixa_loja("PDV 01", "Loja A", 1)
+    b = _caixa_loja("PDV 02", "Loja B", 2)
+    for cx in (a, b):
+        _enviar(S.autenticar(cx["id"], cx["token"]), ESP, TEC, agora=10_000.0)
+    r = S.momentos_dia(DIA)
+    assert r["total"] > 0, "a fixture precisa gerar algum momento"
+    assert r["dia"] == DIA and r["lojas"] == ["Loja A", "Loja B"]
+    assert {m["caixa_id"] for m in r["momentos"]} <= {a["id"], b["id"]}
+    assert sum(r["gravidades"].values()) == r["total"]
+    # os dois caixas receberam o mesmo dia: cada um tem os mesmos momentos
+    por = {}
+    for m in r["momentos"]:
+        por.setdefault(m["caixa_id"], []).append((m["regra"], m["ts"]))
+    assert sorted(por.get(a["id"], [])) == sorted(por.get(b["id"], []))
+    assert all(m["loja"] == "Loja A" for m in S.momentos_dia(DIA, loja="Loja A")["momentos"])
+    # segunda chamada vem do cache e da o mesmo
+    assert S.momentos_dia(DIA)["momentos"] == r["momentos"]
+    with pytest.raises(ValueError):
+        S.momentos_dia(DIA, gravidade="urgente")
+    # usuario so da Loja A nao ve a B (nem pedindo pelo id do caixa)
+    monkeypatch.setattr(permissions, "sites_da_sessao", lambda: ["LOJA A"])
+    assert S.momentos_dia(DIA)["lojas"] == ["Loja A"]
+    assert S.momentos_dia(DIA, caixa_id=b["id"])["momentos"] == []
+    monkeypatch.setattr(permissions, "sites_da_sessao", lambda: None)
+    # outro cliente nao ve nada
+    tok = set_current_tenant_slug("mercado-b")
+    try:
+        r2 = S.momentos_dia(DIA)
+        assert r2["momentos"] == [] and r2["lojas"] == [] and r2["fora_da_media"] == []
+    finally:
+        reset_current_tenant_slug(tok)

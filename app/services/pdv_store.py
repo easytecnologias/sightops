@@ -589,6 +589,113 @@ def eventos_dia(dia: str, tipo: str) -> Dict[str, Any]:
     return {"dia": dia, "tipo": tipo, "eventos": rows}
 
 
+# ====================================================================== momentos para olhar
+
+MOMENTOS_BASE_DIAS = 14     # "costuma ser bipado": o que o produto fez nos ultimos 14 dias
+MOMENTOS_MEDIA_DIAS = 7     # operador fora da media: janela de 7 dias ate o dia escolhido
+_MAX_MOMENTOS_CACHE = 600   # caixas x dias em memoria
+_momentos_cache: Dict[Tuple[str, str, str], Tuple[Any, List[Dict[str, Any]]]] = {}
+
+
+def _momentos_caixa_dia(c: Any, tenant: str, caixa_id: str, dia: str) -> List[Dict[str, Any]]:
+    """Momentos de um caixa num dia. Guarda em memoria pela marca do dia (ultimo
+    evento e quantos itens): so recalcula quando chega dado novo, inclusive de
+    um dia passado que o coletor mandou atrasado."""
+    marca_r = _row(c, "SELECT MAX(seq) AS s, COUNT(1) AS n FROM pdv_eventos WHERE tenant_slug=? AND caixa_id=? AND dia=?",
+                   (tenant, caixa_id, dia)) or {}
+    marca = (marca_r.get("s"), marca_r.get("n"))
+    chave = (tenant, caixa_id, dia)
+    with _lock:
+        guardado = _momentos_cache.get(chave)
+    if guardado and guardado[0] == marca:
+        return guardado[1]
+    if not marca[1]:
+        return []
+    from app.services import pdv_regras
+    tipos = pdv_regras.TIPOS_EVENTO
+    eventos = _rows(c, "SELECT seq, ts, tipo, cupom, operador, codigo, descricao, valor_centavos, campos_json "
+                       "FROM pdv_eventos WHERE tenant_slug=? AND caixa_id=? AND dia=? AND tipo IN (%s)"
+                       % ",".join("?" * len(tipos)), (tenant, caixa_id, dia) + tipos)
+    itens = _rows(c, "SELECT seq, ts, cupom, operador, codigo, descricao, valor_centavos, modo FROM pdv_itens "
+                     "WHERE tenant_slug=? AND caixa_id=? AND dia=?", (tenant, caixa_id, dia))
+    cupons = _rows(c, "SELECT cupom, situacao, aberto_em, total_centavos FROM pdv_cupons "
+                      "WHERE tenant_slug=? AND caixa_id=? AND dia=?", (tenant, caixa_id, dia))
+    digitados = sorted({str(i["codigo"]) for i in itens if i.get("modo") == "manual" and i.get("codigo")})[:800]
+    base: Dict[str, Any] = {}
+    if digitados:
+        from collections import Counter
+        de = (datetime.strptime(dia, "%Y-%m-%d") - timedelta(days=MOMENTOS_BASE_DIAS)).strftime("%Y-%m-%d")
+        # base so dos caixas da mesma loja (site) deste caixa: o habito da loja, e o
+        # texto "bipado em N% das M vezes" nao mostra venda de loja que o usuario nao acessa.
+        # Sai do caixa, nao de quem pergunta: o cache por caixa continua valendo para todos.
+        mesma = [r["id"] for r in _rows(
+            c, "SELECT id FROM pdv_caixas WHERE tenant_slug=? AND COALESCE(site,'')="
+               "(SELECT COALESCE(site,'') FROM pdv_caixas WHERE tenant_slug=? AND id=?)", (tenant, tenant, caixa_id))]
+        extra, pids = _filtro_ids("caixa_id", mesma or [caixa_id])
+        for r in _rows(c, "SELECT codigo, modo, COUNT(1) AS n FROM pdv_itens WHERE tenant_slug=? AND dia>=? AND dia<=? "
+                          "AND codigo IN (%s)%s GROUP BY codigo, modo" % (",".join("?" * len(digitados)), extra),
+                       (tenant, de, dia) + tuple(digitados) + pids):
+            base.setdefault(str(r["codigo"]), Counter())[r["modo"]] += int(r["n"] or 0)
+    lista = pdv_regras.avaliar(eventos, itens, cupons, base)
+    with _lock:
+        if len(_momentos_cache) >= _MAX_MOMENTOS_CACHE:
+            _momentos_cache.pop(next(iter(_momentos_cache)))
+        _momentos_cache[chave] = (marca, lista)
+    return lista
+
+
+def momentos_dia(dia: str, loja: str = "", caixa_id: str = "", gravidade: str = "") -> Dict[str, Any]:
+    """Momentos para olhar do dia (regras em pdv_regras), so dos caixas que a
+    sessao acessa, com os operadores fora da media da loja nos ultimos 7 dias."""
+    from app.services import pdv_regras
+    tenant, dia = _tenant(), _dia(dia)
+    loja, caixa_id = str(loja or "").strip(), str(caixa_id or "").strip()
+    if gravidade and gravidade not in pdv_regras.GRAVIDADES:
+        raise ValueError("Gravidade inválida.")
+    with db_store._conn() as c:
+        caixas = _do_usuario(_rows(c, "SELECT id, nome, site FROM pdv_caixas WHERE tenant_slug=? ORDER BY numero, nome",
+                                   (tenant,)))
+        lojas = sorted({str(x.get("site") or "").strip() or SEM_LOJA for x in caixas}, key=str.upper)
+        if loja:
+            caixas = [x for x in caixas if (str(x.get("site") or "").strip() or SEM_LOJA) == loja]
+        if caixa_id:
+            caixas = [x for x in caixas if x["id"] == caixa_id]
+        info = {x["id"]: (x["nome"], str(x.get("site") or "").strip() or SEM_LOJA) for x in caixas}
+        momentos: List[Dict[str, Any]] = []
+        for x in caixas:
+            for m in _momentos_caixa_dia(c, tenant, x["id"], dia):
+                momentos.append(dict(m, caixa_id=x["id"], caixa=info[x["id"]][0], loja=info[x["id"]][1], dia=dia))
+        # fora da media: os momentos e os cupons de cada operador nos ultimos 7 dias
+        semana: List[Dict[str, Any]] = []
+        ate = datetime.strptime(dia, "%Y-%m-%d")
+        for n in range(MOMENTOS_MEDIA_DIAS):
+            d = (ate - timedelta(days=n)).strftime("%Y-%m-%d")
+            for x in caixas:  # o dia escolhido ja esta no cache: nao recalcula
+                semana.extend(dict(m, loja=info[x["id"]][1]) for m in _momentos_caixa_dia(c, tenant, x["id"], d))
+        de = (ate - timedelta(days=MOMENTOS_MEDIA_DIAS - 1)).strftime("%Y-%m-%d")
+        extra, pids = _filtro_ids("caixa_id", list(info))
+        cup_op: Dict[Tuple[str, str], int] = {}
+        for r in _rows(c, "SELECT caixa_id, operador, COUNT(1) AS n FROM pdv_cupons WHERE tenant_slug=? AND dia>=? "
+                          "AND dia<=? AND situacao='fechado'" + extra + " GROUP BY caixa_id, operador",
+                       (tenant, de, dia) + pids):
+            ch = (info[r["caixa_id"]][1], str(r["operador"] or "").strip())
+            cup_op[ch] = cup_op.get(ch, 0) + int(r["n"] or 0)
+
+    contagem = {g: sum(1 for m in momentos if m["gravidade"] == g) for g in pdv_regras.GRAVIDADES}
+    por_regra: Dict[str, Dict[str, int]] = {}
+    for m in momentos:
+        a = por_regra.setdefault(m["regra"], {g: 0 for g in pdv_regras.GRAVIDADES})
+        a[m["gravidade"]] += 1
+    if gravidade:
+        momentos = [m for m in momentos if m["gravidade"] == gravidade]
+    # mais grave primeiro; dentro da gravidade, o mais recente
+    momentos.sort(key=lambda m: m["ts"], reverse=True)
+    momentos.sort(key=lambda m: pdv_regras.GRAVIDADES.index(m["gravidade"]))
+    return {"dia": dia, "loja": loja, "lojas": lojas, "momentos": momentos[:1000], "total": len(momentos),
+            "gravidades": contagem, "por_regra": por_regra, "regras": pdv_regras.REGRAS,
+            "fora_da_media": pdv_regras.fora_da_media(semana, cup_op), "media_dias": MOMENTOS_MEDIA_DIAS}
+
+
 def ao_vivo(caixa_id: str) -> Dict[str, Any]:
     """O cupom que esta passando agora (ou o ultimo) e os itens dele."""
     tenant = _tenant()
@@ -838,6 +945,7 @@ def reprocessar_dia(caixa_id: str, dia: str) -> Dict[str, Any]:
         for t in ("pdv_eventos", "pdv_itens", "pdv_cupons"):
             c.execute("DELETE FROM %s WHERE tenant_slug=? AND caixa_id=? AND dia=?" % t, (tenant, caixa_id, dia))
         _estado.pop((tenant, caixa_id, dia), None)
+        _momentos_cache.pop((tenant, caixa_id, dia), None)
         pr = ProcessadorDia(dia)
         linhas = {a: [(int(r["seq"]), r["linha"]) for r in _rows(
             c, "SELECT seq, linha FROM pdv_linhas WHERE tenant_slug=? AND caixa_id=? AND arquivo=? AND dia=? ORDER BY seq",
