@@ -105,6 +105,7 @@ function pdvParar() {
   _pdvVivo.parede.clear();
   if (typeof pdvPararGravacao === 'function') pdvPararGravacao();
   if (typeof pdvLateralFechar === 'function') pdvLateralFechar();
+  if (typeof pdvRkFichaFechar === 'function') pdvRkFichaFechar();
 }
 
 function pdvSemCaixa(boxId) {
@@ -1318,7 +1319,7 @@ async function pdvIrCupom(caixaId, dia, cupom, ts = '') {
 let _pdvCup = { sel: '' };  // usado pelo pdvAbrirCupom (painel lateral)
 const PDV_CUP_SIT = { ...PDV_SITUACAO, aberto: ['aberto', 'pdv-sit-aberto'] };
 
-let _pdvRk = { periodo: '7', loja: '', por: 'operador', dados: null, col: 'vendido', desc: true, lado: {}, todos: {} };
+let _pdvRk = { periodo: '7', loja: '', por: 'operador', dados: null, todos: {} };
 
 function pdvRkDatas(p) {
   const h = pdvHoje();
@@ -1352,12 +1353,6 @@ const PDV_RK_CARDS = [
   { id: 'valor_sangrias', titulo: 'Sangrias', melhor: 'baixo', ruim: true, fmt: pdvMoeda, sub: x => `${pdvNum(x.sangrias)} ${x.sangrias === 1 ? 'retirada' : 'retiradas'}` },
 ];
 
-const PDV_RK_COLS = [
-  ['nome', 'Nome', 'txt'], ['cupons', 'Cupons', pdvNum], ['vendido', 'Vendido', pdvMoeda], ['ticket', 'Ticket', pdvMoeda],
-  ['tempo_mediano_s', 'Tempo/cliente', pdvRkTempo], ['seg_por_item', 's/item', pdvRkDec], ['vendido_por_hora', 'Venda/hora', pdvRkMoeda],
-  ['pct_digitado', '% digit.', pdvRkDec], ['cancelados_por_mil', 'Canc. ‰', pdvRkDec], ['descontos', 'Descontos', pdvMoeda],
-  ['gaveta_fora', 'Gaveta fora', pdvNum], ['sem_cadastro', 'Sem cad.', pdvNum], ['valor_sangrias', 'Sangrias', pdvMoeda],
-];
 
 async function loadPdvCupons() {
   pdvParar();
@@ -1393,6 +1388,72 @@ function pdvRkLista(card, lista, lado) {
   return validos.sort((a, b) => altoPrimeiro ? b[card.id] - a[card.id] : a[card.id] - b[card.id]);
 }
 
+// Ficha: a posicao da pessoa (ou do caixa) em cada ranking, no mesmo periodo.
+function pdvRkFichaFechar() {
+  const d = document.getElementById('pdvFicha');
+  if (!d) return;
+  d.classList.remove('open');
+  setTimeout(() => { d.classList.add('hidden'); document.getElementById('pdvFichaFundo')?.classList.add('hidden'); }, 270);
+}
+
+function pdvRkFicha(chave) {
+  const r = _pdvRk.dados;
+  if (!r) return;
+  const lista = (_pdvRk.por === 'operador' ? r.operadores : r.caixas) || [];
+  const x = lista.find(o => o.chave === chave);
+  if (!x) return;
+  if (!document.getElementById('pdvFicha')) {
+    // fecha so pelo X ou Esc (regra do sistema: clicar fora nao fecha)
+    document.body.insertAdjacentHTML('beforeend', `
+      <div id="pdvFichaFundo" class="dash-drawer-overlay hidden"></div>
+      <aside id="pdvFicha" class="dash-drawer pdv-ficha hidden" aria-label="Ficha">
+        <div class="dash-drawer-header">
+          <div><h2 class="pdv-l-h2" id="pdvFichaNome"></h2><span class="pdv-l-sub" id="pdvFichaSub"></span></div>
+          <button class="icon-button" type="button" id="pdvFichaX" title="Fechar (Esc)"><i data-lucide="x"></i></button>
+        </div>
+        <div class="pdv-ficha-corpo" id="pdvFichaCorpo"></div>
+      </aside>`);
+    document.getElementById('pdvFichaX').addEventListener('click', pdvRkFichaFechar);
+    document.addEventListener('keydown', ev => {
+      if (ev.key === 'Escape' && document.getElementById('pdvFicha')?.classList.contains('open')) pdvRkFichaFechar();
+    });
+  }
+  const [de, ate] = [r.de, r.ate];
+  document.getElementById('pdvFichaNome').textContent = x.nome;
+  document.getElementById('pdvFichaSub').textContent =
+    `${_pdvRk.por === 'operador' ? (x.outros || []).join(', ') : (x.loja || '')} · ${de === ate ? pdvDiaRotulo(de) : `${pdvDiaRotulo(de)} a ${pdvDiaRotulo(ate)}`}`;
+  const min = r.minimo_cupons || 10;
+  const linhas = PDV_RK_CARDS.map(card => {
+    const ord = pdvRkLista(card, lista, 'melhores');
+    const i = ord.findIndex(o => o.chave === chave);
+    let pos = i + 1;
+    if (i > 0) { let k = i; while (k > 0 && ord[k - 1][card.id] === ord[i][card.id]) k--; pos = k + 1; }
+    const n = ord.length;
+    const cls = i < 0 ? '' : (n > 6 && i >= n - 3 ? 'ruim' : (i < 3 ? 'bom' : ''));
+    const pct = i < 0 || n < 2 ? 0 : Math.round(100 * (n - 1 - i) / (n - 1));
+    return `<div class="pdv-ficha-linha">
+      <span class="pdv-r-pos ${cls}">${i < 0 ? '–' : `${pos}º`}</span>
+      <span class="pdv-r-meio"><strong>${esc(card.titulo)}</strong>
+        <small>${i < 0 ? `fora deste ranking (menos de ${min} cupons)` : `${pos}º de ${n} · ${esc(card.sub(x))}`}</small>
+        ${i < 0 ? '' : `<i class="pdv-r-bar"><b class="${cls === 'ruim' ? 'pdv-r-bar-ruim' : 'pdv-r-bar-bom'}" style="width:${Math.max(3, pct)}%"></b></i>`}</span>
+      <span class="pdv-r-val">${esc(card.fmt(x[card.id]))}</span>
+    </div>`;
+  }).join('');
+  document.getElementById('pdvFichaCorpo').innerHTML = `
+    <div class="pdv-ficha-topo">
+      <div><span class="pdv-l-k">Vendido</span><strong>${esc(pdvMoeda(x.vendido))}</strong></div>
+      <div><span class="pdv-l-k">Cupons</span><strong>${pdvNum(x.cupons)}</strong></div>
+      <div><span class="pdv-l-k">${_pdvRk.por === 'operador' ? 'Dias' : 'Dias com venda'}</span><strong>${pdvNum(x.dias)}</strong></div>
+    </div>
+    <p class="pdv-nota pdv-ficha-nota">A barra mostra a posição: cheia = entre os melhores, curta = entre os piores.</p>
+    ${linhas}`;
+  const d = document.getElementById('pdvFicha');
+  d.classList.remove('hidden');
+  document.getElementById('pdvFichaFundo').classList.remove('hidden');
+  requestAnimationFrame(() => requestAnimationFrame(() => d.classList.add('open')));
+  lucide.createIcons();
+}
+
 function pdvRkDesenhar() {
   const box = document.getElementById('pdvRkBody');
   const r = _pdvRk.dados;
@@ -1400,7 +1461,6 @@ function pdvRkDesenhar() {
   const lista = (_pdvRk.por === 'operador' ? r.operadores : r.caixas) || [];
   if (!lista.length) { box.innerHTML = '<p class="pdv-nota pdv-c-msg">Nenhuma venda no período.</p>'; return; }
   const quem = _pdvRk.por === 'operador' ? 'operador' : 'caixa';
-  const subQuem = x => _pdvRk.por === 'operador' ? (x.outros || []).join(', ') : (x.loja || '');
 
   // destaques
   const topo = (id, lado) => pdvRkLista(PDV_RK_CARDS.find(c => c.id === id), lista, lado)[0];
@@ -1414,7 +1474,7 @@ function pdvRkDesenhar() {
     <section class="pdv-l-card pdv-l-s3 pdv-r-dest">
       <span class="pdv-r-ico ${cls}"><i data-lucide="${ic}"></i></span>
       <div class="pdv-l-stat"><span class="pdv-l-k">${rot}</span>
-        <strong class="pdv-r-nome pdv-l-uma" title="${esc(x?.nome || '')}">${esc(x?.nome || '–')}</strong>
+        ${x ? `<button type="button" class="pdv-r-nome-bt pdv-r-nome pdv-l-uma" data-pdv-rk-ficha="${esc(x.chave)}" title="Ver a ficha de ${esc(x.nome)}">${esc(x.nome)}</button>` : '<strong class="pdv-r-nome">–</strong>'}
         <span class="pdv-l-sub pdv-l-uma">${x ? esc(val(x)) : 'sem dados'}</span></div>
     </section>`).join('');
 
@@ -1434,7 +1494,7 @@ function pdvRkDesenhar() {
       const bom = n > 6 ? i < 3 : true;
       return `<li class="${ruim ? 'pior' : (bom ? 'melhor' : '')}">
           <span class="pdv-r-pos ${ruim ? 'ruim' : (bom ? 'bom' : '')}">${pos[i]}º</span>
-          <span class="pdv-r-meio"><strong class="pdv-l-uma" title="${esc(x.nome)}">${esc(x.nome)}</strong>
+          <span class="pdv-r-meio"><button type="button" class="pdv-r-nome-bt pdv-l-uma" data-pdv-rk-ficha="${esc(x.chave)}" title="Ver a ficha de ${esc(x.nome)}">${esc(x.nome)}</button>
             <small class="pdv-l-uma">${esc(card.sub(x))}</small>
             <i class="pdv-r-bar"><b class="${ruim ? 'pdv-r-bar-ruim' : 'pdv-r-bar-bom'}" style="width:${Math.max(3, Math.round(100 * Math.abs(x[card.id] || 0) / max))}%"></b></i></span>
           <span class="pdv-r-val">${esc(card.fmt(x[card.id]))}</span>
@@ -1460,28 +1520,8 @@ function pdvRkDesenhar() {
     </section>`;
   }).join('');
 
-  // tabela completa
-  const col = _pdvRk.col, desc = _pdvRk.desc;
-  const ordenada = [...lista].sort((a, b) => {
-    const va = a[col], vb = b[col];
-    if (col === 'nome') return desc ? String(vb).localeCompare(String(va), 'pt-BR', { numeric: true }) : String(va).localeCompare(String(vb), 'pt-BR', { numeric: true });
-    const na = va === null || va === undefined ? -Infinity : va, nb = vb === null || vb === undefined ? -Infinity : vb;
-    return desc ? nb - na : na - nb;
-  });
-  const tabela = `
-    <section class="pdv-l-card pdv-l-s12">
-      <div class="pdv-l-head pdv-l-titulo"><h2 class="pdv-l-h2">Todos os ${quem === 'operador' ? 'operadores' : 'caixas'}</h2>
-        <span class="pdv-l-sub">clique no título da coluna para ordenar</span></div>
-      <div class="pdv-l-rolar"><table class="pdv-l-tb pdv-r-tb">
-        <colgroup><col style="width:230px">${PDV_RK_COLS.slice(1).map(([, , f]) => `<col style="width:${f === pdvMoeda || f === pdvRkMoeda ? 120 : 92}px">`).join('')}</colgroup>
-        <thead><tr>${PDV_RK_COLS.map(([k, rot]) => `<th class="${k === 'nome' ? '' : 'num'} pdv-r-th ${k === col ? 'ativo' : ''}" data-pdv-rk-col="${k}">${rot}${k === col ? (desc ? ' ▼' : ' ▲') : ''}</th>`).join('')}</tr></thead>
-        <tbody>${ordenada.map(x => `<tr>${PDV_RK_COLS.map(([k, , f]) => k === 'nome'
-          ? `<td title="${esc(subQuem(x))}"><strong>${esc(x.nome)}</strong> <small class="pdv-muted">${esc(subQuem(x))}</small></td>`
-          : `<td class="num">${esc(f(x[k]))}</td>`).join('')}</tr>`).join('')}</tbody>
-      </table></div>
-    </section>`;
-
-  box.innerHTML = `<div class="pdv-l-grade">${destaques}${cards}${tabela}</div>`;
+  box.innerHTML = `<div class="pdv-l-grade">${destaques}${cards}</div>
+    <p class="pdv-nota">Clique no nome de qualquer ${quem} para ver a posição dele em todos os rankings.</p>`;
   lucide.createIcons();
 }
 
@@ -1873,13 +1913,8 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     const todos = ev.target.closest('[data-pdv-rk-todos]');
     if (todos) { const id = todos.dataset.pdvRkTodos; _pdvRk.todos[id] = !_pdvRk.todos[id]; pdvRkDesenhar(); return; }
-    const th = ev.target.closest('[data-pdv-rk-col]');
-    if (th) {
-      const c = th.dataset.pdvRkCol;
-      _pdvRk.desc = _pdvRk.col === c ? !_pdvRk.desc : c !== 'nome';
-      _pdvRk.col = c;
-      pdvRkDesenhar();
-    }
+    const fi = ev.target.closest('[data-pdv-rk-ficha]');
+    if (fi) pdvRkFicha(fi.dataset.pdvRkFicha);
   });
   document.getElementById('pdvRkLoja')?.addEventListener('change', ev => { _pdvRk.loja = ev.target.value; pdvRkCarregar(); });
   document.querySelector('[data-settings-tab="pdv"]')?.addEventListener('click', () => loadPdvConfig());
