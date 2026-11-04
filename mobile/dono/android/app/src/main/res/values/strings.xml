@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">SightOps PDV</string>
+    <string name="title_activity_main">SightOps PDV</string>
+    <string name="package_name">br.com.easytecnologias.sightops.pdv</string>
+    <string name="custom_url_scheme">br.com.easytecnologias.sightops.pdv</string>
+</resources>
