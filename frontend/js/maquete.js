@@ -659,7 +659,7 @@
               <button type="button" data-mq-add="caixa">+ <span class="lbl">Caixa de passagem</span></button>
             </div>
           </div>
-          <div class="mq-hint" id="mqHint">Arraste câmera, rack, caixa ou prumada para mover · arraste o fundo para girar</div>
+          <div class="mq-hint" id="mqHint">Puxe o cabo ou a calha para mudar o caminho · duplo clique numa curva desfaz · arraste o fundo para girar</div>
           <div class="mq-legend">${legenda}</div>
         </section>
         <aside class="mq-panel">
@@ -968,13 +968,21 @@
     }
     // da câmera sobe até a altura da calha; sem pontos, faz um "L" até a entrada
     let pts = [cp, V(cp.x, ty, cp.z)];
-    if (wps.length) pts.push(...wps, entrada);
-    else pts.push(Math.abs(entrada.x - cp.x) > Math.abs(entrada.z - cp.z) ? V(cp.x, ty, entrada.z) : V(entrada.x, ty, cp.z), entrada);
+    const cust = [];   // trechos do cabo antes da calha: puxar um deles cria uma curva no índice `ins`
+    if (wps.length) {
+      pts.push(...wps, entrada);
+      const seq = [pts[1], ...wps, entrada];
+      for (let i = 0; i < seq.length - 1; i++) cust.push({ A: seq[i], B: seq[i + 1], ins: i });
+    } else {
+      const canto = Math.abs(entrada.x - cp.x) > Math.abs(entrada.z - cp.z) ? V(cp.x, ty, entrada.z) : V(entrada.x, ty, cp.z);
+      pts.push(canto, entrada);
+      cust.push({ A: pts[1], B: canto, ins: 0 }, { A: canto, B: entrada, ins: 0 });
+    }
     pts.push(...r.pts);
     pts = pts.filter((p, i) => i === 0 || p.distanceToSquared(pts[i - 1]) > 1e-6);
     let len = 0; for (let i = 1; i < pts.length; i++) len += pts[i].distanceTo(pts[i - 1]);
     const o = ((idx % 7) - 3) * 0.022;
-    return { pts: pts.map((p, i) => (i === 0 ? p.clone() : p.clone().add(V(o, 0, o)))), len: len + 3.5, via: r.via };
+    return { pts: pts.map((p, i) => (i === 0 ? p.clone() : p.clone().add(V(o, 0, o)))), len: len + 3.5, via: r.via, cust };
   }
   const ordenadas = () => L.cams.slice().sort((a, b) => String(a.nome).localeCompare(String(b.nome), 'pt', { numeric: true }));
   function ligacoes() {
@@ -1084,6 +1092,8 @@
     PISOS.forEach(pv => segmentos(pv.id).forEach(s => {
       metrosCalha += s.A.distanceTo(s.B);
       const m = caixaEntre(s.A, s.B, 0.16, 0.05, mat.calha); if (m && calha) { m.userData.piso = pv.id; din.add(m); }
+      const hb = calha && s.n !== s.p ? caixaEntre(s.A, s.B, 0.6, 0.45, mat.inv) : null;
+      if (hb) { hb.userData.ref = { k: 'calha', s, piso: pv.id }; hb.userData.piso = pv.id; din.add(hb); alvos.push(hb); }
     }));
     L.nodes.forEach(n => {
       if (n.tipo === 'rack') return;
@@ -1109,6 +1119,12 @@
     objRack();
     ordenadas().forEach((c, i) => {
       const r = caminho(c, i); caminhos.set(c.id, r);
+      if ($('mqCCabos').checked || (sel && sel.o === c)) r.cust.forEach((t, j) => {
+        let A = t.A; const d = t.A.distanceTo(t.B);
+        if (j === 0) { if (d < 1.2) return; A = t.A.clone().lerp(t.B, 0.6 / d); }   // perto da câmera, pega a câmera
+        const hb = caixaEntre(A, t.B, 0.45, 0.45, mat.inv);
+        if (hb) { hb.userData.ref = { k: 'cabo', cam: c, ins: t.ins }; hb.userData.piso = c.piso; din.add(hb); alvos.push(hb); }
+      });
       r.via.forEach(v => contagem[v] = (contagem[v] || 0) + 1);
       const eSel = sel && sel.o === c;
       if (!$('mqCCabos').checked && !eSel) return;
@@ -1131,6 +1147,7 @@
       });
     }
     aplicaVis(); montarRotulos(); resumoAbas(); listaCams();
+    din.updateMatrixWorld(true);   // clique logo em seguida (duplo clique) já acerta os objetos novos
   }
   const redesenhar = () => { pend = true; };
 
@@ -1230,7 +1247,7 @@
           <button class="mq-btn sm" type="button" id="mqSWpUndo"${c.pts && c.pts.length ? '' : ' disabled'} title="Tirar o último ponto">↶</button>
           <button class="mq-btn sm" type="button" id="mqSWpLimpa"${c.pts && c.pts.length ? '' : ' disabled'}>Limpar</button>
         </div>
-        <span class="mq-muted">${c.pts && c.pts.length ? `${c.pts.length} ponto(s). Arraste os pontos azuis para ajustar.` : 'Clique no piso por onde o cabo passa antes de entrar na calha.'}</span>
+        <span class="mq-muted">${c.pts && c.pts.length ? `${c.pts.length} curva(s). Arraste os pontos azuis; duplo clique tira.` : 'Ou puxe o cabo direto na maquete.'}</span>
       </div>
       <div class="mq-fld"><label for="mqSPorta">Porta no patch panel</label><select id="mqSPorta">${opcoesPorta(c, lig)}</select></div>
       <div class="mq-acts2"><button class="mq-btn" type="button" id="mqSOlhar">Ver daqui</button><button class="mq-btn del" type="button" id="mqSRm">Remover</button></div>`;
@@ -1281,9 +1298,15 @@
     });
     return html;
   }
+  function removerCaixa(n) {
+    L.nodes.forEach(k => { if (k.pai === n.id) k.pai = n.pai; });
+    L.cams.forEach(c => { if (c.entrada === n.id) c.entrada = null; });
+    L.nodes = L.nodes.filter(k => k !== n);
+    if (sel && sel.o === n) sel = null;
+  }
   function fimDesenho() {
     modoAdd = null; const cv = $('mqCv'); if (cv) cv.classList.remove('add');
-    $('mqHint').textContent = 'Arraste câmera, rack, caixa ou prumada para mover · arraste o fundo para girar';
+    $('mqHint').textContent = 'Puxe o cabo ou a calha para mudar o caminho · duplo clique numa curva desfaz · arraste o fundo para girar';
     painelSel();
   }
   function atualizaDori(c) {
@@ -1314,10 +1337,10 @@
         <dt>Cabos passando</dt><dd>${passa}</dd>
         <dt>Posição na planta</dt><dd>${fmt(n.x, 2)} × ${fmt(n.y, 2)} m</dd>
       </dl>
-      <div class="mq-muted" style="margin:12px 0">Arraste na maquete para mudar o caminho. A eletrocalha e a metragem dos cabos acompanham.</div>
+      <div class="mq-muted" style="margin:12px 0">Arraste na maquete para mudar o caminho da calha; os cabos e a metragem acompanham. Duplo clique na caixa tira a curva.</div>
       ${n.tipo === 'caixa' ? '<button class="mq-btn del" type="button" id="mqSRm" style="width:100%">Remover caixa</button>' : ''}`;
     $('mqSX').onclick = () => selecionar(null);
-    if ($('mqSRm')) $('mqSRm').onclick = () => { L.nodes.forEach(k => { if (k.pai === n.id) k.pai = n.pai; }); L.cams.forEach(c => { if (c.entrada === n.id) c.entrada = null; }); L.nodes = L.nodes.filter(k => k !== n); sel = null; montarDin(); painelSel(); marcarMudanca(); };
+    if ($('mqSRm')) $('mqSRm').onclick = () => { removerCaixa(n); montarDin(); painelSel(); marcarMudanca(); };
   }
   function listaCams() {
     const el = $('mqCams'); if (!el) return;
@@ -1757,7 +1780,7 @@
       if (sel && sel.k === 'cam') painelSel();
       document.querySelectorAll('#viewMaquete [data-mq-add]').forEach(k => k.classList.toggle('on', k.dataset.mqAdd === modoAdd));
       $('mqCv').classList.toggle('add', !!modoAdd);
-      $('mqHint').textContent = modoAdd === 'cam' ? 'Clique no piso onde a câmera vai ficar' : modoAdd === 'caixa' ? 'Clique perto da eletrocalha onde a caixa vai ficar' : 'Arraste câmera, rack, caixa ou prumada para mover · arraste o fundo para girar';
+      $('mqHint').textContent = modoAdd === 'cam' ? 'Clique no piso onde a câmera vai ficar' : modoAdd === 'caixa' ? 'Clique perto da eletrocalha onde a caixa vai ficar' : 'Puxe o cabo ou a calha para mudar o caminho · duplo clique numa curva desfaz · arraste o fundo para girar';
     });
     // rack
     $('mqRkTam').onchange = e => { L.rack.tam = e.target.value; montarDin(); painelSel(); marcarMudanca(); };
@@ -1797,7 +1820,9 @@
     const acerto = e => {
       raio(e);
       const ok = alvos.filter(a => { let o = a; while (o && !o.userData.piso) o = o.parent; const p = o && o.userData.piso; return !p || p === 'ambos' || !grupos[p] || grupos[p].visible; });
-      return ray.intersectObjects(ok)[0];
+      const hits = ray.intersectObjects(ok);
+      // câmera, caixa, rack e curvas têm preferência sobre puxar cabo/calha
+      return hits.find(x => !['cabo', 'calha'].includes(x.object.userData.ref.k)) || hits[0];
     };
     R3.view.addEventListener('pointerdown', e => {
       if (e.target !== cv || e.button !== 0) return;
@@ -1805,8 +1830,9 @@
       if (modoAdd) return;
       const hit = acerto(e);
       if (hit) {
-        const o = hit.object.userData.ref.o;
-        drag = { ref: hit.object.userData.ref, y: hit.point.y, off: { x: (OX + o.x) - hit.point.x, z: (OZ + o.y) - hit.point.z }, moved: false };
+        const ref = hit.object.userData.ref;
+        if (ref.k === 'cabo' || ref.k === 'calha') drag = { ref, y: hit.point.y, off: { x: 0, z: 0 }, moved: false, criar: true, em: hit.point.clone() };
+        else { const o = ref.o; drag = { ref, y: hit.point.y, off: { x: (OX + o.x) - hit.point.x, z: (OZ + o.y) - hit.point.z }, moved: false }; }
         R3.controls.enabled = false;
       }
     }, true);
@@ -1814,7 +1840,9 @@
       if (!R3) return;
       if (!drag) { if (e.target === cv && !modoAdd) cv.classList.toggle('mover', !!acerto(e)); return; }
       if (!drag.moved && Math.hypot(e.clientX - downPt[0], e.clientY - downPt[1]) < 4) return;
-      drag.moved = true; raio(e); plano.set(V(0, 1, 0), -drag.y);
+      drag.moved = true;
+      if (drag.criar) criarCurva(drag);
+      raio(e); plano.set(V(0, 1, 0), -drag.y);
       if (!ray.ray.intersectPlane(plano, pt)) return;
       const o = drag.ref.o;
       o.x = Math.max(-2, Math.min(W + 2, snap(pt.x + drag.off.x - OX)));
@@ -1825,7 +1853,8 @@
       if (!R3) return;
       const click = downPt && Math.hypot(e.clientX - downPt[0], e.clientY - downPt[1]) < 5;
       if (drag) {
-        const r = drag.ref, moved = drag.moved; drag = null; R3.controls.enabled = true;
+        const r = drag.ref, moved = drag.moved, soClique = drag.criar; drag = null; R3.controls.enabled = true;
+        if (soClique) { if (r.k === 'cabo') selecionar('cam', r.cam); downPt = null; return; }
         if (r.k === 'wp') { sel = { k: 'cam', o: r.cam }; montarDin(); painelSel(); if (moved) marcarMudanca(); }
         else if (!moved) selecionar(r.k, r.o); else { sel = { k: r.k, o: r.o }; montarDin(); painelSel(); marcarMudanca(); }
         downPt = null; return;
@@ -1835,6 +1864,33 @@
     };
     window.addEventListener('pointermove', R3.onMove);
     window.addEventListener('pointerup', R3.onUp);
+    // puxou o cabo: vira um ponto do caminho dele; puxou a calha: vira uma caixa (curva da calha)
+    function criarCurva(d) {
+      const x = snap(d.em.x - OX), y = snap(d.em.z - OZ), r = d.ref;
+      if (r.k === 'cabo') {
+        const c = r.cam, p = { x, y };
+        c.pts = Array.isArray(c.pts) ? c.pts : [];
+        c.pts.splice(r.ins, 0, p);
+        d.ref = { k: 'wp', o: p, cam: c }; sel = { k: 'cam', o: c };
+      } else {
+        const s = r.s, piso = r.piso;
+        const num = L.nodes.filter(n => n.tipo === 'caixa').reduce((a, n) => Math.max(a, +String(n.nome).slice(3) || 0), 0) + 1;
+        const n = { id: 'n' + (L.seq++), tipo: 'caixa', nome: 'CX-' + String(num).padStart(2, '0'), piso, x, y, pai: s.p.id };
+        s.n.pai = n.id; L.nodes.push(n);
+        d.ref = { k: 'node', o: n }; sel = { k: 'node', o: n };
+      }
+      d.criar = false; d.off = { x: 0, z: 0 };
+    }
+    // duplo clique numa curva: tira o ponto do cabo ou a caixa da calha
+    R3.view.addEventListener('dblclick', e => {
+      if (e.target !== cv) return;
+      const hit = acerto(e); if (!hit) return;
+      const r = hit.object.userData.ref;
+      if (r.k === 'wp') { r.cam.pts = r.cam.pts.filter(p => p !== r.o); sel = { k: 'cam', o: r.cam }; }
+      else if (r.k === 'node' && r.o.tipo === 'caixa') { removerCaixa(r.o); }
+      else return;
+      montarDin(); painelSel(); marcarMudanca();
+    });
     R3.onKey = e => { if (e.key === 'Escape' && modoAdd === 'wp') fimDesenho(); };
     window.addEventListener('keydown', R3.onKey);
     function adicionar(e) {
@@ -1868,7 +1924,7 @@
         L.nodes.push(n); sel = { k: 'node', o: n }; toast(n.nome + ' criada: a eletrocalha agora passa por ela.');
       }
       modoAdd = null; document.querySelectorAll('#viewMaquete [data-mq-add]').forEach(k => k.classList.remove('on')); cv.classList.remove('add');
-      $('mqHint').textContent = 'Arraste câmera, rack, caixa ou prumada para mover · arraste o fundo para girar';
+      $('mqHint').textContent = 'Puxe o cabo ou a calha para mudar o caminho · duplo clique numa curva desfaz · arraste o fundo para girar';
       montarDin(); painelSel(); marcarMudanca();
     }
   }
