@@ -636,13 +636,14 @@ const VIEW_META = {
   'pdv-lojas':      { title: 'Ponto de venda', sub: 'Vendas e caixas de cada loja' },
   'pdv-vivo':       { title: 'Ponto de venda', sub: 'Câmera e cupom de cada caixa agora' },
   'pdv-visao':      { title: 'Ponto de venda', sub: 'Como os itens entraram e a saúde dos caixas' },
-  'pdv-cupons':     { title: 'Ponto de venda', sub: 'Cupons, itens e vídeo de cada venda' },
+  'pdv-cupons':     { title: 'Ponto de venda', sub: 'Rankings de operadores e caixas' },
   'rotas-viagens':  { title: 'Controle de Rotas', sub: 'Viagens e as 6 provas do PNATE' },
   'rotas-cadastro': { title: 'Controle de Rotas', sub: 'Rotas, paradas e alunos' },
   'rotas-frota':    { title: 'Controle de Rotas', sub: 'Veículos, motoristas e vencimentos' },
   'rotas-pnate':    { title: 'Controle de Rotas', sub: 'Prestação de contas do PNATE' },
   'net-operate':   { title: 'Manutencao - Rede', sub: 'Tuneis, diagnostico e teste pontual' },
   planning:        { title: 'Projetos de CFTV', sub: 'Planejamento antes da implantacao' },
+  maquete:         { title: 'Maquete 3D',       sub: 'Planta em 3D com câmeras, cabos e rack' },
   'deploy-olt':    { title: 'Implantacao - OLT', sub: 'Cadastro das OLTs usadas na operacao' },
   'deploy-onu':    { title: 'Implantacao - ONU', sub: 'Provisionamento em campo' },
   'deploy-recorder': { title: 'Implantacao - Gravadores', sub: 'Cadastro de DVR/NVR' },
@@ -699,6 +700,7 @@ const VIEW_ID_MAP = {
   'rotas-pnate':     'viewRotasPnate',
   'net-operate':    'viewNetOperate',
   planning:         'viewPlanning',
+  maquete:          'viewMaquete',
   'deploy-olt':     'viewDeployOlt',
   'deploy-onu':     'viewDeployOnu',
   'deploy-recorder':'viewDeployRecorder',
@@ -832,6 +834,7 @@ function loadView(view) {
     case 'kmz':         loadKmz();          break;
     case 'net-operate': loadNetOperate();   break;
     case 'planning':    loadPlanning();     break;
+    case 'maquete':     loadMaquete();      break;
     case 'deploy-olt':  loadDeployOlt();    break;
     case 'deploy-onu':  loadDeployOnu();    break;
     case 'deploy-recorder': loadDeployRecorder(); break;

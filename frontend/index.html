@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=1793100035">
+  <link rel="stylesheet" href="styles.css?v=1793100093">
   <link rel="stylesheet" href="acesso/acesso.css?v=1792600213">
 </head>
 <body>
@@ -107,6 +107,7 @@
         <div class="nav-section-label">Integracoes</div>
         <button class="nav-item" data-view="script-grafana"><i data-lucide="bar-chart-2"></i><span>Grafana</span></button>
         <button class="nav-item" data-view="kmz"><i data-lucide="map"></i><span>Mapa</span></button>
+        <button class="nav-item" data-view="maquete"><i data-lucide="box"></i><span>Maquete 3D</span></button>
         <button class="nav-item" data-view="script-zabbix"><i data-lucide="eye"></i><span>Zabbix</span></button>
         <button class="nav-item" data-view="connectors"><i data-lucide="plug"></i><span>Conectores</span></button>
 
@@ -157,10 +158,10 @@
 
         <!-- Ponto de venda (auditoria de caixa) -->
         <div class="nav-section-label">Ponto de venda</div>
+        <button class="nav-item" data-view="pdv-visao"><i data-lucide="scan-barcode"></i><span>Visão geral</span></button>
         <button class="nav-item" data-view="pdv-lojas"><i data-lucide="store"></i><span>Lojas</span></button>
         <button class="nav-item" data-view="pdv-vivo"><i data-lucide="cctv"></i><span>Ao vivo</span></button>
-        <button class="nav-item" data-view="pdv-visao"><i data-lucide="scan-barcode"></i><span>Visão geral</span></button>
-        <button class="nav-item" data-view="pdv-cupons"><i data-lucide="receipt"></i><span>Cupons</span></button>
+        <button class="nav-item" data-view="pdv-cupons"><i data-lucide="trophy"></i><span>Rankings</span></button>
 
         </div>
 
@@ -2103,12 +2104,23 @@
             <h1>Visão geral dos caixas</h1>
             <p>Acompanhe os caixas e revise só o que pede decisão de uma pessoa.</p>
           </div>
-          <div class="page-heading-actions pdv-dia-nav">
-            <button class="secondary-action" type="button" id="pdvVisaoAnterior" aria-label="Dia anterior"><i data-lucide="chevron-left"></i></button>
-            <span class="pdv-dia" id="pdvVisaoDia">Hoje</span>
-            <button class="secondary-action" type="button" id="pdvVisaoProximo" aria-label="Próximo dia"><i data-lucide="chevron-right"></i></button>
-          </div>
         </div>
+        <section class="pdv-l-card pdv-r-filtros pdv-sombra pdv-vg-filtros">
+          <form class="pdv-vg-busca" id="pdvVisaoBusca" role="search">
+            <label class="search-box"><i data-lucide="search"></i><input id="pdvVisaoCupom" type="search" inputmode="numeric" placeholder="Digite o nº do cupom" aria-label="Número do cupom"></label>
+            <button class="primary-action" type="submit">Abrir cupom</button>
+          </form>
+          <div class="pdv-vg-dia">
+            <div class="pdv-r-seg" role="group" aria-label="Dia">
+              <button type="button" data-pdv-vg-dia="hoje">Hoje</button>
+              <button type="button" data-pdv-vg-dia="ontem">Ontem</button>
+            </div>
+            <button class="secondary-action pdv-vg-seta" type="button" id="pdvVisaoAnterior" aria-label="Dia anterior"><i data-lucide="chevron-left"></i></button>
+            <label class="pdv-vg-data"><i data-lucide="calendar"></i><input type="date" id="pdvVisaoData" aria-label="Escolher o dia"></label>
+            <button class="secondary-action pdv-vg-seta" type="button" id="pdvVisaoProximo" aria-label="Próximo dia"><i data-lucide="chevron-right"></i></button>
+          </div>
+          <label class="pdv-c-campo pdv-vg-loja"><span>Loja</span><select id="pdvVisaoLoja"><option value="">Todas as lojas</option></select></label>
+        </section>
         <div id="pdvVisaoBody"></div>
       </section>
 
@@ -2116,20 +2128,24 @@
         <div class="page-heading">
           <div>
             <p class="eyebrow">Ponto de venda</p>
-            <h1>Cupons e itens</h1>
-            <p>Busque por cupom, produto ou operador. Cada item mostra se foi bipado, digitado ou pelo menu.</p>
+            <h1>Rankings</h1>
+            <p>Quem vende mais, quem atende mais rápido e onde estão os cancelamentos, descontos e gavetas abertas. <span id="pdvRkQuando"></span></p>
           </div>
         </div>
-        <section class="panel pdv-filtros">
-          <label class="search-box"><i data-lucide="search"></i><input id="pdvCupFiltroBusca" type="search" placeholder="Cupom, produto ou código"></label>
-          <label>Dia<input type="date" id="pdvCupFiltroDia"></label>
-          <label>Das<input type="time" id="pdvCupFiltroDe"></label>
-          <label>Até<input type="time" id="pdvCupFiltroAte"></label>
-          <label>Caixa<select id="pdvCupFiltroCaixa"><option value="">Todos os caixas</option></select></label>
-          <label>Situação<select id="pdvCupFiltroSituacao"><option value="">Todos</option><option value="fechado">Fechados</option><option value="cancelado">Cancelados</option><option value="item_cancelado">Com item cancelado</option><option value="aberto">Em andamento</option></select></label>
-          <button class="primary-action" type="button" id="pdvCupBuscar"><i data-lucide="search"></i> Buscar</button>
+        <section class="pdv-l-card pdv-r-filtros">
+          <div class="pdv-r-seg" role="group" aria-label="Período">
+            <button type="button" data-pdv-rk-periodo="hoje">Hoje</button>
+            <button type="button" data-pdv-rk-periodo="ontem">Ontem</button>
+            <button type="button" data-pdv-rk-periodo="7" class="ativo">7 dias</button>
+            <button type="button" data-pdv-rk-periodo="30">30 dias</button>
+          </div>
+          <label class="pdv-c-campo"><span>Loja</span><select id="pdvRkLoja"><option value="">Todas as lojas</option></select></label>
+          <div class="pdv-r-seg" role="group" aria-label="Comparar">
+            <button type="button" data-pdv-rk-por="operador" class="ativo">Por operador</button>
+            <button type="button" data-pdv-rk-por="caixa">Por caixa</button>
+          </div>
         </section>
-        <section class="panel" id="pdvCuponsBody"></section>
+        <div id="pdvRkBody"></div>
       </section>
 
       <section class="workspace hidden" id="viewRotasVivo">
@@ -4896,6 +4912,9 @@
       </section>
 
       <!-- --- VIEW: PROJETOS / PLANEJAMENTO --- -->
+      <!-- Maquete 3D: conteudo montado por js/maquete.js -->
+      <section class="workspace hidden" id="viewMaquete"></section>
+
       <section class="workspace hidden planning-view" id="viewPlanning">
         <div class="page-heading">
           <div>
@@ -8140,7 +8159,7 @@
        trechos do app.js original na sequencia em que estavam, entao carregar
        fora de ordem muda o comportamento. Ao adicionar um arquivo novo, entre
        antes de bootstrap.js, que e quem liga os botoes no DOMContentLoaded. -->
-  <script src="js/core.js?v=1793100031"></script>
+  <script src="js/core.js?v=1793200002"></script>
   <script src="js/licencas.js?v=1792600103"></script>
   <script src="js/configuracoes.js?v=1793100004"></script>
   <script src="js/notificacoes.js?v=1792600139"></script>
@@ -8187,7 +8206,8 @@
   <script src="https://unpkg.com/qrcode-generator@1.4.4/qrcode.js"></script>
   <script src="js/alert.js?v=1792804801"></script>
   <script src="js/controleRotas.js?v=1792600341"></script>
-  <script src="js/pdv.js?v=1793100034"></script>
+  <script src="js/pdv.js?v=1793100094"></script>
+  <script src="js/maquete.js?v=1793200001"></script>
   <script src="js/tr069.js?v=1791000212"></script>
   <script src="js/bootstrap.js?v=1792600207"></script>
 </body>
