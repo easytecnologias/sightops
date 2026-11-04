@@ -104,6 +104,7 @@ function pdvParar() {
   _pdvVivo.parede.forEach(h => { try { h.stop(); } catch (_) {} });
   _pdvVivo.parede.clear();
   if (typeof pdvPararGravacao === 'function') pdvPararGravacao();
+  if (typeof pdvLateralFechar === 'function') pdvLateralFechar();
 }
 
 function pdvSemCaixa(boxId) {
@@ -309,7 +310,7 @@ async function pdvRenderLojas() {
           <span class="pdv-l-txt" title="${esc(txt)}">${esc(txt)}</span>
         </div>
         <button type="button" class="pdv-l-link" data-pdv-cupom="${esc(a.cupom || '')}" data-pdv-caixa="${esc(a.caixa_id)}"
-          data-pdv-dia="${esc(String(a.ts || '').slice(0, 10))}" title="Abrir o cupom, com os itens e o vídeo">abrir</button>
+          data-pdv-dia="${esc(String(a.ts || '').slice(0, 10))}" data-pdv-ts="${esc(a.ts || '')}" title="Abrir o cupom, com os itens e o vídeo">abrir</button>
       </div>`;
   }).join('') || '<p class="pdv-l-sub pdv-l-vazio">Nenhuma ocorrência neste dia.</p>';
 
@@ -349,7 +350,7 @@ async function pdvRenderLojas() {
   box.querySelectorAll('[data-pdv-ir]').forEach(b => b.addEventListener('click', () => pdvIrAoVivo(b.dataset.pdvIr)));
   box.querySelectorAll('[data-pdv-loja]').forEach(b => b.addEventListener('click', () => pdvIrLoja(b.dataset.pdvLoja)));
   box.querySelectorAll('[data-pdv-cupom]').forEach(b => b.addEventListener('click', () =>
-    pdvIrCupom(b.dataset.pdvCaixa, b.dataset.pdvDia || _pdvLojasDia, b.dataset.pdvCupom)));
+    pdvIrCupom(b.dataset.pdvCaixa, b.dataset.pdvDia || _pdvLojasDia, b.dataset.pdvCupom, b.dataset.pdvTs || '')));
   box.querySelector('[data-pdv-cupons]')?.addEventListener('click', () => document.querySelector('.nav-item[data-view="pdv-cupons"]')?.click());
   lucide.createIcons();
 }
@@ -604,7 +605,7 @@ async function pdvRenderParede() {
   box.querySelectorAll('[data-pdv-abrir]').forEach(b => b.addEventListener('click', () => abrir(b.dataset.pdvAbrir)));
   box.addEventListener('click', ev => {
     const b = ev.target.closest('[data-pdv-cupom]');
-    if (b) pdvIrCupom(b.dataset.pdvCaixa, b.dataset.pdvDia || pdvHoje(), b.dataset.pdvCupom);
+    if (b) pdvIrCupom(b.dataset.pdvCaixa, b.dataset.pdvDia || pdvHoje(), b.dataset.pdvCupom, b.dataset.pdvTs || '');
   });
 
   // video leve de cada caixa, pelo mesmo caminho do ao vivo de gravador do SightOps
@@ -702,7 +703,7 @@ function pdvPintarParede(r) {
         <div class="pdv-l-stat"><span class="pdv-l-sub pdv-l-uma">${esc(pdvHora(a.ts))} · <strong>${esc(a.caixa)}</strong></span>
           <span class="pdv-l-txt" title="${esc(txt)}">${esc(txt)}</span></div>
         <button type="button" class="pdv-l-link" data-pdv-cupom="${esc(a.cupom || '')}" data-pdv-caixa="${esc(a.caixa_id)}"
-          data-pdv-dia="${esc(String(a.ts || '').slice(0, 10))}" title="Abrir o cupom, com os itens e o vídeo">abrir</button></div>`;
+          data-pdv-dia="${esc(String(a.ts || '').slice(0, 10))}" data-pdv-ts="${esc(a.ts || '')}" title="Abrir o cupom, com os itens e o vídeo">abrir</button></div>`;
     }).join('') || '<p class="pdv-l-sub pdv-l-vazio">Nada fora do normal hoje.</p>';
   }
 }
@@ -844,9 +845,14 @@ const PDV_LISTAS = {
   abertos: 'Cupons ainda abertos',
 };
 
+let _pdvLateralLista = '';  // html da lista, para o "Voltar"
+let _pdvLateralCupom = '';  // cupom aberto no painel (descarta resposta atrasada)
+
 function pdvLateralFechar() {
   const d = document.getElementById('pdvLateral');
   if (!d) return;
+  pdvPararGravacao();
+  _pdvLateralCupom = '';
   d.classList.remove('open');
   setTimeout(() => { d.classList.add('hidden'); document.getElementById('pdvLateralFundo')?.classList.add('hidden'); }, 270);
 }
@@ -868,23 +874,69 @@ function pdvLateralCriar() {
     if (ev.key === 'Escape' && document.getElementById('pdvLateral')?.classList.contains('open')) pdvLateralFechar();
   });
   document.getElementById('pdvLateralCorpo').addEventListener('click', ev => {
+    if (ev.target.closest('[data-pdv-voltar]')) { pdvLateralVoltar(); return; }
     const el = ev.target.closest('[data-pdv-abrir]');
     if (!el) return;
-    pdvLateralFechar();
-    pdvIrCupom(...el.dataset.pdvAbrir.split('|'));
+    const [caixaId, dia, cupom] = el.dataset.pdvAbrir.split('|');
+    pdvLateralCupom(caixaId, dia, cupom, { videoTipo: el.dataset.pdvTipo || '', videoTs: el.dataset.pdvTs || '' });
   });
 }
 
-async function pdvListaLateral(tipo) {
+function pdvLateralAbrir() {
   pdvLateralCriar();
   const d = document.getElementById('pdvLateral');
+  d.classList.remove('hidden');
+  document.getElementById('pdvLateralFundo').classList.remove('hidden');
+  requestAnimationFrame(() => requestAnimationFrame(() => d.classList.add('open')));
+}
+
+function pdvLateralVoltar() {
+  pdvPararGravacao();
+  _pdvLateralCupom = '';
+  const t = JSON.parse(document.getElementById('pdvLateral').dataset.lista || '{}');
+  document.getElementById('pdvLateralTitulo').textContent = t.titulo || 'Cupons';
+  document.getElementById('pdvLateralSub').textContent = t.sub || '';
+  const corpo = document.getElementById('pdvLateralCorpo');
+  corpo.innerHTML = _pdvLateralLista;
+  corpo.scrollTop = 0;
+  lucide.createIcons();
+}
+
+// O cupom no painel: dados, descontos, cancelados, itens e o video ja tocando.
+// videoTs = horario exato; videoTipo = primeiro evento desse tipo no cupom (CIT, DIT, DAS, CCV).
+async function pdvLateralCupom(caixaId, dia, cupom, opts = {}) {
+  pdvLateralAbrir();
+  pdvPararGravacao();
+  const corpo = document.getElementById('pdvLateralCorpo');
+  const lateral = document.getElementById('pdvLateral');
+  if (opts.semVoltar) { lateral.dataset.lista = ''; _pdvLateralLista = ''; }
+  document.getElementById('pdvLateralTitulo').textContent = `Cupom ${cupom}`;
+  document.getElementById('pdvLateralSub').textContent = pdvDiaRotulo(dia);
+  corpo.innerHTML = `${_pdvLateralLista ? '<button type="button" class="pdv-l-link pdv-lateral-voltar" data-pdv-voltar>‹ Voltar à lista</button>' : ''}
+    <div class="pdv-lateral-cupom"></div>`;
+  corpo.scrollTop = 0;
+  const alvo = corpo.querySelector('.pdv-lateral-cupom');
+  const chave = `${caixaId}|${dia}|${cupom}`;
+  _pdvLateralCupom = chave;
+  const r = await pdvAbrirCupom(caixaId, dia, cupom, false, alvo);
+  if (!r || _pdvLateralCupom !== chave) return;
+  const k = r.cupom;
+  document.getElementById('pdvLateralSub').textContent =
+    `${pdvDiaRotulo(dia)} · ${r.caixa.nome} · ${k.operador || ''}`;
+  let ts = opts.videoTs || '';
+  if (!ts && opts.videoTipo) ts = (r.linha_do_tempo || []).find(e => e.tipo === opts.videoTipo)?.ts || '';
+  pdvVerVideo(caixaId, ts || k.aberto_em, alvo);
+  lucide.createIcons();
+}
+
+async function pdvListaLateral(tipo) {
+  pdvLateralAbrir();
+  pdvPararGravacao();
+  _pdvLateralCupom = '';
   const corpo = document.getElementById('pdvLateralCorpo');
   document.getElementById('pdvLateralTitulo').textContent = PDV_LISTAS[tipo] || 'Cupons';
   document.getElementById('pdvLateralSub').textContent = pdvDiaRotulo(_pdvDia);
   corpo.innerHTML = '<p class="pdv-nota pdv-c-msg">Buscando os cupons...</p>';
-  d.classList.remove('hidden');
-  document.getElementById('pdvLateralFundo').classList.remove('hidden');
-  requestAnimationFrame(() => requestAnimationFrame(() => d.classList.add('open')));
   lucide.createIcons();
 
   const r = await apiJson(`/api/pdv/cupons?dia=${encodeURIComponent(_pdvDia)}&limite=5000`, { forceRefresh: true });
@@ -915,17 +967,21 @@ async function pdvListaLateral(tipo) {
     return [`${pdvPlural(k.itens, 'item').replace('items', 'itens')}`, ''];
   };
   const somaDesc = lista.reduce((t, k) => t + (desc.get(`${k.caixa_id}|${k.cupom}`)?.v || 0), 0);
-  document.getElementById('pdvLateralSub').textContent = `${pdvDiaRotulo(_pdvDia)} · ${lista.length} ${lista.length === 1 ? 'cupom' : 'cupons'}`
-    + (somaDesc ? ` · − ${pdvMoeda(somaDesc)} de desconto` : '') + ' · clique para abrir';
+  const sub = `${pdvDiaRotulo(_pdvDia)} · ${lista.length} ${lista.length === 1 ? 'cupom' : 'cupons'}`
+    + (somaDesc ? ` · − ${pdvMoeda(somaDesc)} de desconto` : '') + ' · clique para ver o vídeo';
+  document.getElementById('pdvLateralSub').textContent = sub;
+  document.getElementById('pdvLateral').dataset.lista = JSON.stringify({ titulo: PDV_LISTAS[tipo] || 'Cupons', sub });
+  const tipoVideo = { itens_cancelados: 'CIT', desc_item: 'DIT', desc_subtotal: 'DAS', cupons_cancelados: 'CCV' }[tipo] || '';
   corpo.innerHTML = lista.length ? lista.map(k => {
     const [txt, val] = destaque(k);
-    return `<button type="button" class="pdv-lateral-item" data-pdv-abrir="${esc(k.caixa_id)}|${esc(k.dia)}|${esc(k.cupom)}">
+    return `<button type="button" class="pdv-lateral-item" data-pdv-abrir="${esc(k.caixa_id)}|${esc(k.dia)}|${esc(k.cupom)}" data-pdv-tipo="${tipoVideo}">
       <span class="pdv-hora">${esc(pdvHora(k.aberto_em).slice(0, 5))}</span>
       <span class="pdv-lateral-meio"><strong>${esc(k.cupom)} · ${esc(k.caixa)}</strong><small>${esc(k.operador)} · ${esc(txt)}</small></span>
       <span class="pdv-lateral-valores">${val ? `<b class="pdv-negativo">${esc(val)}</b>` : ''}<small>total ${esc(pdvMoeda(k.total_centavos))}</small></span>
-      <i data-lucide="chevron-right"></i>
+      <i data-lucide="play-circle"></i>
     </button>`;
   }).join('') : '<p class="pdv-nota pdv-c-msg">Nenhum cupom.</p>';
+  _pdvLateralLista = corpo.innerHTML;
   lucide.createIcons();
 }
 
@@ -982,9 +1038,9 @@ async function loadPdvCupons() {
 
 let _pdvAbrirDepois = null;
 
-function pdvIrCupom(caixaId, dia, cupom) {
-  _pdvAbrirDepois = { caixaId, dia, cupom };
-  document.querySelector('.nav-item[data-view="pdv-cupons"]')?.click();
+// Abre o cupom no painel lateral, com o video ja tocando (no momento `ts`, se vier).
+function pdvIrCupom(caixaId, dia, cupom, ts = '') {
+  pdvLateralCupom(caixaId, dia, cupom, { videoTs: ts, semVoltar: true });
 }
 
 async function pdvBuscarCupons(silencioso = false) {
@@ -1116,22 +1172,26 @@ function pdvCupDesenhar() {
   // cupom em andamento aberto no painel: acompanha ate fechar (sem atrapalhar o video)
   const sel = _pdvCup.lista.find(k => pdvCupChave(k) === _pdvCup.sel);
   const det = document.getElementById('pdvCupomDetalhe');
-  if (sel && det?.dataset.aberto === '1' && !document.getElementById('pdvGravVideo')) {
+  if (sel && det?.dataset.aberto === '1' && !det.querySelector('.pdv-grav-video')) {
     pdvAbrirCupom(sel.caixa_id, sel.dia, sel.cupom, true);
   }
 }
 
-async function pdvAbrirCupom(caixaId, dia, cupom, silencioso = false) {
-  const box = document.getElementById('pdvCupomDetalhe');
-  if (!box) return;
+async function pdvAbrirCupom(caixaId, dia, cupom, silencioso = false, alvo = null) {
+  // alvo = onde desenhar (painel lateral); sem alvo, o painel da tela Cupons
+  const box = alvo || document.getElementById('pdvCupomDetalhe');
+  if (!box) return null;
   const chave = `${caixaId}|${dia}|${cupom}`;
   if (!silencioso) pdvPararGravacao();
-  _pdvCup.sel = chave;
-  document.querySelectorAll('#pdvCupLista [data-pdv-cupom]').forEach(tr => tr.classList.toggle('ativa', tr.dataset.pdvCupom === chave));
+  if (!alvo) {
+    _pdvCup.sel = chave;
+    document.querySelectorAll('#pdvCupLista [data-pdv-cupom]').forEach(tr => tr.classList.toggle('ativa', tr.dataset.pdvCupom === chave));
+  }
   if (!silencioso) box.innerHTML = '<p class="pdv-nota pdv-c-msg">Abrindo o cupom...</p>';
   const r = await apiJson(`/api/pdv/cupons/${encodeURIComponent(caixaId)}/${dia}/${encodeURIComponent(cupom)}`, { forceRefresh: true });
-  if (_pdvCup.sel !== chave) return;  // trocou de cupom enquanto carregava
-  if (!r?.cupom) { if (!silencioso) box.innerHTML = '<p class="pdv-nota pdv-erro pdv-c-msg">Não consegui abrir o cupom.</p>'; return; }
+  if (!alvo && _pdvCup.sel !== chave) return null;  // trocou de cupom enquanto carregava
+  if (alvo && !alvo.isConnected) return null;
+  if (!r?.cupom) { if (!silencioso) box.innerHTML = '<p class="pdv-nota pdv-erro pdv-c-msg">Não consegui abrir o cupom.</p>'; return null; }
   const k = r.cupom;
   const itens = r.itens || [];
   const linha = r.linha_do_tempo || [];
@@ -1154,7 +1214,7 @@ async function pdvAbrirCupom(caixaId, dia, cupom, silencioso = false) {
     <div class="pdv-c-total"><span>${pdvNum(itens.length)} ${itens.length === 1 ? 'item' : 'itens'}${modos.length ? ' · ' + modos.map(([m, n]) => `${n} ${PDV_MODOS[m][0]}${n === 1 ? '' : 's'}`).join(' · ') : ''}</span>
       <strong>${esc(pdvMoeda(k.total_centavos))}</strong></div>
     <button class="primary-action pdv-c-btvideo" type="button" data-pdv-video="${esc(k.aberto_em)}"><i data-lucide="video"></i> Ver vídeo do cupom</button>
-    <div id="pdvVideoBox"></div>
+    <div class="pdv-videobox"></div>
     ${canc.length ? `<div class="pdv-c-secao"><span class="pdv-l-k pdv-c-k-verm">Itens cancelados (${canc.length})</span>
       ${canc.map(e => `<div class="pdv-c-item pdv-c-item-canc">
         <span class="pdv-hora">${esc(pdvHora(e.ts))}</span>
@@ -1182,12 +1242,13 @@ async function pdvAbrirCupom(caixaId, dia, cupom, silencioso = false) {
       ${linha.map(e => `<div class="pdv-evento pdv-ev-${esc(e.tipo)}">
         <span class="pdv-hora">${esc(pdvHora(e.ts))}</span><span>${esc(pdvEventoTexto(e))}</span></div>`).join('')}
     </details>`;
-  box.querySelectorAll('[data-pdv-video]').forEach(b => b.addEventListener('click', () => pdvVerVideo(caixaId, b.dataset.pdvVideo)));
+  box.querySelectorAll('[data-pdv-video]').forEach(b => b.addEventListener('click', () => pdvVerVideo(caixaId, b.dataset.pdvVideo, box)));
   lucide.createIcons();
-  if (silencioso) return;
+  if (silencioso || alvo) return r;
   // tela estreita: o painel fica embaixo da lista, entao rola ate ele
   if (window.matchMedia('(max-width: 1180px)').matches) box.scrollIntoView({ behavior: 'smooth', block: 'start' });
   else box.scrollTop = 0;
+  return r;
 }
 
 const PDV_EVENTO_NOME = {
@@ -1219,8 +1280,8 @@ function pdvPararGravacao() {
   if (_pdvGravacao) { try { _pdvGravacao.stop(); } catch (_) {} _pdvGravacao = null; }
 }
 
-async function pdvVerVideo(caixaId, ts) {
-  const box = document.getElementById('pdvVideoBox');
+async function pdvVerVideo(caixaId, ts, raiz = document) {
+  const box = raiz.querySelector('.pdv-videobox');
   if (!box) return;
   pdvPararGravacao();
   box.innerHTML = '<p class="pdv-nota">Calculando o horário no gravador...</p>';
@@ -1230,12 +1291,13 @@ async function pdvVerVideo(caixaId, ts) {
     : 'relógio do gravador ainda não medido: o vídeo pode estar alguns segundos deslocado';
   box.innerHTML = `
     <div class="pdv-gravacao">
-      <video id="pdvGravVideo" class="pdv-video" autoplay muted playsinline controls></video>
-      <p class="pdv-nota" id="pdvGravAviso">Abrindo a gravação do gravador...</p>
+      <video class="pdv-video pdv-grav-video" autoplay muted playsinline controls></video>
+      <p class="pdv-nota pdv-grav-aviso">Abrindo a gravação do gravador...</p>
     </div>
     <p class="pdv-nota">Começa às ${esc(j.inicio.slice(11))} no gravador, 15 s antes do momento (caixa ${esc(j.momento_caixa.slice(11))} · gravador ${esc(j.momento_gravador.slice(11))}) · ${esc(aviso)}.</p>`;
-  const video = document.getElementById('pdvGravVideo');
+  const video = box.querySelector('.pdv-grav-video');
   if (!video || typeof mountLiveStream !== 'function') return;
+  box.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   _pdvGravacao = mountLiveStream(video, {
     registrar: async () => {
       const res = await api('/api/nvr/driver/playback', {
@@ -1248,7 +1310,7 @@ async function pdvVerVideo(caixaId, ts) {
       return r.stream_name;
     },
     onStatus: texto => {
-      const a = document.getElementById('pdvGravAviso');
+      const a = box.querySelector('.pdv-grav-aviso');
       if (!a) return;
       a.hidden = !texto;
       if (texto) a.textContent = texto;
@@ -1256,7 +1318,8 @@ async function pdvVerVideo(caixaId, ts) {
   });
   // saiu da tela (ou o cupom foi trocado): para de puxar video pelo link da loja
   _pdvGravacaoTimer = setInterval(() => {
-    if (!pdvVisivel('viewPdvCupons') || !document.getElementById('pdvGravVideo')) pdvPararGravacao();
+    // saiu da tela, fechou o painel ou trocou de cupom
+    if (!video.isConnected || video.offsetParent === null) pdvPararGravacao();
   }, 2000);
 }
 
