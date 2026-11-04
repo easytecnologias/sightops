@@ -1056,6 +1056,7 @@ async function pdvRepTocar(ts) {
   const token = ++_pdvRep.token;
   _pdvRep.inicio = null; _pdvRep.tocado = 0; _pdvRep.ultimo = null; _pdvRep.ate = pdvTsMs(ts) - 15000;
   _pdvRep.atual = null;
+  _pdvRep.encerrado = false;
   pdvRepPintar();
   document.getElementById('pdvLatAgora').innerHTML = `
     <strong>Cupom ${esc(a.k.cupom)} · ${esc(a.caixaNome)} · ${esc(a.k.operador || '')}</strong>
@@ -1107,6 +1108,9 @@ function pdvRepPintar() {
     const el = tocando && iAtual >= 0 ? filhos[iAtual] : null;
     if (el) el.scrollIntoView({ block: _pdvRep.tudo ? 'center' : 'end', behavior: 'smooth' });
   }
+  // o cupom fechou (ou foi cancelado): encerra o video 5 s depois
+  const fimEv = _pdvRep.linhas.find(l => ['FECHACUPOM', 'CCV'].includes(l.tipo));
+  if (tocando && fimEv && !_pdvRep.encerrado && agora >= pdvTsMs(fimEv.ts) + 5000) pdvRepEncerrar(fimEv);
   // conta e total do que ja passou no video (ou do cupom todo, antes do video comecar)
   const passadas = tocando ? _pdvRep.linhas.slice(0, iAtual + 1) : vistas;
   const itens = passadas.filter(l => l.tipo === 'VIT');
@@ -1118,6 +1122,25 @@ function pdvRepPintar() {
     + (fechou && k ? ` · total do cupom${dif ? ` (${pdvMoeda(Math.abs(dif))} de ${dif > 0 ? 'desconto' : 'acréscimo'} sem registro no PDV)` : ''}`
       : ' · já com descontos e cancelamentos');
   document.getElementById('pdvRepTotal').textContent = pdvMoeda(fechou && k && k.situacao === 'fechado' ? k.total_centavos : soma);
+}
+
+function pdvRepEncerrar(fimEv) {
+  _pdvRep.encerrado = true;
+  pdvPararGravacao();
+  const a = _pdvLat.atual;
+  const box = document.querySelector('#pdvLatTela .pdv-videobox');
+  if (!box || !a) return;
+  const cancelado = fimEv.tipo === 'CCV';
+  box.innerHTML = `<div class="pdv-lat-vazia pdv-lat-fim">
+    <i data-lucide="${cancelado ? 'ban' : 'circle-check'}"></i>
+    <strong>Cupom ${cancelado ? 'cancelado' : 'fechado'} às ${esc(pdvHora(fimEv.ts))} · vídeo encerrado</strong>
+    <button type="button" class="secondary-action pdv-mini" id="pdvRepDeNovo"><i data-lucide="rotate-ccw"></i> Ver de novo desde a abertura</button>
+  </div>`;
+  document.getElementById('pdvRepDeNovo').addEventListener('click', () => pdvRepTocar(a.k.aberto_em));
+  document.getElementById('pdvLatAgora').innerHTML = `
+    <strong>Cupom ${esc(a.k.cupom)} · ${esc(a.caixaNome)} · ${esc(a.k.operador || '')}</strong>
+    <span>Vídeo encerrado no ${cancelado ? 'cancelamento' : 'fechamento'} do cupom</span>`;
+  lucide.createIcons();
 }
 
 function pdvLatSairInteiro() {
