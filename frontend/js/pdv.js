@@ -901,7 +901,7 @@ function pdvLateralCriar() {
     if (ev.target.closest('[data-pdv-sair-inteiro]')) { pdvLatSairInteiro(); return; }
     if (ev.target.closest('[data-pdv-mostrar-tudo]')) { if (_pdvRep) { _pdvRep.tudo = true; pdvRepPintar(); } return; }
     const rl = ev.target.closest('[data-pdv-rep]');
-    if (rl && _pdvRep) { pdvRepTocar(rl.dataset.pdvRep); return; }
+    if (rl && _pdvRep) { pdvRepTocar(rl.dataset.pdvRep, 3, rl.querySelector('.pdv-rep-txt')?.innerText || ''); return; }
     const mom = ev.target.closest('[data-pdv-momento]');
     if (mom && _pdvLat.atual) { pdvLatTocar(mom.dataset.pdvMomento, mom.dataset.pdvRotulo || ''); return; }
     const evs = ev.target.closest('[data-pdv-ev]');
@@ -958,7 +958,7 @@ function pdvLatTocar(ts, rotulo) {
     <strong>${a.k.cupom ? `Cupom ${esc(a.k.cupom)} · ` : ''}${esc(a.caixaNome)} · ${esc(a.k.operador || '')}</strong>
     <span>Vendo: ${esc(rotulo)} · às ${esc(pdvHora(ts))} no caixa</span>`;
   d.querySelectorAll('.pdv-lat-mom').forEach(b => b.classList.toggle('ativo', b.dataset.pdvMomento === ts && b.dataset.pdvRotulo === rotulo));
-  pdvVerVideo(a.caixaId, ts, document.getElementById('pdvLatTela'));
+  pdvVerVideo(a.caixaId, ts, document.getElementById('pdvLatTela'), 3);
 }
 
 // Clicar na linha abre/fecha o cupom; o video so toca no play (da linha ou de um momento).
@@ -1056,18 +1056,18 @@ function pdvLatInteiro() {
   pdvRepTocar(a.k.aberto_em);
 }
 
-async function pdvRepTocar(ts) {
+async function pdvRepTocar(ts, antes = 5, rotulo = '') {
   const a = _pdvLat.atual;
   if (!a || !_pdvRep) return;
   const token = ++_pdvRep.token;
-  _pdvRep.inicio = null; _pdvRep.tocado = 0; _pdvRep.ultimo = null; _pdvRep.ate = pdvTsMs(ts) - 15000;
+  _pdvRep.inicio = null; _pdvRep.tocado = 0; _pdvRep.ultimo = null; _pdvRep.ate = pdvTsMs(ts) - antes * 1000;
   _pdvRep.atual = null;
   _pdvRep.encerrado = false;
   pdvRepPintar();
   document.getElementById('pdvLatAgora').innerHTML = `
     <strong>Cupom ${esc(a.k.cupom)} · ${esc(a.caixaNome)} · ${esc(a.k.operador || '')}</strong>
-    <span>Vendo: o cupom inteiro, a partir de ${esc(pdvHora(ts))}</span>`;
-  const v = await pdvVerVideo(a.caixaId, ts, document.getElementById('pdvLatTela'));
+    <span>Vendo: ${rotulo ? `${esc(rotulo)} · às ${esc(pdvHora(ts))} (e o cupom segue)` : `o cupom inteiro, a partir de ${esc(pdvHora(ts))}`}</span>`;
+  const v = await pdvVerVideo(a.caixaId, ts, document.getElementById('pdvLatTela'), antes);
   if (!_pdvRep || token !== _pdvRep.token || !v) return;
   _pdvRep.video = v.video;
   _pdvRep.inicio = v.inicioCaixa;
@@ -1600,12 +1600,13 @@ function pdvPararGravacao() {
   if (_pdvGravacao) { try { _pdvGravacao.stop(); } catch (_) {} _pdvGravacao = null; }
 }
 
-async function pdvVerVideo(caixaId, ts, raiz = document) {
+// antes = quantos segundos antes do momento o video comeca
+async function pdvVerVideo(caixaId, ts, raiz = document, antes = 15) {
   const box = raiz.querySelector('.pdv-videobox');
   if (!box) return;
   pdvPararGravacao();
   box.innerHTML = '<p class="pdv-nota">Calculando o horário no gravador...</p>';
-  const j = await apiJson(`/api/pdv/video/${encodeURIComponent(caixaId)}?ts=${encodeURIComponent(ts)}&antes=15&depois=45`, { forceRefresh: true });
+  const j = await apiJson(`/api/pdv/video/${encodeURIComponent(caixaId)}?ts=${encodeURIComponent(ts)}&antes=${antes}&depois=45`, { forceRefresh: true });
   if (!j?.host) { box.innerHTML = '<p class="pdv-nota pdv-erro">Este caixa ainda não tem gravador e canal configurados.</p>'; return null; }
   const aviso = j.relogio_medido ? `gravador ${j.gravador_menos_caixa_s >= 0 ? '+' : ''}${j.gravador_menos_caixa_s} s em relação ao caixa`
     : 'relógio do gravador ainda não medido: o vídeo pode estar alguns segundos deslocado';
@@ -1614,7 +1615,7 @@ async function pdvVerVideo(caixaId, ts, raiz = document) {
       <video class="pdv-video pdv-grav-video" autoplay muted playsinline controls></video>
       <p class="pdv-nota pdv-grav-aviso">Abrindo a gravação do gravador...</p>
     </div>
-    <p class="pdv-nota">Começa às ${esc(j.inicio.slice(11))} no gravador, 15 s antes do momento (caixa ${esc(j.momento_caixa.slice(11))} · gravador ${esc(j.momento_gravador.slice(11))}) · ${esc(aviso)}.</p>`;
+    <p class="pdv-nota">Começa às ${esc(j.inicio.slice(11))} no gravador, ${antes} s antes do momento (caixa ${esc(j.momento_caixa.slice(11))} · gravador ${esc(j.momento_gravador.slice(11))}) · ${esc(aviso)}.</p>`;
   const video = box.querySelector('.pdv-grav-video');
   if (!video || typeof mountLiveStream !== 'function') return null;
   box.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
@@ -1641,9 +1642,9 @@ async function pdvVerVideo(caixaId, ts, raiz = document) {
     // saiu da tela, fechou o painel ou trocou de cupom
     if (!video.isConnected || video.offsetParent === null) pdvPararGravacao();
   }, 2000);
-  // o video comeca 15 s antes do momento, no relogio do caixa
+  // o video comeca `antes` s antes do momento, no relogio do caixa
   const m = new Date(String(j.momento_caixa).replace(' ', 'T')).getTime();
-  return { video, inicioCaixa: Number.isNaN(m) ? null : m - 15000 };
+  return { video, inicioCaixa: Number.isNaN(m) ? null : m - antes * 1000 };
 }
 
 // ---------------------------------------------------------------- configuracoes
