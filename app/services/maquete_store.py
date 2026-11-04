@@ -64,11 +64,15 @@ def _json(raw: Any, padrao: Any) -> Any:
 def _resumo(r: Dict[str, Any]) -> Dict[str, Any]:
     leitura = _json(r.get("leitura"), {})
     layout = _json(r.get("layout"), {})
+    resumo = layout.get("resumo") if isinstance(layout.get("resumo"), dict) else {}
+    nomes = layout.get("nomes") if isinstance(layout.get("nomes"), dict) else {}
     return {
         "id": r["id"], "nome": r.get("nome") or "", "arquivo": r.get("arquivo") or "",
+        "local": r.get("local") or "", "observacao": r.get("observacao") or "",
+        "metros": float(resumo.get("metros") or 0), "caixas": int(resumo.get("caixas") or 0),
         "status": r.get("status") or "", "erro": r.get("erro") or "",
         "escala": leitura.get("escala") or "",
-        "pisos": [p.get("nome") for p in leitura.get("pisos") or []],
+        "pisos": [nomes.get(p.get("id")) or p.get("nome") for p in leitura.get("pisos") or []],
         "cameras": len(layout.get("cams") or []),
         "criado_por": r.get("criado_por") or "",
         "created_at": r.get("created_at") or "", "updated_at": r.get("updated_at") or "",
@@ -112,7 +116,7 @@ def textura(projeto_id: str, arquivo: str) -> Path:
 
 # --------------------------------------------------------------------------- gravacao
 
-def criar(nome: str, arquivo: str, pdf: bytes, usuario: str = "") -> Dict[str, Any]:
+def criar(nome: str, arquivo: str, pdf: bytes, usuario: str = "", local: str = "", observacao: str = "") -> Dict[str, Any]:
     tenant = _tenant()
     if not pdf:
         raise ValueError("Arquivo vazio.")
@@ -128,9 +132,10 @@ def criar(nome: str, arquivo: str, pdf: bytes, usuario: str = "") -> Dict[str, A
     now = _now()
     with db_store._conn() as c:
         c.execute(
-            "INSERT INTO maquete_projetos(id, tenant_slug, nome, arquivo, status, erro, leitura, layout, criado_por, created_at, updated_at) "
-            "VALUES(?, ?, ?, ?, 'processando', '', '', '', ?, ?, ?)",
-            (novo, tenant, nome, (arquivo or "")[:200], (usuario or "")[:120], now, now),
+            "INSERT INTO maquete_projetos(id, tenant_slug, nome, arquivo, status, erro, leitura, layout, criado_por, "
+            "local, observacao, created_at, updated_at) VALUES(?, ?, ?, ?, 'processando', '', '', '', ?, ?, ?, ?, ?)",
+            (novo, tenant, nome, (arquivo or "")[:200], (usuario or "")[:120],
+             (local or "").strip()[:120], (observacao or "").strip()[:1000], now, now),
         )
     threading.Thread(target=_processar, args=(tenant, novo), name=f"maquete-{novo[:8]}", daemon=True).start()
     return {"ok": True, "id": novo, "status": "processando"}
@@ -166,6 +171,10 @@ def salvar(projeto_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
         if not nome:
             raise ValueError("Informe o nome do projeto.")
         sets.append("nome=?"); vals.append(nome)
+    if "local" in payload:
+        sets.append("local=?"); vals.append(str(payload.get("local") or "").strip()[:120])
+    if "observacao" in payload:
+        sets.append("observacao=?"); vals.append(str(payload.get("observacao") or "").strip()[:1000])
     if "layout" in payload:
         layout = payload.get("layout")
         if not isinstance(layout, dict):
