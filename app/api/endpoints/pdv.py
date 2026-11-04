@@ -135,8 +135,8 @@ def api_pdv_reprocessar(caixa_id: str, dia: str) -> Dict[str, Any]:
 # ------------------------------------------------------------------ consultas
 
 @router.get("/resumo")
-def api_pdv_resumo(dia: str = "", caixa_id: str = "") -> Dict[str, Any]:
-    return {"ok": True, **_executar(pdv_store.resumo_dia, dia or _hoje(), caixa_id)}
+def api_pdv_resumo(dia: str = "", caixa_id: str = "", loja: str = "") -> Dict[str, Any]:
+    return {"ok": True, **_executar(pdv_store.resumo_dia, dia or _hoje(), caixa_id, loja)}
 
 
 @router.get("/lojas")

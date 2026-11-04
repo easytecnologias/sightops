@@ -18,6 +18,7 @@ const PDV_SITUACAO = {
 
 let _pdvCaixas = [];
 let _pdvDia = '';
+let _pdvVisaoLoja = '';  // filtro de loja da Visao geral (vale tambem para o painel lateral)
 let _pdvTimer = null;
 // modo 'parede' (todos os caixas da loja) ou 'foco' (um caixa, video grande e cupom)
 let _pdvVivo = { caixaId: '', handle: null, timer: null, alta: false, modo: 'parede', loja: '', pedidoFoco: '', parede: new Map() };
@@ -425,13 +426,21 @@ function pdvPct(parte, todo) {
 async function pdvRenderVisao() {
   const box = document.getElementById('pdvVisaoBody');
   if (!box) return;
-  const [caixas, resumo] = await Promise.all([
+  let [caixas, resumo] = await Promise.all([
     pdvCarregarCaixas(),
-    apiJson(`/api/pdv/resumo?dia=${_pdvDia}`, { forceRefresh: true }),
+    apiJson(`/api/pdv/resumo?dia=${_pdvDia}&loja=${encodeURIComponent(_pdvVisaoLoja)}`, { forceRefresh: true }),
   ]);
-  setText('pdvVisaoDia', pdvDiaRotulo(_pdvDia));
-  if (!caixas.length) { pdvSemCaixa('pdvVisaoBody'); return; }
+  pdvVisaoMostrarDia();
   const r = resumo || {};
+  const selLoja = document.getElementById('pdvVisaoLoja');
+  if (selLoja) {
+    const lojas = r.lojas || [];
+    selLoja.innerHTML = '<option value="">Todas as lojas</option>' + lojas.map(l => `<option value="${esc(l)}">${esc(l)}</option>`).join('');
+    selLoja.value = lojas.includes(_pdvVisaoLoja) ? _pdvVisaoLoja : '';
+    selLoja.closest('label').hidden = lojas.length < 2;
+  }
+  if (_pdvVisaoLoja) caixas = caixas.filter(c => (c.site || SEM_LOJA_JS) === _pdvVisaoLoja);
+  if (!caixas.length) { pdvSemCaixa('pdvVisaoBody'); return; }
   _pdvResumo = r;
   const m = r.modos || {};
   const n = k => (m[k]?.n || 0);
@@ -549,10 +558,51 @@ async function pdvRenderVisao() {
   lucide.createIcons();
 }
 
+const SEM_LOJA_JS = 'Sem loja definida';
+
 function pdvVisaoDia(delta) {
   _pdvDia = pdvMudarDia(_pdvDia || pdvHoje(), delta);
   if (_pdvDia > pdvHoje()) _pdvDia = pdvHoje();
   pdvRenderVisao();
+}
+
+function pdvVisaoIrDia(dia) {
+  if (!dia) return;
+  _pdvDia = dia > pdvHoje() ? pdvHoje() : dia;
+  pdvRenderVisao();
+}
+
+// data escolhida: botoes Hoje/Ontem marcados, calendario e seta "proximo" travada em hoje
+function pdvVisaoMostrarDia() {
+  const h = pdvHoje();
+  const inp = document.getElementById('pdvVisaoData');
+  if (inp) { inp.value = _pdvDia; inp.max = h; }
+  document.querySelectorAll('[data-pdv-vg-dia]').forEach(b => b.classList.toggle('ativo',
+    (b.dataset.pdvVgDia === 'hoje' && _pdvDia === h) || (b.dataset.pdvVgDia === 'ontem' && _pdvDia === pdvMudarDia(h, -1))));
+  const prox = document.getElementById('pdvVisaoProximo');
+  if (prox) prox.disabled = _pdvDia >= h;
+}
+
+// Busca pelo numero do cupom no dia escolhido (e na loja escolhida); abre no painel lateral.
+async function pdvVisaoBuscarCupom(numero) {
+  const n = String(numero || '').trim();
+  if (!n) return;
+  _pdvLat.tipo = '';
+  pdvLateralAbrir(`Cupom ${n}`, pdvDiaRotulo(_pdvDia));
+  const corpo = document.getElementById('pdvLateralCorpo');
+  const r = await apiJson(`/api/pdv/cupons?dia=${encodeURIComponent(_pdvDia)}&texto=${encodeURIComponent(n)}&limite=50`, { forceRefresh: true });
+  const lojaDe = id => (_pdvCaixas.find(c => c.id === id)?.site || SEM_LOJA_JS);
+  let lista = (r?.cupons || []).filter(k => !_pdvVisaoLoja || lojaDe(k.caixa_id) === _pdvVisaoLoja);
+  const exatos = lista.filter(k => String(k.cupom).replace(/^0+/, '') === n.replace(/^0+/, ''));
+  if (exatos.length) lista = exatos;
+  if (!lista.length) {
+    corpo.innerHTML = `<p class="pdv-nota pdv-c-msg">Nenhum cupom ${esc(n)} em ${esc(pdvDiaRotulo(_pdvDia))}${_pdvVisaoLoja ? ` na ${esc(_pdvVisaoLoja)}` : ''}. Confira o número ou escolha outro dia.</p>`;
+    return;
+  }
+  document.getElementById('pdvLateralSub').textContent = `${pdvDiaRotulo(_pdvDia)} · ${lista.length === 1 ? '1 cupom' : `${lista.length} cupons`}${exatos.length ? '' : ' com esse produto ou código'}`;
+  corpo.innerHTML = lista.map(k => pdvLatLinha(k, `${pdvNum(k.itens)} ${Number(k.itens) === 1 ? 'item' : 'itens'} · ${k.situacao === 'aberto' ? 'em andamento' : k.situacao}`, '')).join('');
+  lucide.createIcons();
+  if (lista.length === 1) pdvLatSelecionar(corpo.querySelector('[data-pdv-abrir]'), false);
 }
 
 // ---------------------------------------------------------------- ao vivo
@@ -1331,7 +1381,7 @@ async function pdvLatPrepararFiltros() {
   _pdvLat.caixas = caixas;
   const lojas = [...new Set(caixas.map(c => c.site || 'Sem loja definida'))].sort((a, b) => a.localeCompare(b, 'pt-BR'));
   const selLoja = document.getElementById('pdvLatLoja');
-  const lojaAntes = selLoja.value;
+  const lojaAntes = selLoja.value || _pdvVisaoLoja;
   selLoja.innerHTML = '<option value="">Todas as lojas</option>' + lojas.map(l => `<option value="${esc(l)}">${esc(l)}</option>`).join('');
   selLoja.value = lojas.includes(lojaAntes) ? lojaAntes : '';
   pdvLatOpcoesCaixa();
@@ -1974,6 +2024,14 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('pdvLojasProximo')?.addEventListener('click', () => pdvLojasDia(1));
   document.getElementById('pdvVisaoAnterior')?.addEventListener('click', () => pdvVisaoDia(-1));
   document.getElementById('pdvVisaoProximo')?.addEventListener('click', () => pdvVisaoDia(1));
+  document.getElementById('pdvVisaoData')?.addEventListener('change', ev => pdvVisaoIrDia(ev.target.value));
+  document.querySelectorAll('[data-pdv-vg-dia]').forEach(b => b.addEventListener('click', () =>
+    pdvVisaoIrDia(b.dataset.pdvVgDia === 'hoje' ? pdvHoje() : pdvMudarDia(pdvHoje(), -1))));
+  document.getElementById('pdvVisaoLoja')?.addEventListener('change', ev => { _pdvVisaoLoja = ev.target.value; pdvRenderVisao(); });
+  document.getElementById('pdvVisaoBusca')?.addEventListener('submit', ev => {
+    ev.preventDefault();
+    pdvVisaoBuscarCupom(document.getElementById('pdvVisaoCupom')?.value);
+  });
   // Rankings: periodo, loja, operador/caixa, melhores/piores, ver todos e ordem da tabela
   document.getElementById('viewPdvCupons')?.addEventListener('click', ev => {
     const per = ev.target.closest('[data-pdv-rk-periodo]');

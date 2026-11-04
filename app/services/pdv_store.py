@@ -624,8 +624,9 @@ def ao_vivo(caixa_id: str) -> Dict[str, Any]:
     return {"caixa": _publico(cx), "cupom": k, "itens": itens[:60], "cancelados": cancelados}
 
 
-def resumo_dia(dia: str, caixa_id: str = "") -> Dict[str, Any]:
-    """Numeros da Visao geral: cupons, itens por modo, valor, cancelamentos."""
+def resumo_dia(dia: str, caixa_id: str = "", loja: str = "") -> Dict[str, Any]:
+    """Numeros da Visao geral: cupons, itens por modo, valor, cancelamentos.
+    `loja` = site dos caixas (so os caixas daquela loja)."""
     tenant, dia = _tenant(), _dia(dia)
     filtro, p = "tenant_slug=? AND dia=?", [tenant, dia]
     if caixa_id:
@@ -635,6 +636,12 @@ def resumo_dia(dia: str, caixa_id: str = "") -> Dict[str, Any]:
         extra, ids = _filtro_ids("caixa_id", _ids_liberados(c, tenant))
         filtro += extra
         p += list(ids)
+        dos_usuario = _do_usuario(_rows(c, "SELECT id, site FROM pdv_caixas WHERE tenant_slug=?", (tenant,)))
+        lojas = sorted({(x.get("site") or SEM_LOJA) for x in dos_usuario})
+        if loja:
+            extra, ids = _filtro_ids("caixa_id", [x["id"] for x in dos_usuario if (x.get("site") or SEM_LOJA) == loja])
+            filtro += extra
+            p += list(ids)
         modos ={r["modo"]: {"n": int(r["n"]), "centavos": int(r["v"] or 0)} for r in _rows(
             c, "SELECT modo, COUNT(1) AS n, SUM(valor_centavos) AS v FROM pdv_itens WHERE %s GROUP BY modo" % filtro, tuple(p))}
         cup = {r["situacao"]: int(r["n"]) for r in _rows(
@@ -693,7 +700,7 @@ def resumo_dia(dia: str, caixa_id: str = "") -> Dict[str, Any]:
     conf["desc_outros"] = conf["descontos"] - conf["desc_item"] - conf["desc_subtotal"]
     return {"dia": dia, "itens": itens, "modos": modos, "cupons": cup,
             "vendido_centavos": int((vendido or {}).get("v") or 0), "eventos": ev, "por_caixa": por_caixa,
-            "conferencia": conf, "descontos": descontos}
+            "conferencia": conf, "descontos": descontos, "lojas": lojas, "loja": loja}
 
 
 SEM_LOJA = "Sem loja definida"

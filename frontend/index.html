@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=1793100091">
+  <link rel="stylesheet" href="styles.css?v=1793100093">
   <link rel="stylesheet" href="acesso/acesso.css?v=1792600213">
 </head>
 <body>
@@ -2103,12 +2103,23 @@
             <h1>Visão geral dos caixas</h1>
             <p>Acompanhe os caixas e revise só o que pede decisão de uma pessoa.</p>
           </div>
-          <div class="page-heading-actions pdv-dia-nav">
-            <button class="secondary-action" type="button" id="pdvVisaoAnterior" aria-label="Dia anterior"><i data-lucide="chevron-left"></i></button>
-            <span class="pdv-dia" id="pdvVisaoDia">Hoje</span>
-            <button class="secondary-action" type="button" id="pdvVisaoProximo" aria-label="Próximo dia"><i data-lucide="chevron-right"></i></button>
-          </div>
         </div>
+        <section class="pdv-l-card pdv-r-filtros pdv-sombra pdv-vg-filtros">
+          <form class="pdv-vg-busca" id="pdvVisaoBusca" role="search">
+            <label class="search-box"><i data-lucide="search"></i><input id="pdvVisaoCupom" type="search" inputmode="numeric" placeholder="Digite o nº do cupom" aria-label="Número do cupom"></label>
+            <button class="primary-action" type="submit">Abrir cupom</button>
+          </form>
+          <div class="pdv-vg-dia">
+            <div class="pdv-r-seg" role="group" aria-label="Dia">
+              <button type="button" data-pdv-vg-dia="hoje">Hoje</button>
+              <button type="button" data-pdv-vg-dia="ontem">Ontem</button>
+            </div>
+            <button class="secondary-action pdv-vg-seta" type="button" id="pdvVisaoAnterior" aria-label="Dia anterior"><i data-lucide="chevron-left"></i></button>
+            <label class="pdv-vg-data"><i data-lucide="calendar"></i><input type="date" id="pdvVisaoData" aria-label="Escolher o dia"></label>
+            <button class="secondary-action pdv-vg-seta" type="button" id="pdvVisaoProximo" aria-label="Próximo dia"><i data-lucide="chevron-right"></i></button>
+          </div>
+          <label class="pdv-c-campo pdv-vg-loja"><span>Loja</span><select id="pdvVisaoLoja"><option value="">Todas as lojas</option></select></label>
+        </section>
         <div id="pdvVisaoBody"></div>
       </section>
 
@@ -8191,7 +8202,7 @@
   <script src="https://unpkg.com/qrcode-generator@1.4.4/qrcode.js"></script>
   <script src="js/alert.js?v=1792804801"></script>
   <script src="js/controleRotas.js?v=1792600341"></script>
-  <script src="js/pdv.js?v=1793100092"></script>
+  <script src="js/pdv.js?v=1793100094"></script>
   <script src="js/tr069.js?v=1791000212"></script>
   <script src="js/bootstrap.js?v=1792600207"></script>
 </body>
