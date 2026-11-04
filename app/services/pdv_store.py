@@ -451,6 +451,27 @@ def detalhe_cupom(caixa_id: str, dia: str, cupom: str) -> Dict[str, Any]:
     return {"caixa": _publico(cx), "cupom": k, "itens": itens, "linha_do_tempo": linha}
 
 
+TIPOS_EVENTO_LISTA = ("ITEMSEMCAD", "SGR", "GAV")
+
+
+def eventos_dia(dia: str, tipo: str) -> Dict[str, Any]:
+    """Cada sangria, gaveta aberta ou codigo sem cadastro do dia (com o cupom e o
+    total dele, quando houver), para a pessoa ver o video de cada um."""
+    if tipo not in TIPOS_EVENTO_LISTA:
+        raise ValueError("Tipo de evento inválido.")
+    tenant, dia = _tenant(), _dia(dia)
+    with db_store._conn() as c:
+        extra, ids = _filtro_ids("e.caixa_id", _ids_liberados(c, tenant))
+        rows = _rows(c, "SELECT e.caixa_id, x.nome AS caixa, e.ts, e.cupom, e.operador, e.codigo, e.descricao, "
+                        "e.valor_centavos, k.situacao, k.total_centavos, k.aberto_em, k.operador AS operador_cupom "
+                        "FROM pdv_eventos e JOIN pdv_caixas x ON x.tenant_slug=e.tenant_slug AND x.id=e.caixa_id "
+                        "LEFT JOIN pdv_cupons k ON k.tenant_slug=e.tenant_slug AND k.caixa_id=e.caixa_id "
+                        "AND k.dia=e.dia AND k.cupom=e.cupom "
+                        "WHERE e.tenant_slug=? AND e.dia=? AND e.tipo=?" + extra + " ORDER BY e.ts DESC LIMIT 2000",
+                     (tenant, dia, tipo) + tuple(ids))
+    return {"dia": dia, "tipo": tipo, "eventos": rows}
+
+
 def ao_vivo(caixa_id: str) -> Dict[str, Any]:
     """O cupom que esta passando agora (ou o ultimo) e os itens dele."""
     tenant = _tenant()

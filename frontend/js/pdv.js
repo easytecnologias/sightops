@@ -421,9 +421,9 @@ async function pdvRenderVisao() {
     ['ban', 'Cupons cancelados', cancCupons, '', 'cupons_cancelados'],
     ['percent', 'Descontos em item', ev.DIT || 0, '', 'desc_item'],
     ['badge-percent', 'Descontos no subtotal', ev.DST || 0, '', 'desc_subtotal'],
-    ['scan-search', 'Código sem cadastro', ev.ITEMSEMCAD || 0, ''],
-    ['hand-coins', 'Sangrias', ev.SGR || 0, ''],
-    ['archive', 'Gaveta aberta', ev.GAV || 0, ''],
+    ['scan-search', 'Código sem cadastro', ev.ITEMSEMCAD || 0, '', 'ev_ITEMSEMCAD'],
+    ['hand-coins', 'Sangrias', ev.SGR || 0, '', 'ev_SGR'],
+    ['archive', 'Gaveta aberta', ev.GAV || 0, '', 'ev_GAV'],
   ];
 
   box.innerHTML = `
@@ -845,6 +845,9 @@ const PDV_LISTAS = {
   desc_item: 'Cupons com desconto em item',
   desc_subtotal: 'Cupons com desconto no subtotal',
   abertos: 'Cupons ainda abertos',
+  ev_ITEMSEMCAD: 'Códigos sem cadastro',
+  ev_SGR: 'Sangrias',
+  ev_GAV: 'Gaveta aberta',
 };
 // o que conferir em cada lista (eventos do cupom)
 const PDV_LISTA_EVENTO = {
@@ -901,6 +904,8 @@ function pdvLateralCriar() {
     if (rl && _pdvRep) { pdvRepTocar(rl.dataset.pdvRep); return; }
     const mom = ev.target.closest('[data-pdv-momento]');
     if (mom && _pdvLat.atual) { pdvLatTocar(mom.dataset.pdvMomento, mom.dataset.pdvRotulo || ''); return; }
+    const evs = ev.target.closest('[data-pdv-ev]');
+    if (evs) { if (ev.target.closest('[data-pdv-play]')) pdvLatTocarEvento(evs); return; }
     const el = ev.target.closest('[data-pdv-abrir]');
     if (el) pdvLatSelecionar(el, !!ev.target.closest('[data-pdv-play]'));
   });
@@ -950,7 +955,7 @@ function pdvLatTocar(ts, rotulo) {
   const d = document.getElementById('pdvLateral');
   if (!a || !d) return;
   document.getElementById('pdvLatAgora').innerHTML = `
-    <strong>Cupom ${esc(a.k.cupom)} · ${esc(a.caixaNome)} · ${esc(a.k.operador || '')}</strong>
+    <strong>${a.k.cupom ? `Cupom ${esc(a.k.cupom)} · ` : ''}${esc(a.caixaNome)} · ${esc(a.k.operador || '')}</strong>
     <span>Vendo: ${esc(rotulo)} · às ${esc(pdvHora(ts))} no caixa</span>`;
   d.querySelectorAll('.pdv-lat-mom').forEach(b => b.classList.toggle('ativo', b.dataset.pdvMomento === ts && b.dataset.pdvRotulo === rotulo));
   pdvVerVideo(a.caixaId, ts, document.getElementById('pdvLatTela'));
@@ -972,7 +977,8 @@ async function pdvLatSelecionar(btn, tocar = false) {
   corpo.querySelectorAll('.pdv-lat-cupom').forEach(w => {
     const eu = w === wrap;
     w.classList.toggle('ativa', eu);
-    if (!eu) { const x = w.querySelector('.pdv-lat-abre'); x.hidden = true; x.innerHTML = ''; }
+    const x = w.querySelector('.pdv-lat-abre');
+    if (!eu && x) { x.hidden = true; x.innerHTML = ''; }
   });
   _pdvLat.sel = chave;
   const abre = wrap.querySelector('.pdv-lat-abre');
@@ -1157,8 +1163,60 @@ function pdvLatSairInteiro() {
   lucide.createIcons();
 }
 
+// evento fora de cupom (sangria, gaveta): so o video daquele segundo
+function pdvLatTocarEvento(btn) {
+  const [caixaId, ts] = btn.dataset.pdvEv.split('|');
+  document.querySelectorAll('#pdvLateralCorpo .pdv-lat-cupom').forEach(w => {
+    const eu = w.contains(btn);
+    w.classList.toggle('ativa', eu);
+    const x = w.querySelector('.pdv-lat-abre');
+    if (!eu && x) { x.hidden = true; x.innerHTML = ''; }
+  });
+  _pdvLat.sel = '';
+  _pdvLat.atual = { caixaId, k: { cupom: '', operador: btn.dataset.pdvOp || '' }, caixaNome: btn.dataset.pdvCx || '' };
+  pdvLatTocar(ts, btn.dataset.pdvRotulo || '');
+}
+
+const PDV_EV_NOME = { ITEMSEMCAD: 'Código sem cadastro', SGR: 'Sangria', GAV: 'Gaveta aberta' };
+
+async function pdvListaEventos(tipoEv) {
+  const r = await apiJson(`/api/pdv/eventos?dia=${encodeURIComponent(_pdvDia)}&tipo=${tipoEv}`, { forceRefresh: true });
+  if (!r) {
+    document.getElementById('pdvLateralCorpo').innerHTML = '<p class="pdv-nota pdv-erro pdv-c-msg">Não consegui buscar a lista.</p>';
+    return;
+  }
+  const nome = PDV_EV_NOME[tipoEv];
+  _pdvLat.rotuloSoma = tipoEv === 'SGR' ? 'retirados' : '';
+  _pdvLat.lista = (r.eventos || []).map(e => {
+    const rot = `${nome}${e.codigo && tipoEv === 'ITEMSEMCAD' ? ` · ${e.codigo}` : ''}${e.descricao && tipoEv === 'SGR' ? ` · ${e.descricao}` : ''}`
+      + (e.valor_centavos ? ` · ${pdvMoeda(e.valor_centavos)}` : '');
+    const k = { caixa_id: e.caixa_id, dia: String(e.ts).slice(0, 10), cupom: e.cupom, aberto_em: e.ts, caixa: e.caixa,
+      operador: e.operador_cupom || (e.operador !== '?' ? e.operador : '') || '', total_centavos: e.total_centavos || 0 };
+    // com cupom: abre como os outros cupons, focado neste segundo
+    if (e.cupom && e.situacao) {
+      return { k, v: e.valor_centavos || 0, html: pdvLatLinha(k, rot, e.valor_centavos ? pdvMoeda(e.valor_centavos) : '', e.ts) };
+    }
+    return { k, v: e.valor_centavos || 0, html: `<div class="pdv-lat-cupom">
+      <button type="button" class="pdv-lateral-item" data-pdv-ev="${esc(e.caixa_id)}|${esc(e.ts)}" data-pdv-rotulo="${esc(rot)}"
+        data-pdv-op="${esc(k.operador)}" data-pdv-cx="${esc(e.caixa)}">
+        <span class="pdv-hora">${esc(pdvHora(e.ts).slice(0, 5))}</span>
+        <span class="pdv-lateral-meio"><strong>${esc(e.caixa)}${k.operador ? ` · ${esc(k.operador)}` : ''}</strong><small>${esc(rot)} · fora de cupom</small></span>
+        <span class="pdv-lateral-valores">${e.valor_centavos ? `<b>${esc(pdvMoeda(e.valor_centavos))}</b>` : ''}</span>
+        <span class="pdv-lat-play" data-pdv-play title="Ver o vídeo"><i data-lucide="play-circle"></i></span>
+      </button></div>` };
+  });
+}
+
 async function pdvListaLateral(tipo) {
   _pdvLat.tipo = tipo;
+  if (tipo.startsWith('ev_')) {
+    pdvLateralAbrir(PDV_LISTAS[tipo] || 'Eventos', pdvDiaRotulo(_pdvDia));
+    await pdvListaEventos(tipo.slice(3));
+    if (!_pdvLat.lista) return;
+    await pdvLatPrepararFiltros();
+    return;
+  }
+  _pdvLat.rotuloSoma = 'de desconto';
   pdvLateralAbrir(PDV_LISTAS[tipo] || 'Cupons', pdvDiaRotulo(_pdvDia));
   const corpo = document.getElementById('pdvLateralCorpo');
   const r = await apiJson(`/api/pdv/cupons?dia=${encodeURIComponent(_pdvDia)}&limite=5000`, { forceRefresh: true });
@@ -1190,6 +1248,10 @@ async function pdvListaLateral(tipo) {
   };
   const somaDesc = lista.reduce((t, k) => t + (desc.get(`${k.caixa_id}|${k.cupom}`)?.v || 0), 0);
   _pdvLat.lista = lista.map(k => ({ k, d: destaque(k), v: desc.get(`${k.caixa_id}|${k.cupom}`)?.v || 0 }));
+  await pdvLatPrepararFiltros();
+}
+
+async function pdvLatPrepararFiltros() {
   // filtros de loja e PDV (as lojas sao os sites dos caixas)
   const caixas = await pdvCarregarCaixas();
   _pdvLat.caixas = caixas;
@@ -1220,15 +1282,16 @@ function pdvLatDesenhar() {
   const daLoja = new Set((_pdvLat.caixas || []).filter(c => !loja || (c.site || 'Sem loja definida') === loja).map(c => c.id));
   const vistos = (_pdvLat.lista || []).filter(x => daLoja.has(x.k.caixa_id) && (!caixa || x.k.caixa_id === caixa));
   const soma = vistos.reduce((t, x) => t + x.v, 0);
-  document.getElementById('pdvLateralSub').textContent = `${pdvDiaRotulo(_pdvDia)} · ${vistos.length} ${vistos.length === 1 ? 'cupom' : 'cupons'}`
-    + (soma ? ` · − ${pdvMoeda(soma)} de desconto` : '');
+  const ev = String(_pdvLat.tipo).startsWith('ev_');
+  document.getElementById('pdvLateralSub').textContent = `${pdvDiaRotulo(_pdvDia)} · ${vistos.length} ${ev ? (vistos.length === 1 ? 'registro' : 'registros') : (vistos.length === 1 ? 'cupom' : 'cupons')}`
+    + (soma && _pdvLat.rotuloSoma ? ` · ${_pdvLat.rotuloSoma === 'de desconto' ? '− ' : ''}${pdvMoeda(soma)} ${_pdvLat.rotuloSoma}` : '');
   document.getElementById('pdvLatConta').textContent = vistos.length !== (_pdvLat.lista || []).length ? `${vistos.length} de ${_pdvLat.lista.length}` : '';
   pdvPararGravacao();
   _pdvLat.sel = '';
   _pdvLat.atual = null;
   document.querySelector('#pdvLatTela .pdv-videobox').innerHTML = PDV_LAT_VAZIA;
   document.getElementById('pdvLatAgora').innerHTML = '';
-  corpo.innerHTML = vistos.length ? vistos.map(x => pdvLatLinha(x.k, ...x.d)).join('') : '<p class="pdv-nota pdv-c-msg">Nenhum cupom com esses filtros.</p>';
+  corpo.innerHTML = vistos.length ? vistos.map(x => x.html || pdvLatLinha(x.k, ...x.d)).join('') : '<p class="pdv-nota pdv-c-msg">Nada com esses filtros.</p>';
   corpo.scrollTop = 0;
   lucide.createIcons();
 }

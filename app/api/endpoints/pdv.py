@@ -161,6 +161,12 @@ def api_pdv_cupons(dia: str = "", caixa_id: str = "", operador: str = "", situac
                                             hora_de=de, hora_ate=ate, limite=limite)}
 
 
+@router.get("/eventos")
+def api_pdv_eventos(dia: str = "", tipo: str = "") -> Dict[str, Any]:
+    """Sangrias, gavetas abertas ou codigos sem cadastro do dia, um a um (com o video)."""
+    return {"ok": True, **_executar(pdv_store.eventos_dia, dia or _hoje(), tipo)}
+
+
 @router.get("/cupons/{caixa_id}/{dia}/{cupom}")
 def api_pdv_cupom(caixa_id: str, dia: str, cupom: str) -> Dict[str, Any]:
     return {"ok": True, **_executar(pdv_store.detalhe_cupom, caixa_id, dia, cupom)}
