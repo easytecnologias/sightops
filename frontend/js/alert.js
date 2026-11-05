@@ -2212,6 +2212,7 @@ function alertRenderReadiness(lista) {
   const ROT = {
     sem_app: ['nao ativaram o app', 'danger'], sem_senha: ['sem senhas', 'danger'], gps_bloqueado: ['com GPS bloqueado', 'danger'],
     sem_sinal: ['sem sinal ha mais de 7 dias', 'danger'], bateria: ['com bateria baixa', 'amber'], sem_cameras: ['sem cameras na lotacao', 'amber'],
+    sem_grupo_aviso: ['sem grupo de aviso no Telegram', 'amber'],
   };
   const itens = Object.keys(ROT).filter((k) => conta[k]);
   pend.hidden = false;

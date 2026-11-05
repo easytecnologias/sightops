@@ -373,6 +373,7 @@ def list_members(search: str = "") -> List[Dict[str, Any]]:
         if atual["ultimo"] is None or str(s.get("last_seen_at") or "") > str(atual["ultimo"].get("last_seen_at") or ""):
             atual["ultimo"] = s
     liberados = _sites_liberados()
+    cfg_avisos = _config_avisos()
     out = []
     for r in rows:
         if not _membro_liberado(r, liberados):
@@ -380,7 +381,7 @@ def list_members(search: str = "") -> List[Dict[str, Any]]:
         info = by_member.get(r["id"]) or {"n": 0, "ultimo": None}
         m = _member_public(r, info["n"])
         m["device"] = _device_public(info["ultimo"])
-        m["prontidao"] = prontidao_do_membro(m)
+        m["prontidao"] = prontidao_do_membro(m, cfg_avisos=cfg_avisos)
         m["ponto"] = _ponto_do_membro(m)
         out.append(m)
     return out
@@ -493,7 +494,26 @@ def _device_public(s: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
     }
 
 
-def prontidao_do_membro(m: Dict[str, Any], agora: Optional[datetime] = None) -> Dict[str, Any]:
+def _config_avisos() -> Optional[Dict[str, Any]]:
+    """Grupos do cliente, uma leitura por listagem. None = nao deu para ler:
+    sem isso nao se afirma que a pessoa esta sem grupo."""
+    from app.services import notificacoes_service as N
+
+    try:
+        return N.config()
+    except Exception as exc:
+        logger.warning("alerta: nao deu para ler os grupos de aviso: %s", exc)
+        return None
+
+
+def _sem_grupo_de_aviso(m: Dict[str, Any], cfg: Optional[Dict[str, Any]]) -> bool:
+    from app.services import notificacoes_service as N
+
+    return cfg is not None and not N.destinos(cfg, site_do_membro(m), "panico", urgente=True)
+
+
+def prontidao_do_membro(m: Dict[str, Any], agora: Optional[datetime] = None,
+                        cfg_avisos: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """A pessoa consegue pedir ajuda AGORA, e a central consegue ve-la?
 
     Cada pendencia tem um codigo (a tela decide icone/cor) e um texto curto.
@@ -530,6 +550,8 @@ def prontidao_do_membro(m: Dict[str, Any], agora: Optional[datetime] = None) -> 
             add("bateria", f"Bateria em {int(bat)}% no ultimo sinal", bloqueia=False)
     if m.get("active") and not m.get("unit_connector_id"):
         add("sem_cameras", "Sem cameras na lotacao", bloqueia=False)
+    if m.get("active") and _sem_grupo_de_aviso(m, cfg_avisos):
+        add("sem_grupo_aviso", "Panico nao chega a nenhum grupo do Telegram", bloqueia=False)
     return {"pronta": not any(p["bloqueia"] for p in pend), "pendencias": pend}
 
 
@@ -1447,8 +1469,12 @@ def _site_do_alerta(inc: Dict[str, Any]) -> str:
             site = str(_site_do_conector(cid) or "").strip()
             if site:
                 return site
-        except Exception:
-            pass
+            logger.warning("alerta: conector %s de %s sem site; aviso vai pelo nome da lotacao", cid, m.get("full_name") or "?")
+        except Exception as exc:
+            # Segue pelo nome da lotacao, que cai no grupo padrao se nao casar:
+            # aviso no grupo padrao e melhor que panico sem aviso nenhum.
+            logger.warning("alerta: falha ao descobrir o site do conector %s de %s: %s; aviso vai pelo nome da lotacao",
+                           cid, m.get("full_name") or "?", exc)
     return str(m.get("unit_name") or "").strip()
 
 

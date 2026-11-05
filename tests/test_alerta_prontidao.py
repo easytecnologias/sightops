@@ -26,6 +26,7 @@ def banco(tmp_path, monkeypatch):
     from app.services import connector_service
     monkeypatch.setattr(connector_service, "get_connector", lambda cid, **kw: {"id": cid, "site": "ESCOLA"})
     monkeypatch.setattr(permissions, "sites_da_sessao", lambda: None)
+    monkeypatch.setattr(A, "_config_avisos", lambda: None)  # grupos de aviso: test_alerta_site_do_aviso.py
     yield monkeypatch
     tenant_context.reset_current_tenant_slug(token)
 
