@@ -10,7 +10,7 @@ from app.core.guarda_destino import guarda_destino
 from app.services.intelbras_switch_service import collect_switch_snapshot
 from app.services.hikvision_switch_service import collect_switch_snapshot as collect_hikvision_switch_snapshot
 from app.models.requests import SwitchCollectMacsRequest
-from app.services.switch_service import collect_macs, list_macs, clear_macs, set_port_poe, set_port_enabled
+from app.services.switch_service import _host_alcancavel, collect_macs, list_macs, clear_macs, set_port_poe, set_port_enabled
 
 router = APIRouter(prefix="/api/switch", tags=["switch"])
 
@@ -33,7 +33,8 @@ def inspect_intelbras_switch(payload: Dict[str, Any]) -> Dict[str, Any]:
 
     try:
         snapshot = collect_switch_snapshot(
-            host=host,
+            # o IP que a guarda conferiu (virtual do conector), nao o digitado cru
+            host=_host_alcancavel(payload.get("connector_id") or payload.get("remote_connector_id"), host),
             username=user,
             password=password,
             include_config=include_config,
@@ -59,7 +60,8 @@ def inspect_hikvision_switch(payload: Dict[str, Any]) -> Dict[str, Any]:
 
     try:
         snapshot = collect_hikvision_switch_snapshot(
-            host=host,
+            # o IP que a guarda conferiu (virtual do conector), nao o digitado cru
+            host=_host_alcancavel(payload.get("connector_id") or payload.get("remote_connector_id"), host),
             username=user,
             password=password,
             include_config=False,

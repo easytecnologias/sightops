@@ -196,6 +196,22 @@ def _segment_overlaps_window(segment: Dict[str, Any], start_dt: datetime, end_dt
     return seg_start < end_dt and seg_end > start_dt
 
 
+def alcance_gravador(host: str) -> str:
+    """IP pelo qual a API conecta no gravador da IA: o virtual (vnat) do
+    conector dele, pela mesma resolucao da guarda de destino. Antes a IA ia ao
+    IP real -- nao funcionava em conector isolado e, em LAN roteada pelo
+    wg-sightops, caia no conector de outro cliente. Vizinhos da busca encadeada
+    (cadastro) passam pela mesma conferencia."""
+    from app.api.endpoints.maintenance import _reach
+    from app.api.endpoints.nvr import _recorder_connector_for_host
+    from app.core.destino import destino_permitido_atual
+    final = _reach(host, _recorder_connector_for_host(host)) or host
+    pode, motivo = destino_permitido_atual(final)
+    if not pode:
+        raise ValueError(f"{host}: {motivo}")
+    return final
+
+
 def dahua_media_find_segments(
     *,
     host: str,
@@ -326,7 +342,7 @@ def query_recording_segments(req: Dict[str, Any]) -> Dict[str, Any]:
         }
 
     media_find = dahua_media_find_segments(
-        host=host,
+        host=alcance_gravador(host),
         http_port=int(req.get("http_port") or 80),
         user=user,
         password=password,

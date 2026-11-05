@@ -10,7 +10,7 @@ from urllib.parse import quote
 
 from app.services.gemini_video_search import search_clip_for_query
 from app.services.kmz_ops import _extract_leading_num
-from app.services.nvr_ai_service import list_nvr_targets, query_recording_segments
+from app.services.nvr_ai_service import alcance_gravador, list_nvr_targets, query_recording_segments
 from app.services.recorder_media_service import (
     RecorderAuthError,
     RecordingNotFoundError,
@@ -132,7 +132,7 @@ def _search_one_camera(
 
     try:
         clip_path = download_clip_mp4(
-            host=host,
+            host=alcance_gravador(host),
             http_port=http_port,
             user=user,
             password=password,

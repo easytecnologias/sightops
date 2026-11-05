@@ -78,16 +78,21 @@ def _reach_deploy_host(host: str, connector_id: str = "") -> str:
     real = _text(host)
     if not real:
         return real
+    # Mesma resolucao da guarda de destino (guarda_destino -> _conferir_destinos):
+    # o IP aprovado e o IP conectado. "IP:porta" (a guarda tira a porta) vira o
+    # IP virtual com a mesma porta; antes ia inteiro e o vnat devolvia o real.
+    porta = ""
+    m = re.fullmatch(r"(\d+\.\d+\.\d+\.\d+):(\d+)", real)
+    if m:
+        real, porta = m.group(1), m.group(2)
     cid = _text(connector_id)
     if not cid:
         try:
             cid = _recorder_connector_for_host(real)
         except Exception:
             cid = ""
-    try:
-        return _vnat.virtual_ip_for(cid, real) or real
-    except Exception:
-        return real
+    from app.api.endpoints.maintenance import _reach
+    return (_reach(real, cid) or real) + (f":{porta}" if porta else "")
 
 
 def _recorder_base_url(host: str, port: Any = None) -> str:

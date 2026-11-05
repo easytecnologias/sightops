@@ -122,13 +122,18 @@ def _host_alcancavel(connector_id: Any, ip: str) -> str:
     Hikvision da SIERRA era de outra rede). Sem conector ou sem mapa vnat, o
     proprio IP -- comportamento de antes.
     """
-    cid = _safe(connector_id)
-    if not cid:
-        return ip
-    try:
-        return _vnat.virtual_ip_for(cid, ip) or ip
-    except Exception:
-        return ip
+    # Mesma resolucao da guarda de destino (_reach): sem conector, o da
+    # credencial/inventario/faixa -- antes ia ao IP real, que em LAN roteada
+    # pelo wg-sightops cai no conector de outro cliente. O destino final e
+    # conferido aqui porque /port/* nao tem guarda (o IP casa com credencial).
+    from app.api.endpoints.maintenance import _reach
+    from app.core.destino import destino_permitido
+    from app.core.tenant_context import get_current_tenant_slug
+    final = _reach(ip, _safe(connector_id)) or ip
+    pode, motivo = destino_permitido(get_current_tenant_slug(), final, exigir_dono=False)
+    if not pode:
+        raise HTTPException(403, f"switch {ip}: {motivo}")
+    return final
 
 
 def collect_macs(req: SwitchCollectMacsRequest) -> Dict[str, Any]:

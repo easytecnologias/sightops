@@ -87,11 +87,10 @@ def _reach_playback_host(host: str, connector_id: str = "") -> str:
     real = str(host or "").strip()
     if not real:
         return host
-    try:
-        from app.services import connector_routing_vnat as _vnat
-        return _vnat.virtual_ip_for(_conector_do_gravador(real, connector_id), real) or real
-    except Exception:
-        return real
+    # Mesma resolucao de _conferir_gravador (_conferir_destinos -> _reach): o
+    # IP aprovado e o IP do download. Erro aqui nao volta para o IP real.
+    from app.api.endpoints.maintenance import _reach
+    return _reach(real, _conector_do_gravador(real, connector_id)) or real
 
 
 def _download_dav_or_http(payload: PlaybackClipRequest, start: datetime, end: datetime, out_path: Path) -> None:

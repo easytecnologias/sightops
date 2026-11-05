@@ -9,10 +9,20 @@ do conector dele); faixa virtual alheia, rede interna e IP sem dono nao.
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import re
 from typing import Any, Dict, List, Tuple
 
 from fastapi import Request
+
+
+# Conector que o pedido indicou, para o handler conectar pelo MESMO caminho que
+# a guarda conferiu (rotas de gravador que nao leem connector_id do corpo).
+_dica_do_pedido: contextvars.ContextVar[str] = contextvars.ContextVar("guarda_dica_do_pedido", default="")
+
+
+def dica_do_pedido() -> str:
+    return _dica_do_pedido.get()
 
 
 def _texto(valor: Any) -> str:
@@ -38,6 +48,7 @@ def guarda_destino(*campos: str):
             if isinstance(corpo, dict):
                 dados.update(corpo)
         dica = _texto(dados.get("connector_id") or dados.get("remote_connector_id"))
+        _dica_do_pedido.set(dica)
         alvos: List[Tuple[str, str]] = []
         for campo in campos:
             ip = re.sub(r"^(\d+\.\d+\.\d+\.\d+):\d+$", r"\1", _texto(dados.get(campo)))  # IP:porta

@@ -214,8 +214,11 @@ def _reach_recorder(ip: str) -> str:
     ip = str(ip or "").strip()
     if not ip:
         return ip
-    cid = _rec_req_connector.get() or _recorder_connector_for_host(ip)
-    return _vnat.virtual_ip_for(cid, ip) or ip
+    from app.core.guarda_destino import dica_do_pedido
+    cid = _rec_req_connector.get() or dica_do_pedido() or _recorder_connector_for_host(ip)
+    # Mesma resolucao da guarda de destino: o IP aprovado e o IP conectado.
+    from app.api.endpoints.maintenance import _reach
+    return _reach(ip, cid) or ip
 
 
 def _base(ip: str, port: int) -> str:

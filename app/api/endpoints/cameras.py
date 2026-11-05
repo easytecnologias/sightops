@@ -1063,7 +1063,10 @@ def api_cameras_snapshot_capture(req: SnapshotCaptureRequest) -> Dict[str, Any]:
 
     dst_dir = snapshot_storage_dir()
     dst_dir.mkdir(parents=True, exist_ok=True)
-    probe_ip = _vnat.virtual_ip_for(connector_id, ip) or ip
+    # Mesma resolucao de _conferir_destinos: sem conector no pedido, o da linha
+    # do inventario (antes ia ao IP real, que o destino nao conferiu).
+    from app.api.endpoints.maintenance import _reach
+    probe_ip = _reach(ip, connector_id) or ip
     if probe_ip == _vnat.IP_BLOQUEADO:
         raise HTTPException(status_code=403, detail="conector de outro cliente")
     from app.api.endpoints.maintenance import _conferir_destinos
