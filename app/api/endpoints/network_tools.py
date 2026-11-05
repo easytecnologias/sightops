@@ -331,6 +331,24 @@ async def api_network_tools_run(payload: Dict[str, Any]) -> Dict[str, Any]:
     except Exception:
         pass
 
+    # Destino final (ja virtual): nada de faixa virtual de outro cliente,
+    # loopback, Docker, link-local ou IP sem dono. DNS so resolve, nao conecta.
+    recusados: Dict[str, str] = {}
+    if test != "dns":
+        from urllib.parse import urlsplit
+
+        from app.core.destino import destinos_permitidos
+        from app.core.tenant_context import get_current_tenant_slug
+
+        def _host(alvo: str) -> str:
+            return (urlsplit(alvo).hostname or "") if alvo.startswith(("http://", "https://")) else alvo
+
+        _ok, por_host = destinos_permitidos(get_current_tenant_slug(), [_host(t) for t in targets])
+        recusados = {de_volta.get(t, t): por_host[_host(t)] for t in targets if _host(t) in por_host}
+        targets = [t for t in targets if _host(t) not in por_host]
+        if not targets:
+            raise HTTPException(status_code=403, detail={"message": "destino recusado", "recusados": recusados})
+
     if test == "ping":
         result = await _run_ping(targets, timeout, concurrency, _ports(payload.get("ports") or payload.get("port") or "80,443,554,37777,8000,8080,8291"))
     elif test in {"tcp", "port_scan"}:
@@ -364,4 +382,5 @@ async def api_network_tools_run(payload: Dict[str, Any]) -> Dict[str, Any]:
             result["target"] = real_topo
         targets = [de_volta.get(t, t) for t in targets]
 
-    return {"ok": True, "test": test, "count": len(targets), "targets": targets, "result": result}
+    return {"ok": True, "test": test, "count": len(targets), "targets": targets, "result": result,
+            "recusados": recusados}
