@@ -77,7 +77,8 @@ def _validar_acoes(acoes: Any) -> List[Dict[str, Any]]:
         eq = equipamento_do_inventario(_txt(a.get("ip")), _txt(a.get("connector_id")))
         if not eq or not _site_ok(eq["site"]):
             raise ValueError(f"O equipamento {_txt(a.get('ip'))} não está no inventário deste cliente.")
-        item: Dict[str, Any] = {"tipo": a["tipo"], "ip": eq["ip"], "connector_id": eq["connector_id"], "nome": eq["nome"]}
+        item: Dict[str, Any] = {"tipo": a["tipo"], "ip": eq["ip"], "connector_id": eq["connector_id"],
+                                "nome": eq["nome"], "site": eq["site"]}
         try:
             if a["tipo"] == "saida":
                 item["saida"] = int(a.get("saida") or 1)
@@ -133,11 +134,33 @@ def _publica(r: Dict[str, Any]) -> Dict[str, Any]:
             "intervalo_s": int(r.get("intervalo_s") or 120), "acoes": acoes}
 
 
+def _restrito() -> bool:
+    from app.core.permissions import sites_da_sessao
+    return sites_da_sessao() is not None
+
+
+def _acoes_visiveis(acoes: List[Dict[str, Any]]) -> bool:
+    return all(_site_ok(a.get("site")) for a in acoes)
+
+
+def _regra_visivel(c: Any, tenant: str, r: Dict[str, Any]) -> bool:
+    """Usuario restrito so ve regra inteira dos sites dele: a camera de origem e
+    todos os alvos. "Todas as termicas" alcanca sites que ele nao ve. O motor em
+    segundo plano nao tem usuario e nao passa por aqui."""
+    if not _restrito():
+        return True
+    origem = _txt(r.get("origem_camera_id"))
+    if not origem:
+        return False
+    cam = c.execute("SELECT site FROM termico_cameras WHERE tenant_slug=? AND id=?", (tenant, origem)).fetchone()
+    return bool(cam) and _site_ok(dict(cam).get("site")) and _acoes_visiveis(_publica(r)["acoes"])
+
+
 def _regra(c: Any, tenant: str, regra_id: str) -> Dict[str, Any]:
     if not ID_RE.match(regra_id or ""):
         raise LookupError("Automação não encontrada.")
     r = c.execute("SELECT * FROM automacoes WHERE tenant_slug=? AND id=?", (tenant, regra_id)).fetchone()
-    if not r:
+    if not r or not _regra_visivel(c, tenant, dict(r)):
         raise LookupError("Automação não encontrada.")
     return dict(r)
 
@@ -149,6 +172,9 @@ def listar() -> Dict[str, Any]:
         hist = [dict(r) for r in c.execute(
             "SELECT automacao_id, alerta_id, modo, acao, ok, resposta, criado_at FROM automacao_execucoes "
             "WHERE tenant_slug=? ORDER BY criado_at DESC LIMIT 100", (tenant,)).fetchall()]
+        rows = [r for r in rows if _regra_visivel(c, tenant, r)]
+    vistas = {r["id"] for r in rows}
+    hist = [h for h in hist if h.get("automacao_id") in vistas]
     rows.sort(key=lambda r: (r.get("nome") or "").lower())
     return {"automacoes": [_publica(r) for r in rows], "execucoes": hist, "equipamentos": equipamentos()}
 
@@ -172,8 +198,12 @@ def salvar(dados: Dict[str, Any], regra_id: str = "") -> Dict[str, Any]:
     agora = _agora()
     ativo = 1 if dados.get("ativo", True) else 0
     with db_store._conn() as c:
-        if origem and not c.execute("SELECT id FROM termico_cameras WHERE tenant_slug=? AND id=?", (tenant, origem)).fetchone():
-            raise ValueError("Câmera de origem não encontrada.")
+        if origem:
+            cam = c.execute("SELECT site FROM termico_cameras WHERE tenant_slug=? AND id=?", (tenant, origem)).fetchone()
+            if not cam or not _site_ok(dict(cam).get("site")):
+                raise ValueError("Câmera de origem não encontrada.")
+        elif _restrito():
+            raise ValueError("Escolha a câmera de origem: \"Todas as térmicas\" inclui sites fora do seu acesso.")
         valores = (nome, ativo, modo, origem, intervalo, json.dumps(acoes, ensure_ascii=False), agora)
         if regra_id:
             _regra(c, tenant, regra_id)

@@ -111,3 +111,45 @@ def test_isolamento_entre_clientes(amb):
     finally:
         reset_current_tenant_slug(tok)
     assert chamadas == []
+
+
+def _restringir(monkeypatch, sites):
+    import app.core.permissions as P
+    monkeypatch.setattr(P, "sites_da_sessao", lambda: sites)
+
+
+def test_usuario_restrito_nao_ve_nem_aciona_regra_de_outro_site(amb, monkeypatch):
+    A, S, chamadas = amb
+    r = S.salvar({**REGRA, "modo": "valer"})
+    assert r["acoes"][0]["site"] == "UFV-RODOANEL"
+    S.registrar_execucao(r["id"], "a", "valer", r["acoes"][0], True, "ok")
+    _restringir(monkeypatch, ["OUTRO-SITE"])
+    d = S.listar()
+    assert d["automacoes"] == [] and d["execucoes"] == []
+    for fn in (lambda: S.obter(r["id"]), lambda: S.excluir(r["id"]), lambda: S.salvar(REGRA, r["id"])):
+        with pytest.raises((LookupError, ValueError)):
+            fn()
+    assert chamadas == []
+    # o motor em segundo plano nao tem usuario: continua rodando
+    _restringir(monkeypatch, None)
+    monkeypatch.setattr(A, "_dentro_do_intervalo", lambda regra: False)
+    monkeypatch.setattr(A, "_timer", lambda s, fn, args: None)
+    assert A.disparar("cliente-a", "x", "a2") == 1 and chamadas
+
+
+def test_restrito_nao_cria_regra_para_todas_as_termicas(amb, monkeypatch):
+    _, S, _ = amb
+    _restringir(monkeypatch, ["UFV-RODOANEL"])
+    with pytest.raises(ValueError, match="câmera de origem"):
+        S.salvar(REGRA)
+
+
+def test_saida_que_nao_desliga_fica_no_historico(amb, monkeypatch):
+    A, S, _ = amb
+    monkeypatch.setattr(A, "ESPERA_DESLIGAR_S", 0)
+    r = S.salvar(REGRA)
+    tentativas = []
+    monkeypatch.setattr(A, "_put", lambda *a, **k: (tentativas.append(1), (500, "erro"))[1])
+    A._desligar_depois("cliente-a", r["acoes"][1], r["id"])
+    assert len(tentativas) == 3
+    assert S.listar()["execucoes"][0]["ok"] == 0 and "não desligou" in S.listar()["execucoes"][0]["resposta"]

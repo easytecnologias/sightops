@@ -558,6 +558,10 @@ def delete_tenant(actor: Dict[str, Any], tenant_id: int) -> Dict[str, Any]:
         # inventario do tenant. Se auth estiver separado, essas tabelas podem
         # nao existir; por isso consultamos antes em vez de depender de erro.
         wanted_tables = (
+            "automacao_execucoes",
+            "automacoes",
+            "termico_alertas",
+            "termico_cameras",
             "notification_states",
             "onu_signal_samples",
             "monitoring_events",
@@ -582,7 +586,7 @@ def delete_tenant(actor: Dict[str, Any], tenant_id: int) -> Dict[str, Any]:
                     SELECT table_name
                     FROM information_schema.tables
                     WHERE table_schema='public'
-                      AND table_name IN (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                      AND table_name IN (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     wanted_tables,
                 )
@@ -596,7 +600,7 @@ def delete_tenant(actor: Dict[str, Any], tenant_id: int) -> Dict[str, Any]:
                     SELECT name
                     FROM sqlite_master
                     WHERE type='table'
-                      AND name IN (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                      AND name IN (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     wanted_tables,
                 )
