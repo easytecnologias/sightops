@@ -380,11 +380,11 @@ function _redeConhecido(ip) {
 // switch teria o inventario inteiro marcado como "fora do inventario".
 async function carregarRedeInventario() {
   const mapa = new Map();
-  for (const modo of ['olt', 'basico', 'switch']) {
-    try {
-      const d = await apiJson(`/api/cameras?mode=${modo}`, { cacheTtl: 30000 });
-      ((d && d.cameras) || []).forEach(c => { if (c.ip) mapa.set(String(c.ip), c.titulo || c.ip); });
-    } catch (e) { /* visao sem inventario e normal */ }
+  // Os tres modos juntos (antes em serie); visao sem inventario e normal.
+  const porModo = await Promise.all(['olt', 'basico', 'switch'].map(modo =>
+    apiJson(`/api/cameras?mode=${modo}`, { cacheTtl: 30000 }).catch(() => null)));
+  for (const d of porModo) {
+    ((d && d.cameras) || []).forEach(c => { if (c.ip) mapa.set(String(c.ip), c.titulo || c.ip); });
   }
   _redeInventarioIps = mapa;
 }

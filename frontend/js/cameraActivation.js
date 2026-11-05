@@ -593,8 +593,10 @@ async function loadDeployOnvif(forcar = false) {
   if (_onvifCameras.length && !forcar) { onvifRender(); return; }
   tb.innerHTML = '<tr><td colspan="7" style="padding:24px;color:var(--muted)">Carregando...</td></tr>';
   const vistas = new Map();
-  for (const modo of ['olt', 'basico', 'switch']) {
-    const d = await apiJson(`/api/cameras?mode=${modo}`, { forceRefresh: forcar });
+  // Os tres modos juntos; a ordem do laco segue a prioridade (primeiro ganha).
+  const porModo = await Promise.all(['olt', 'basico', 'switch'].map(modo =>
+    apiJson(`/api/cameras?mode=${modo}`, { forceRefresh: forcar }).catch(() => null)));
+  for (const d of porModo) {
     for (const c of (d?.cameras || [])) if (c.ip && !vistas.has(c.ip)) vistas.set(c.ip, c);
   }
   _onvifCameras = [...vistas.values()].sort((a, b) => onvifOrdem(onvifLocal(a), onvifLocal(b))

@@ -762,9 +762,12 @@ async function mapLoadCameraIndex() {
   // (o modo de cada camada sai daqui -- mapLayerModo).
   const porModo = {};
   const byNumero = {};
-  for (const m of modes) {
-    const camData = await apiJson(`/api/cameras?mode=${encodeURIComponent(m)}&_=${Date.now()}`)
-      .catch(() => null);
+  // Os modos vem juntos (antes em serie); a ordem do laco segue a prioridade.
+  // Sem cache-buster: o cache curto do apiJson ja e limpo em qualquer gravacao.
+  const porModoData = await Promise.all(modes.map(m =>
+    apiJson(`/api/cameras?mode=${encodeURIComponent(m)}`).catch(() => null)));
+  modes.forEach((m, i) => {
+    const camData = porModoData[i];
     const idx = porModo[m] = { names: new Set(), ips: new Set() };
     (camData?.cameras || []).forEach(c => {
       if (c.titulo) idx.names.add(String(c.titulo).toLowerCase());
@@ -785,7 +788,7 @@ async function mapLoadCameraIndex() {
       const ip = String(c.ip || '');
       if (ip && !byIp[ip]) byIp[ip] = c;
     });
-  }
+  });
   _mapCameraIndex = { byName, byIp, porModo, byNumero };
   return _mapCameraIndex;
 }
