@@ -855,7 +855,8 @@ async def api_cameras_ping_many(req: PingBatchRequest) -> Dict[str, Any]:
                     # Sem IP virtual o servidor nao alcanca a camera: nao
                     # responder aqui nao quer dizer que ela esta fora do ar.
                     # (O ping pelo conector leva ate 45 s, inviavel em lote.)
-                    if not final and not result.get("online"):
+                    # virtual_ip_for devolve o proprio IP quando nao ha mapa.
+                    if final == host and not result.get("online"):
                         result["sem_rota"] = True
                 return result
             except Exception as exc:
@@ -1044,6 +1045,8 @@ def api_cameras_snapshot_capture(req: SnapshotCaptureRequest) -> Dict[str, Any]:
     dst_dir = snapshot_storage_dir()
     dst_dir.mkdir(parents=True, exist_ok=True)
     probe_ip = _vnat.virtual_ip_for(connector_id, ip) or ip
+    if probe_ip == _vnat.IP_BLOQUEADO:
+        raise HTTPException(status_code=403, detail="conector de outro cliente")
     _ct, _rt = (6.0, 15.0) if connector_id else (1.5, float(req.timeout_sec or 5.0))
     saved_path = get_snapshot(probe_ip, user, password, str(dst_dir), timeout=(_ct, _rt), retries=1)
     safe_ip = ip.replace(":", "__").replace(".", "_").replace("/", "_")
