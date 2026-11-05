@@ -14,7 +14,7 @@ from typing import Any, Dict, List
 import requests
 from app.core import permissions
 from app.core.erros import frase_erro_equipamento
-from fastapi import APIRouter, HTTPException, File
+from fastapi import APIRouter, Depends, HTTPException, File
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from requests.auth import HTTPDigestAuth
@@ -39,6 +39,8 @@ from app.services.ws_scan_service import (
     _decide_remote_only,
     _pick_probe_targets,
 )
+
+from app.core.guarda_destino import guarda_destino  # noqa: E402
 
 router = APIRouter(tags=["dvr"], prefix="/api/dvr")
 _imgbb_progress_lock = threading.Lock()
@@ -1178,7 +1180,7 @@ def api_dvr_report_pdf(site: str = "", company_name: str = "", mode: str = "", i
     return FileResponse(path=pdf_path, media_type="application/pdf", filename=pdf_path.name)
 
 
-@router.post("/channel/rename")
+@router.post("/channel/rename", dependencies=[Depends(guarda_destino("ip"))])
 def api_dvr_channel_rename(req: DVRRenameChannelRequest) -> Dict[str, Any]:
     ip = req.ip.strip()
     if not ip:
@@ -1320,7 +1322,7 @@ class DVRNetworkApplyRequest(BaseModel):
     new_rtsp_port: int | None = Field(default=None, ge=1, le=65535)
 
 
-@router.get("/network")
+@router.get("/network", dependencies=[Depends(guarda_destino("ip"))])
 def api_dvr_network_get(
     ip: str,
     user: str = "admin",
@@ -1363,7 +1365,7 @@ def api_dvr_network_get(
     }
 
 
-@router.post("/network")
+@router.post("/network", dependencies=[Depends(guarda_destino("ip"))])
 def api_dvr_network_apply(req: DVRNetworkApplyRequest) -> Dict[str, Any]:
     """Aplica config de rede completa (IP/mascara/gateway/DNS/portas), nao
     so o IP como o /change_ip antigo. Mesma tabela CGI (configManager
@@ -1419,7 +1421,7 @@ def api_dvr_network_apply(req: DVRNetworkApplyRequest) -> Dict[str, Any]:
     return result
 
 
-@router.post("/change_ip")
+@router.post("/change_ip", dependencies=[Depends(guarda_destino("ip"))])
 def api_dvr_change_ip(req: DVRChangeIpRequest) -> Dict[str, Any]:
     ip = req.ip.strip()
     new_ip = str(req.new_ip or "").strip()
@@ -1455,7 +1457,7 @@ def api_dvr_change_ip(req: DVRChangeIpRequest) -> Dict[str, Any]:
     return {"ok": True, "old_ip": ip, "new_ip": new_ip, "http_port": int(req.http_port), "updated_rows": changed}
 
 
-@router.post("/ntp")
+@router.post("/ntp", dependencies=[Depends(guarda_destino("ip"))])
 def api_dvr_set_ntp(req: DVRSetNtpRequest) -> Dict[str, Any]:
     ip = req.ip.strip()
     if not ip:
@@ -1480,7 +1482,7 @@ def api_dvr_set_ntp(req: DVRSetNtpRequest) -> Dict[str, Any]:
     return {"ok": True, "ip": ip, "http_port": int(req.http_port), "address": str(req.address), "port": int(req.port)}
 
 
-@router.post("/reboot")
+@router.post("/reboot", dependencies=[Depends(guarda_destino("ip"))])
 def api_dvr_reboot(req: DVRRebootRequest) -> Dict[str, Any]:
     ip = req.ip.strip()
     if not ip:
@@ -1493,7 +1495,7 @@ def api_dvr_reboot(req: DVRRebootRequest) -> Dict[str, Any]:
     return {"ok": True, "ip": ip}
 
 
-@router.post("/scan")
+@router.post("/scan", dependencies=[Depends(guarda_destino("ip"))])
 def api_dvr_scan(req: DVRScanRequest) -> Dict[str, Any]:
     _tok = _rec_req_connector.set(str(getattr(req, "connector_id", "") or getattr(req, "remote_connector_id", "") or "").strip())
     try:
@@ -1618,7 +1620,7 @@ def _api_dvr_scan_impl(req: DVRScanRequest) -> Dict[str, Any]:
     }
 
 
-@router.post("/snapshot/update")
+@router.post("/snapshot/update", dependencies=[Depends(guarda_destino("ip"))])
 def api_dvr_snapshot_update(req: DVRSnapshotUpdateRequest) -> Dict[str, Any]:
     ip = req.ip.strip()
     if not ip:

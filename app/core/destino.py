@@ -306,14 +306,15 @@ class _Contexto:
         return self.fixar(alvo, exigir_dono)[1]
 
 
-def destinos_fixados(tenant_slug: str, alvos: Iterable[str]) -> Tuple[Dict[str, str], Dict[str, str]]:
+def destinos_fixados(tenant_slug: str, alvos: Iterable[str],
+                     exigir_dono: bool = True) -> Tuple[Dict[str, str], Dict[str, str]]:
     """({alvo: IP aprovado}, {recusado: motivo}). Quem abre a conexao usa o IP
     aprovado, nunca o nome de novo (DNS rebinding)."""
     ctx = _Contexto(tenant_slug)
     fixos: Dict[str, str] = {}
     recusados: Dict[str, str] = {}
     for alvo in alvos:
-        ip, motivo = ctx.fixar(alvo)
+        ip, motivo = ctx.fixar(alvo, exigir_dono)
         if motivo:
             recusados[str(alvo)] = motivo
         else:
@@ -332,9 +333,10 @@ def destinos_permitidos(tenant_slug: str, alvos: Iterable[str]) -> Tuple[List[st
     return [alvo for alvo in lista if alvo in fixos], recusados
 
 
-def destino_permitido(tenant_slug: str, ip: str) -> Tuple[bool, str]:
-    """(pode, motivo). Ver o docstring do modulo."""
-    _ok, recusados = destinos_permitidos(tenant_slug, [ip])
+def destino_permitido(tenant_slug: str, ip: str, exigir_dono: bool = True) -> Tuple[bool, str]:
+    """(pode, motivo). Ver o docstring do modulo. `exigir_dono=False` so para
+    equipamento ja cadastrado no cliente (ex. OLT do registro por tenant)."""
+    _fixos, recusados = destinos_fixados(tenant_slug, [ip], exigir_dono)
     motivo = recusados.get(str(ip), "")
     return (not motivo), motivo
 

@@ -154,7 +154,11 @@ def _conferir_gravador(host: str, connector_id: str = "") -> None:
     from app.core.tenant_context import get_current_user
 
     host = str(host or "").strip()
-    ok, motivo = alvo_permitido(get_current_user(), host, "ver", _conector_do_gravador(host, connector_id))
+    conector = _conector_do_gravador(host, connector_id)
+    # Destino vale sempre (o perfil abaixo nao nega nada em "sombra").
+    from app.api.endpoints.maintenance import _conferir_destinos
+    _conferir_destinos([(host, conector)])
+    ok, motivo = alvo_permitido(get_current_user(), host, "ver", conector)
     if not ok:
         raise HTTPException(status_code=403, detail=motivo or "sem acesso a este gravador")
 

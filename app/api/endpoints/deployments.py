@@ -13,7 +13,7 @@ from urllib.parse import urlencode
 import requests
 from app.core import permissions
 from app.core.erros import frase_erro_equipamento
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from requests.auth import HTTPBasicAuth, HTTPDigestAuth
 
 from app.core.tenant_context import tenant_recorder_inventory_path, tenant_scoped_path, tenant_snapshot_dir
@@ -23,6 +23,8 @@ from app.services.inventory_json import inventory_row_key, load_inventory_json, 
 from app.services.camsnapshot.device_info import get_network_config, set_network_ip, set_channel_title
 from app.services import camera_xray
 from app.api.endpoints.nvr import _recorder_connector_for_host
+
+from app.core.guarda_destino import guarda_destino  # noqa: E402
 
 router = APIRouter(prefix="/api/deployments", tags=["deployments"])
 
@@ -969,7 +971,7 @@ def api_deployments_ip_check(ip: str, connector_id: str = "", site: str = "") ->
     return {"ok": True, **_ip_in_use(ip, connector_id=connector_id, site=site)}
 
 
-@router.post("/apply-camera-ip")
+@router.post("/apply-camera-ip", dependencies=[Depends(guarda_destino("ip"))])
 def api_deployments_apply_camera_ip(payload: Dict[str, Any]) -> Dict[str, Any]:
     """Aplica um novo IP direto na camera (CGI Dahua/Intelbras), herdando
     mascara/gateway da config atual dela. Equipamento vivo -- ver aviso na UI."""
@@ -1004,7 +1006,7 @@ def api_deployments_apply_camera_ip(payload: Dict[str, Any]) -> Dict[str, Any]:
     return {"ok": True, **result}
 
 
-@router.post("/camera-xray")
+@router.post("/camera-xray", dependencies=[Depends(guarda_destino("ip"))])
 def api_deployments_camera_xray(payload: Dict[str, Any]) -> Dict[str, Any]:
     """Le a camera: marca, modelo, serial, firmware, rede e titulo.
 
@@ -1166,7 +1168,7 @@ def api_deployments_recorder_credenciais() -> Dict[str, Any]:
         return {"ok": True, "credenciais": []}
 
 
-@router.post("/recorder-login")
+@router.post("/recorder-login", dependencies=[Depends(guarda_destino("recorder_host", "host"))])
 def api_deployments_recorder_login(payload: Dict[str, Any]) -> Dict[str, Any]:
     if not isinstance(payload, dict):
         raise HTTPException(status_code=400, detail="payload invalido")
@@ -1720,7 +1722,7 @@ def api_deployments_recorder_live_stop(payload: Dict[str, Any]) -> Dict[str, Any
     return {"ok": True, "removido": True}
 
 
-@router.post("/recorder-xray")
+@router.post("/recorder-xray", dependencies=[Depends(guarda_destino("recorder_host", "host"))])
 def api_deployments_recorder_xray(payload: Dict[str, Any]) -> Dict[str, Any]:
     """Tudo que o gravador sabe responder, em uma chamada.
 

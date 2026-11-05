@@ -3,7 +3,9 @@ from __future__ import annotations
 from typing import Any, Dict
 
 from app.core import permissions
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
+
+from app.core.guarda_destino import guarda_destino
 
 from app.services.intelbras_switch_service import collect_switch_snapshot
 from app.services.hikvision_switch_service import collect_switch_snapshot as collect_hikvision_switch_snapshot
@@ -17,7 +19,7 @@ def _as_str(v: Any) -> str:
     return str(v or "").strip()
 
 
-@router.post("/intelbras/inspect")
+@router.post("/intelbras/inspect", dependencies=[Depends(guarda_destino("host", "ip"))])
 def inspect_intelbras_switch(payload: Dict[str, Any]) -> Dict[str, Any]:
     host = _as_str(payload.get("host") or payload.get("ip"))
     user = _as_str(payload.get("user") or payload.get("username"))
@@ -44,7 +46,7 @@ def inspect_intelbras_switch(payload: Dict[str, Any]) -> Dict[str, Any]:
     return {"ok": True, "host": host, "platform": "intelbras_telnet", "snapshot": snapshot}
 
 
-@router.post("/hikvision/inspect")
+@router.post("/hikvision/inspect", dependencies=[Depends(guarda_destino("host", "ip"))])
 def inspect_hikvision_switch(payload: Dict[str, Any]) -> Dict[str, Any]:
     host = _as_str(payload.get("host") or payload.get("ip"))
     user = _as_str(payload.get("user") or payload.get("username"))
@@ -70,7 +72,7 @@ def inspect_hikvision_switch(payload: Dict[str, Any]) -> Dict[str, Any]:
     return {"ok": True, "host": host, "platform": "hikvision_http", "snapshot": snapshot}
 
 
-@router.post("/collect-macs")
+@router.post("/collect-macs", dependencies=[Depends(guarda_destino("switch_ip"))])
 def api_switch_collect_macs(req: SwitchCollectMacsRequest) -> Dict[str, Any]:
     return collect_macs(req)
 

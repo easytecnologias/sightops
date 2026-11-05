@@ -177,6 +177,15 @@ def _registered_request(req: Any) -> Any:
         updates["scan_origin"] = "connector"
     allowed = set(req.model_fields) if hasattr(req, "model_fields") else set(req.__fields__)
     updates = {key: value for key, value in updates.items() if key in allowed}
+    # OLT cadastrada do cliente: sem exigir dono (IP de gerencia pode estar
+    # fora da LAN coletada), mas rede interna e faixa/tunel alheio nao.
+    from app.core.destino import destino_permitido
+    from app.services import connector_routing_vnat as _vnat
+    host = str(olt.get("host") or "").strip()
+    final = (_vnat.virtual_ip_for(connector_id, host) if connector_id else host) or host
+    pode, motivo = destino_permitido(get_current_tenant_slug(), final, exigir_dono=False)
+    if not pode:
+        raise HTTPException(status_code=403, detail=f"OLT {host}: {motivo}")
     return req.model_copy(update=updates) if hasattr(req, "model_copy") else req.copy(update=updates)
 
 

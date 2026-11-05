@@ -3560,6 +3560,12 @@ async def api_telegram_relay_send(payload: Dict[str, Any]) -> Dict[str, Any]:
 
     if not (looks_http and looks_img):
         raise HTTPException(status_code=400, detail="snapshot_url invalido para envio de foto")
+    # Sem cliente na sessao (vem do Zabbix): valem as recusas fixas -- nada de
+    # rede interna do servidor, loopback, link-local ou faixa virtual.
+    from urllib.parse import urlsplit as _urlsplit
+    pode, motivo = await asyncio.to_thread(destino_permitido_atual, _urlsplit(snapshot_url).hostname or "")
+    if not pode:
+        raise HTTPException(status_code=403, detail=f"snapshot_url recusada: {motivo}")
 
     # Envia como multipart (binario) para garantir foto embutida e suportar caption.
     try:
@@ -3567,7 +3573,7 @@ async def api_telegram_relay_send(payload: Dict[str, Any]) -> Dict[str, Any]:
             snapshot_url,
             timeout=25,
             stream=True,
-            allow_redirects=True,
+            allow_redirects=False,
             headers={"User-Agent": "cam-snapshot-relay/1.0"},
         )
         data = img.content if img.status_code == 200 else b""

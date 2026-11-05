@@ -1066,6 +1066,8 @@ def api_cameras_snapshot_capture(req: SnapshotCaptureRequest) -> Dict[str, Any]:
     probe_ip = _vnat.virtual_ip_for(connector_id, ip) or ip
     if probe_ip == _vnat.IP_BLOQUEADO:
         raise HTTPException(status_code=403, detail="conector de outro cliente")
+    from app.api.endpoints.maintenance import _conferir_destinos
+    _conferir_destinos([(ip, connector_id)])
     _ct, _rt = (6.0, 15.0) if connector_id else (1.5, float(req.timeout_sec or 5.0))
     saved_path = get_snapshot(probe_ip, user, password, str(dst_dir), timeout=(_ct, _rt), retries=1)
     safe_ip = ip.replace(":", "__").replace(".", "_").replace("/", "_")

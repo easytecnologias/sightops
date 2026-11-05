@@ -383,6 +383,8 @@ def api_network_path(
         ok, motivo = alvo_permitido(usuario, alvo_real, "ver", cid)
         if not ok:
             raise HTTPException(status_code=403, detail=motivo)
+        from app.api.endpoints.maintenance import _conferir_destinos
+        _conferir_destinos([(alvo_real, cid)])
 
     linha = connector_service.get_connector(cid, enforce_tenant=True) if cid else None
     if not linha:

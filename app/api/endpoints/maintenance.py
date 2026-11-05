@@ -4581,6 +4581,17 @@ def api_scripts_zabbix_groups(url: str = "", user: str = "", password: str = "")
 
     cfg = (_load_settings().get("zabbix_ip_sync") or {})
     alvo = _as_str(url) or _as_str(cfg.get("url"))
+    # URL digitada so vale se for a configurada ou um destino que o cliente
+    # pode alcancar: senao a rota faz POST do servidor para qualquer lugar.
+    configuradas = {_normalize_zabbix_url(_as_str(cfg.get("url")))} | set(_zabbix_default_url_candidates())
+    if _as_str(url) and _normalize_zabbix_url(alvo) not in configuradas:
+        from app.core.destino import destino_permitido_atual
+        partes = urlsplit(alvo if "://" in alvo else f"http://{alvo}")
+        if partes.scheme not in ("http", "https"):
+            raise HTTPException(status_code=400, detail="URL do Zabbix invalida")
+        pode, motivo = destino_permitido_atual(partes.hostname or "")
+        if not pode:
+            raise HTTPException(status_code=403, detail=f"URL do Zabbix recusada: {motivo}")
     usuario = _as_str(user) or _as_str(cfg.get("user"))
     senha = _as_str(password) or _as_str(cfg.get("pass"))
     if not alvo or not usuario or not senha:
