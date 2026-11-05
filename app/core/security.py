@@ -221,6 +221,13 @@ class ApiAuthMiddleware(BaseHTTPMiddleware):
         self._platform_admin_rules = [
             (("GET", "HEAD"), "/api/backup/export"),
             (("POST",), "/api/backup/import"),
+            # Init/migracao do banco e do armazenamento (com force, apaga o de
+            # todos os clientes).
+            (("POST",), "/api/db/init"),
+            (("POST",), "/api/db/migrate"),
+            (("POST",), "/api/db/storage/migrate"),
+            (("POST",), "/api/auth/storage/migrate"),
+            (("POST",), "/api/system/bootstrap"),
         ]
 
     def _is_public_path(self, path: str) -> bool:

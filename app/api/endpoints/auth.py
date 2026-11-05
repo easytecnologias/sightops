@@ -853,8 +853,7 @@ def api_auth_audit_platform(limit: int = 50, user: Dict[str, Any] = Depends(curr
 
 @router.post("/storage/migrate")
 def api_auth_storage_migrate(req: AuthStorageMigrateRequest, user: Dict[str, Any] = Depends(current_user)) -> Dict[str, Any]:
-    if str(user.get("role") or "").strip().lower() not in ("owner", "admin"):
-        raise HTTPException(status_code=403, detail="permissao insuficiente")
+    _require_platform_admin(user)
     try:
         result = migrate_auth_storage(
             source_backend=req.source_backend,

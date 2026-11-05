@@ -51,3 +51,35 @@ def test_backup_liberado_para_plataforma(monkeypatch):
 def test_backup_export_nao_aceita_token_na_url():
     mw = SEC.ApiAuthMiddleware(FastAPI(), get_settings())
     assert not mw._query_token_allowed("/api/backup/export", "GET")
+
+
+BANCO = [("POST", "/api/db/init"), ("POST", "/api/db/migrate"), ("POST", "/api/db/storage/migrate"),
+         ("POST", "/api/auth/storage/migrate"), ("POST", "/api/system/bootstrap")]
+
+
+@pytest.mark.parametrize("usuario", [ADMIN_CLIENTE, DONO_CLIENTE])
+def test_banco_negado_para_cliente(monkeypatch, usuario):
+    c = _cliente(monkeypatch, usuario, BANCO)
+    for metodo, caminho in BANCO:
+        r = c.request(metodo, caminho, headers=H)
+        assert r.status_code == 403, (metodo, caminho, r.status_code)
+
+
+def test_banco_liberado_para_plataforma(monkeypatch):
+    c = _cliente(monkeypatch, PLATAFORMA, BANCO)
+    for metodo, caminho in BANCO:
+        r = c.request(metodo, caminho, headers=H)
+        assert r.status_code == 200, (metodo, caminho, r.status_code)
+
+
+def test_handler_auth_storage_migrate_exige_plataforma(monkeypatch):
+    from fastapi import HTTPException
+
+    from app.api.endpoints import auth as AUTH
+
+    # Nunca migrar de verdade no teste, nem quando a trava falha.
+    monkeypatch.setattr(AUTH, "migrate_auth_storage", lambda **kw: {"ok": True, "migrou": True})
+    req = AUTH.AuthStorageMigrateRequest(source_backend="sqlite", target_backend="postgres", force=True)
+    with pytest.raises(HTTPException) as e:
+        AUTH.api_auth_storage_migrate(req, user=dict(DONO_CLIENTE))
+    assert e.value.status_code == 403
