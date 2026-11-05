@@ -4,7 +4,7 @@ import threading
 from typing import Any, Dict
 
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 
 from app.api.endpoints.auth import current_user
 from app.services import termico_store
@@ -58,6 +58,17 @@ def api_termico_salvar(camera_id: str, payload: Dict[str, Any]) -> Dict[str, Any
 @router.delete("/cameras/{camera_id}")
 def api_termico_remover(camera_id: str) -> Dict[str, Any]:
     return _executar(termico_store.remover_camera, camera_id)
+
+
+@router.get("/cameras/{camera_id}/agora/{tipo}")
+def api_termico_foto_agora(camera_id: str, tipo: str) -> Response:
+    try:
+        dado = _executar(termico_store.foto_agora, camera_id, tipo)
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=502, detail="A câmera não respondeu.")
+    return Response(content=dado, media_type="image/jpeg", headers={"Cache-Control": "no-store"})
 
 
 @router.get("/alertas")

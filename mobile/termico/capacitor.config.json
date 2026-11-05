@@ -1,0 +1,10 @@
+{
+  "appId": "br.com.easytecnologias.sightops.termico",
+  "appName": "SightOps Térmico",
+  "webDir": "dist",
+  "android": { "allowMixedContent": false, "adjustMarginsForEdgeToEdge": "force" },
+  "server": { "androidScheme": "https" },
+  "plugins": {
+    "CapacitorHttp": { "enabled": true }
+  }
+}

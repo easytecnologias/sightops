@@ -403,6 +403,40 @@ def marcar(alerta_id: str, situacao: str, quem: str, motivo: str = "", comentari
             "SELECT * FROM termico_alertas WHERE tenant_slug=? AND id=?", (tenant, alerta_id)).fetchone()))
 
 
+_FOTOS_AGORA: Dict[Any, Any] = {}
+FOTO_AGORA_VALE_S = 4.0
+
+
+def foto_agora(camera_id: str, tipo: str) -> bytes:
+    """Foto atual da camera para a ronda. Guarda 4 s por (cliente, camera, tipo):
+    varios celulares abertos nao multiplicam o trafego no link da usina."""
+    import time
+    from app.services.camera_credentials import resolve_camera_credential
+    from app.services.connector_routing_vnat import set_olt_reach_connector
+    from app.services.termico_camera import base_da_camera, buscar_foto
+
+    if tipo not in ("termica", "colorida"):
+        raise LookupError("Foto não encontrada.")
+    tenant = _tenant()
+    with db_store._conn() as c:
+        cam = _camera(c, tenant, camera_id)
+    chave_foto = (tenant, camera_id, tipo)
+    agora = time.time()
+    guardada = _FOTOS_AGORA.get(chave_foto)
+    if guardada and agora - guardada[0] < FOTO_AGORA_VALE_S:
+        return guardada[1]
+    cred = resolve_camera_credential(cam.get("mac") or "", cam.get("site") or "")
+    if not cred:
+        raise ValueError("Sem usuário e senha salvos para esta câmera.")
+    set_olt_reach_connector("")
+    base = base_da_camera(cam["ip"], cam.get("porta") or 80, cam.get("connector_id") or "")
+    dado = buscar_foto(base, cred["username"], cred["password"], canal_video=2 if tipo == "termica" else 1)
+    if len(_FOTOS_AGORA) > 200:
+        _FOTOS_AGORA.clear()
+    _FOTOS_AGORA[chave_foto] = (agora, dado)
+    return dado
+
+
 def camera_do_alerta(alerta_id: str) -> Dict[str, str]:
     """IP e conector da camera do alerta (para o envio imediato ao Zabbix)."""
     tenant = _tenant()

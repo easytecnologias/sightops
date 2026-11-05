@@ -1,0 +1,9 @@
+{
+  "_sobre": "RADS Gestao em Seguranca: cores oficiais, iguais as de mobile/alerta/clientes/rads.",
+  "appId": "br.com.radsgestao.termico",
+  "appName": "RADS Térmico",
+  "versionCode": 1,
+  "versionName": "1.0.0",
+  "marca": { "nome": "RADS Térmico", "empresa": "RADS", "sigla": "R", "cor": "#3E4095", "destaque": "#2493DD", "alerta": "#B3261E", "fonte": "Montserrat" },
+  "slogan": "Soluções inteligentes para sua segurança"
+}

@@ -262,3 +262,21 @@ def test_thread_do_vigia_nao_herda_conector_da_leitura_anterior(store, monkeypat
     V.set_olt_reach_connector("conector-velho")
     v.rodada(agora=0)
     assert vistos == [""] and V._olt_reach_cid.get() == ""
+
+
+def test_foto_agora_isola_cliente_e_segura_4_segundos(store, monkeypatch):
+    from app.services import termico_camera
+    v = _vigia(monkeypatch, [])
+    cam = store.adicionar("10.0.0.81", "c1")
+    pedidos = []
+    monkeypatch.setattr(termico_camera, "buscar_foto", lambda base, u, s, canal_video=1: (pedidos.append(canal_video), b"jpg")[1])
+    store._FOTOS_AGORA.clear()
+    assert store.foto_agora(cam["id"], "termica") == b"jpg"
+    store.foto_agora(cam["id"], "termica")
+    store.foto_agora(cam["id"], "colorida")
+    assert pedidos == [2, 1]
+    with _como("cliente-b"):
+        with pytest.raises(LookupError):
+            store.foto_agora(cam["id"], "termica")
+    with pytest.raises(LookupError):
+        store.foto_agora(cam["id"], "outra")

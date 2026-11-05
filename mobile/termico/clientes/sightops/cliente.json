@@ -1,0 +1,9 @@
+{
+  "_sobre": "Marca padrao.",
+  "appId": "br.com.easytecnologias.sightops.termico",
+  "appName": "SightOps Térmico",
+  "versionCode": 1,
+  "versionName": "1.0.0",
+  "marca": { "nome": "SightOps Térmico", "empresa": "SightOps", "sigla": "S", "cor": "#087f5b", "destaque": "#15aabf", "alerta": "#c92a2a", "fonte": "Inter" },
+  "slogan": "Monitoramento que avisa antes"
+}
