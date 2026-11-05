@@ -669,8 +669,10 @@ async function loadSnapCam() {
     apiJson('/api/cameras?mode=switch').catch(() => ({ cameras: [] })),
   ]);
   const merged = new Map();
-  [basico, olt, sw].forEach(data => {
+  [basico, olt, sw].forEach((data, i) => {
     (data?.cameras || []).forEach(c => {
+      // Modo de origem: a captura grava a foto no inventario deste modo.
+      if (!c._mode) c._mode = ['basico', 'olt', 'switch'][i];
       const key = c.inventory_key || c.ip;
       if (key && !merged.has(key)) merged.set(key, c);
     });

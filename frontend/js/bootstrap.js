@@ -1011,19 +1011,68 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('filterSnapCamSite').value = '';
     applySnapCamFilters();
   });
+  // Captura de verdade (/api/cameras/snapshot/capture, a mesma do Inventario
+  // e da Manutencao), 4 por vez, com "X de N" e resumo no fim. Antes as duas
+  // chamavam /api/snapshot/save, que so copia arquivo: "todas" mandava corpo
+  // vazio e voltava 404 calado.
+  const SNAP_CAM_PARALELO = 4;
+  let _snapCamCapturando = false;
+  async function snapCamCapturarLote(ips) {
+    if (_snapCamCapturando) { showToast('Ja existe uma captura em andamento.', true); return; }
+    _snapCamCapturando = true;
+    const botoes = ['btnSnapCamAll', 'btnSnapCamSelected'].map(id => document.getElementById(id)).filter(Boolean);
+    botoes.forEach(b => { b.disabled = true; });
+    const total = ips.length;
+    let feitas = 0, ok = 0, semSenha = 0;
+    const erros = [];
+    showToast(`Capturando 0 de ${total}...`);
+    const capturar = async ip => {
+      const cam = (_snapCamAll || []).find(c => String(c.ip || '') === ip) || {};
+      try {
+        const res = await api('/api/cameras/snapshot/capture', {
+          method: 'POST',
+          body: JSON.stringify({ ip, mode: cam._mode || 'olt', remote_connector_id: cam.remote_connector_id || cam.connector_id || '' }),
+        });
+        const data = await res?.json().catch(() => ({}));
+        if (res?.ok && data?.ok !== false) { ok += 1; if (data?.url) cam.snapshot_url = data.url; }
+        else if (res?.status === 428) semSenha += 1;
+        else erros.push(`${ip}: ${data?.detail || data?.error || (res ? 'HTTP ' + res.status : 'sem resposta')}`);
+      } catch (err) {
+        erros.push(`${ip}: ${err?.message || err}`);
+      }
+      feitas += 1;
+      showToast(`Capturando ${feitas} de ${total}...`);
+    };
+    try {
+      const fila = [...ips];
+      const trabalhador = async () => { while (fila.length) await capturar(fila.shift()); };
+      await Promise.all(Array.from({ length: Math.min(SNAP_CAM_PARALELO, total) }, trabalhador));
+    } finally {
+      _snapCamCapturando = false;
+      botoes.forEach(b => { b.disabled = false; });
+    }
+    const falhas = erros.length + semSenha;
+    const partes = [`${ok} de ${total} foto(s) atualizada(s)`];
+    if (semSenha) partes.push(`${semSenha} sem senha guardada`);
+    if (erros.length) partes.push(`${erros.length} com erro (${erros.slice(0, 3).join(' | ')}${erros.length > 3 ? ' ...' : ''})`);
+    showToast(partes.join('; ') + '.', falhas > 0);
+    clearApiJsonCache('/api/cameras');
+    loadSnapCam();
+  }
   document.getElementById('btnSnapCamAll')?.addEventListener('click', async () => {
-    showToast('Atualizando todos os snapshots');
-    await api('/api/snapshot/save', { method: 'POST', body: '{}' });
-    setTimeout(loadSnapCam, 3000);
+    const ips = [...new Set((_snapCamAll || []).map(c => String(c.ip || '')).filter(Boolean))];
+    if (!ips.length) { showToast('Nenhuma camera no inventario.', true); return; }
+    const minutos = Math.max(1, Math.ceil(ips.length / SNAP_CAM_PARALELO * 5 / 60));
+    const sim = await showConfirm({ eyebrow: 'Snapshots', title: 'Atualizar todas as fotos',
+      msg: `Capturar a foto de ${ips.length} camera(s), ${SNAP_CAM_PARALELO} por vez. Leva cerca de ${minutos} min.`,
+      label: 'Atualizar', danger: false });
+    if (!sim) return;
+    await snapCamCapturarLote(ips);
   });
   document.getElementById('btnSnapCamSelected')?.addEventListener('click', async () => {
     const ips = [...document.querySelectorAll('.chk-snap-cam:checked')].map(c => c.value);
     if (!ips.length) { showToast('Selecione cameras para capturar', true); return; }
-    showToast(`Capturando ${ips.length} snapshot(s)`);
-    for (const ip of ips) {
-      await api('/api/snapshot/save', { method: 'POST', body: JSON.stringify({ ip }) });
-    }
-    setTimeout(loadSnapCam, 2000);
+    await snapCamCapturarLote(ips);
   });
 
   // Varredura DVR
