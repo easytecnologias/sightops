@@ -1155,6 +1155,32 @@ async function saveTenantZabbixAccess() {
   }
 }
 
+// Historico do dono: frase por tipo de acao em vez do JSON cru (o JSON fica
+// no title, para quem precisar do detalhe).
+const _AUDIT_CHAVES = { ip: 'IP', username: 'usuário', role: 'perfil', modules: 'módulos', plan: 'plano', caminho: 'caminho', operador: 'operador', autorizado_por: 'autorizado por', tenant_slug: 'cliente', name: 'nome' };
+function _auditDados(e) {
+  try { return e?.detail_json ? JSON.parse(e.detail_json) : {}; } catch (err) { return null; }
+}
+function auditAcaoTexto(e) {
+  const d = _auditDados(e) || {};
+  const acao = String(e?.action || '');
+  if (acao.startsWith('acao')) return d.r || acao;
+  return (typeof AUDIT_ACOES !== 'undefined' && AUDIT_ACOES[acao]) || acao || '-';
+}
+function auditDetalheTexto(e) {
+  const d = _auditDados(e);
+  if (d === null) return String(e.detail_json || '-');  // nao e JSON: mostra como veio
+  if (!d || typeof d !== 'object') return String(d ?? '-');
+  const partes = [];
+  if (String(e.action || '').startsWith('acao') && d.ok === false) partes.push(`falhou${d.s ? ` (código ${d.s})` : ''}`);
+  Object.entries(d).forEach(([k, v]) => {
+    if (['r', 'ok', 's'].includes(k) || v == null || v === '' || typeof v === 'object' && !Array.isArray(v)) return;
+    const valor = Array.isArray(v) ? v.join(', ') : (v === true ? 'sim' : v === false ? 'não' : String(v));
+    if (valor) partes.push(`${_AUDIT_CHAVES[k] || k.replace(/_/g, ' ')}: ${valor}`);
+  });
+  return partes.slice(0, 4).join(' · ') || '-';
+}
+
 async function loadOwnerAudit() {
   if (!_currentUser?.is_platform_admin) return;
   const data = await apiJson('/api/auth/audit/platform', { forceRefresh: true });
@@ -1166,9 +1192,9 @@ async function loadOwnerAudit() {
       <tr>
         <td class="settings-cell-date"><span class="text-muted">${esc(formatDateTimeShort(e.created_at || ''))}</span></td>
         <td class="settings-cell-truncate" title="${esc(e.tenant_name || e.tenant_slug || '')}">${esc(e.tenant_name || e.tenant_slug || '-')}</td>
-        <td>${esc(e.action || '')}</td>
+        <td class="settings-cell-truncate" title="${esc(e.action || '')}">${esc(auditAcaoTexto(e))}</td>
         <td class="settings-cell-truncate" title="${esc(e.resource_type || '')} ${esc(e.resource_id || '')}">${esc(e.resource_type || '')} ${esc(e.resource_id || '')}</td>
-        <td class="settings-cell-truncate" title="${esc(e.detail_json || '')}">${esc(e.detail_json || '-')}</td>
+        <td class="settings-cell-truncate" title="${esc(e.detail_json || '')}">${esc(auditDetalheTexto(e))}</td>
       </tr>`).join('') : '<tr class="empty-row"><td colspan="5">Nenhum evento registrado.</td></tr>';
   }
   if (typeof renderOwnerPermissions === 'function') await renderOwnerPermissions();
