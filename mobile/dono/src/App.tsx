@@ -1,10 +1,12 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { HashRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { carregarToken, ErroApi, obter, sair as sairDaApi } from './lib/api';
 import { ProvedorFiltro } from './lib/pdv';
 import { Shell } from './ui/Shell';
 import { Abertura, Login } from './telas/Entrada';
+import { CriarPin, PedirPin } from './telas/Desbloqueio';
+import { apagarPin, temPin } from './lib/pin';
 import { Inicio } from './telas/Inicio';
 import { Conta } from './telas/Conta';
 import { Conferir } from './telas/Conferir';
@@ -15,10 +17,15 @@ import { ParaOlhar } from './telas/Olhar';
 import { Equipe } from './telas/Equipe';
 import { Mais } from './telas/Mais';
 
-type Etapa = 'abertura' | 'login' | 'dentro';
+type Etapa = 'abertura' | 'login' | 'pin' | 'criar-pin' | 'dentro';
+
+/** Fora do app por mais que isso: ao voltar, pede o PIN de novo (M1). */
+const GRACA_FUNDO_MS = 30_000;
 
 export function App() {
   const [etapa, setEtapa] = useState<Etapa>('abertura');
+  const [travado, setTravado] = useState(false);
+  const saiuEm = useRef(0);
   const qc = useQueryClient();
 
   useEffect(() => {
@@ -33,9 +40,23 @@ export function App() {
         // sem rede: segue com a sessao guardada
       }
       await espera();
-      setEtapa('dentro');
+      setEtapa((await temPin()) ? 'pin' : 'criar-pin');
     })();
   }, []);
+
+  // voltou do segundo plano: pede o PIN por cima das telas (sem perder onde estava)
+  useEffect(() => {
+    if (etapa !== 'dentro') return;
+    const mudou = () => {
+      if (document.visibilityState === 'hidden') { saiuEm.current = Date.now(); return; }
+      if (saiuEm.current && Date.now() - saiuEm.current >= GRACA_FUNDO_MS) {
+        void temPin().then((tem) => setTravado(tem));
+      }
+      saiuEm.current = 0;
+    };
+    document.addEventListener('visibilitychange', mudou);
+    return () => document.removeEventListener('visibilitychange', mudou);
+  }, [etapa]);
 
   // sessao vencida no meio do uso: volta ao login
   useEffect(() => qc.getQueryCache().subscribe((ev) => {
@@ -47,13 +68,23 @@ export function App() {
 
   async function sair() {
     await sairDaApi();
+    await apagarPin();
     qc.clear();
+    setTravado(false);
     setEtapa('login');
   }
 
+  async function depoisDoLogin() {
+    setEtapa((await temPin()) ? 'dentro' : 'criar-pin');
+  }
+
   if (etapa === 'abertura') return <Abertura />;
-  if (etapa === 'login') return <Login aoEntrar={() => setEtapa('dentro')} />;
+  if (etapa === 'login') return <Login aoEntrar={() => void depoisDoLogin()} />;
+  if (etapa === 'pin') return <PedirPin aoAbrir={() => setEtapa('dentro')} aoEsquecer={() => void sair()} />;
+  if (etapa === 'criar-pin') return <CriarPin aoTerminar={() => setEtapa('dentro')} aoSair={() => void sair()} />;
   return (
+    <>
+    {travado ? <PedirPin aoAbrir={() => setTravado(false)} aoEsquecer={() => void sair()} /> : null}
     <HashRouter>
       <ProvedorFiltro>
         <Shell>
@@ -77,5 +108,6 @@ export function App() {
         </Shell>
       </ProvedorFiltro>
     </HashRouter>
+    </>
   );
 }
