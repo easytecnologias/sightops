@@ -50,7 +50,6 @@ class ApiAuthMiddleware(BaseHTTPMiddleware):
         }
         self._query_token_paths = (
             "/api/connectors/",
-            "/api/backup/export",
             "/api/inventory/export",
             "/api/inventory/report",
             "/api/dvr/report",
@@ -215,6 +214,14 @@ class ApiAuthMiddleware(BaseHTTPMiddleware):
             # regra passa a ser recusada, entao esta precisa existir.
             (("POST",), "/api/auth/logout", "viewer"),
         ]
+        # Rotas que alcancam TODOS os clientes de uma vez (backup leva o data/
+        # inteiro, chaves WireGuard inclusive): so o admin da plataforma. Admin
+        # e owner de cliente tomam 403. Conferido no dispatch, por cima do
+        # perfil e nos dois modos de permissao.
+        self._platform_admin_rules = [
+            (("GET", "HEAD"), "/api/backup/export"),
+            (("POST",), "/api/backup/import"),
+        ]
 
     def _is_public_path(self, path: str) -> bool:
         if path in self._public_paths:
@@ -267,6 +274,10 @@ class ApiAuthMiddleware(BaseHTTPMiddleware):
                 return min_role
         return ""
 
+    def _so_plataforma(self, path: str, method: str) -> bool:
+        return any(method in methods and (path == prefix or path.startswith(prefix))
+                   for methods, prefix in self._platform_admin_rules)
+
     def _query_token_allowed(self, path: str, method: str) -> bool:
         if method.upper() not in ("GET", "HEAD"):
             return False
@@ -281,7 +292,7 @@ class ApiAuthMiddleware(BaseHTTPMiddleware):
             return False
         if method.upper() == "OPTIONS":
             return False
-        if self._match_role_rule(path, method):
+        if self._match_role_rule(path, method) or self._so_plataforma(path, method.upper()):
             return True
         if self.settings.auth_required:
             return True
@@ -385,6 +396,15 @@ class ApiAuthMiddleware(BaseHTTPMiddleware):
         if not user:
             try:
                 return JSONResponse(status_code=401, content={"detail": "token invalido ou expirado"})
+            finally:
+                reset_current_tenant_slug(ctx_token)
+
+        if self._so_plataforma(path, method) and not bool(user.get("is_platform_admin")):
+            logger.warning("rota so da plataforma negada: %s %s por %s (tenant %s)",
+                           method, path, user.get("username"), user.get("tenant_slug"))
+            self._historico(request, user, method, path, 403, None, 0)
+            try:
+                return JSONResponse(status_code=403, content={"detail": "somente admin da plataforma"})
             finally:
                 reset_current_tenant_slug(ctx_token)
 
