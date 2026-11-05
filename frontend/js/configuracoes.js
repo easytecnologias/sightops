@@ -22,6 +22,8 @@ const AUDIT_ACOES = {
   'user.rename': 'Trocou o login de um usuário',
   'licensing.tenant_plan': 'Alterou o plano do cliente',
   'exclusao_autorizada': 'Autorizou uma exclusão (senha do administrador)',
+  'lgpd.foto_aberta': 'Foto da passagem aberta pelo link do e-mail',
+  'lgpd.eliminacao': 'Dados pessoais eliminados (pessoa excluída)',
 };
 const ALARME_TIPOS = {
   camera: 'Câmeras', nvr: 'Gravadores NVR', dvr: 'Gravadores DVR', onu: 'ONUs', olt: 'OLTs',
@@ -361,6 +363,8 @@ function histDetalhe(e) {
 }
 
 function histQuem(e) {
+  // Evento LGPD sem usuario (link do e-mail, eliminacao): o detalhe diz quem.
+  if (!e.user_id && String(e.action || '').startsWith('lgpd.')) return histDetalhe(e).quem || 'SightOps';
   return e.username || _hist.nomes[Number(e.user_id)] || 'Easy (suporte)';
 }
 

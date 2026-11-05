@@ -16,8 +16,11 @@ tenta de novo a cada 2 min ate ~15 min. Sem foto, manda so o texto se o local
 pediu ("sem_foto_envia").
 
 O link da foto e publico (o responsavel abre do e-mail, sem login): token
-aleatorio de 32 caracteres, guardado com o cliente, que vale 7 dias. A foto
-fica na pasta do cliente.
+aleatorio de 32 caracteres, guardado com o cliente, que vale 24 h
+(ACCESS_EMAIL_LINK_HORAS). Cada abertura fica no historico do cliente
+(lgpd.foto_aberta, com IP). A foto fica na pasta do cliente. O cliente pode
+desligar a foto (foto="nenhuma"): o e-mail vai so com o texto e nenhuma foto
+e capturada.
 """
 from __future__ import annotations
 
@@ -45,7 +48,18 @@ ESPERA_MIN = 3              # a passagem espera isto para o gravador ter o trech
 NOVA_TENTATIVA_MIN = 2
 TENTATIVAS = 6              # 3 + 6 x 2 = ~15 min
 JANELA_EVENTO_MIN = 30      # passagem mais antiga que isto (leitor voltou do ar) nao vira e-mail
-LINK_DIAS = 7
+
+
+def _link_horas() -> int:
+    try:
+        return max(1, min(int(os.getenv("ACCESS_EMAIL_LINK_HORAS", "24")), 168))
+    except ValueError:
+        logger.warning("ACCESS_EMAIL_LINK_HORAS invalido; usando 24 h")
+        return 24
+
+
+LINK_HORAS = _link_horas()  # validade do link publico da foto (LGPD L1: era 7 dias)
+FOTOS = ("link", "anexo", "nenhuma")
 FMT = "%Y-%m-%d %H:%M:%S"
 ARQ_CAMERAS = "acesso-cameras.json"
 PASTA_FOTOS = "acesso_email_fotos"
@@ -122,7 +136,7 @@ def get_config(site: Any = "") -> Dict[str, Any]:
         "password_saved": bool(cfg.get("password")), "security": cfg.get("security"),
         "from_name": _t(cfg.get("from_name"), 120), "from_email": _t(cfg.get("from_email"), 160),
         "quando": cfg.get("quando"), "resumo_hora": cfg.get("resumo_hora"), "foto": cfg.get("foto"),
-        "sem_foto_envia": bool(cfg.get("sem_foto_envia")),
+        "sem_foto_envia": bool(cfg.get("sem_foto_envia")), "link_horas": LINK_HORAS,
     }
 
 
@@ -149,7 +163,7 @@ def save_config(payload: Dict[str, Any]) -> Dict[str, Any]:
     quando = _t(payload.get("quando")) or "passagem"
     foto = _t(payload.get("foto")) or "link"
     hora = _t(payload.get("resumo_hora")) or "18:30"
-    if quando not in ("passagem", "resumo") or foto not in ("link", "anexo") or not re.match(r"^([01]\d|2[0-3]):[0-5]\d$", hora):
+    if quando not in ("passagem", "resumo") or foto not in FOTOS or not re.match(r"^([01]\d|2[0-3]):[0-5]\d$", hora):
         raise ValueError("Opcao invalida.")
     api_base = _t(payload.get("api_base"), 300).rstrip("/")
     if api_base and not re.match(r"^https?://[^\s\"'<>]+$", api_base):
@@ -561,7 +575,7 @@ def _montar(cfg: Dict[str, Any], itens: List[Dict[str, Any]]) -> Tuple[str, str,
                     foto = (f'<a href="{escape(link)}" style="display:inline-block;margin-top:8px;padding:10px 16px;background:#087f5b;'
                             f'color:#ffffff;text-decoration:none;border-radius:8px;font-weight:bold">Ver a foto da {"entrada" if it["event_type"] == "entrada" else "saída"}</a>')
                     linhas_txt.append(f"  Foto: {link}")
-        elif cfg.get("sem_foto_envia"):
+        elif cfg.get("sem_foto_envia") and cfg.get("foto") != "nenhuma":
             foto = '<div style="font-size:12px;color:#66747e;margin-top:6px">Sem imagem da câmera para esta passagem.</div>'
         blocos.append(f'<div style="border:1px solid #dfe4e8;border-radius:10px;padding:12px 14px;margin-top:12px">'
                       f'<b style="color:{"#087f5b" if it["event_type"] == "entrada" else "#172026"}">{escape(_verbo(it["event_type"]).capitalize())}</b> '
@@ -577,7 +591,7 @@ def _montar(cfg: Dict[str, Any], itens: List[Dict[str, Any]]) -> Tuple[str, str,
         assunto = f"{nome} · entradas e saídas de {q.strftime('%d/%m') if q else 'hoje'} · {local}"
         abertura = f"<p>{saud}</p><p>Entradas e saídas de {quem} hoje — {escape(local)}.</p>"
     rodape = ('<p style="font-size:12px;color:#66747e;margin-top:16px">'
-              + (f"O link da foto vale por {LINK_DIAS} dias. " if cfg.get("foto") != "anexo" else "")
+              + (f"O link da foto vale por {LINK_HORAS} horas. " if cfg.get("foto") == "link" else "")
               + "Você recebe este aviso porque este e-mail está no cadastro. Para parar de receber, fale com o local.</p>")
     html = _html_moldura(local, abertura + "".join(blocos) + rodape)
     texto = (f"Olá, {resp}." if resp else "Olá.") + "\n\n" + "\n".join(linhas_txt) + f"\n\n{local}"
@@ -589,7 +603,8 @@ def _processar_um(r: Dict[str, Any], agora: datetime) -> None:
     if not cfg.get("enabled"):
         _exec("UPDATE access_email_queue SET status='cancelado', error='e-mail desligado no local' WHERE id=?", (r["id"],))
         return
-    cams = cameras_do_leitor(r["device_id"])
+    sem_foto_cfg = cfg.get("foto") == "nenhuma"   # cliente desligou a foto: nem captura
+    cams = [] if sem_foto_cfg else cameras_do_leitor(r["device_id"])
     foto, fonte, erro = "", "", ""
     if cams and not r.get("photo_file"):
         momento = _ler_local(r["occurred_at"])
@@ -605,15 +620,17 @@ def _processar_um(r: Dict[str, Any], agora: datetime) -> None:
             _exec("UPDATE access_email_queue SET attempts=attempts+1, due_at=?, error=? WHERE id=?",
                   (_utc_txt(agora + timedelta(minutes=NOVA_TENTATIVA_MIN)), erro, r["id"]))
             return
+    elif sem_foto_cfg:
+        erro = "foto desligada no cliente"
     elif not cams:
         erro = "porta sem camera vinculada"
     if foto:
         token = secrets.token_urlsafe(24)
         _exec("UPDATE access_email_queue SET photo_file=?, photo_source=?, photo_token=?, photo_expires=?, error='' WHERE id=?",
-              (foto, fonte, token, _utc_txt(agora + timedelta(days=LINK_DIAS)), r["id"]))
+              (foto, fonte, token, _utc_txt(agora + timedelta(hours=LINK_HORAS)), r["id"]))
         r.update(photo_file=foto, photo_token=token)
     if not foto and not r.get("photo_file"):
-        if not cfg.get("sem_foto_envia"):
+        if not cfg.get("sem_foto_envia") and not sem_foto_cfg:
             _exec("UPDATE access_email_queue SET status='sem_foto', error=? WHERE id=?", (erro or "sem foto", r["id"]))
             return
         # vai sem foto: o motivo fica no historico (saida manual nao tem porta, camera sem gravacao...)
@@ -683,21 +700,31 @@ def _limpar(agora: datetime) -> None:
         _exec("UPDATE access_email_queue SET photo_file='', photo_token='' WHERE id=?", (r["id"],))
 
 
-def foto_publica(token: str, agora: Optional[datetime] = None) -> Optional[Path]:
+def foto_publica(token: str, agora: Optional[datetime] = None, ip: str = "") -> Optional[Path]:
     """Link do e-mail (sem login). O token e aleatorio e so abre a foto dele,
-    na pasta do cliente dono do registro, ate vencer."""
+    na pasta do cliente dono do registro, ate vencer. Cada abertura vai para
+    o historico do cliente dono (quem abriu = IP; nao ha login)."""
     token = _t(token, 64)
     if len(token) < 24 or not re.match(r"^[A-Za-z0-9_\-]+$", token):
         return None
     ensure_schema()
-    r = _rows("SELECT tenant_slug, photo_file, photo_expires FROM access_email_queue WHERE photo_token=?", (token,))
+    r = _rows("SELECT id, tenant_slug, person_id, site, occurred_at, photo_file, photo_expires FROM access_email_queue "
+              "WHERE photo_token=?", (token,))
     if not r or not r[0]["photo_file"]:
         return None
     vence = _ler_utc(r[0]["photo_expires"])
     if not vence or vence < (agora or _agora_utc()):
         return None
     arq = _pasta_fotos(r[0]["tenant_slug"]) / Path(r[0]["photo_file"]).name
-    return arq if arq.exists() else None
+    if not arq.exists():
+        return None
+    from app.services.historico_service import registrar_lgpd
+    registrar_lgpd(r[0]["tenant_slug"], "foto_aberta", r[0]["id"], {
+        "r": "Foto da passagem aberta pelo link do e-mail", "quem": "link do e-mail (sem login)",
+        "foto": r[0]["id"], "pessoa": _t(r[0].get("person_id"), 80), "local": _t(r[0].get("site"), 120),
+        "passagem": _t(r[0].get("occurred_at"), 20), "ip": _t(ip, 64),
+    })
+    return arq
 
 
 def historico(site: str = "", limite: int = 80, locais: Optional[List[str]] = None) -> List[Dict[str, Any]]:
