@@ -202,6 +202,8 @@ class ApiAuthMiddleware(BaseHTTPMiddleware):
             # Falso alarme. Remover camera (DELETE) sobe para admin sozinho
             # (permissions.e_exclusao).
             (("POST", "PUT", "DELETE"), "/api/termico/", "operator"),
+            # Automacoes acionam sirene, refletor e speed no cliente: so admin.
+            (("POST", "PUT", "DELETE"), "/api/automacoes", "admin"),
             # Ponto de venda: caixa, token do coletor e reprocessar o dia
             # mexem na configuracao do cliente -- so administrador.
             (("POST",), "/api/pdv/caixas", "admin"),

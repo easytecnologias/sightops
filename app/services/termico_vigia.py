@@ -183,8 +183,12 @@ class VigiaTermico:
 
 def avisar_alerta(tenant: str, cam: Dict[str, Any], alerta: Dict[str, Any]) -> None:
     """O que acontece na hora do alerta. Hoje: Zabbix na hora (o sync completo
-    leva ate ~2 min). Fase 3/4: notificacao no app, WhatsApp, central (Segware)."""
+    leva minutos) e automacoes (speed, refletor, sirene) numa thread propria.
+    Proximas fases: notificacao no app, WhatsApp, central (Segware)."""
+    from app.services.automacao_acoes import disparar_em_thread
     from app.services.zabbix_monitoring_service import enviar_termico_agora
+
+    disparar_em_thread(tenant, cam["id"], alerta["id"])
     enviar_termico_agora(tenant, cam.get("ip") or "", cam.get("connector_id") or "")
 
 

@@ -69,6 +69,7 @@ from app.api.endpoints import (
     pdv_router,
     maquete_router,
     termico_router,
+    automacoes_router,
     mapa_rack_router,
     switch_provedores_router,
     recorder_driver_router,
@@ -167,6 +168,7 @@ app.include_router(rotas_router)
 app.include_router(pdv_router)
 app.include_router(maquete_router)
 app.include_router(termico_router)
+app.include_router(automacoes_router)
 app.include_router(mapa_rack_router)
 app.include_router(switch_provedores_router)
 app.include_router(recorder_driver_router)
