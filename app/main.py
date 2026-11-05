@@ -101,6 +101,8 @@ app = FastAPI(
     redoc_url="/redoc" if settings.enable_docs else None,
     openapi_url="/openapi.json" if settings.enable_docs else None,
 )
+from app.core import erros as _erros
+_erros.instalar(app)
 
 # Erro do LEITOR de acesso (senha errada, sem resposta) saia como 502, e o
 # Cloudflare troca 502/504 vindos da origem pela pagina dele: a tela mostrava

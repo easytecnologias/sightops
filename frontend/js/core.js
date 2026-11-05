@@ -302,18 +302,45 @@ async function apiJson(path, opts = {}) {
   return data;
 }
 
-async function jsonOrReadableError(res, fallback = 'Erro na requisicao.') {
+// `detail` pode vir como texto, lista (validacao do FastAPI) ou objeto.
+// Sem isto a tela mostrava "[object Object]".
+function textoDoErro(valor) {
+  if (valor == null || valor === '') return '';
+  if (typeof valor === 'string') return valor;
+  if (Array.isArray(valor)) {
+    return valor.map(item => {
+      if (item && typeof item === 'object') {
+        const campo = Array.isArray(item.loc) ? item.loc.filter(p => !['body', 'query', 'path', 'header'].includes(p)).join('.') : '';
+        const msg = item.msg || item.message || item.detail || '';
+        return campo && msg ? `${campo}: ${msg}` : (msg || JSON.stringify(item));
+      }
+      return String(item);
+    }).filter(Boolean).join('; ');
+  }
+  if (typeof valor === 'object') return textoDoErro(valor.detail || valor.message || valor.msg || valor.error) || JSON.stringify(valor);
+  return String(valor);
+}
+
+function fraseDoStatus(status) {
+  if (status === 502 || status === 503 || status === 504) return `O servidor não respondeu a tempo (HTTP ${status}). Tente de novo em instantes.`;
+  if (status === 404) return 'Recurso não encontrado (HTTP 404).';
+  if (status >= 500) return `Erro no servidor (HTTP ${status}). Tente de novo; se continuar, avise o suporte.`;
+  return status ? `Resposta inesperada do servidor (HTTP ${status}).` : '';
+}
+
+async function jsonOrReadableError(res, fallback = 'Erro na requisição.') {
   if (!res) throw new Error(fallback);
   const text = await res.text();
   let data = null;
   try {
     data = text ? JSON.parse(text) : {};
   } catch {
-    const clean = text.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 180);
-    throw new Error(clean ? `Servidor retornou resposta inesperada: ${clean}` : fallback);
+    // Resposta em HTML (pagina do Cloudflare/nginx) nao vai para a tela.
+    console.warn('Resposta nao-JSON', res.status, text.slice(0, 500));
+    throw new Error(fraseDoStatus(res.status) || fallback);
   }
   if (!res.ok || data?.ok === false) {
-    throw new Error(data?.detail || data?.error || data?.msg || data?.message || fallback);
+    throw new Error(textoDoErro(data?.detail) || textoDoErro(data?.error) || textoDoErro(data?.msg) || textoDoErro(data?.message) || fraseDoStatus(res.ok ? 0 : res.status) || fallback);
   }
   return data;
 }
