@@ -2106,18 +2106,18 @@ function renderMapLayerGroup(id, def, skipFit = false) {
           </div>`
         : `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;padding-bottom:8px;border-bottom:2px solid #f1f3f5">
             <strong style="font-size:14px">${esc(name)}</strong>
-            <span style="background:${seloCor}22;color:${seloCor};font-size:11px;font-weight:700;padding:2px 8px;border-radius:10px">${seloTexto}</span>
+            <span style="background:${esc(seloCor)}22;color:${esc(seloCor)};font-size:11px;font-weight:700;padding:2px 8px;border-radius:10px">${seloTexto}</span>
           </div>`;
 
       marker.bindPopup(`
         <div style="width:280px;font-family:-apple-system,BlinkMacSystemFont,sans-serif;padding:14px;overflow:hidden">
           ${snapHtml}
-          ${row('','Camera', cam?.model || cam?.fabricante)}
-          ${row('','Local',  cam?.local)}
+          ${row('','Camera', esc(cam?.model || cam?.fabricante))}
+          ${row('','Local',  esc(cam?.local))}
           ${row('','IP', cam?.ip ? `<a href="http://${esc(cam.ip)}" target="_blank" style="color:#1971c2">${esc(cam.ip)}</a>` : '')}
-          ${row('','MAC',    cam?.mac, true)}
-          ${row('','PON/ONU', cam?.pon || cam?.onu_id ? [cam?.pon,cam?.onu_id].filter(Boolean).join(' / ') : '')}
-          ${row('','ONU Serial', cam?.onu_serial, true)}
+          ${row('','MAC',    esc(cam?.mac), true)}
+          ${row('','PON/ONU', cam?.pon || cam?.onu_id ? esc([cam?.pon,cam?.onu_id].filter(Boolean).join(' / ')) : '')}
+          ${row('','ONU Serial', esc(cam?.onu_serial), true)}
           <div style="margin-top:8px;padding-top:6px;font-size:10px;color:#adb5bd;font-family:monospace;word-break:break-all">
              ${(+lat2).toFixed(7)}, ${(+lng2).toFixed(7)}
           </div>

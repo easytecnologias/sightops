@@ -153,7 +153,7 @@ function _mntCamRender() {
         <div class="mnt-cam-card-img">
           ${snap ? `<img src="${esc(snap)}" loading="lazy" onerror="this.style.display='none'">` : `<div class="mnt-cam-no-snap"><i data-lucide="camera-off" style="width:22px;height:22px"></i></div>`}
           <span class="mnt-cam-selo ${dot}">${dot === 'online' ? 'respondendo' : dot === 'offline' ? 'fora do ar' : 'sem leitura'}</span>
-          <button class="mnt-stream-btn" onclick="event.stopPropagation();openMntStream('${esc(ip)}','${esc(c.titulo||ip)}','${esc(snap)}')" title="Ver stream / links">
+          <button class="mnt-stream-btn" onclick="event.stopPropagation();openMntStream('${escJs(ip)}','${escJs(c.titulo||ip)}','${escJs(snap)}')" title="Ver stream / links">
             <i data-lucide="play-circle" style="width:16px;height:16px"></i>
           </button>
         </div>

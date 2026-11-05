@@ -100,7 +100,7 @@ function renderAccessTriageList() {
     const reasons = Array.isArray(item.reasons) ? item.reasons.filter(Boolean).slice(0, 2).join(', ') : '';
     const name = s.full_name || 'Nome nao identificado';
     return `
-      <article class="access-triage-item ${selected ? 'selected' : ''}" data-triage-id="${esc(item.id)}" onclick="selectAccessTriageItem('${esc(item.id)}')">
+      <article class="access-triage-item ${selected ? 'selected' : ''}" data-triage-id="${esc(item.id)}" onclick="selectAccessTriageItem('${escJs(item.id)}')">
         <div class="access-triage-avatar">${item.photo_url || item.photo_base64 ? '<i data-lucide="image"></i>' : '<i data-lucide="message-square"></i>'}</div>
         <div class="access-triage-item-main">
           <div class="access-triage-item-title">
