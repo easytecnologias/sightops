@@ -198,6 +198,9 @@ def _ip_in_inventory(ip: str, connector_id: str = "") -> bool:
     de outro cliente, ja que faixas privadas se repetem entre tenants neste
     sistema.
     """
+    from app.core.destino import ip_canonico
+    if not ip_canonico(ip):
+        return False  # nome ou forma curta gravados na linha nao viram posse
     return _camera_row_for_ip(ip, connector_id) is not None
 
 
@@ -449,6 +452,15 @@ def api_cameras_save(req: CamerasSaveRequest, mode: str = Query(default="olt")) 
         SAIDA_DIR.mkdir(parents=True, exist_ok=True)
     except Exception:
         pass
+
+    from app.core.destino import linhas_recusadas
+    recusadas = linhas_recusadas(get_current_tenant_slug(), [
+        {"ip": (c.ip or "").strip(), "remote_connector_id": c.remote_connector_id or c.connector_id or ""}
+        for c in req.cameras if (c.ip or "").strip()
+    ])
+    if recusadas:
+        ip_ruim, motivo = next(iter(recusadas.items()))
+        raise HTTPException(status_code=400, detail=f"{ip_ruim}: {motivo}")
 
     rows = load_inventory_json(mode=mode) or []
     if not rows:

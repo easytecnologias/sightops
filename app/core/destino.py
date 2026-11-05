@@ -338,26 +338,69 @@ def varredura_recusada(tenant_slug: str, alvo: str, exigir_dono: bool = True) ->
     return motivo
 
 
+def ip_canonico(texto: str) -> str:
+    """O IP literal, na forma canonica, de `texto` (aceita IPv4:porta); "" se
+    nao for. "cam.exemplo", "10.208.261" e "181403909" nao sao IP de linha:
+    nome resolve para onde o DNS quiser, e forma curta engana a comparacao."""
+    bruto = str(texto or "").strip()
+    host = re.sub(r"^(\d+\.\d+\.\d+\.\d+):\d+$", r"\1", bruto).strip("[]")
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        return ""
+    return str(ip) if str(ip) == host else ""
+
+
+def _linha_alheia(ctx: "_Contexto", linha: Dict) -> str:
+    bruto = str(linha.get("ip") or "").strip()
+    canonico = ip_canonico(bruto)
+    if not canonico:
+        return "IP precisa ser literal (ex. 192.168.1.10), sem nome nem forma curta"
+    cid = str(linha.get("remote_connector_id") or linha.get("connector_id") or "").strip()
+    if cid and cid in ctx.meus:
+        return ""  # IP real atras de conector dele, mesmo que caia numa faixa virtual
+    ip = ipaddress.ip_address(canonico)
+    if any(ip.version == v.version and ip in v and c not in ctx.meus for v, c in ctx.virtuais):
+        return "IP da faixa virtual de conector de outro cliente"
+    return ""
+
+
+def linhas_recusadas(tenant_slug: str, linhas: List[Dict]) -> Dict[str, str]:
+    """{ip: motivo} das linhas que nao podem entrar no inventario pela tela.
+    Para a rota de gravacao responder erro claro em vez de sumir com a linha."""
+    if not tenant_slug or not linhas:
+        return {}
+    ctx = _Contexto(tenant_slug)
+    if ctx.falhou:
+        return {}
+    saida: Dict[str, str] = {}
+    for linha in linhas:
+        if isinstance(linha, dict):
+            motivo = _linha_alheia(ctx, linha)
+            if motivo:
+                saida[str(linha.get("ip") or "")] = motivo
+    return saida
+
+
 def sem_faixa_virtual_alheia(tenant_slug: str, linhas: List[Dict]) -> List[Dict]:
-    """Tira do inventario a linha cujo IP e da faixa virtual de conector de
-    outro cliente: IP gravado vira posse em toda conferencia por inventario."""
+    """Rede de seguranca do save global: tira so a linha SEM conector do cliente
+    cujo IP e da faixa virtual de outro (vinda de varredura). Linha com IP nao
+    literal fica (nao vira posse: ip_canonico). Leitura falhou: nada sai."""
     if not tenant_slug or not linhas:
         return linhas
     ctx = _Contexto(tenant_slug)
+    if ctx.falhou:
+        logger.warning("destino: cliente %s, conectores/mapa ilegiveis -- inventario gravado sem filtro", tenant_slug)
+        return linhas
     saida: List[Dict] = []
     for linha in linhas:
-        bruto = str((linha or {}).get("ip") or "").strip() if isinstance(linha, dict) else ""
-        try:
-            ip = ipaddress.ip_address(re.sub(r":\d+$", "", bruto))
-        except ValueError:
-            saida.append(linha)
-            continue
-        if any(ip.version == v.version and ip in v and cid not in ctx.meus for v, cid in ctx.virtuais):
-            logger.warning("destino: cliente %s tentou gravar %s, faixa virtual de outro cliente", tenant_slug, bruto)
+        motivo = _linha_alheia(ctx, linha) if isinstance(linha, dict) else ""
+        if motivo.startswith("IP da faixa virtual"):
+            logger.warning("destino: cliente %s tentou gravar %s: %s", tenant_slug, linha.get("ip"), motivo)
             continue
         saida.append(linha)
     return saida
 
 
 __all__ = ["destino_permitido", "destinos_fixados", "destinos_permitidos", "destino_permitido_atual", "redes_bloqueadas",
-           "sem_faixa_virtual_alheia", "varredura_recusada"]
+           "ip_canonico", "linhas_recusadas", "sem_faixa_virtual_alheia", "varredura_recusada"]
