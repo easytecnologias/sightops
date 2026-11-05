@@ -18,6 +18,25 @@ def _env_bool(name: str, default: bool) -> bool:
     return raw in ("1", "true", "yes", "on")
 
 
+def _app_version() -> str:
+    """Versao mostrada no sistema: a tag da imagem no ar, quando houver.
+
+    APP_VERSION explicito vence; senao SIGHTOPS_IMAGE_TAG; senao a tag de
+    CAM_SNAPSHOT_IMAGE (vem do .env.v3, ex. sightops-prod-api:20261104-maquete
+    -> 20261104-maquete); sem nada disso, 1.1.0."""
+    for nome in ("APP_VERSION", "SIGHTOPS_IMAGE_TAG"):
+        valor = str(os.getenv(nome, "")).strip()
+        if valor:
+            return valor
+    imagem = str(os.getenv("CAM_SNAPSHOT_IMAGE", "")).strip()
+    nome_imagem = imagem.rsplit("/", 1)[-1]
+    if ":" in nome_imagem:
+        tag = nome_imagem.rsplit(":", 1)[1].strip()
+        if tag:
+            return tag
+    return "1.1.0"
+
+
 @dataclass(frozen=True)
 class AppSettings:
     app_name: str
@@ -68,7 +87,7 @@ def get_settings() -> AppSettings:
     return AppSettings(
         app_name=str(os.getenv("APP_NAME", "cam-snapshot API")).strip(),
         app_env=env,
-        app_version=str(os.getenv("APP_VERSION", "1.1.0")).strip(),
+        app_version=_app_version(),
         app_host=str(os.getenv("APP_HOST", "0.0.0.0")).strip(),
         app_port=int(os.getenv("APP_PORT", "8000")),
         log_level=str(os.getenv("LOG_LEVEL", "INFO")).strip().upper(),
