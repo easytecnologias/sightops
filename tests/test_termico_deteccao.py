@@ -1,0 +1,160 @@
+"""Deteccao de pessoa pelo calor (app/services/termico_deteccao.py) contra a
+matriz REAL da HM-TD2628-8/QA/BR 03 - CAM P 03 (10.0.0.81, UFV-RODOANEL),
+capturada em 05/11/2026 13:47 com o sol a pino: chao 24-56 °C.
+
+A "pessoa" e desenhada por cima do quadro real: 34 °C, do tamanho que um
+adulto ocupa a ~20 m nessa lente (6x14 pontos). Nada sai para a rede."""
+from array import array
+from pathlib import Path
+
+import pytest
+
+from app.services import termico_deteccao as T
+
+FX = Path(__file__).parent / "fixtures" / "termico"
+W, H = 256, 192
+
+
+def _quadro(nome: str = "quadro1") -> T.Quadro:
+    temps = array("f")
+    temps.frombytes((FX / f"{nome}.temps.bin").read_bytes())
+    return T.Quadro(W, H, temps)
+
+
+def _com_pessoa(q: T.Quadro, x0=170, y0=90, larg=6, alt=14, temp=34.0) -> T.Quadro:
+    temps = array("f", q.temps)
+    for y in range(y0, y0 + alt):
+        for x in range(x0, x0 + larg):
+            temps[y * W + x] = temp
+    return T.Quadro(W, H, temps)
+
+
+# ------------------------------------------------------------ leitura -------
+def _multipart(q_json: bytes, termico: bytes, matriz: bytes) -> bytes:
+    def parte(tipo, dado):
+        return (b"--boundary\r\nContent-Disposition: form-data;\r\nContent-Type: " + tipo
+                + b"\r\nContent-Length:" + str(len(dado)).encode() + b"\r\n\r\n" + dado + b"\r\n")
+    return (parte(b'application/json; charset="UTF-8"', q_json) + parte(b"image/pjpeg", termico)
+            + parte(b"application/octet-stream", matriz) + parte(b"image/pjpeg", b"\xff\xd8visivel") + b"--boundary--\r\n")
+
+
+def test_le_resposta_multipart_da_camera():
+    import json
+    info = json.loads((FX / "quadro1.json").read_text(encoding="utf-8"))["info"]
+    corpo = _multipart(json.dumps({"JpegPictureWithAppendData": info}).encode(),
+                       (FX / "quadro1.termico.jpg").read_bytes(), (FX / "quadro1.temps.bin").read_bytes())
+    q = T.ler_quadro(corpo, "multipart/form-data; boundary=boundary")
+    assert (q.largura, q.altura) == (256, 192)
+    assert q.resumo() == {"min": 24.3, "max": 56.2, "media": 44.3}
+    assert q.jpeg_termico[:2] == b"\xff\xd8"
+    assert q.jpeg_visivel.startswith(b"\xff\xd8visivel")
+
+
+def test_matriz_que_termina_em_crlf_nao_perde_bytes():
+    # O ultimo float pode ter bytes \r\n; quem corta pelo final come a matriz.
+    import json
+    info = {"jpegPicWidth": 2, "jpegPicHeight": 1, "temperatureDataLength": 4}
+    matriz = array("f", [30.0, 0.0]).tobytes()[:4] + b"\x00\x00\r\n"
+    corpo = _multipart(json.dumps({"JpegPictureWithAppendData": info}).encode(), b"\xff\xd8", matriz)
+    q = T.ler_quadro(corpo, "multipart/form-data; boundary=boundary")
+    assert len(q.temps) == 2 and q.temps[0] == 30.0
+
+
+def test_medicao_desligada_vira_erro_claro():
+    with pytest.raises(ValueError, match="medicao desligada"):
+        T.ler_quadro(b'{"statusCode":4,"statusString":"Invalid Operation"}', "application/json")
+
+
+# ----------------------------------------------------------- deteccao -------
+def test_quadro_real_sem_ninguem_nao_dispara():
+    v = T.Vigia(T.Regra(quadros_seguidos=1))
+    v.processar(_quadro("quadro1"), 0)
+    manchas, disparo = v.processar(_quadro("quadro2"), 2)
+    assert disparo is None
+    assert manchas == []
+
+
+def test_pessoa_mais_fria_que_o_chao_ao_sol_dispara():
+    q = _quadro("quadro1")
+    fundo_ali = sum(q.t(x, y) for y in range(90, 104) for x in range(170, 176)) / 84
+    assert fundo_ali > 40          # estrada ao sol: a pessoa vai ser a mancha FRIA
+    v = T.Vigia(T.Regra(quadros_seguidos=1))
+    v.processar(q, 0)
+    manchas, disparo = v.processar(_com_pessoa(_quadro("quadro2")), 2)
+    assert disparo is not None
+    m = disparo.mancha
+    assert m.pontos == 84
+    assert m.dif < -5
+    x, y, w, h = m.caixa
+    assert abs(x - 170 / W) < 1e-6 and abs(y - 90 / H) < 1e-6
+    assert abs(w - 6 / W) < 1e-6 and abs(h - 14 / H) < 1e-6
+
+
+def test_precisa_aparecer_em_quadros_seguidos():
+    v = T.Vigia(T.Regra(quadros_seguidos=2))
+    v.processar(_quadro("quadro1"), 0)
+    _, d1 = v.processar(_com_pessoa(_quadro("quadro2")), 2)
+    _, d2 = v.processar(_com_pessoa(_quadro("quadro2"), x0=172), 4)   # andou 2 pontos
+    assert d1 is None
+    assert d2 is not None and d2.quadros == 2
+
+
+def test_pisca_de_um_quadro_nao_dispara():
+    v = T.Vigia(T.Regra(quadros_seguidos=2))
+    v.processar(_quadro("quadro1"), 0)
+    v.processar(_com_pessoa(_quadro("quadro2")), 2)
+    _, d = v.processar(_quadro("quadro2"), 4)
+    assert d is None
+
+
+def test_mancha_pequena_e_ignorada():
+    v = T.Vigia(T.Regra(quadros_seguidos=1, pontos_min=12))
+    v.processar(_quadro("quadro1"), 0)
+    _, d = v.processar(_com_pessoa(_quadro("quadro2"), larg=2, alt=3), 2)
+    assert d is None
+
+
+def test_calor_fora_da_faixa_de_corpo_nao_e_pessoa():
+    # Inversor esquentando (70 °C) destoa do fundo, mas nao e gente.
+    v = T.Vigia(T.Regra(quadros_seguidos=1))
+    v.processar(_quadro("quadro1"), 0)
+    _, d = v.processar(_com_pessoa(_quadro("quadro2"), temp=70.0), 2)
+    assert d is None
+
+
+def test_area_ignorada_nao_dispara():
+    mato = [(0.6, 0.4), (0.75, 0.4), (0.75, 0.6), (0.6, 0.6)]
+    v = T.Vigia(T.Regra(quadros_seguidos=1, ignorar=[mato]))
+    v.processar(_quadro("quadro1"), 0)
+    _, d = v.processar(_com_pessoa(_quadro("quadro2")), 2)
+    assert d is None
+
+
+def test_fora_da_area_vigiada_nao_dispara():
+    so_esquerda = [(0.0, 0.0), (0.5, 0.0), (0.5, 1.0), (0.0, 1.0)]
+    v = T.Vigia(T.Regra(quadros_seguidos=1, areas=[so_esquerda]))
+    v.processar(_quadro("quadro1"), 0)
+    _, d = v.processar(_com_pessoa(_quadro("quadro2")), 2)
+    assert d is None
+
+
+def test_respeita_intervalo_entre_alertas():
+    v = T.Vigia(T.Regra(quadros_seguidos=1, intervalo_alertas_s=60))
+    v.processar(_quadro("quadro1"), 0)
+    _, d1 = v.processar(_com_pessoa(_quadro("quadro2")), 2)
+    _, d2 = v.processar(_com_pessoa(_quadro("quadro2")), 4)
+    _, d3 = v.processar(_com_pessoa(_quadro("quadro2")), 70)
+    assert d1 is not None and d2 is None and d3 is not None
+
+
+def test_pessoa_parada_nao_vira_fundo():
+    v = T.Vigia(T.Regra(quadros_seguidos=1, intervalo_alertas_s=0, aprendizado=0.5))
+    v.processar(_quadro("quadro1"), 0)
+    disparos = [v.processar(_com_pessoa(_quadro("quadro2")), 2 * i)[1] for i in range(1, 8)]
+    assert all(d is not None for d in disparos)
+
+
+def test_poligono_em_coordenada_da_tela():
+    # Origem no canto superior esquerdo: o quadrado de cima nao pega a linha de baixo.
+    m = T.mascara(4, 4, T.Regra(areas=[[(0, 0), (1, 0), (1, 0.5), (0, 0.5)]]))
+    assert list(m[:8]) == [1] * 8 and list(m[8:]) == [0] * 8

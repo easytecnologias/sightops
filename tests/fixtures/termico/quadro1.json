@@ -1,0 +1,31 @@
+{
+ "info": {
+  "channelID": 2,
+  "jpegPicLen": 9619,
+  "jpegPicWidth": 256,
+  "jpegPicHeight": 192,
+  "p2pDataLen": 196608,
+  "isFreezedata": false,
+  "temperatureDataLength": 4,
+  "rawDataLen": 0,
+  "visiblePicLen": 1232316,
+  "ThermalValidRect": {
+   "height": 1.0,
+   "width": 1.0,
+   "x": 0.0,
+   "y": 0.0
+  },
+  "VisibleValidRect": {
+   "height": 0.625,
+   "width": 0.471,
+   "x": 0.283,
+   "y": 0.195
+  }
+ },
+ "resumo": {
+  "min": 24.3,
+  "max": 56.2,
+  "media": 44.3
+ },
+ "capturado": "2026-11-05T13:47:06"
+}
