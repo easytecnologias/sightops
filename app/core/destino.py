@@ -46,6 +46,9 @@ _REDES_PADRAO = "10.250.0.0/24"  # wg-sightops, compartilhada entre conectores
 _FAIXA_VIRTUAL = ipaddress.ip_network("10.208.0.0/12")
 
 _Rede = ipaddress._BaseNetwork
+# (conector, cidr) de client_lans ja avisados neste processo: o _Contexto e
+# montado a cada requisicao, e o aviso repetia a cada uma.
+_AVISADAS: set = set()
 
 
 def _redes_de_texto(texto: str) -> List[_Rede]:
@@ -184,8 +187,13 @@ class _Contexto:
                 # client_lans e digitado pelo admin: sobrepondo LAN de conector de
                 # outro cliente, nao prova nada (seria so declarar a rede alheia)
                 if any(rede.version == a.version and rede.overlaps(a) for a in self.lans_alheias):
-                    logger.warning("destino: client_lans %s do conector %s sobrepoe LAN de outro cliente -- ignorada",
-                                   cidr, cid)
+                    # ja coberta pelo mapa/detectadas dele: ignorar nao muda nada, nao avisa;
+                    # nos demais casos, um aviso por (conector, cidr) por processo
+                    coberta = any(rede.version == r.version and rede.subnet_of(r) for r in redes)
+                    if not coberta and (cid, str(rede)) not in _AVISADAS:
+                        _AVISADAS.add((cid, str(rede)))
+                        logger.warning("destino: client_lans %s do conector %s sobrepoe LAN de outro cliente -- ignorada",
+                                       cidr, cid)
                     continue
                 redes.append(rede)
             self.minhas_redes.extend(redes)
