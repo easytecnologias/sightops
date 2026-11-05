@@ -46,6 +46,10 @@ ENTITY_TYPES: List[Dict[str, Any]] = [
     {"type": "windows", "label": "Computador com agente", "weight": 0.5},
     {"type": "connector", "label": "Conector", "weight": 0},
     {"type": "whatsapp", "label": "Canal WhatsApp", "weight": 0},
+    # Peso 1 = o padrao que ja valia sem declarar (_weight); mudar e decisao de preco.
+    {"type": "pdv", "label": "Caixa (PDV)", "weight": 1},
+    {"type": "link", "label": "Link de provedor", "weight": 1},
+    {"type": "switch_provedor", "label": "Switch de provedores", "weight": 1},
 ]
 _TYPE_LABEL = {t["type"]: t["label"] for t in ENTITY_TYPES}
 

@@ -151,3 +151,15 @@ def test_auditoria_vai_para_plataforma_sem_nota(banco, monkeypatch):
     _AUDIT_REAL(DONO, "licensing.tenant_plan", "sierra", {"after": {"plan": "essencial", "note": "cobrar dia 5"}})
     assert gravados[0]["tenant_id"] is None
     assert "cobrar" not in gravados[0]["detail_json"] and "essencial" in gravados[0]["detail_json"]
+
+
+def test_pdv_link_e_switch_provedor_tem_rotulo_e_nao_mudam_a_conta(banco):
+    # P4: antes saiam com o nome tecnico e o peso padrao 1; agora tem rotulo e
+    # o mesmo peso 1 -- a conta de nenhum cliente muda.
+    _parque("loja", {"pdv": 4, "link": 3, "switch_provedor": 2, "camera": 10})
+    s = L.tenant_summary("loja")
+    assert s["licenses_used"] == 19
+    rotulos = {r["type"]: (r["label"], r["weight"]) for r in s["breakdown"]}
+    assert rotulos["pdv"] == ("Caixa (PDV)", 1.0)
+    assert rotulos["link"] == ("Link de provedor", 1.0)
+    assert rotulos["switch_provedor"] == ("Switch de provedores", 1.0)
