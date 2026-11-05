@@ -12,7 +12,9 @@ from typing import Any, Dict, List
 
 from fastapi import HTTPException
 
+from app.core.destino import varredura_recusada
 from app.core.paths import BASE_DIR, INVENTORY_JSON_PATH, SAIDA_DIR, TOOLS_DIR, DATA_DIR, ensure_dirs
+from app.core.tenant_context import get_current_tenant_slug
 from app.models.requests import ScanRequest
 from app.services.camsnapshot.device_info import get_snapshot
 from app.services.camsnapshot.uploader_imgbb import upload_to_imgbb
@@ -703,6 +705,10 @@ def run_http_scan(req: ScanRequest) -> Dict[str, Any]:
     alvo = (getattr(req, "alvo", "") or "").strip()
     if mode == "scan" and (not alvo) and (not getattr(req, "reuse_inventory", False)):
         raise HTTPException(400, "Campo 'alvo' e obrigatorio.")
+    if mode == "scan":
+        recusa = varredura_recusada(get_current_tenant_slug(), alvo, True)
+        if recusa:
+            raise HTTPException(403, f"Destino recusado: {recusa}")
 
     inventory_mode_raw = str(getattr(req, "inventory_mode", "olt") or "olt").strip().lower()
     if inventory_mode_raw in {"switch", "sw", "via_switch", "via-switch"}:

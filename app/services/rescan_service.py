@@ -7,7 +7,9 @@ from typing import Any, Dict, List
 
 from fastapi import HTTPException
 
+from app.core.destino import varredura_recusada
 from app.core.paths import BASE_DIR, SAIDA_DIR, TOOLS_DIR, ensure_dirs
+from app.core.tenant_context import get_current_tenant_slug
 from app.models.requests import RescanSingleIPRequest
 from app.services.inventory_json import load_inventory_json, save_inventory_json, normalize_row, dedup_cam_inventory
 from app.services.camsnapshot.device_info import get_snapshot
@@ -19,6 +21,9 @@ def rescan_single_ip(req: RescanSingleIPRequest) -> Dict[str, Any]:
     inventory_mode = str(getattr(req, "inventory_mode", "olt") or "olt").strip().lower()
     if not ip:
         raise HTTPException(400, "IP é obrigatório.")
+    recusa = varredura_recusada(get_current_tenant_slug(), ip, True)
+    if recusa:
+        raise HTTPException(403, f"Destino recusado: {recusa}")
 
     SAIDA_DIR.mkdir(parents=True, exist_ok=True)
 
