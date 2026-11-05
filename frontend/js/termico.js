@@ -7,7 +7,9 @@
 //   - Alarmes: lista com filtro, o alarme aberto com as fotos, Ciente e
 //     Falso alarme (com motivo);
 //   - Cameras e regras: incluir camera do inventario, ligar, horario armado e
-//     a regra de deteccao.
+//     a regra de deteccao;
+//   - Automacoes: quando detectar, leva a speed ao preset ou liga saida de
+//     alarme. Nasce em Simular (ver app/services/automacao_store.py).
 // Fotos vem com o token (api) e viram blob local. CSS aqui, prefixo tm-.
 // =============================================================================
 (function () {
@@ -35,6 +37,8 @@
   let filtro = { q: '', site: '', situacao: '' };
   let aberto = null, camAberta = null, poll = null;
   const fotos = {};   // url da api -> blob local
+  let auto = { automacoes: [], execucoes: [], equipamentos: [] };
+  let autoAberta = null;
 
   // ---------------------------------------------------------------- CSS --
   const CSS = `
@@ -67,6 +71,7 @@
   .tm-regra{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
   .tm-linha{display:flex;align-items:center;justify-content:space-between;gap:12px}
   .tm-sub{font-size:12px;color:var(--muted)}
+  .tm-acao{border:1px solid var(--border);border-radius:8px;padding:12px;display:flex;flex-direction:column;gap:10px}
   .tm-modal-fundo{position:fixed;inset:0;background:rgba(19,37,45,.45);z-index:1000;display:flex;align-items:center;justify-content:center}
   .tm-modal{background:var(--surface);border-radius:10px;padding:20px;width:min(460px,92vw);display:flex;flex-direction:column;gap:14px;box-shadow:var(--shadow)}
   .tm-motivos{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
@@ -83,7 +88,7 @@
   window.loadTermico = async function () {
     injetarCss();
     render();
-    await Promise.all([carregarAlertas(), carregarCameras()]);
+    await Promise.all([carregarAlertas(), carregarCameras(), carregarAutomacoes()]);
     agendar();
   };
 
@@ -135,8 +140,9 @@
       <div class="tm-tabs" role="tablist">
         <button type="button" role="tab" data-tm-aba="alarmes" class="${aba === 'alarmes' ? 'on' : ''}">Alarmes ${pend ? `<span class="pill danger">${pend}</span>` : ''}</button>
         <button type="button" role="tab" data-tm-aba="cameras" class="${aba === 'cameras' ? 'on' : ''}">Câmeras e regras</button>
+        <button type="button" role="tab" data-tm-aba="automacoes" class="${aba === 'automacoes' ? 'on' : ''}">Automações</button>
       </div>
-      ${aba === 'alarmes' ? htmlAlarmes() : htmlCameras()}`;
+      ${aba === 'alarmes' ? htmlAlarmes() : aba === 'cameras' ? htmlCameras() : htmlAutomacoes()}`;
     ligar(sec);
     icones();
     if (aba === 'alarmes' && aberto) carregarFotos(aberto);
@@ -295,6 +301,7 @@
     sec.querySelector('[data-tm-salvar]')?.addEventListener('click', salvarRegra);
     sec.querySelector('[data-tm-fechar-cam]')?.addEventListener('click', () => { camAberta = null; render(); });
     sec.querySelector('[data-tm-remover]')?.addEventListener('click', removerCamera);
+    ligarAuto(sec);
   }
 
   async function responder(tipo, corpo) {
@@ -366,5 +373,157 @@
     camAberta = null;
     toast('Câmera removida do Alerta Térmico.');
     await carregarCameras();
+  }
+
+  // ----------------------------------------------------------- automacoes --
+  async function carregarAutomacoes() {
+    const r = await api('/api/automacoes');
+    if (!r || !r.ok) return;
+    auto = await r.json();
+    render();
+  }
+
+  const nomeOrigem = id => (id ? (cams.cameras.find(c => c.id === id)?.nome || 'câmera removida') : 'Todas as térmicas');
+  const novaRegra = () => ({ nome: '', ativo: true, modo: 'simular', origem_camera_id: '', intervalo_s: 120, acoes: [] });
+
+  function descrever(a) {
+    return a.tipo === 'saida' ? `${a.nome}: saída ${a.saida} por ${a.segundos} s`
+      : `${a.nome}: preset ${a.preset}${a.voltar_s ? `, volta em ${a.voltar_s} s` : ''}`;
+  }
+
+  function htmlAutomacoes() {
+    const linhas = auto.automacoes.map(r => `<tr data-tm-regra="${h(r.id)}" class="${autoAberta && autoAberta.id === r.id ? 'on' : ''}">
+        <td title="${h(r.nome)}" style="font-weight:600">${h(r.nome)}</td><td title="${h(nomeOrigem(r.origem_camera_id))}">${h(nomeOrigem(r.origem_camera_id))}</td>
+        <td class="tm-num">${r.acoes.length}</td><td><span class="pill ${r.modo === 'valer' ? 'danger' : 'neutral'}">${r.modo === 'valer' ? 'Valendo' : 'Simulando'}</span></td>
+        <td>${r.ativo ? 'Ligada' : 'Desligada'}</td></tr>`).join('')
+      || '<tr><td colspan="5" style="text-align:center;color:var(--muted);height:80px">Nenhuma automação ainda.</td></tr>';
+    const nomes = Object.fromEntries(auto.automacoes.map(r => [r.id, r.nome]));
+    const hist = auto.execucoes.slice(0, 15).map(e => {
+      let a = {}; try { a = JSON.parse(e.acao); } catch (_) { /* linha antiga */ }
+      return `<tr><td>${h(hora(e.criado_at))}</td><td title="${h(nomes[e.automacao_id] || '')}">${h(nomes[e.automacao_id] || '—')}</td>
+        <td title="${h(e.resposta)}">${h(a.nome ? descrever(a) : e.resposta)}</td>
+        <td><span class="pill ${!e.ok ? 'danger' : e.modo === 'valer' ? 'success' : 'neutral'}">${!e.ok ? 'Falhou' : e.modo === 'valer' ? 'Feito' : 'Simulado'}</span></td></tr>`;
+    }).join('') || '<tr><td colspan="4" style="text-align:center;color:var(--muted);height:60px">Nada executado ainda.</td></tr>';
+    return `<div class="tm-grid">
+      <div style="display:flex;flex-direction:column;gap:20px;min-width:0">
+        <section class="tm-card">
+          <div class="tm-linha"><h2>Automações</h2><button class="primary-action" type="button" data-tm-nova>Nova automação</button></div>
+          <div class="table-wrap"><table class="tm-tab">
+            <colgroup><col><col style="width:170px"><col style="width:64px"><col style="width:104px"><col style="width:84px"></colgroup>
+            <thead><tr><th>Nome</th><th>Quando detectar em</th><th class="tm-num">Ações</th><th>Modo</th><th>Situação</th></tr></thead>
+            <tbody>${linhas}</tbody></table></div>
+        </section>
+        <section class="tm-card">
+          <div class="tm-linha"><h2>Histórico</h2><span class="tm-sub">últimas 15 ações</span></div>
+          <div class="table-wrap"><table class="tm-tab">
+            <colgroup><col style="width:56px"><col style="width:150px"><col><col style="width:96px"></colgroup>
+            <thead><tr><th>Hora</th><th>Automação</th><th>Ação</th><th>Resultado</th></tr></thead>
+            <tbody>${hist}</tbody></table></div>
+        </section>
+      </div>
+      <section class="tm-card">${autoAberta ? htmlFormRegra(autoAberta) : '<div class="tm-vazio-card">Clique numa automação ou crie uma nova.</div>'}</section>
+    </div>`;
+  }
+
+  function htmlAcao(a, i) {
+    const lista = auto.equipamentos.filter(e => (a.tipo === 'speed_preset' ? e.speed : true));
+    const valor = `${a.ip || ''}|${a.connector_id || ''}`;
+    const opcoes = lista.map(e => `<option value="${h(e.ip)}|${h(e.connector_id)}" ${`${e.ip}|${e.connector_id}` === valor ? 'selected' : ''}>${h(e.site)} · ${h(e.nome)}</option>`).join('');
+    const num = (k, rot, v, min, max) => `<label class="tm-campo">${rot}<input type="number" min="${min}" max="${max}" data-tm-a="${k}" value="${h(v)}"></label>`;
+    return `<div class="tm-acao" data-tm-acao="${i}">
+      <div class="tm-linha"><strong style="font-size:13px">Ação ${i + 1}</strong><button class="ghost-action" type="button" data-tm-tirar="${i}" aria-label="Tirar ação ${i + 1}">✕</button></div>
+      <div class="tm-regra" style="grid-template-columns:minmax(0,1fr) minmax(0,2fr)">
+        <label class="tm-campo">Tipo<select data-tm-a="tipo"><option value="speed_preset" ${a.tipo === 'speed_preset' ? 'selected' : ''}>Speed: preset</option><option value="saida" ${a.tipo === 'saida' ? 'selected' : ''}>Saída de alarme</option></select></label>
+        <label class="tm-campo">Equipamento<select data-tm-a="alvo"><option value="|">Escolha…</option>${opcoes}</select></label>
+      </div>
+      <div class="tm-regra" style="grid-template-columns:repeat(2,minmax(0,1fr))">
+        ${a.tipo === 'saida'
+          ? num('saida', 'Saída', a.saida ?? 1, 1, 16) + num('segundos', 'Ligada por (s)', a.segundos ?? 30, 1, 600)
+          : num('preset', 'Preset', a.preset ?? 1, 1, 300) + num('voltar_s', 'Voltar depois de (s, 0 = fica)', a.voltar_s ?? 60, 0, 3600)}
+      </div></div>`;
+  }
+
+  function htmlFormRegra(r) {
+    return `<div class="tm-linha"><h2>${r.id ? 'Automação' : 'Nova automação'}</h2>
+        <label class="tm-linha" style="gap:8px;font-size:13px"><input type="checkbox" id="tmRAtivo" ${r.ativo ? 'checked' : ''}> Ligada</label></div>
+      <label class="tm-campo">Nome<input id="tmRNome" maxlength="120" value="${h(r.nome)}" placeholder="Ex.: Speed olha a cerca"></label>
+      <div class="tm-regra" style="grid-template-columns:minmax(0,2fr) minmax(0,1fr)">
+        <label class="tm-campo">Quando detectar em<select id="tmROrigem"><option value="">Todas as térmicas</option>${cams.cameras.map(c => `<option value="${h(c.id)}" ${c.id === r.origem_camera_id ? 'selected' : ''}>${h(c.site)} · ${h(c.nome)}</option>`).join('')}</select></label>
+        <label class="tm-campo">Intervalo (s)<input type="number" min="10" max="3600" id="tmRIntervalo" value="${h(r.intervalo_s)}"></label>
+      </div>
+      ${r.acoes.map(htmlAcao).join('')}
+      <button class="secondary-action" type="button" data-tm-mais>Adicionar ação</button>
+      <label class="tm-campo">Modo<select id="tmRModo"><option value="simular" ${r.modo !== 'valer' ? 'selected' : ''}>Simular: só registra, não aciona nada</option><option value="valer" ${r.modo === 'valer' ? 'selected' : ''}>Valendo: aciona o equipamento do cliente</option></select></label>
+      ${r.modo === 'valer' ? '<div class="pill danger" style="white-space:normal;line-height:1.4;padding:8px 10px">Valendo: a cada alerta o equipamento é acionado de verdade.</div>' : ''}
+      <div class="tm-acoes">
+        <button class="primary-action" type="button" data-tm-rsalvar>Salvar</button>
+        <button class="secondary-action" type="button" data-tm-rtestar ${r.id ? '' : 'disabled title="Salve antes de testar"'}>Testar agora</button>
+        <button class="secondary-action danger-action" type="button" data-tm-rexcluir ${r.id ? '' : 'disabled'}>Excluir</button>
+      </div>`;
+  }
+
+  // Le o formulario para autoAberta antes de redesenhar: nao perde o digitado.
+  function lerForm() {
+    if (!autoAberta || !$('tmRNome')) return;
+    autoAberta.nome = $('tmRNome').value;
+    autoAberta.ativo = $('tmRAtivo').checked;
+    autoAberta.modo = $('tmRModo').value;
+    autoAberta.origem_camera_id = $('tmROrigem').value;
+    autoAberta.intervalo_s = Number($('tmRIntervalo').value || 120);
+    secao().querySelectorAll('[data-tm-acao]').forEach(box => {
+      const a = autoAberta.acoes[Number(box.dataset.tmAcao)];
+      box.querySelectorAll('[data-tm-a]').forEach(i => {
+        const k = i.dataset.tmA;
+        if (k === 'alvo') {
+          const [ip, cid] = i.value.split('|');
+          const e = auto.equipamentos.find(x => x.ip === ip && x.connector_id === cid);
+          a.ip = ip; a.connector_id = cid; a.nome = e ? e.nome : '';
+        } else if (k === 'tipo') a.tipo = i.value;
+        else a[k] = Number(i.value);
+      });
+    });
+  }
+
+  function ligarAuto(sec) {
+    sec.querySelector('[data-tm-nova]')?.addEventListener('click', () => { autoAberta = novaRegra(); render(); });
+    sec.querySelectorAll('[data-tm-regra]').forEach(tr => tr.onclick = () => {
+      const r = auto.automacoes.find(x => x.id === tr.dataset.tmRegra);
+      autoAberta = r ? JSON.parse(JSON.stringify(r)) : null; render();
+    });
+    sec.querySelector('[data-tm-mais]')?.addEventListener('click', () => { lerForm(); autoAberta.acoes.push({ tipo: 'speed_preset', ip: '', connector_id: '' }); render(); });
+    sec.querySelectorAll('[data-tm-tirar]').forEach(b => b.onclick = () => { lerForm(); autoAberta.acoes.splice(Number(b.dataset.tmTirar), 1); render(); });
+    sec.querySelectorAll('[data-tm-a="tipo"]').forEach(s => s.onchange = () => { lerForm(); render(); });
+    if ($('tmRModo')) $('tmRModo').onchange = () => { lerForm(); render(); };
+    sec.querySelector('[data-tm-rsalvar]')?.addEventListener('click', salvarAutomacao);
+    sec.querySelector('[data-tm-rtestar]')?.addEventListener('click', testarAutomacao);
+    sec.querySelector('[data-tm-rexcluir]')?.addEventListener('click', excluirAutomacao);
+  }
+
+  async function salvarAutomacao() {
+    lerForm();
+    const r = await api(autoAberta.id ? `/api/automacoes/${encodeURIComponent(autoAberta.id)}` : '/api/automacoes',
+      { method: autoAberta.id ? 'PUT' : 'POST', body: JSON.stringify(autoAberta) });
+    if (!r || !r.ok) { const d = r ? await r.json().catch(() => ({})) : {}; toast(d.detail || 'Não deu para salvar.', true); return; }
+    autoAberta = await r.json();
+    toast('Automação salva.');
+    await carregarAutomacoes();
+  }
+
+  async function testarAutomacao() {
+    if (!autoAberta?.id) return;
+    if (autoAberta.modo === 'valer' && !confirm('Esta automação está valendo: o equipamento do cliente será acionado agora. Continuar?')) return;
+    const r = await api(`/api/automacoes/${encodeURIComponent(autoAberta.id)}/testar`, { method: 'POST', body: '{}' });
+    if (!r || !r.ok) { const d = r ? await r.json().catch(() => ({})) : {}; toast(d.detail || 'Não deu para testar.', true); return; }
+    auto = await r.json();
+    toast('Teste feito: veja o histórico.');
+    render();
+  }
+
+  async function excluirAutomacao() {
+    if (!autoAberta?.id || !confirm(`Excluir a automação ${autoAberta.nome}?`)) return;
+    const r = await api(`/api/automacoes/${encodeURIComponent(autoAberta.id)}`, { method: 'DELETE', body: '' });
+    if (!r || !r.ok) { const d = r ? await r.json().catch(() => ({})) : {}; toast(d.detail || 'Não deu para excluir.', true); return; }
+    autoAberta = null;
+    await carregarAutomacoes();
   }
 })();

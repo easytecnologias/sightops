@@ -57,6 +57,20 @@ def test_valer_manda_preset_e_saida_e_desliga_depois(amb, monkeypatch):
     assert "low" in chamadas[2][1]
 
 
+def test_speed_volta_para_onde_estava(amb, monkeypatch):
+    A, S, chamadas = amb
+    agendados = []
+    monkeypatch.setattr(A, "_timer", lambda s, fn, args: agendados.append((s, fn, args)))
+    monkeypatch.setattr(A, "_posicao", lambda base, cred: (84, 3087, 10))
+    S.salvar({"nome": "Speed", "modo": "valer", "acoes": [{"tipo": "speed_preset", "ip": "10.0.0.10", "connector_id": "c1", "preset": 1, "voltar_s": 45}]})
+    A.disparar("cliente-a", "x", "a")
+    assert agendados[0][0] == 45.0
+    s, fn, args = agendados[0]
+    fn(*args)
+    assert chamadas[-1][0].endswith("/ISAPI/PTZCtrl/channels/1/absolute")
+    assert "<elevation>84</elevation><azimuth>3087</azimuth><absoluteZoom>10</absoluteZoom>" in chamadas[-1][1]
+
+
 def test_falha_do_equipamento_fica_no_historico(amb, monkeypatch):
     A, S, _ = amb
     monkeypatch.setattr(A, "_put", lambda *a, **k: (500, "erro interno"))

@@ -88,12 +88,39 @@ def _validar_acoes(acoes: Any) -> List[Dict[str, Any]]:
                     raise ValueError
             else:
                 item["preset"] = int(a.get("preset") or 0)
-                if not 1 <= item["preset"] <= 300:
+                item["voltar_s"] = int(60 if a.get("voltar_s") is None else a.get("voltar_s"))
+                if not 1 <= item["preset"] <= 300 or not 0 <= item["voltar_s"] <= 3600:
                     raise ValueError
         except (TypeError, ValueError):
-            raise ValueError(f"Ação em {eq['nome']}: número fora da faixa (saída 1 a 16, tempo 1 a {MAX_SEGUNDOS} s, preset 1 a 300).")
+            raise ValueError(f"Ação em {eq['nome']}: número fora da faixa (saída 1 a 16, tempo 1 a {MAX_SEGUNDOS} s, preset 1 a 300, voltar 0 a 3600 s).")
         saida.append(item)
     return saida
+
+
+def equipamentos() -> List[Dict[str, Any]]:
+    """O que pode ser alvo de acao: Hikvision/HikMicro do inventario do cliente.
+    `speed` = aceita preset. Saida de alarme: camera ou gravador."""
+    from app.services.inventory_json import load_inventory_json
+
+    vistos: Dict[str, Dict[str, Any]] = {}
+    for modo in ("switch", "olt"):
+        try:
+            linhas = load_inventory_json(mode=modo)
+        except Exception:
+            linhas = []
+        for row in linhas or []:
+            fab = f"{_txt(row.get('fabricante'))} {_txt(row.get('modelo'))}".lower()
+            modelo = _txt(row.get("modelo") or row.get("model"))
+            site = _txt(row.get("site") or row.get("local"))
+            chave = f"{_txt(row.get('ip'))}|{_txt(row.get('remote_connector_id'))}"
+            if not _txt(row.get("ip")) or chave in vistos or not _site_ok(site):
+                continue
+            if "hikvision" not in fab and "hikmicro" not in fab and not modelo.startswith(("DS-", "HM-")):
+                continue
+            vistos[chave] = {"ip": _txt(row.get("ip")), "connector_id": _txt(row.get("remote_connector_id")),
+                             "nome": _txt(row.get("titulo") or row.get("title")) or _txt(row.get("ip")),
+                             "site": site, "modelo": modelo, "speed": bool(re.match(r"^DS-2(DE|DF|DY)", modelo))}
+    return sorted(vistos.values(), key=lambda e: (e["site"], e["nome"]))
 
 
 def _publica(r: Dict[str, Any]) -> Dict[str, Any]:
@@ -123,7 +150,7 @@ def listar() -> Dict[str, Any]:
             "SELECT automacao_id, alerta_id, modo, acao, ok, resposta, criado_at FROM automacao_execucoes "
             "WHERE tenant_slug=? ORDER BY criado_at DESC LIMIT 100", (tenant,)).fetchall()]
     rows.sort(key=lambda r: (r.get("nome") or "").lower())
-    return {"automacoes": [_publica(r) for r in rows], "execucoes": hist}
+    return {"automacoes": [_publica(r) for r in rows], "execucoes": hist, "equipamentos": equipamentos()}
 
 
 def salvar(dados: Dict[str, Any], regra_id: str = "") -> Dict[str, Any]:

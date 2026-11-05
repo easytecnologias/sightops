@@ -10,6 +10,7 @@ Roda numa thread propria: nao pode segurar a leitura das cameras.
 from __future__ import annotations
 
 import logging
+import re
 import threading
 from datetime import datetime, timezone
 from typing import Any, Callable, Dict, Tuple
@@ -50,6 +51,27 @@ def _alvo(acao: Dict[str, Any]) -> Tuple[str, Dict[str, str]]:
     return _base(eq["ip"], eq["porta"], eq["connector_id"]), cred
 
 
+def _posicao(base: str, cred: Dict[str, str]) -> Tuple[int, int, int]:
+    r = requests.get(f"{base}/ISAPI/PTZCtrl/channels/1/status", auth=HTTPDigestAuth(cred["username"], cred["password"]),
+                     timeout=TEMPO_S, verify=False)
+    return tuple(int(re.search(rf"<{k}>(-?\d+)", r.text).group(1)) for k in ("elevation", "azimuth", "absoluteZoom"))
+
+
+def _voltar_speed(tenant: str, acao: Dict[str, Any], pos: Tuple[int, int, int]) -> None:
+    token = set_current_tenant_slug(tenant)
+    try:
+        base, cred = _alvo(acao)
+        corpo = (f'<?xml version="1.0" encoding="UTF-8"?><PTZData><AbsoluteHigh><elevation>{pos[0]}</elevation>'
+                 f'<azimuth>{pos[1]}</azimuth><absoluteZoom>{pos[2]}</absoluteZoom></AbsoluteHigh></PTZData>')
+        cod, txt = _put(f"{base}/ISAPI/PTZCtrl/channels/1/absolute", cred["username"], cred["password"], corpo)
+        if cod != 200:
+            logger.error("automacao: speed %s NAO voltou: HTTP %s %s", acao.get("ip"), cod, txt[:120])
+    except Exception as exc:
+        logger.error("automacao: speed %s NAO voltou: %s", acao.get("ip"), exc)
+    finally:
+        reset_current_tenant_slug(token)
+
+
 def _saida_estado(tenant: str, acao: Dict[str, Any], estado: str) -> Tuple[bool, str]:
     base, cred = _alvo(acao)
     corpo = f'<?xml version="1.0" encoding="UTF-8"?><IOPortData><outputState>{estado}</outputState></IOPortData>'
@@ -84,8 +106,18 @@ def executar_acao(tenant: str, acao: Dict[str, Any], modo: str,
                 (agendar or _timer)(float(acao["segundos"]), _desligar_depois, (tenant, acao))
             return ok, msg
         base, cred = _alvo(acao)
+        voltar = int(acao.get("voltar_s") or 0)
+        pos = None
+        if voltar:
+            try:
+                pos = _posicao(base, cred)
+            except Exception as exc:     # nao deixa de apontar para o alarme por causa disso
+                logger.warning("automacao: sem posicao de %s, nao vai voltar: %s", acao.get("ip"), exc)
         cod, txt = _put(f"{base}/ISAPI/PTZCtrl/channels/1/presets/{int(acao['preset'])}/goto", cred["username"], cred["password"])
-        return cod == 200, f"preset {acao['preset']}: HTTP {cod}" + ("" if cod == 200 else f" {txt[:120]}")
+        if cod == 200 and pos:
+            (agendar or _timer)(float(voltar), _voltar_speed, (tenant, acao, pos))
+        extra = "" if cod != 200 else (f", volta em {voltar} s" if pos else ", fica no preset")
+        return cod == 200, f"preset {acao['preset']}: HTTP {cod}{extra}" + ("" if cod == 200 else f" {txt[:120]}")
     except Exception as exc:
         return False, f"{descr}: {exc}"[:300]
 
