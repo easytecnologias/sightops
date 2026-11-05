@@ -6,11 +6,12 @@ import contextvars
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Dict
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from app.api.endpoints.cameras import resolve_camera_password
 from app.core import permissions
+from app.core.guarda_destino import guarda_destino
 from app.services.gemini_video_search import GeminiNotConfiguredError, GeminiRateLimitedError
 from app.services.nvr_ai_service import list_nvr_targets, query_recording_segments
 from app.services.nvr_search_service import ChainedSearchResult, search_recordings
@@ -95,7 +96,7 @@ def _resolve_ia_password(host: str, user: str, password: str) -> tuple[str, str]
     return resolve_camera_password(host, user, password)
 
 
-@router.post("/nvr/recordings")
+@router.post("/nvr/recordings", dependencies=[Depends(guarda_destino("host"))])
 def api_ia_nvr_recordings(req: NvrRecordingsRequest) -> Dict[str, Any]:
     _exigir_host_liberado(req.host)
     user, password = _resolve_ia_password(req.host, req.user, req.password)
@@ -156,7 +157,7 @@ def _run_search_job(job_id: str, req: NvrSearchRequest) -> None:
         job["finished_at"] = time.time()
 
 
-@router.post("/nvr/search/jobs")
+@router.post("/nvr/search/jobs", dependencies=[Depends(guarda_destino("host"))])
 def api_ia_nvr_search_job(req: NvrSearchRequest) -> Dict[str, Any]:
     _exigir_host_liberado(req.host)
     job_id = uuid.uuid4().hex

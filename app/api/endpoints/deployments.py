@@ -1277,7 +1277,7 @@ def api_deployments_recorder_login(payload: Dict[str, Any]) -> Dict[str, Any]:
     raise HTTPException(status_code=400, detail=last_error or "nao foi possivel entrar no gravador")
 
 
-@router.post("/recorder-channels")
+@router.post("/recorder-channels", dependencies=[Depends(guarda_destino("recorder_host", "host"))])
 def api_deployments_recorder_channels(payload: Dict[str, Any]) -> Dict[str, Any]:
     if not isinstance(payload, dict):
         raise HTTPException(status_code=400, detail="payload invalido")
@@ -1304,7 +1304,7 @@ def api_deployments_recorder_channels(payload: Dict[str, Any]) -> Dict[str, Any]
     return {"ok": True, "source": source, "host": host, "channel_total": len(channels), "used": used, "free": len(channels) - used, "channels": channels}
 
 
-@router.post("/recorder-add-camera")
+@router.post("/recorder-add-camera", dependencies=[Depends(guarda_destino("recorder_host", "host"))])
 def api_deployments_recorder_add_camera(payload: Dict[str, Any]) -> Dict[str, Any]:
     if not isinstance(payload, dict):
         raise HTTPException(status_code=400, detail="payload invalido")
@@ -1445,7 +1445,7 @@ def api_deployments_recorder_add_camera(payload: Dict[str, Any]) -> Dict[str, An
     }
 
 
-@router.post("/recorder-remove-camera")
+@router.post("/recorder-remove-camera", dependencies=[Depends(guarda_destino("recorder_host", "host"))])
 def api_deployments_recorder_remove_camera(payload: Dict[str, Any]) -> Dict[str, Any]:
     """Solta um canal do gravador.
 
@@ -1634,7 +1634,7 @@ def api_deployments_connectors(request: Request) -> Dict[str, Any]:
     return list_connectors(include_token=False, user=getattr(request.state, "current_user", None))
 
 
-@router.post("/recorder-live-stream")
+@router.post("/recorder-live-stream", dependencies=[Depends(guarda_destino("recorder_host", "host"))])
 def api_deployments_recorder_live_stream(payload: Dict[str, Any]) -> Dict[str, Any]:
     """Registra um canal do gravador no go2rtc e devolve o nome do stream.
 

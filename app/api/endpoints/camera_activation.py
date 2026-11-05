@@ -180,6 +180,25 @@ def _virtual(connector_id: str, ip: str) -> str:
         return ip
 
 
+def _conferir_destinos_do_conector(connector_id: str, ips: List[str]) -> None:
+    """IP digitado ou devolvido pela tela: mesma regra unica de destino das
+    outras rotas (403). Sem isto, IP fora das LANs do conector ia cru -- o IP
+    virtual de camera de OUTRO cliente era sondado, reiniciado e ativado."""
+    from app.api.endpoints.maintenance import _conferir_destinos
+    _conferir_destinos([(ip, connector_id) for ip in ips])
+
+
+def _sem_destino_alheio(connector_id: str, ips: List[str]) -> List[str]:
+    """ARP/DHCP do proprio conector: tira so o que cai em rede interna ou faixa
+    de outro cliente (o MikroTik do cliente pode reportar qualquer IP). Nao
+    exige dono: a LAN pode nem ter sido coletada ainda."""
+    from app.core.destino import destinos_fixados
+    from app.core.tenant_context import get_current_tenant_slug
+    finais = {ip: _virtual(connector_id, ip) for ip in ips}
+    _ok, recusados = destinos_fixados(get_current_tenant_slug(), set(finais.values()), exigir_dono=False)
+    return [ip for ip in ips if finais[ip] not in recusados]
+
+
 def _conferir_site_do_conector(request: Request, connector_id: str) -> None:
     """Varrer, reiniciar, localizar e ativar camera saem pelo conector: so o de
     um site liberado para o usuario (restricao por site; em "sombra" passa)."""
@@ -208,8 +227,10 @@ def api_activation_scan(payload: Dict[str, Any], request: Request) -> Dict[str, 
     # que o MikroTik enxerga.
     alvos = [_text(ip) for ip in (payload.get("ips") or []) if _text(ip)]
     origem = "manual"
-    if not alvos:
-        alvos = _ips_do_conector(connector_id)
+    if alvos:
+        _conferir_destinos_do_conector(connector_id, alvos[:MAX_ALVOS])
+    else:
+        alvos = _sem_destino_alheio(connector_id, _ips_do_conector(connector_id))
         origem = "conector"
     if not alvos:
         return {
@@ -356,6 +377,8 @@ def api_activation_reboot(payload: Dict[str, Any], request: Request) -> Dict[str
         raise HTTPException(status_code=400, detail="senha obrigatoria")
     if not isinstance(alvos, list) or not alvos:
         raise HTTPException(status_code=400, detail="selecione ao menos uma camera")
+    _conferir_destinos_do_conector(connector_id, [_text(a.get("ip")) for a in alvos
+                                                  if isinstance(a, dict) and _text(a.get("ip"))])
 
     resultados: List[Dict[str, Any]] = []
     for alvo in alvos:
@@ -440,6 +463,8 @@ def api_activation_run(payload: Dict[str, Any], request: Request) -> Dict[str, A
         raise HTTPException(status_code=400, detail="senha obrigatoria")
     if not isinstance(alvos, list) or not alvos:
         raise HTTPException(status_code=400, detail="selecione ao menos uma camera")
+    _conferir_destinos_do_conector(connector_id, [_text(a.get("ip")) for a in alvos
+                                                  if isinstance(a, dict) and _text(a.get("ip"))])
 
     resultados: List[Dict[str, Any]] = []
     ativadas = 0
