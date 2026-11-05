@@ -1,5 +1,5 @@
 // =============================================================================
-// Alerta Termico (Alerta > Alerta Termico)
+// Cameras termicas (Automacoes > Cameras termicas) -- o "Alerta Termico"
 //
 // Pessoa detectada pelo CALOR nas cameras termicas radiometricas (HikMicro).
 // O servidor le as cameras ativas a cada 2 s (app/services/termico_vigia.py) e
@@ -123,7 +123,7 @@
     const lendo = ativas.filter(c => c.leitura === 'ok').length;
     sec.innerHTML = `
       <div class="page-heading">
-        <div><p class="eyebrow">Alerta</p><h1>Alerta Térmico</h1>
+        <div><p class="eyebrow">Automações</p><h1>Câmeras térmicas</h1>
           <p>Pessoa detectada pelo calor nas câmeras térmicas. ${ativas.length} câmera(s) vigiando · leitura a cada 2 s.</p></div>
       </div>
       <div class="rotas-kpis">

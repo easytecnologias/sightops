@@ -671,7 +671,7 @@ const VIEW_META = {
   'net-operate':   { title: 'Manutenção - Rede', sub: 'Túneis, diagnóstico e teste pontual' },
   planning:        { title: 'Projetos de CFTV', sub: 'Planejamento antes da implantação' },
   maquete:         { title: 'Maquete 3D',       sub: 'Planta em 3D com câmeras, cabos e rack' },
-  termico:         { title: 'Alerta Térmico',   sub: 'Pessoa detectada pelo calor nas câmeras térmicas' },
+  termico:         { title: 'Câmeras térmicas', sub: 'Automações · pessoa detectada pelo calor' },
   'deploy-olt':    { title: 'Implantação - OLT', sub: 'Cadastro das OLTs usadas na operação' },
   'deploy-onu':    { title: 'Implantação - ONU', sub: 'Provisionamento em campo' },
   'deploy-recorder': { title: 'Implantação - Gravadores', sub: 'Cadastro de DVR/NVR' },
