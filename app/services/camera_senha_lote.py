@@ -25,10 +25,11 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Dict, List
 
-import requests
+import requests  # noqa: F401  (pedir_mesmo_host usa; os testes trocam aqui)
 from requests.auth import HTTPDigestAuth
 
 from app.core.destino import destino_permitido
+from app.core.saida import pedir_mesmo_host
 from app.core.tenant_context import get_current_tenant_slug
 from app.services import connector_routing_vnat as vnat
 from app.services.camera_credentials import (
@@ -53,7 +54,8 @@ def conferir_senha(alvo: str, user: str, senha: str, marca: str = "") -> str:
     provas = [_PROVA_HIKVISION, _PROVA_INTELBRAS] if "hik" in marca.lower() else [_PROVA_INTELBRAS, _PROVA_HIKVISION]
     for caminho in provas:
         try:
-            r = requests.get(f"http://{alvo}{caminho}", auth=HTTPDigestAuth(user, senha), timeout=6, verify=False)
+            r = pedir_mesmo_host("get", f"http://{alvo}{caminho}", auth=HTTPDigestAuth(user, senha),
+                                 timeout=6, verify=False)
         except Exception:
             continue
         if 200 <= r.status_code < 300:

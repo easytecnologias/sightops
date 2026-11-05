@@ -26,6 +26,7 @@ import requests
 import urllib3
 from requests.auth import HTTPBasicAuth, HTTPDigestAuth
 
+from app.core.saida import pedir_mesmo_host
 from app.services import connector_routing_vnat as _vnat
 
 urllib3.disable_warnings()
@@ -83,7 +84,7 @@ def _pedir(url: str, user: str, password: str, timeout: float = _TEMPO) -> Tuple
     """Digest primeiro, Basic depois: gravador antigo so fala Basic."""
     for auth in (HTTPDigestAuth(user, password), HTTPBasicAuth(user, password)):
         try:
-            r = requests.get(url, auth=auth, timeout=timeout, verify=False)
+            r = pedir_mesmo_host("get", url, auth=auth, timeout=timeout, verify=False)
             if r.status_code not in (401, 403):
                 return r.status_code, (r.text or "")
         except Exception as exc:  # timeout, conexao recusada, DNS
@@ -96,8 +97,8 @@ def _postar(url: str, user: str, password: str, corpo: str,
     """POST com Digest primeiro, Basic depois -- a busca ISAPI da Hikvision e POST."""
     for auth in (HTTPDigestAuth(user, password), HTTPBasicAuth(user, password)):
         try:
-            r = requests.post(url, data=corpo.encode("utf-8"), auth=auth, timeout=timeout,
-                              verify=False, headers={"Content-Type": content_type})
+            r = pedir_mesmo_host("post", url, data=corpo.encode("utf-8"), auth=auth, timeout=timeout,
+                                 verify=False, headers={"Content-Type": content_type})
             if r.status_code not in (401, 403):
                 return r.status_code, (r.text or "")
         except Exception as exc:  # timeout, conexao recusada, DNS
@@ -110,8 +111,8 @@ def _colocar(url: str, user: str, password: str, corpo: str,
     """PUT com Digest primeiro, Basic depois -- escrita de configuracao ISAPI."""
     for auth in (HTTPDigestAuth(user, password), HTTPBasicAuth(user, password)):
         try:
-            r = requests.put(url, data=corpo.encode("utf-8"), auth=auth, timeout=timeout,
-                             verify=False, headers={"Content-Type": content_type})
+            r = pedir_mesmo_host("put", url, data=corpo.encode("utf-8"), auth=auth, timeout=timeout,
+                                 verify=False, headers={"Content-Type": content_type})
             if r.status_code not in (401, 403) or "<statusCode>" in (r.text or ""):
                 return r.status_code, (r.text or "")
         except Exception as exc:  # timeout, conexao recusada, DNS
@@ -131,7 +132,9 @@ def conferir_alcance(host: str, connector_id: str = "") -> None:
     if _vnat.fora_do_mapa(connector_id, host):
         raise ValueError(f"{host} nao esta nas redes deste conector -- escolha o conector do site do equipamento")
     # Regra unica de destino tambem sem conector: antes voltava sem conferir nada.
-    from app.core.destino import destino_permitido_atual
+    from app.core.destino import destino_permitido_atual, ip_canonico
+    if not ip_canonico(host):
+        raise ValueError(f"{host}: informe o IP (sem nome)")
     final = (_vnat.virtual_ip_for(connector_id, host) if connector_id else host) or host
     pode, motivo = destino_permitido_atual(final)
     if not pode:

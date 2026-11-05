@@ -25,6 +25,7 @@ from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
 
 from app.api.endpoints.cameras import _camera_row_for_ip, _ip_in_inventory, resolve_camera_password
+from app.core.saida import pedir_mesmo_host
 from app.services import connector_routing_vnat as _vnat
 from app.core.paths import BASE_DIR, INVENTORY_JSON_PATH, DVR_INVENTORY_JSON_PATH, NVR_INVENTORY_JSON_PATH, SAIDA_DIR, DATA_DIR
 from app.core.tenant_context import get_current_tenant_slug, tenant_recorder_inventory_path, tenant_scoped_path
@@ -1035,7 +1036,7 @@ def _request_with_auth(url: str, user: str, password: str, timeout: int = 8) -> 
     last_err = ""
     for auth in (HTTPDigestAuth(user, password), (user, password)):
         try:
-            r = requests.get(url, auth=auth, timeout=timeout, verify=False, headers={"Accept": "*/*"})
+            r = pedir_mesmo_host("get", url, auth=auth, timeout=timeout, verify=False, headers={"Accept": "*/*"})
             if _bool_ok(r):
                 return True, ""
             last_err = f"HTTP {r.status_code}"
@@ -2039,8 +2040,8 @@ def maintenance_change_ip_confirmar(payload: Dict[str, Any]) -> Dict[str, Any]:
     atende = False
     for auth in (HTTPDigestAuth(user, password), HTTPBasicAuth(user, password)):
         try:
-            r = requests.get(f"http://{alvo}/ISAPI/System/deviceInfo",
-                             auth=auth, timeout=6, verify=False)
+            r = pedir_mesmo_host("get", f"http://{alvo}/ISAPI/System/deviceInfo",
+                                 auth=auth, timeout=6, verify=False)
             if r.status_code == 200 and "<DeviceInfo" in (r.text or ""):
                 mac = re.search(r"<macAddress>([^<]*)</macAddress>", r.text or "")
                 mac_lido = (mac.group(1).strip().lower() if mac else "")
@@ -2050,8 +2051,8 @@ def maintenance_change_ip_confirmar(payload: Dict[str, Any]) -> Dict[str, Any]:
                             "error": f"{new_ip} responde, mas e outro equipamento ({mac_lido})"}
                 atende = True
                 break
-            r = requests.get(f"http://{alvo}/cgi-bin/magicBox.cgi?action=getSoftwareVersion",
-                             auth=auth, timeout=6, verify=False)
+            r = pedir_mesmo_host("get", f"http://{alvo}/cgi-bin/magicBox.cgi?action=getSoftwareVersion",
+                                 auth=auth, timeout=6, verify=False)
             if r.status_code == 200 and "version=" in (r.text or ""):
                 atende = True
                 break

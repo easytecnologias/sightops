@@ -92,6 +92,23 @@ def get_olt(olt_id: int) -> Optional[Dict[str, Any]]:
     return _public(row) if row else None
 
 
+def _conferir_host(tenant: str, host: str, connector_id: str) -> None:
+    """OLT cadastrada nao exige dono (IP de gerencia pode estar fora da LAN
+    coletada), mas nao aponta para rede interna nem de outro cliente: o laco de
+    saude SNMP e as coletas vao neste host sem ninguem olhando."""
+    from app.core.destino import destino_permitido, ip_canonico
+    from app.services import connector_routing_vnat as vnat
+    if not ip_canonico(host):
+        raise ValueError("informe o IP da OLT (sem nome)")
+    if vnat.fora_do_mapa(connector_id, host):
+        raise ValueError(f"{host} nao esta nas redes do conector escolhido")
+    final = (vnat.virtual_ip_for(connector_id, host) if connector_id else host) or host
+    pode, motivo = destino_permitido(tenant, final, exigir_dono=False)
+    if not pode:
+        logger.warning("OLT %s recusada no cadastro do cliente %s: %s", host, tenant, motivo)
+        raise ValueError(f"{host}: {motivo}")
+
+
 def save_olt(payload: Dict[str, Any]) -> Dict[str, Any]:
     """Cria ou atualiza. `id` no payload significa atualizar.
 
@@ -106,6 +123,7 @@ def save_olt(payload: Dict[str, Any]) -> Dict[str, Any]:
         raise ValueError("nome da OLT e obrigatorio")
     if not host:
         raise ValueError("IP/host da OLT e obrigatorio")
+    _conferir_host(tenant, host, _text(payload.get("connector_id")))
 
     olt_id = payload.get("id")
     senha = str(payload.get("password") or "")

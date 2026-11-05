@@ -12,6 +12,8 @@ import requests
 from fastapi import HTTPException
 from requests.auth import HTTPDigestAuth
 
+from app.core.saida import pedir_mesmo_host
+
 _TIMEOUT = 10.0
 _ACCESS_REC_LIMIT = 1024
 _ACCESS_REC_LOOKBACK_DAYS = 90
@@ -73,9 +75,12 @@ def _conferir_destino(host: str) -> None:
     cadastro, que o cliente digita): sem isso a controladora apontava para a
     rede de outro cliente, para a rede interna ou para LAN real isolada. Nao
     exige dono: controladora cadastrada pode estar fora da LAN coletada."""
-    from app.core.destino import destino_permitido
+    from app.core.destino import destino_permitido, ip_canonico
     from app.core.tenant_context import get_current_tenant_slug
-    pode, motivo = destino_permitido(get_current_tenant_slug(), host, exigir_dono=False)
+    ip = ip_canonico(host)  # nome seria resolvido de novo na conexao (DNS rebinding)
+    if not ip:
+        raise HTTPException(status_code=400, detail=f"controladora {host}: informe o IP (sem nome)")
+    pode, motivo = destino_permitido(get_current_tenant_slug(), ip, exigir_dono=False)
     if not pode:
         raise HTTPException(status_code=403, detail=f"controladora {host}: {motivo}")
 
@@ -256,7 +261,7 @@ def _get_direto(device: Dict[str, Any], path: str, params: Dict[str, Any] | None
     if params:
         url = f"{url}?{urlencode(params)}"
     try:
-        resp = requests.get(url, auth=_auth(device), timeout=_TIMEOUT)
+        resp = pedir_mesmo_host("get", url, auth=_auth(device), timeout=_TIMEOUT)
     except requests.ConnectTimeout as exc:
         raise _TunelIndisponivel("tempo esgotado ao conectar") from exc
     except requests.ConnectionError as exc:
@@ -290,7 +295,7 @@ def _get(device: Dict[str, Any], path: str, params: Dict[str, Any] | None = None
     if params:
         url = f"{url}?{urlencode(params)}"
     try:
-        resp = requests.get(url, auth=_auth(device), timeout=_TIMEOUT)
+        resp = pedir_mesmo_host("get", url, auth=_auth(device), timeout=_TIMEOUT)
     except requests.ConnectTimeout as exc:
         raise HTTPException(status_code=502, detail="Tempo esgotado ao conectar no IP do dispositivo.") from exc
     except requests.ConnectionError as exc:
@@ -334,7 +339,7 @@ def _post_direto(device: Dict[str, Any], path_with_query: str, payload: Dict[str
         # controladora processar biometria, e passa MUITO dos 10s de _TIMEOUT.
         # Sem isso o POST estoura, cai no agente e falha por Digest -- era o que
         # deixava o sync das pessoas em "falhou".
-        return requests.post(url, auth=_auth(device), json=payload, timeout=_CONNECTOR_JOB_TIMEOUT)
+        return pedir_mesmo_host("post", url, auth=_auth(device), json=payload, timeout=_CONNECTOR_JOB_TIMEOUT)
     except requests.ConnectTimeout as exc:
         raise _TunelIndisponivel("tempo esgotado ao conectar") from exc
     except requests.ConnectionError as exc:
@@ -358,7 +363,7 @@ def _post_json(device: Dict[str, Any], path_with_query: str, payload: Dict[str, 
         return _check_device_response(_post_json_via_connector(device, path_with_query, payload, action_label), action_label)
     url = f"{_base_url_direct(device)}{path_with_query}"
     try:
-        resp = requests.post(url, auth=_auth(device), json=payload, timeout=_TIMEOUT)
+        resp = pedir_mesmo_host("post", url, auth=_auth(device), json=payload, timeout=_TIMEOUT)
     except requests.ConnectTimeout as exc:
         raise HTTPException(status_code=502, detail="Tempo esgotado ao conectar no IP do dispositivo.") from exc
     except requests.ConnectionError as exc:
@@ -657,7 +662,7 @@ def provision_person(device: Dict[str, Any], person: Dict[str, Any], photo_bytes
         files["Photo"] = ("face.jpg", photo_bytes, "image/jpeg")
     url = f"{_base_url_direct(device)}/cgi-bin/AccessUser.cgi"
     try:
-        resp = requests.post(url, auth=_auth(device), files=files, timeout=_TIMEOUT)
+        resp = pedir_mesmo_host("post", url, auth=_auth(device), files=files, timeout=_TIMEOUT)
     except requests.RequestException as exc:
         raise HTTPException(status_code=502, detail=f"Nao foi possivel provisionar no dispositivo: {exc}") from exc
     if resp.status_code == 401:
@@ -688,7 +693,7 @@ def remove_person(device: Dict[str, Any], person_id: str) -> Dict[str, Any]:
     url = f"{_base_url_direct(device)}/cgi-bin/AccessUser.cgi"
     files = {"json": (None, json.dumps({"action": "removeMulti", "UserIDList": [str(person_id)]}))}
     try:
-        resp = requests.post(url, auth=_auth(device), files=files, timeout=_TIMEOUT)
+        resp = pedir_mesmo_host("post", url, auth=_auth(device), files=files, timeout=_TIMEOUT)
     except requests.RequestException as exc:
         raise HTTPException(status_code=502, detail=f"Nao foi possivel remover no dispositivo: {exc}") from exc
     text = (resp.text or "").strip()

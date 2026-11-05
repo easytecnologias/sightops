@@ -18,6 +18,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Any, Dict, List
 
+from app.core.destino import destino_final_recusado
 from app.services import connector_routing_vnat as _vnat
 from app.services.snmp_client import GETNEXT_REQUEST, Snmp
 
@@ -136,6 +137,10 @@ def coletar_saude_olts(olts: List[Dict[str, Any]], community: str) -> Dict[str, 
         try:
             _vnat.set_olt_reach_connector(olt.get("connector_id") or "")
             host = _vnat.reach_olt_ip(olt.get("host")) or olt.get("host")
+            # SNMP e UDP: nao passa pela trava de saida (TCP). O except abaixo loga.
+            recusa = destino_final_recusado(host)
+            if recusa:
+                raise ValueError(f"destino recusado: {recusa}")
             saude = coletar_saude_fiberhome(host, community)
             saude.update({"ok": True, "error": ""})
         except Exception as exc:

@@ -179,9 +179,11 @@ def _registered_request(req: Any) -> Any:
     updates = {key: value for key, value in updates.items() if key in allowed}
     # OLT cadastrada do cliente: sem exigir dono (IP de gerencia pode estar
     # fora da LAN coletada), mas rede interna e faixa/tunel alheio nao.
-    from app.core.destino import destino_permitido
+    from app.core.destino import destino_permitido, ip_canonico
     from app.services import connector_routing_vnat as _vnat
     host = str(olt.get("host") or "").strip()
+    if not ip_canonico(host):
+        raise HTTPException(status_code=400, detail=f"OLT {host}: cadastre o IP (sem nome)")
     final = (_vnat.virtual_ip_for(connector_id, host) if connector_id else host) or host
     pode, motivo = destino_permitido(get_current_tenant_slug(), final, exigir_dono=False)
     if not pode:

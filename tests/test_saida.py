@@ -37,6 +37,7 @@ def trava(monkeypatch):
     monkeypatch.setattr(vnat, "_load_map", lambda: MAPA)
     monkeypatch.setattr(D, "_redes_do_container", lambda caminho="": [_N("172.30.0.0/16"), _N("10.0.1.0/24")])
     monkeypatch.setattr(S, "_nomes_de_servico", lambda: {"192.168.10.77"})
+    monkeypatch.setattr("app.services.connector_service._load_connectors", lambda: [])
     monkeypatch.setenv("SIGHTOPS_SAIDA_MODO", "valer")
     monkeypatch.delenv("SIGHTOPS_SAIDA_PERMITIDA", raising=False)
     S.desinstalar()

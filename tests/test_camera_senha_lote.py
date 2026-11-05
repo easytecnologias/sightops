@@ -14,7 +14,7 @@ class _R:
 def _cenario(monkeypatch, cameras, senha_certa, guardadas, sem_resposta=()):
     tentativas, salvas, site_trocado = {}, {}, []
 
-    def get(url, auth=None, timeout=0, verify=True):
+    def get(url, auth=None, timeout=0, verify=True, allow_redirects=True):
         ip = url.split("//")[1].split("/")[0]
         tentativas[ip] = tentativas.get(ip, 0) + 1
         if ip in sem_resposta:

@@ -1076,13 +1076,15 @@ def save_device(payload: Dict[str, Any]) -> Dict[str, Any]:
     if host:
         # Host digitado: com conector, ele e quem leva (e tem de ser do cliente);
         # sem conector a API conecta nele, e vale a regra unica de destino.
-        from app.core.destino import destino_permitido
+        from app.core.destino import destino_permitido, ip_canonico
         from app.services import connector_routing_vnat as vnat
+        if not ip_canonico(host):
+            raise ValueError("Informe o IP da controladora (sem nome).")
         if connector_id:
             if not vnat._conector_do_cliente(connector_id):
                 raise ValueError("Conector nao pertence a este cliente.")
         else:
-            pode, motivo = destino_permitido(tenant, host, exigir_dono=False)
+            pode, motivo = destino_permitido(tenant, ip_canonico(host), exigir_dono=False)
             if not pode:
                 raise ValueError(f"{host}: {motivo}")
     with db_store._conn() as c:
