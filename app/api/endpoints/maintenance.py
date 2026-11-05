@@ -898,7 +898,7 @@ def _bool_ok(resp: requests.Response | None) -> bool:
     return resp.status_code in (200, 201, 202, 204)
 
 
-_TRANSITO_ISOLADO = ipaddress.ip_network("10.201.0.0/24")
+_TRANSITO_ISOLADO = _vnat.TRANSITO_ISOLADO
 
 
 def _ip_em_transito_isolado(ip: str) -> bool:
@@ -951,7 +951,7 @@ def _connector_tunnel_ip_owner(ip: str) -> str:
             # em producao, PORTO REAL abria a TELHA e MATA GRANDE a JAPARATINGA.
             if _ip_em_transito_isolado(alvo):
                 return cid
-            if (_vnat.virtual_ip_for(cid, alvo) or alvo) != alvo:
+            if (_vnat.virtual_ip_for(cid, alvo) or alvo) not in (alvo, _vnat.IP_BLOQUEADO):
                 return cid
             return ""
     except Exception:
@@ -2028,6 +2028,12 @@ def maintenance_change_ip_confirmar(payload: Dict[str, Any]) -> Dict[str, Any]:
     cid = _connector_for(ip)
     alvo = (_vnat.virtual_ip_for(cid, new_ip) if cid else "") or new_ip
     mac_esperado = _as_str(linha.get("mac")).lower().replace("-", ":")
+    # new_ip vem do pedido e a senha vai nele (Digest e Basic): sem conferir o
+    # IP final, a rota testava a senha guardada em qualquer IP.
+    from app.core.destino import destino_permitido_atual
+    pode, motivo = destino_permitido_atual(alvo)
+    if not pode:
+        raise HTTPException(status_code=403, detail=f"{new_ip}: {motivo}")
 
     from requests.auth import HTTPDigestAuth, HTTPBasicAuth
     atende = False

@@ -41,7 +41,7 @@ def _has_vnat_mapping(device: Dict[str, Any]) -> bool:
     try:
         from app.services import connector_routing_vnat as _vnat
         v = _vnat.virtual_ip_for(cid, host)
-        return bool(v and v != host)
+        return bool(v and v != host and v != _vnat.IP_BLOQUEADO)
     except Exception:
         return False
 
@@ -64,7 +64,20 @@ def _base_url_direct(device: Dict[str, Any]) -> str:
                 host = v
         except Exception:
             pass
+    _conferir_destino(host)
     return f"http://{host}"
+
+
+def _conferir_destino(host: str) -> None:
+    """Regra unica de destino no IP em que a API conecta (o host vem do
+    cadastro, que o cliente digita): sem isso a controladora apontava para a
+    rede de outro cliente, para a rede interna ou para LAN real isolada. Nao
+    exige dono: controladora cadastrada pode estar fora da LAN coletada."""
+    from app.core.destino import destino_permitido
+    from app.core.tenant_context import get_current_tenant_slug
+    pode, motivo = destino_permitido(get_current_tenant_slug(), host, exigir_dono=False)
+    if not pode:
+        raise HTTPException(status_code=403, detail=f"controladora {host}: {motivo}")
 
 
 def _connector_id(device: Dict[str, Any]) -> str:
@@ -273,7 +286,7 @@ def _get(device: Dict[str, Any], path: str, params: Dict[str, Any] | None = None
             except _TunelIndisponivel:
                 pass  # tunel fora do ar: vale tentar pelo agente
         return _get_via_connector(device, path, params)  # type: ignore[return-value]
-    url = f"{_base_url(device)}{path}"
+    url = f"{_base_url_direct(device)}{path}"
     if params:
         url = f"{url}?{urlencode(params)}"
     try:
@@ -343,7 +356,7 @@ def _post_json(device: Dict[str, Any], path_with_query: str, payload: Dict[str, 
             except _TunelIndisponivel:
                 pass  # tunel fora do ar: vale tentar pelo agente
         return _check_device_response(_post_json_via_connector(device, path_with_query, payload, action_label), action_label)
-    url = f"{_base_url(device)}{path_with_query}"
+    url = f"{_base_url_direct(device)}{path_with_query}"
     try:
         resp = requests.post(url, auth=_auth(device), json=payload, timeout=_TIMEOUT)
     except requests.ConnectTimeout as exc:
@@ -642,7 +655,7 @@ def provision_person(device: Dict[str, Any], person: Dict[str, Any], photo_bytes
     files = {"json": (None, json.dumps({"action": "insertMulti", "Info": [info]}))}
     if photo_bytes:
         files["Photo"] = ("face.jpg", photo_bytes, "image/jpeg")
-    url = f"{_base_url(device)}/cgi-bin/AccessUser.cgi"
+    url = f"{_base_url_direct(device)}/cgi-bin/AccessUser.cgi"
     try:
         resp = requests.post(url, auth=_auth(device), files=files, timeout=_TIMEOUT)
     except requests.RequestException as exc:
@@ -672,7 +685,7 @@ def remove_person(device: Dict[str, Any], person_id: str) -> Dict[str, Any]:
             "a remocao",
         )
         return {"ok": True, "raw": text}
-    url = f"{_base_url(device)}/cgi-bin/AccessUser.cgi"
+    url = f"{_base_url_direct(device)}/cgi-bin/AccessUser.cgi"
     files = {"json": (None, json.dumps({"action": "removeMulti", "UserIDList": [str(person_id)]}))}
     try:
         resp = requests.post(url, auth=_auth(device), files=files, timeout=_TIMEOUT)

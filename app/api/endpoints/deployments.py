@@ -1571,6 +1571,10 @@ def api_deployments_commit_camera(payload: Dict[str, Any]) -> Dict[str, Any]:
         "deployment_id": _text(payload.get("id")),
         "installed_at": _now(),
     }
+    from app.core.destino import linhas_recusadas
+    recusadas = linhas_recusadas(get_current_tenant_slug(), [row])
+    if recusadas:
+        raise HTTPException(status_code=403, detail=f"{ip}: {next(iter(recusadas.values()))}")
     rows = load_inventory_json(mode=inv_mode) or []
     key = inventory_row_key(row)
     updated = False

@@ -222,6 +222,8 @@ def _verificar_nvr(host: str, porta: int, linhas: List[Dict[str, Any]], cameras_
         # o probe manda a senha em Basic se o Digest falhar. IP_BLOQUEADO =
         # conector nao e deste cliente: sondar so geraria "gravador fora" falso.
         from app.services import connector_routing_vnat as vnat
+        if vnat.fora_do_mapa(conector, host):
+            raise RuntimeError("IP fora das LANs mapeadas do conector; nao consultado")
         virtual = vnat.virtual_ip_for(conector, host)
         if not virtual or virtual == vnat.IP_BLOQUEADO:
             raise RuntimeError("conector do gravador nao pertence a este cliente")

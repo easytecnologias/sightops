@@ -30,8 +30,9 @@ def _texto(valor: Any) -> str:
 
 
 def _conector_do_gravador(ip: str) -> str:
-    from app.api.endpoints.nvr import _recorder_connector_for_host
-    return _recorder_connector_for_host(ip) or ""
+    # NVR e DVR tem inventarios separados: a rota de DVR resolve pelo dela.
+    from app.api.endpoints import dvr, nvr
+    return nvr._recorder_connector_for_host(ip) or dvr._recorder_connector_for_host(ip) or ""
 
 
 def guarda_destino(*campos: str):

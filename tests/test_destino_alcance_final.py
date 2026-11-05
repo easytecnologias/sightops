@@ -37,10 +37,11 @@ def parque(rede, monkeypatch):
     conn-d isolado de B em 10.0.0.0/24 e conn-c de A SEM mapa na mesma LAN
     (rede direta de A); conn-x de B sem mapa."""
     mapa = dict(MAPA)
-    mapa["conn-a"] = MAPA["conn-a"] + [(_N("172.16.0.0/19"), _N("10.208.32.0/19"))]
+    mapa["conn-a"] = MAPA["conn-a"] + [(_N("172.16.0.0/19"), _N("10.208.32.0/19")),
+                                       (_N("10.70.0.0/24"), _N("10.208.70.0/24"))]
     mapa["conn-d"] = [(_N("10.0.0.0/24"), _N("10.208.2.0/24"))]
     linhas = [dict(c) for c in CONECTORES] + [
-        {"id": "conn-c", "tenant_slug": "cliente-a", "host": {"lan_networks": ["10.0.0.0/24"]}},
+        {"id": "conn-c", "tenant_slug": "cliente-a", "host": {"lan_networks": ["10.0.0.0/24", "10.70.0.0/24"]}},
         {"id": "conn-d", "tenant_slug": "cliente-b", "host": {"lan_networks": ["10.0.0.0/24"]}},
         {"id": "conn-x", "tenant_slug": "cliente-b", "host": {"lan_networks": ["10.60.0.0/24"]}},
     ]
@@ -56,8 +57,11 @@ def test_ip_real_de_lan_isolada_nao_e_destino_de_conexao(parque):
     ok, motivo = D.destino_permitido("cliente-a", "192.168.10.9")
     assert not ok and "use o IP virtual" in motivo
     assert D.destino_permitido("cliente-a", "10.208.0.9") == (True, "")
-    # LAN do conector SEM mapa do proprio cliente segue (rede direta dele)
-    assert D.destino_permitido("cliente-a", "10.0.0.5") == (True, "")
+    # LAN do conector SEM mapa do proprio cliente segue (rede direta dele)...
+    assert D.destino_permitido("cliente-a", "10.70.0.5") == (True, "")
+    # ...menos a que coincide com LAN real de conector isolado de OUTRO cliente
+    ok, motivo = D.destino_permitido("cliente-a", "10.0.0.5")
+    assert not ok and "use o IP virtual" in motivo
     ok, motivo = D.destino_permitido("cliente-b", "10.0.0.5")
     assert not ok and "use o IP virtual" in motivo
     # mesma regra sem exigir dono (OLT cadastrada, ARP da ativacao)

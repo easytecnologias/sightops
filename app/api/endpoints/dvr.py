@@ -218,7 +218,12 @@ def _reach_recorder(ip: str) -> str:
     cid = _rec_req_connector.get() or dica_do_pedido() or _recorder_connector_for_host(ip)
     # Mesma resolucao da guarda de destino: o IP aprovado e o IP conectado.
     from app.api.endpoints.maintenance import _reach
-    return _reach(ip, cid) or ip
+    from app.core.destino import destino_final_recusado
+    final = _reach(ip, cid) or ip
+    motivo = destino_final_recusado(final)
+    if motivo:
+        raise HTTPException(status_code=403, detail=f"{ip}: {motivo}")
+    return final
 
 
 def _base(ip: str, port: int) -> str:

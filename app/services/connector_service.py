@@ -833,12 +833,13 @@ def _ruijie_poll_row(row: Dict[str, Any]) -> Dict[str, Any]:
     ctx = set_current_tenant_slug(_text(row.get("tenant_slug")))
     try:
         destino = _vnat.virtual_ip_for(connector_id, gw_host) or gw_host
+        fora_do_mapa = _vnat.fora_do_mapa(connector_id, gw_host)
     finally:
         reset_current_tenant_slug(ctx)
     try:
-        if destino == _vnat.IP_BLOQUEADO:
+        if destino == _vnat.IP_BLOQUEADO and not fora_do_mapa:
             raise RuntimeError("caminho isolado recusado para este conector")
-        if destino == gw_host and _ruijie_isolado(row):
+        if fora_do_mapa or (destino == gw_host and _ruijie_isolado(row)):
             # Isolado (ou em transicao) e o gateway sem IP virtual: nunca pelo
             # IP real (tabela geral).
             raise RuntimeError("gateway ainda sem IP virtual -- aguardando o provisionador")

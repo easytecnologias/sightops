@@ -82,6 +82,8 @@ logger = logging.getLogger(__name__)
 # Por isso nao e uma excecao: em 06/10/2026 havia 19 chamadores que faziam
 # `except Exception: return ip_real` e anulariam o bloqueio.
 IP_BLOQUEADO = "240.0.0.1"
+# Transito dos tuneis isolados: cada conector tem um /31 com rota propria.
+TRANSITO_ISOLADO = ipaddress.ip_network("10.201.0.0/24")
 
 _DONO_TTL = 30.0
 _dono_cache: dict = {}  # (tenant_slug, connector_id) -> (permitido, quando)
@@ -134,7 +136,9 @@ def _conector_existe(cid: str) -> bool:
 def virtual_ip_for(connector_id: Optional[str], real_ip: Optional[str]) -> Optional[str]:
     """IP que a API deve usar pra falar com `real_ip` deste conector.
 
-    Sem mapa/alocacao (ou IP fora das LANs mapeadas) -> devolve `real_ip` intacto.
+    Sem mapa/alocacao -> devolve `real_ip` intacto. Conector COM mapa e IP privado
+    fora dele -> IP_BLOQUEADO: o IP real sairia pela rota do host, que leva LANs
+    de conector isolado para outro tunel (ver fora_do_mapa).
     Preserva os bits de host: 192.168.10.50 -> 10.208.0.50 se a LAN mapeia
     192.168.10.0/24 -> 10.208.0.0/24.
     """
@@ -157,7 +161,28 @@ def virtual_ip_for(connector_id: Optional[str], real_ip: Optional[str]) -> Optio
         if ip in real_net:
             offset = int(ip) - int(real_net.network_address)
             return str(ipaddress.ip_address(int(virt_net.network_address) + offset))
-    return real_ip
+    return IP_BLOQUEADO if _fora_dos_pares(ip, pares) else real_ip
+
+
+def _fora_dos_pares(ip: ipaddress._BaseAddress, pares: List[_Pair]) -> bool:
+    """IP que nao se alcanca por este mapa. Ficam de fora: o proprio IP virtual
+    (idempotente), internet e o transito /31 exclusivo do conector."""
+    if not pares or ip.is_global or ip in TRANSITO_ISOLADO:
+        return False
+    return not any(ip in real or ip in virt for real, virt in pares)
+
+
+def fora_do_mapa(connector_id: Optional[str], ip_texto: Optional[str]) -> bool:
+    """Conector do cliente, com mapa, e IP privado fora dele. Para quem precisa
+    dizer "IP fora das redes do conector" em vez de "conector de outro cliente",
+    ou segue pelo MikroTik (que enxerga a LAN) com o IP real."""
+    cid = str(connector_id or "").strip()
+    try:
+        ip = ipaddress.ip_address(str(ip_texto or "").strip())
+    except ValueError:
+        return False
+    pares = _load_map().get(cid, []) if cid else []
+    return bool(pares) and _conector_do_cliente(cid) and _fora_dos_pares(ip, pares)
 
 
 def real_ip_for(connector_id: Optional[str], virtual_ip: Optional[str]) -> Optional[str]:
@@ -249,15 +274,17 @@ def _virtualize_token(cid: str, token: str) -> str:
         except ValueError:
             return token
         v = virtual_ip_for(cid, str(net.network_address))
-        return token if v == str(net.network_address) else f"{v}/{net.prefixlen}"
+        if v == str(net.network_address) or fora_do_mapa(cid, str(net.network_address)):
+            return token
+        return f"{v}/{net.prefixlen}"
     if "-" in token:  # range "a-b" (b pode ser IP inteiro ou so o ultimo octeto)
         a, _, b = token.partition("-")
         va = virtual_ip_for(cid, a.strip())
-        if va == a.strip():
+        if va == a.strip() or fora_do_mapa(cid, a):
             return token
         b = b.strip()
         return f"{va}-{virtual_ip_for(cid, b)}" if "." in b else f"{va}-{b}"
-    return virtual_ip_for(cid, token)  # IP unico
+    return token if fora_do_mapa(cid, token) else virtual_ip_for(cid, token)  # IP unico
 
 
 def virtualize_target(connector_id: Optional[str], target: Optional[str]) -> Optional[str]:

@@ -1073,6 +1073,18 @@ def save_device(payload: Dict[str, Any]) -> Dict[str, Any]:
     access_direction = normalize_access_direction(payload.get("access_direction"))
     active = _bool_int(payload.get("active"), True)
     raw_password = payload.get("password")
+    if host:
+        # Host digitado: com conector, ele e quem leva (e tem de ser do cliente);
+        # sem conector a API conecta nele, e vale a regra unica de destino.
+        from app.core.destino import destino_permitido
+        from app.services import connector_routing_vnat as vnat
+        if connector_id:
+            if not vnat._conector_do_cliente(connector_id):
+                raise ValueError("Conector nao pertence a este cliente.")
+        else:
+            pode, motivo = destino_permitido(tenant, host, exigir_dono=False)
+            if not pode:
+                raise ValueError(f"{host}: {motivo}")
     with db_store._conn() as c:
         if raw_password:
             password_enc = encrypt(str(raw_password))

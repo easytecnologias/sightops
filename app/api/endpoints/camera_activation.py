@@ -146,7 +146,7 @@ def _ips_de_fabrica_do_site(connector_id: str) -> List[str]:
             virtual = _vnat.virtual_ip_for(connector_id, ip)
         except Exception:
             virtual = ""
-        if virtual and virtual != ip:
+        if virtual and virtual not in (ip, _vnat.IP_BLOQUEADO):
             saida.append(ip)
     return saida
 

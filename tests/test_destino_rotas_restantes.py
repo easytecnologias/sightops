@@ -134,8 +134,8 @@ def test_varredura_manual_com_ip_alheio_da_403(ativacao):
 def test_varredura_pelo_arp_pula_so_destino_alheio(ativacao, monkeypatch):
     monkeypatch.setattr(CA, "_ips_do_conector", lambda cid: ["192.168.10.7", "10.208.1.5", "127.0.0.1", "10.77.0.9"])
     CA.api_activation_scan({"connector_id": "conn-a"}, _Req())
-    # o IP fora das LANs coletadas fica (nao exige dono); faixa alheia e loopback saem
-    assert sorted(set(ativacao)) == ["10.208.0.7", "10.77.0.9"]
+    # so o que o mapa leva: faixa alheia, loopback e IP fora do mapa saem
+    assert sorted(set(ativacao)) == ["10.208.0.7"]
 
 
 @pytest.mark.parametrize("porta", ["80@10.208.5.5", "8080/x", "0x50", "99999", "-1"])

@@ -28,6 +28,7 @@ from typing import Any, Dict, List
 import requests
 from requests.auth import HTTPDigestAuth
 
+from app.core.destino import destino_permitido
 from app.core.tenant_context import get_current_tenant_slug
 from app.services import connector_routing_vnat as vnat
 from app.services.camera_credentials import (
@@ -64,14 +65,13 @@ def conferir_senha(alvo: str, user: str, senha: str, marca: str = "") -> str:
 
 def _alcance(ip: str, conector: str) -> str:
     """IP para falar com a camera; '' quando so daria pelo IP real."""
-    if not conector:
-        return ip
-    virtual = vnat.virtual_ip_for(conector, ip)
+    virtual = vnat.virtual_ip_for(conector, ip) if conector else ip
     if not virtual or virtual == vnat.IP_BLOQUEADO:
         return ""
-    if virtual == ip and vnat.has_mapping(conector):
+    if conector and virtual == ip and vnat.has_mapping(conector):
         return ""
-    return virtual
+    # A linha do inventario nao prova posse e a senha vai no pedido.
+    return virtual if destino_permitido(get_current_tenant_slug(), virtual)[0] else ""
 
 
 def cameras_do_site(site: str) -> List[Dict[str, Any]]:

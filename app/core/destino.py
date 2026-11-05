@@ -35,6 +35,7 @@ import logging
 import os
 import re
 import socket
+import time
 from typing import Dict, Iterable, List, Tuple
 
 logger = logging.getLogger(__name__)
@@ -168,6 +169,7 @@ class _Contexto:
                                          for c in cs._extract_connector_lans(row, include_saved_tunnel=False))
             except (ValueError, TypeError, AttributeError) as exc:
                 logger.warning("destino: LANs do conector %s ilegiveis (%s)", row.get("id"), exc)
+        meus_ids = {str(row.get("id") or "").strip() for row in linhas}
         for row in linhas:
             cid = str(row.get("id") or "").strip()
             if cid:
@@ -208,7 +210,14 @@ class _Contexto:
             if cid:
                 self.redes_do_conector[cid] = redes
             if not mapa.get(cid):
-                self.diretas_minhas.extend(redes)
+                # LAN que conector sem mapa declara nao prova nada sobre rede
+                # igual a de conector isolado de OUTRO cliente: a rota do host e
+                # uma so, e o pacote cairia no tunel dele.
+                self.diretas_minhas.extend(
+                    r for r in redes
+                    if not any(r.version == a.version and r.overlaps(a)
+                               for outro, pares in mapa.items() if str(outro) not in meus_ids
+                               for a, _v in pares))
 
     def _equipamento_meu(self, ip: str) -> bool:
         """IP de equipamento com linha apontando para conector deste cliente."""
@@ -369,6 +378,28 @@ def destino_permitido(tenant_slug: str, ip: str, exigir_dono: bool = True) -> Tu
     return (not motivo), motivo
 
 
+_FINAL_TTL = 30.0
+_finais: Dict[Tuple[str, str], Tuple[float, str]] = {}
+
+
+def destino_final_recusado(ip: str) -> str:
+    """Motivo para nao conectar no IP final de equipamento JA CADASTRADO (nao
+    exige dono); "" = pode. Cache curto: um gravador monta a URL a cada canal, e
+    o _Contexto rele os conectores."""
+    from app.core.tenant_context import get_current_tenant_slug
+    slug = get_current_tenant_slug()
+    chave = (str(slug or ""), str(ip))
+    agora = time.monotonic()
+    achado = _finais.get(chave)
+    if achado and agora - achado[0] < _FINAL_TTL:
+        return achado[1]
+    motivo = destino_permitido(slug, ip, exigir_dono=False)[1]
+    if len(_finais) > 4096:
+        _finais.clear()
+    _finais[chave] = (agora, motivo)
+    return motivo
+
+
 def destino_permitido_atual(ip: str) -> Tuple[bool, str]:
     """Atalho com o cliente do contexto da requisicao."""
     from app.core.tenant_context import get_current_tenant_slug
@@ -451,5 +482,5 @@ def sem_faixa_virtual_alheia(tenant_slug: str, linhas: List[Dict]) -> List[Dict]
     return saida
 
 
-__all__ = ["destino_permitido", "destinos_fixados", "destinos_permitidos", "destino_permitido_atual", "redes_bloqueadas",
+__all__ = ["destino_final_recusado", "destino_permitido", "destinos_fixados", "destinos_permitidos", "destino_permitido_atual", "redes_bloqueadas",
            "ip_canonico", "linhas_recusadas", "sem_faixa_virtual_alheia", "varredura_recusada"]

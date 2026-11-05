@@ -128,6 +128,8 @@ def conferir_alcance(host: str, connector_id: str = "") -> None:
     112 s para nao trazer nada, com a senha do cliente. Mesma regra do
     tr069_service e do nvr_status_service.
     """
+    if _vnat.fora_do_mapa(connector_id, host):
+        raise ValueError(f"{host} nao esta nas redes deste conector -- escolha o conector do site do equipamento")
     # Regra unica de destino tambem sem conector: antes voltava sem conferir nada.
     from app.core.destino import destino_permitido_atual
     final = (_vnat.virtual_ip_for(connector_id, host) if connector_id else host) or host

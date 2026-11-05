@@ -108,7 +108,9 @@ def ip_pelo_conector(connector_id: str, host: str) -> str:
     """IP virtual do caixa no conector do cliente; recusa qualquer outro caminho."""
     if not connector_id:
         raise ErroInstalacao("Este caixa não tem conector. A instalação só é feita pelo túnel do conector da loja.")
-    from app.services.connector_routing_vnat import IP_BLOQUEADO, virtual_ip_for
+    from app.services.connector_routing_vnat import IP_BLOQUEADO, fora_do_mapa, virtual_ip_for
+    if fora_do_mapa(connector_id, host):
+        raise ErroInstalacao("O IP %s não está nas redes do conector da loja. Confira o IP do caixa." % host)
     vip = virtual_ip_for(connector_id, host)
     if not vip or vip == IP_BLOQUEADO:
         raise ErroInstalacao("O conector deste caixa não pertence a este cliente.")

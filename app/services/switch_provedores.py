@@ -73,6 +73,8 @@ def destino(connector_id: str, ip: str) -> str:
         raise RouterOSErro("escolha o conector por onde a switch é alcançada")
     if not vnat.has_mapping(connector_id):
         raise RouterOSErro("o conector não tem rede isolada mapeada: a leitura só sai pelo IP virtual")
+    if vnat.fora_do_mapa(connector_id, ip):
+        raise RouterOSErro(f"o IP {ip} está fora das redes do conector: a leitura só sai pelo IP virtual")
     virtual = vnat.virtual_ip_for(connector_id, ip)
     if not virtual or virtual == vnat.IP_BLOQUEADO:
         raise RouterOSErro("conector não pertence a este cliente")
