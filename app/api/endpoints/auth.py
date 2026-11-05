@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 import time
 from typing import Optional, Any, Dict
@@ -7,7 +8,7 @@ from typing import Optional, Any, Dict
 from fastapi import APIRouter, Body, Depends, Header, HTTPException, Request, Response
 from pydantic import BaseModel
 
-from app.core.security import AUTH_COOKIE_NAME
+from app.core.security import AUTH_COOKIE_NAME, ip_do_cliente
 from app.services.auth_store import (
     act_as_tenant,
     auth_enabled,
@@ -40,10 +41,15 @@ from app.services import licensing_service
 from app.core import permissions
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
+logger = logging.getLogger("cam-snapshot")
+
 _LOGIN_FAILS: dict[str, list[float]] = {}
 _LOGIN_WINDOW_SEC = 10 * 60
 _LOGIN_LOCK_SEC = 15 * 60
 _LOGIN_MAX_FAILS = 8
+# Limite so por usuario, de qualquer origem: pega quem troca de IP. Maior que o
+# de IP+usuario porque tambem trava o dono da conta enquanto durar o ataque.
+_LOGIN_MAX_FAILS_USUARIO = 30
 
 
 class BootstrapAdminRequest(BaseModel):
@@ -206,27 +212,30 @@ def _views_sem_acesso(user: Dict[str, Any]) -> list:
 
 
 def _login_key(request: Request, username: str) -> str:
-    forwarded = str(request.headers.get("x-forwarded-for") or "").split(",")[0].strip()
-    ip = forwarded or (request.client.host if request.client else "") or "unknown"
+    ip = ip_do_cliente(request)
     user = str(username or "").strip().lower()[:80]
     return f"{ip}|{user}"
 
 
-def _login_blocked(key: str) -> int:
+def _login_key_usuario(username: str) -> str:
+    return "usuario|" + str(username or "").strip().lower()[:80]
+
+
+def _login_blocked(key: str, maximo: int = _LOGIN_MAX_FAILS) -> int:
     now = time.time()
     items = [ts for ts in _LOGIN_FAILS.get(key, []) if now - ts <= _LOGIN_LOCK_SEC]
     _LOGIN_FAILS[key] = items
-    if len(items) < _LOGIN_MAX_FAILS:
+    if len(items) < maximo:
         return 0
     oldest = min(items)
     return max(1, int(_LOGIN_LOCK_SEC - (now - oldest)))
 
 
-def _login_record_failure(key: str) -> None:
+def _login_record_failure(key: str, maximo: int = _LOGIN_MAX_FAILS) -> None:
     now = time.time()
     items = [ts for ts in _LOGIN_FAILS.get(key, []) if now - ts <= _LOGIN_WINDOW_SEC]
     items.append(now)
-    _LOGIN_FAILS[key] = items[-_LOGIN_MAX_FAILS:]
+    _LOGIN_FAILS[key] = items[-maximo:]
 
 
 def _login_record_success(key: str) -> None:
@@ -291,8 +300,10 @@ def api_auth_bootstrap_admin(req: BootstrapAdminRequest) -> Dict[str, Any]:
 @router.post("/login")
 def api_auth_login(req: LoginRequest, request: Request, response: Response) -> Dict[str, Any]:
     login_key = _login_key(request, req.username)
-    retry_after = _login_blocked(login_key)
+    usuario_key = _login_key_usuario(req.username)
+    retry_after = max(_login_blocked(login_key), _login_blocked(usuario_key, _LOGIN_MAX_FAILS_USUARIO))
     if retry_after > 0:
+        logger.warning("login bloqueado por tentativas: chave %s", login_key)
         raise HTTPException(
             status_code=429,
             detail=f"muitas tentativas de login; tente novamente em {retry_after}s",
@@ -300,8 +311,10 @@ def api_auth_login(req: LoginRequest, request: Request, response: Response) -> D
     user = authenticate_user(req.username, req.password)
     if not user:
         _login_record_failure(login_key)
+        _login_record_failure(usuario_key, _LOGIN_MAX_FAILS_USUARIO)
         raise HTTPException(status_code=401, detail="usuario ou senha invalidos")
     _login_record_success(login_key)
+    _login_record_success(usuario_key)
     ttl_hours = int(os.getenv("AUTH_TOKEN_TTL_HOURS", "24"))
     token = create_access_token(user, label=str(req.label or "web")[:40], ttl_hours=ttl_hours)
     _set_auth_cookie(response, request, str(token.get("access_token") or token.get("token") or ""), ttl_hours)

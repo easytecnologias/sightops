@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ipaddress
 import logging
 import time
 from typing import Any, Dict, Iterable
@@ -10,7 +11,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.core import permissions
 from app.services import historico_service
-from app.core.settings import AppSettings
+from app.core.settings import AppSettings, get_settings
 from app.core.tenant_context import (
     reset_current_tenant_slug,
     reset_current_user,
@@ -29,6 +30,44 @@ ROLE_RANK = {
     "admin": 30,
     "owner": 40,
 }
+
+
+def _ip_valido(valor: Any) -> str:
+    texto = str(valor or "").strip()
+    try:
+        ipaddress.ip_address(texto)
+    except ValueError:
+        return ""
+    return texto
+
+
+def _proxy_confiavel(par: str) -> bool:
+    """Quem entrega a requisicao e proxy nosso? Rede interna (nginx/cloudflared
+    no Docker) ou TRUSTED_PROXIES. A lista sozinha nao basta: o padrao do compose
+    e 127.0.0.1 e o nginx chega por IP do Docker."""
+    if not _ip_valido(par):
+        return False
+    ip = ipaddress.ip_address(par)
+    if ip.is_private or ip.is_loopback:
+        return True
+    lista = str(get_settings().trusted_proxies or "").replace(",", " ").split()
+    return par in lista
+
+
+def ip_do_cliente(request: Any) -> str:
+    """IP de quem chamou, para limite de tentativas.
+
+    Nunca o primeiro valor de X-Forwarded-For: quem chama escreve o que quiser
+    ali, e cada valor novo zerava o limite. CF-Connecting-IP o Cloudflare
+    sobrescreve; X-Real-IP o nginx sobrescreve com quem conectou nele. Os dois
+    so valem vindos de proxy nosso; sem isso, vale quem conectou."""
+    par = str(getattr(getattr(request, "client", None), "host", "") or "")
+    if _proxy_confiavel(par):
+        for cabecalho in ("cf-connecting-ip", "x-real-ip"):
+            ip = _ip_valido(request.headers.get(cabecalho))
+            if ip:
+                return ip
+    return par or "desconhecido"
 
 
 class ApiAuthMiddleware(BaseHTTPMiddleware):

@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.responses import FileResponse
 
 from app.api.endpoints.auth import current_user
+from app.core.security import ip_do_cliente
 from pydantic import BaseModel, Field
 
 import time
@@ -59,8 +60,7 @@ _ATIVA_MAX_FALHAS = 10
 
 
 def _ativa_origem(request: Request) -> str:
-    encaminhado = str(request.headers.get("x-forwarded-for") or "").split(",")[0].strip()
-    return encaminhado or (request.client.host if request.client else "") or "desconhecida"
+    return ip_do_cliente(request)
 
 
 def _ativa_bloqueada(chave: str) -> int:
