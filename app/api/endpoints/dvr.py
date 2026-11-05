@@ -13,6 +13,7 @@ from typing import Any, Dict, List
 
 import requests
 from app.core import permissions
+from app.core.erros import frase_erro_equipamento
 from fastapi import APIRouter, HTTPException, File
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
@@ -1195,7 +1196,7 @@ def api_dvr_channel_rename(req: DVRRenameChannelRequest) -> Dict[str, Any]:
     try:
         r = requests.get(url, auth=auth, timeout=req.timeout_sec)
     except requests.RequestException as e:
-        raise HTTPException(status_code=502, detail=f"falha ao renomear canal no DVR: {e}")
+        raise HTTPException(status_code=502, detail=frase_erro_equipamento(e, "o gravador", "falha ao renomear canal no DVR: "))
 
     body = str(r.text or "")
     if r.status_code != 200 or ("Error" in body and "OK" not in body.upper()):
@@ -1521,7 +1522,7 @@ def _api_dvr_scan_impl(req: DVRScanRequest) -> Dict[str, Any]:
             f"{base}/cgi-bin/configManager.cgi?action=getConfig&name=ChannelTitle", auth, req.timeout_sec
         )
     except requests.RequestException as e:
-        raise HTTPException(status_code=502, detail=f"falha ao conectar no DVR: {e}")
+        raise HTTPException(status_code=502, detail=frase_erro_equipamento(e, "o gravador", "falha ao conectar no DVR: "))
 
     if not channel_txt and not sysinfo_txt:
         raise HTTPException(status_code=401, detail="falha de autenticacao ou DVR sem resposta")
@@ -1635,7 +1636,7 @@ def api_dvr_snapshot_update(req: DVRSnapshotUpdateRequest) -> Dict[str, Any]:
             f"{base}/cgi-bin/configManager.cgi?action=getConfig&name=ChannelTitle", auth, req.timeout_sec
         )
     except requests.RequestException as e:
-        raise HTTPException(status_code=502, detail=f"falha ao conectar no DVR: {e}")
+        raise HTTPException(status_code=502, detail=frase_erro_equipamento(e, "o gravador", "falha ao conectar no DVR: "))
 
     if not channel_txt and not sysinfo_txt:
         raise HTTPException(status_code=401, detail="falha de autenticacao ou DVR sem resposta")

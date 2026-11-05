@@ -10,6 +10,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
+from app.core.erros import frase_erro_equipamento
 from app.services.recorder_media_service import (
     EXPORT_DIR,
     RecorderAuthError,
@@ -106,11 +107,13 @@ def _download_dav_or_http(payload: PlaybackClipRequest, start: datetime, end: da
             timeout_sec=payload.timeout_sec,
         )
     except RecorderAuthError as exc:
-        raise HTTPException(status_code=401, detail=str(exc)) from exc
+        # 424, nao 401: 401 na API desloga o usuario do SightOps (core.js).
+        raise HTTPException(status_code=424, detail="O gravador recusou o usuário ou a senha. "
+                            "Confira as credenciais cadastradas.") from exc
     except RecordingNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except RuntimeError as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+        raise HTTPException(status_code=502, detail=frase_erro_equipamento(exc, "o gravador")) from exc
 
 
 def _run_ffmpeg_or_http(args: list[str], timeout_sec: int) -> None:
@@ -119,7 +122,7 @@ def _run_ffmpeg_or_http(args: list[str], timeout_sec: int) -> None:
     except TimeoutError as exc:
         raise HTTPException(status_code=504, detail=str(exc)) from exc
     except RuntimeError as exc:
-        status = 503 if "não está disponível" in str(exc) else 502
+        status = 503 if ("não está disponível" in str(exc) or "nao esta disponivel" in str(exc)) else 502
         raise HTTPException(status_code=status, detail=str(exc)) from exc
 
 

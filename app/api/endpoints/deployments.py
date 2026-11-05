@@ -12,6 +12,7 @@ from urllib.parse import urlencode
 
 import requests
 from app.core import permissions
+from app.core.erros import frase_erro_equipamento
 from fastapi import APIRouter, HTTPException, Request
 from requests.auth import HTTPBasicAuth, HTTPDigestAuth
 
@@ -1685,7 +1686,7 @@ def api_deployments_recorder_live_stream(payload: Dict[str, Any]) -> Dict[str, A
         )
     except Exception as exc:
         logger.exception("Falha ao registrar canal %s de %s no go2rtc", canal, host)
-        raise HTTPException(status_code=502, detail=f"nao consegui preparar o video: {exc}") from exc
+        raise HTTPException(status_code=502, detail=frase_erro_equipamento(exc, "o gravador", "nao consegui preparar o video: ", registrar=False)) from exc
     logger.info("ao vivo: canal %s de %s registrado como %s", canal, host, nome)
     return {"ok": True, "stream_name": nome}
 
@@ -1751,7 +1752,7 @@ def api_deployments_recorder_xray(payload: Dict[str, Any]) -> Dict[str, Any]:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         logger.exception("Erro no raio-x do gravador %s", host)
-        raise HTTPException(status_code=500, detail=f"Erro ao ler o gravador: {exc}") from exc
+        raise HTTPException(status_code=500, detail=frase_erro_equipamento(exc, "o gravador", "Erro ao ler o gravador: ", registrar=False)) from exc
     dados["ok"] = True
     return dados
 
@@ -1836,7 +1837,7 @@ def api_deployments_buscar_gravadores(payload: Dict[str, Any]) -> Dict[str, Any]
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         logger.exception("Erro na busca de gravadores pelo %s", varredor.get("host"))
-        raise HTTPException(status_code=502, detail=f"Erro ao buscar gravadores: {exc}") from exc
+        raise HTTPException(status_code=502, detail=frase_erro_equipamento(exc, "o equipamento", "Erro ao buscar gravadores: ", registrar=False)) from exc
 
     # Marca quem ja esta no inventario, para a tela nao oferecer duplicata.
     ja: set[str] = set()
@@ -1880,7 +1881,7 @@ def api_deployments_recorder_buscar_cameras(payload: Dict[str, Any]) -> Dict[str
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         logger.exception("Erro na busca de cameras do gravador %s", host)
-        raise HTTPException(status_code=502, detail=f"Erro ao buscar cameras: {exc}") from exc
+        raise HTTPException(status_code=502, detail=frase_erro_equipamento(exc, "o gravador", "Erro ao buscar cameras: ", registrar=False)) from exc
     dados["ok"] = True
     return dados
 
@@ -1965,7 +1966,7 @@ def api_deployments_camera_onvif(payload: Dict[str, Any], request: Request) -> D
         raise
     except Exception as exc:
         logger.exception("Erro no ONVIF da camera %s", ip)
-        raise HTTPException(status_code=500, detail=f"Erro ao falar com a camera: {exc}") from exc
+        raise HTTPException(status_code=500, detail=frase_erro_equipamento(exc, "a câmera", "Erro ao falar com a camera: ", registrar=False)) from exc
     if acao != "ler":
         logger.info("ONVIF camera %s: %s por %s (%s)", ip, acao, _quem(request) or "?",
                     "; ".join(r.get("passos") or []) or _text(payload.get("nome")) or _text(payload.get("id")))
@@ -2050,7 +2051,7 @@ def api_deployments_recorder_edit(payload: Dict[str, Any], request: Request) -> 
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         logger.exception("Erro ao editar o gravador %s canal %s", host, canal)
-        raise HTTPException(status_code=500, detail=f"Erro no gravador: {exc}") from exc
+        raise HTTPException(status_code=500, detail=frase_erro_equipamento(exc, "o gravador", "Erro no gravador: ", registrar=False)) from exc
 
     # Historico do gravador: quem mudou o que, e como voltar.
     try:
@@ -2113,7 +2114,7 @@ def api_deployments_recorder_canal_desfazer(payload: Dict[str, Any], request: Re
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         logger.exception("Erro ao desfazer canal %s em %s", plano["canal"], host)
-        raise HTTPException(status_code=500, detail=f"Erro no gravador: {exc}") from exc
+        raise HTTPException(status_code=500, detail=frase_erro_equipamento(exc, "o gravador", "Erro no gravador: ", registrar=False)) from exc
     if resultado.get("ok", True) is not False:
         RC.marcar_desfeito(reg, _quem(request))
     logger.info("canal %s de %s desfeito (registro %s) por %s", plano["canal"], host, reg["id"], _quem(request))

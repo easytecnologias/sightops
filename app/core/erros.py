@@ -12,6 +12,7 @@ mostrava como "[object Object]". Aqui:
 from __future__ import annotations
 
 import logging
+import re
 import uuid
 from typing import Any
 
@@ -127,6 +128,73 @@ async def _erro_interno(request: Request, exc: Exception) -> JSONResponse:
         content={"detail": f"Erro interno. Código: {rid}", "request_id": rid},
         headers={"X-Request-ID": rid},
     )
+
+
+# --- erro de rede/equipamento -> frase curta com o proximo passo -------------
+# O texto cru ("HTTPConnectionPool(host=..., port=80): Max retries exceeded...")
+# ia direto para a tela. A frase vai para o cliente; o detalhe fica no log.
+
+def _textos_da_cadeia(exc: BaseException) -> tuple[str, list[BaseException]]:
+    vistos: list[BaseException] = []
+    atual: BaseException | None = exc
+    while atual is not None and atual not in vistos and len(vistos) < 8:
+        vistos.append(atual)
+        atual = atual.__cause__ or atual.__context__
+    texto = " | ".join(f"{type(e).__name__}: {e}" for e in vistos).lower()
+    return texto, vistos
+
+
+def traduzir_erro_rede(exc: BaseException, alvo: str = "o equipamento") -> str | None:
+    """Frase em portugues para falha de rede/autenticacao com equipamento.
+
+    Devolve None quando nao reconhece (a mensagem e do proprio sistema e pode
+    ir para a tela como esta)."""
+    texto, cadeia = _textos_da_cadeia(exc)
+    alvo_m = alvo[:1].upper() + alvo[1:]
+    status = None
+    for e in cadeia:
+        resp = getattr(e, "response", None)
+        status = getattr(resp, "status_code", None) or getattr(e, "status_code", None)
+        if status:
+            break
+    if status == 401 or re.search(r"\b401\b", texto) or "unauthorized" in texto or "authentication failed" in texto:
+        return f"{alvo_m} recusou o usuário ou a senha. Confira as credenciais cadastradas e tente de novo."
+    if "no route to host" in texto or "errno 113" in texto or "host is unreachable" in texto or "network is unreachable" in texto:
+        return (f"Sem rota até {alvo}. Se ele fica atrás de um conector, confira se o conector está online "
+                "e se o endereço usado é o IP virtual do site.")
+    if (any(isinstance(e, ConnectionRefusedError) for e in cadeia) or "connection refused" in texto
+            or "errno 111" in texto or "10061" in texto or "actively refused" in texto):
+        return f"{alvo_m} recusou a conexão. Confira a porta cadastrada e se o serviço (web/RTSP/SDK) está ativo."
+    if (any(isinstance(e, TimeoutError) for e in cadeia) or "timed out" in texto or "timeout" in texto
+            or "tempo esgotado" in texto):
+        return f"{alvo_m} não respondeu a tempo. Confira energia, cabo e o conector do site e tente de novo."
+    if ("name or service not known" in texto or "getaddrinfo failed" in texto or "nodename nor servname" in texto
+            or "temporary failure in name resolution" in texto):
+        return f"Não foi possível achar o endereço de {alvo}. Confira o IP ou o nome cadastrado."
+    if "connection reset" in texto or "remote end closed" in texto or "connection aborted" in texto or "broken pipe" in texto:
+        return f"{alvo_m} fechou a conexão no meio. Tente de novo; se repetir, confira o link."
+    if "certificate" in texto or re.search(r"\bssl", texto):
+        return f"Falha na conexão segura (HTTPS) com {alvo}. Confira se ele usa HTTP ou HTTPS na porta cadastrada."
+    if ("max retries exceeded" in texto or "failed to establish a new connection" in texto
+            or "httpconnectionpool" in texto or "httpsconnectionpool" in texto or "connecterror" in texto
+            or any(isinstance(e, ConnectionError) for e in cadeia)):
+        return f"Não foi possível conectar em {alvo}. Confira energia, cabo e o conector do site."
+    return None
+
+
+def frase_erro_equipamento(exc: BaseException, alvo: str = "o equipamento", prefixo: str = "",
+                           log: logging.Logger | None = None, registrar: bool = True) -> str:
+    """Frase para a tela + detalhe tecnico no log.
+
+    Erro reconhecido vira a frase com o proximo passo; o resto mantem a
+    mensagem original (limitada) depois do `prefixo`."""
+    if registrar:  # quem ja chamou logger.exception passa registrar=False
+        (log or logger).warning("falha com %s: %s: %s", alvo, type(exc).__name__, exc, exc_info=exc)
+    frase = traduzir_erro_rede(exc, alvo)
+    if frase:
+        return frase
+    original = str(exc).strip()[:240] or type(exc).__name__
+    return f"{prefixo}{original}" if prefixo else original
 
 
 def instalar(app: FastAPI) -> None:
