@@ -88,3 +88,37 @@ def test_acao_do_telegram_que_falha_e_contada(banco, caplog):
         r = Z._configurar_telegram_por_site("http://zbx.test", "tok", TENANT, cfg, grupos, ["camera"])
     assert r == {"acoes": 0, "falhas": 2, "motivo": ""}
     assert "chat invalido" in caplog.text
+
+
+def test_valor_recusado_pelo_zabbix_e_contado(banco):
+    with db_store._conn() as c:
+        linhas = [dict(r) for r in c.execute("SELECT * FROM monitoring_entities").fetchall()]
+    hosts = [{"hostid": str(i + 1), "host": Z._host_key(TENANT, r), "name": "x"} for i, r in enumerate(linhas)]
+
+    def call(url, method, params, auth=None, req_id=1):
+        if method == "user.login":
+            return "tok"
+        if method == "host.get":
+            return hosts
+        if method == "hostgroup.get":
+            return [{"groupid": "1"}]
+        if method in ("item.get", "trigger.get"):
+            return []
+        if method == "item.create":
+            return {"itemids": [str(100 + i) for i in range(len(params))]}
+        if method == "history.push":
+            return {"response": "failed"}
+        return {}
+
+    banco.setattr(Z, "_call", call)
+    r = Z.sync_monitoring_to_zabbix(("camera",))
+    assert r["pushed"] == 0
+    assert r["falhas"]["valores_recusados"] > 0 and r["falhas"]["lista_cortada"] == 0
+    assert Z.ultimo_sync(TENANT)["falhas_total"] == r["falhas_total"]
+
+
+def test_contador_de_gatilho():
+    falhas = {}
+    Z._contar_falha_gatilho(falhas)
+    assert falhas == {"gatilhos": 1}
+    Z._contar_falha_gatilho(None)  # chamada sem contador nao quebra

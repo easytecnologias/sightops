@@ -21,7 +21,7 @@ from app.services.auth_store import init_auth_db
 from app.services.db_store import init_db
 from app.services.maintenance_ping_service import maintenance_ping_hub
 from app.services.monitoring_service import list_monitoring_tenants, refresh_from_inventory
-from app.services.zabbix_monitoring_service import sync_monitoring_to_zabbix
+from app.services.zabbix_monitoring_service import registrar_sync_falho, sync_monitoring_to_zabbix
 from app.services.telegram_notification_service import process_monitoring_notifications
 from app.services.access_control_sync import (
     list_pending_provisions_for_retry,
@@ -281,8 +281,11 @@ async def _zabbix_status_sync_loop() -> None:
                             tenant_slug,
                         )
                     except Exception as exc:  # noqa: BLE001 - um cliente nao para os outros
+                        # Excecao em um modo nao pula os outros modos do cliente.
                         logger.exception("zabbix status sync: falhou para %s/%s", tenant_slug, mode)
-                        result = {"ok": False, "error": f"{type(exc).__name__}: {exc}"[:300]}
+                        tenant_last["modes"][mode] = {"ok": False, "error": f"{type(exc).__name__}: {exc}"[:300]}
+                        tenant_last["ok"] = False
+                        continue
                     tenant_last["modes"][mode] = result
                     if result.get("ok"):
                         totals.append(
@@ -326,12 +329,18 @@ def _refresh_monitoring_tenant(tenant_slug: str) -> dict:
             logger.exception("monitoring refresh: inventario falhou para %s", tenant_slug)
             result = {"ok": False}
             erros["refresh"] = f"{type(exc).__name__}: {exc}"[:300]
-        try:
-            result["zabbix"] = sync_monitoring_to_zabbix()
-        except Exception as exc:  # noqa: BLE001 - Zabbix fora nao cala o Telegram
-            logger.exception("monitoring refresh: sync do Zabbix falhou para %s", tenant_slug)
-            result["zabbix"] = {"ok": False, "error": f"{type(exc).__name__}: {exc}"[:300]}
-            erros["zabbix"] = result["zabbix"]["error"]
+        if "refresh" in erros:
+            # Sem inventario novo, o sync empurraria status congelado e o painel
+            # mostraria "Sincronizado" com equipamento caido. Nao envia e acusa.
+            result["zabbix"] = {"ok": False, "error": "Inventario nao atualizado: " + erros["refresh"]}
+            registrar_sync_falho(tenant_slug, result["zabbix"]["error"])
+        else:
+            try:
+                result["zabbix"] = sync_monitoring_to_zabbix()
+            except Exception as exc:  # noqa: BLE001 - Zabbix fora nao cala o Telegram
+                logger.exception("monitoring refresh: sync do Zabbix falhou para %s", tenant_slug)
+                result["zabbix"] = {"ok": False, "error": f"{type(exc).__name__}: {exc}"[:300]}
+                erros["zabbix"] = result["zabbix"]["error"]
         try:
             result["telegram"] = process_monitoring_notifications()
         except Exception as exc:  # noqa: BLE001

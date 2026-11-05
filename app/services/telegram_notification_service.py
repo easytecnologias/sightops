@@ -201,7 +201,10 @@ def _coletar(cfg: Dict[str, Any]) -> tuple[List[Dict[str, Any]], Dict[str, Dict[
     sinal = cfg.get("sinal") or {}
     warn, crit = float(sinal.get("warn_rx", -27)), float(sinal.get("critical_rx", -29))
     # Todas (paginado): com o corte de 2000, o que passava dele nunca era avisado.
-    for row in sorted(list_entities_todas()[0], key=lambda r: _text(r.get("display_name"))):
+    linhas, cortada = list_entities_todas()
+    if cortada:
+        logger.warning("Avisos: lista de entidades cortada no limite; equipamento alem dele fica sem aviso")
+    for row in sorted(linhas, key=lambda r: _text(r.get("display_name"))):
         tipo, status = _text(row.get("entity_type")), _text(row.get("status"))
         key, nome, site = _text(row.get("entity_key")), _text(row.get("display_name")), _text(row.get("site"))
         sk = N._site_chave(site)

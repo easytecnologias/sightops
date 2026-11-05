@@ -485,7 +485,8 @@ GATILHO_SEM_IMAGEM = "Gravador sem imagem de camera que esta no ar ({HOST.NAME})
 
 
 def _garantir_gatilhos_gravador(url: str, auth: str, technical_names: Dict[str, Dict[str, Any]],
-                                host_ids: Dict[str, str], item_by_host_key: Dict[Any, str]) -> int:
+                                host_ids: Dict[str, str], item_by_host_key: Dict[Any, str],
+                           falhas: Dict[str, int] | None = None) -> int:
     """Cria, nos hosts de NVR/DVR, o gatilho de camera no ar sem imagem.
 
     Em 19/10/2026 os 1786 hosts SIGHTOPS.* do Zabbix tinham ZERO gatilhos: os
@@ -520,6 +521,7 @@ def _garantir_gatilhos_gravador(url: str, auth: str, technical_names: Dict[str, 
         return len(novos)
     except Exception as exc:
         logger.warning("Zabbix: falha ao criar gatilho de gravador sem imagem: %s", exc)
+        _contar_falha_gatilho(falhas)
         return 0
 
 
@@ -531,7 +533,8 @@ GATILHO_PDV_CAIU = "Caixa sem coletor: o SightOps parou de receber as vendas ({H
 
 
 def _garantir_gatilhos_switch_provedor(url: str, auth: str, technical_names: Dict[str, Dict[str, Any]],
-                                       host_ids: Dict[str, str], item_by_host_key: Dict[Any, str]) -> int:
+                                       host_ids: Dict[str, str], item_by_host_key: Dict[Any, str],
+                           falhas: Dict[str, int] | None = None) -> int:
     """Switch de Switch Provedores que para de responder (status 0 depois do
     limite do perfil). Sem isto o 0 chegava ao Zabbix e ninguem era avisado,
     inclusive a switch ainda sem provedor em rack. Falha aqui nao derruba o sync."""
@@ -557,11 +560,13 @@ def _garantir_gatilhos_switch_provedor(url: str, auth: str, technical_names: Dic
         return len(novos)
     except Exception as exc:
         logger.warning("Zabbix: falha ao criar gatilhos de switch de provedores: %s", exc)
+        _contar_falha_gatilho(falhas)
         return 0
 
 
 def _garantir_gatilhos_pdv(url: str, auth: str, technical_names: Dict[str, Dict[str, Any]],
-                           host_ids: Dict[str, str], item_by_host_key: Dict[Any, str]) -> int:
+                           host_ids: Dict[str, str], item_by_host_key: Dict[Any, str],
+                           falhas: Dict[str, int] | None = None) -> int:
     """Caixa (PDV) cujo coletor parou de mandar sinal (status 0 depois do limite
     do perfil). Dado faltando e pior que nenhum dado: sem isto o caixa parava de
     ser auditado e ninguem sabia. Falha aqui nao derruba o sync."""
@@ -588,11 +593,13 @@ def _garantir_gatilhos_pdv(url: str, auth: str, technical_names: Dict[str, Dict[
         return len(novos)
     except Exception as exc:
         logger.warning("Zabbix: falha ao criar gatilhos de caixa (PDV): %s", exc)
+        _contar_falha_gatilho(falhas)
         return 0
 
 
 def _garantir_gatilhos_link(url: str, auth: str, technical_names: Dict[str, Dict[str, Any]],
-                            host_ids: Dict[str, str], item_by_host_key: Dict[Any, str]) -> int:
+                            host_ids: Dict[str, str], item_by_host_key: Dict[Any, str],
+                           falhas: Dict[str, int] | None = None) -> int:
     """Links de provedor do rack: caiu (status 0 depois do limite de falhas do
     perfil) e sinal da fibra baixo em relacao ao normal DO PROPRIO link -- a
     Relunet trabalha em -16 dBm e a Super Conect em -3,6; um limite fixo
@@ -635,6 +642,7 @@ def _garantir_gatilhos_link(url: str, auth: str, technical_names: Dict[str, Dict
         return len(novos)
     except Exception as exc:
         logger.warning("Zabbix: falha ao criar gatilhos de link: %s", exc)
+        _contar_falha_gatilho(falhas)
         return 0
 
 
@@ -653,6 +661,16 @@ def _registrar_sync(tenant: str, ok: bool, total: int = 0, pushed: int = 0, erro
             "total": int(total), "pushed": int(pushed), "erro": str(erro or "")[:300],
             "falhas": dict(falhas or {}), "falhas_total": sum((falhas or {}).values()),
         }
+
+
+def registrar_sync_falho(tenant: str, erro: str) -> None:
+    """Ciclo que nem chegou a enviar: o painel precisa acusar, nao ficar em "Sincronizado"."""
+    _registrar_sync(_text(tenant).lower(), False, erro=erro)
+
+
+def _contar_falha_gatilho(falhas: Dict[str, int] | None) -> None:
+    if falhas is not None:
+        falhas["gatilhos"] = falhas.get("gatilhos", 0) + 1
 
 
 def ultimo_sync(tenant: str) -> Dict[str, Any]:
@@ -701,7 +719,7 @@ def _sync_monitoring_to_zabbix(entity_types: tuple[str, ...]) -> Dict[str, Any]:
     # Remove hosts orfaos mesmo quando `entities` fica vazio (ex: todas as ONUs
     # de um tenant foram excluidas).
     orphan_hostids = find_orphan_hostids(current_hosts, technical_names, tenant, entity_types)
-    if orphan_hostids and truncada:
+    if truncada:
         # Lista incompleta: o que ficou de fora nao e orfao. Apagar aqui
         # apagaria host (e historico) de equipamento vivo.
         logger.warning("Zabbix: %s lista de entidades cortada no limite; %s host(s) orfao(s) NAO apagados",
@@ -725,7 +743,8 @@ def _sync_monitoring_to_zabbix(entity_types: tuple[str, ...]) -> Dict[str, Any]:
     # subgrupos ja existiam de uma versao antiga, com hosts congelados dentro --
     # aqui eles voltam a ser preenchidos.
     _grupo_site_cache: Dict[str, str] = {}
-    falhas = {"grupos_site": 0, "hosts_atualizar": 0, "acoes_telegram": 0}
+    falhas = {"grupos_site": 0, "hosts_atualizar": 0, "acoes_telegram": 0,
+              "gatilhos": 0, "valores_recusados": 0, "lista_cortada": int(truncada)}
 
     def _grupo_do_site(entity_type: str, site: str) -> str:
         site = " ".join(_text(site).split()).strip()
@@ -926,10 +945,10 @@ def _sync_monitoring_to_zabbix(entity_types: tuple[str, ...]) -> Dict[str, Any]:
             item_by_host_key[host_key] = _text(itemid)
         cursor += len(batch)
 
-    gatilhos = _garantir_gatilhos_gravador(url, auth, technical_names, host_ids, item_by_host_key)
-    gatilhos += _garantir_gatilhos_link(url, auth, technical_names, host_ids, item_by_host_key)
-    gatilhos += _garantir_gatilhos_switch_provedor(url, auth, technical_names, host_ids, item_by_host_key)
-    gatilhos += _garantir_gatilhos_pdv(url, auth, technical_names, host_ids, item_by_host_key)
+    gatilhos = _garantir_gatilhos_gravador(url, auth, technical_names, host_ids, item_by_host_key, falhas)
+    gatilhos += _garantir_gatilhos_link(url, auth, technical_names, host_ids, item_by_host_key, falhas)
+    gatilhos += _garantir_gatilhos_switch_provedor(url, auth, technical_names, host_ids, item_by_host_key, falhas)
+    gatilhos += _garantir_gatilhos_pdv(url, auth, technical_names, host_ids, item_by_host_key, falhas)
 
     status_value = {"up": "1", "down": "0", "unstable": "2", "unknown": "3", "maintenance": "4"}
     push_rows = []
@@ -985,7 +1004,10 @@ def _sync_monitoring_to_zabbix(entity_types: tuple[str, ...]) -> Dict[str, Any]:
     pushed = 0
     for batch in _chunks(push_rows, 200):
         result = _call(url, "history.push", batch, auth, 200 + pushed) or {}
-        pushed += int(result.get("response") == "success") * len(batch) if isinstance(result, dict) else len(batch)
+        aceito = int(result.get("response") == "success") * len(batch) if isinstance(result, dict) else len(batch)
+        pushed += aceito
+        if not aceito:
+            falhas["valores_recusados"] += len(batch)
 
     with _conn() as connection:
         for hostid, entity_key in links:

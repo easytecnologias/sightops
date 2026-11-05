@@ -9,6 +9,7 @@ import pytest
 
 import app.main as M
 from app.core.tenant_context import get_current_tenant_slug
+from app.services.zabbix_monitoring_service import ultimo_sync
 
 
 def _rodar_uma_volta(monkeypatch, loop_fn):
@@ -48,10 +49,17 @@ def test_inventario_quebrado_ainda_avisa(monkeypatch):
         raise ValueError("banco")
 
     monkeypatch.setattr(M, "refresh_from_inventory", cai)
-    monkeypatch.setattr(M, "sync_monitoring_to_zabbix", lambda: {"ok": True})
+    def sync_nao_pode_rodar():
+        raise AssertionError("sync enviaria status congelado")
+
+    monkeypatch.setattr(M, "sync_monitoring_to_zabbix", sync_nao_pode_rodar)
     monkeypatch.setattr(M, "process_monitoring_notifications", lambda: {"ok": True, "sent": 0})
     r = M._refresh_monitoring_tenant("cliente-a")
-    assert r["telegram"]["ok"] and r["zabbix"]["ok"] and "banco" in r["erros"]["refresh"]
+    assert r["telegram"]["ok"] and "banco" in r["erros"]["refresh"]
+    # O painel acusa a falha em vez de continuar em "Sincronizado".
+    assert r["zabbix"]["ok"] is False
+    u = ultimo_sync("cliente-a")
+    assert u["ok"] is False and "banco" in u["erro"]
 
 
 def test_um_cliente_quebrado_nao_para_os_outros(monkeypatch):
@@ -104,3 +112,19 @@ def test_zabbix_status_um_cliente_quebrado(monkeypatch):
     last = M.app.state.zabbix_status_last
     assert ("cliente-b", "basic") in vistos
     assert last["tenants"]["cliente-a"]["ok"] is False and last["tenants"]["cliente-b"]["ok"] is True
+
+
+def test_zabbix_status_excecao_nao_pula_os_outros_modos(monkeypatch):
+    vistos = []
+
+    def sync(mode, tenant):
+        if mode == "basic":
+            raise RuntimeError("zbx")
+        vistos.append(mode)
+        return {"ok": True, "online": 1, "total": 1}
+
+    monkeypatch.setattr(M, "_zabbix_status_tenant_slugs", lambda: ["cliente-a"])
+    monkeypatch.setattr(M, "_run_zabbix_status_sync_for_mode", sync)
+    _rodar_uma_volta(monkeypatch, M._zabbix_status_sync_loop)
+    assert vistos == ["olt", "switch"]
+    assert M.app.state.zabbix_status_last["tenants"]["cliente-a"]["ok"] is False
