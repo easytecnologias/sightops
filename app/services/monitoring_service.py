@@ -976,6 +976,30 @@ def list_entities(entity_type: str = "", status: str = "", limit: int = 500) -> 
     return [dict(r) for r in rows]
 
 
+def list_entities_todas(entity_type: str = "", pagina: int = 2000, teto: int = 200000) -> tuple[List[Dict[str, Any]], bool]:
+    """Todas as entidades monitoradas do cliente, em paginas (por id).
+
+    `list_entities` corta em 2000: no sync do Zabbix o que passava do corte
+    virava "orfao" e o host era APAGADO. Devolve (linhas, truncada); truncada
+    so quando bateu no `teto` -- quem apaga orfao nao pode apagar nesse caso."""
+    where, params = ["tenant_slug=?", "monitoring_enabled=1"], [_tenant()]
+    if entity_type: where.append("entity_type=?"); params.append(entity_type)
+    pagina = max(1, int(pagina))
+    out: List[Dict[str, Any]] = []
+    ultimo = 0
+    with _conn() as c:
+        while len(out) < teto:
+            rows = c.execute(f"SELECT * FROM monitoring_entities WHERE {' AND '.join(where)} AND id>? ORDER BY id LIMIT ?",
+                             tuple(params + [ultimo, min(pagina, teto - len(out))])).fetchall()
+            if not rows:
+                return out, False
+            out.extend(dict(r) for r in rows)
+            ultimo = int(out[-1]["id"])
+        mais = c.execute(f"SELECT 1 FROM monitoring_entities WHERE {' AND '.join(where)} AND id>? LIMIT 1",
+                         tuple(params + [ultimo])).fetchone()
+    return out, bool(mais)
+
+
 def monitoring_summary(sites: List[str] | None = None) -> Dict[str, Any]:
     """`sites`: so estes sites (usuario restrito); None = todos."""
     ensure_default_profiles()

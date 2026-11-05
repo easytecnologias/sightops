@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import html
 import json
+import logging
 from collections import defaultdict
 from datetime import datetime, timezone
 from typing import Any, Dict, List
@@ -19,7 +20,9 @@ from typing import Any, Dict, List
 from app.core.tenant_context import get_current_tenant_slug
 from app.services import notificacoes_service as N
 from app.services.db_store import _conn
-from app.services.monitoring_service import list_entities
+from app.services.monitoring_service import list_entities_todas
+
+logger = logging.getLogger("cam-snapshot")
 
 ROTULO_TIPO = {"camera": "câmera", "nvr": "NVR", "dvr": "DVR", "onu": "ONU", "olt": "OLT", "switch": "switch",
                "access_point": "access point", "access_device": "controladora", "connector": "conector",
@@ -91,6 +94,78 @@ def _set_state(entity_key: str, kind: str, active: bool, value: str) -> None:
         )
 
 
+# Aviso que chegou a ALGUNS grupos: o estado principal muda (os que receberam
+# nao recebem de novo) e cada grupo que falhou fica com uma linha propria
+# "<kind>@pend:<grupo>", reenviada so para ele nos proximos ciclos.
+_PEND = "@pend:"
+
+
+def _set_pendente(ev: Dict[str, Any], gid: str) -> None:
+    tenant, now = _text(get_current_tenant_slug() or "default").lower(), _now()
+    valor = json.dumps({k: ev[k] for k in ("evento", "tipo", "site", "linha", "ativo", "valor", "site_inteiro")},
+                       ensure_ascii=False)
+    with _conn() as c:
+        c.execute(
+            "INSERT INTO notification_states(tenant_slug,entity_key,alert_kind,active,opened_at,closed_at,last_sent_at,last_value,updated_at) VALUES(?,?,?,?,?,?,?,?,?) "
+            "ON CONFLICT(tenant_slug,entity_key,alert_kind) DO UPDATE SET active=excluded.active,last_value=excluded.last_value,updated_at=excluded.updated_at",
+            (tenant, ev["chave"], f"{ev['kind']}{_PEND}{gid}", 1, now, None, None, valor, now),
+        )
+
+
+def _apagar_pendentes(entity_key: str, kind: str, gid: str = "") -> None:
+    tenant = _text(get_current_tenant_slug() or "default").lower()
+    with _conn() as c:
+        if gid:
+            c.execute("DELETE FROM notification_states WHERE tenant_slug=? AND entity_key=? AND alert_kind=?",
+                      (tenant, entity_key, f"{kind}{_PEND}{gid}"))
+        else:
+            c.execute("DELETE FROM notification_states WHERE tenant_slug=? AND entity_key=? AND alert_kind LIKE ?",
+                      (tenant, entity_key, f"{kind}{_PEND}%"))
+
+
+def _reenviar_pendentes(cfg: Dict[str, Any], novos: set) -> Dict[str, int]:
+    """Reenvia so aos grupos que falharam o que os outros ja receberam.
+    Pendente vencido (o equipamento mudou de estado depois, ou tem evento novo
+    neste ciclo: `novos` = {(chave, kind)}) e descartado."""
+    tenant = _text(get_current_tenant_slug() or "default").lower()
+    with _conn() as c:
+        rows = [dict(r) for r in c.execute(
+            "SELECT * FROM notification_states WHERE tenant_slug=? AND alert_kind LIKE ? AND active=1",
+            (tenant, f"%{_PEND}%")).fetchall()]
+    grupos = {g["id"]: g for g in cfg.get("grupos") or []}
+    caixas: Dict[tuple, List[Dict[str, Any]]] = defaultdict(list)
+    for row in rows:
+        kind, gid = _text(row.get("alert_kind")).split(_PEND, 1)
+        key = _text(row.get("entity_key"))
+        try:
+            ev = json.loads(_text(row.get("last_value")) or "{}")
+        except ValueError as exc:
+            logger.warning("telegram: pendente ilegivel descartado (%s/%s): %s", tenant, row.get("alert_kind"), exc)
+            ev = {}
+        principal = _state(key, kind)
+        g = grupos.get(gid)
+        if (not ev or not g or not g.get("ativo") or (key, kind) in novos
+                or bool(principal.get("active")) != bool(ev.get("ativo"))
+                or _text(principal.get("last_value")) != _text(ev.get("valor"))):
+            _apagar_pendentes(key, kind, gid)
+            continue
+        if N._no_silencio(g) and not ev.get("site_inteiro"):
+            continue          # fica para quando o silencio acabar
+        caixas[(gid, N._site_chave(ev.get("site")), ev.get("evento"))].append({**ev, "chave": key, "kind": kind})
+    enviados = falhas = 0
+    for (gid, _sk, evento), itens in caixas.items():
+        texto = _mensagem(evento, itens[0]["site"], itens,
+                          site_inteiro=any(i.get("site_inteiro") for i in itens) and evento == "queda")
+        res = N.enviar_para_grupo(cfg, grupos[gid], texto, agrupados=len(itens))
+        if res["ok"]:
+            enviados += 1
+            for i in itens:
+                _apagar_pendentes(i["chave"], i["kind"], gid)
+        else:
+            falhas += 1
+    return {"reenviados": enviados, "falhas": falhas}
+
+
 def _detail(row: Dict[str, Any]) -> Dict[str, Any]:
     try:
         d = json.loads(_text(row.get("detail_json")) or "{}")
@@ -125,7 +200,8 @@ def _coletar(cfg: Dict[str, Any]) -> tuple[List[Dict[str, Any]], Dict[str, Dict[
     por_site: Dict[str, Dict[str, int]] = defaultdict(lambda: {"total": 0, "down": 0})
     sinal = cfg.get("sinal") or {}
     warn, crit = float(sinal.get("warn_rx", -27)), float(sinal.get("critical_rx", -29))
-    for row in list_entities(limit=2000):
+    # Todas (paginado): com o corte de 2000, o que passava dele nunca era avisado.
+    for row in sorted(list_entities_todas()[0], key=lambda r: _text(r.get("display_name"))):
         tipo, status = _text(row.get("entity_type")), _text(row.get("status"))
         key, nome, site = _text(row.get("entity_key")), _text(row.get("display_name")), _text(row.get("site"))
         sk = N._site_chave(site)
@@ -233,6 +309,11 @@ def process_monitoring_notifications() -> Dict[str, Any]:
         atual.pop("base_pendente", None)
         N._salvar(atual)
         return {"ok": True, "sent": 0, "linha_de_base": len(eventos)}
+    try:
+        pendentes = _reenviar_pendentes(cfg, {(ev["chave"], ev["kind"]) for ev in eventos})
+    except Exception:  # noqa: BLE001 - reenvio com problema nao cala os avisos novos
+        logger.exception("telegram: reenvio dos grupos pendentes falhou")
+        pendentes = {"reenviados": 0, "falhas": 1}
     # (grupo, site, evento) -> itens; cada evento lembra os grupos que precisam recebe-lo
     caixas: Dict[tuple, List[Dict[str, Any]]] = defaultdict(list)
     grupos = {g["id"]: g for g in cfg["grupos"]}
@@ -246,6 +327,7 @@ def process_monitoring_notifications() -> Dict[str, Any]:
         ev["silenciado"] = not alvos and bool(N.destinos(cfg, ev["site"], ev["evento"], ev["tipo"], urgente=True))
         ev["pendentes"] = {g["id"] for g in alvos}
         ev["entregue"] = False
+        ev["falhou"] = set()
         if not alvos and not ev["silenciado"]:
             sem_destino.append(ev)
         for g in alvos:
@@ -264,6 +346,8 @@ def process_monitoring_notifications() -> Dict[str, Any]:
                 i["entregue"] = True
         else:
             errors.append(res["erro"])
+            for i in itens:
+                i["falhou"].add(g["id"])
     # Estado: muda quando ao menos um grupo recebeu, ou quando o aviso nao tem
     # destino (ninguem recebe esse site/evento: nao fica "pendente" para sempre
     # e nao dispara tudo de uma vez quando alguem criar um grupo depois).
@@ -272,4 +356,10 @@ def process_monitoring_notifications() -> Dict[str, Any]:
     for ev in eventos:
         if ev["entregue"] or (not ev["pendentes"] and not ev["silenciado"]):
             _set_state(ev["chave"], ev["kind"], ev["ativo"], ev["valor"])
-    return {"ok": not errors, "sent": sent, "eventos": len(eventos), "sem_destino": len(sem_destino), "errors": errors[:5]}
+            # Os grupos que falharam (com outro recebendo) ficam pendentes so para eles.
+            _apagar_pendentes(ev["chave"], ev["kind"])
+            for gid in ev["falhou"]:
+                _set_pendente(ev, gid)
+    return {"ok": not errors, "sent": sent, "eventos": len(eventos), "sem_destino": len(sem_destino), "errors": errors[:5],
+            "pendentes_reenviados": pendentes["reenviados"], "pendentes_falharam": pendentes["falhas"],
+            "grupos_pendentes": sum(len(ev["falhou"]) for ev in eventos if ev["entregue"])}

@@ -14,7 +14,7 @@ import requests
 
 from app.core.tenant_context import get_current_tenant_slug
 from app.services.db_store import _conn, load_app_settings
-from app.services.monitoring_service import list_entities
+from app.services.monitoring_service import list_entities_todas
 
 logger = logging.getLogger("cam-snapshot")
 
@@ -429,17 +429,17 @@ def _configurar_telegram_por_site(
     """Cria/atualiza uma acao por (tipo, site) com chat configurado."""
     chats = cfg.get("tg_chat_by_site") if isinstance(cfg.get("tg_chat_by_site"), dict) else {}
     if not chats:
-        return {"acoes": 0, "motivo": "nenhum site com chat configurado"}
+        return {"acoes": 0, "falhas": 0, "motivo": "nenhum site com chat configurado"}
 
     midias = _call(url, "mediatype.get",
                    {"filter": {"name": [MEDIA_NAME_TELEGRAM]}, "output": ["mediatypeid"]}, auth, 405) or []
     if not midias:
-        return {"acoes": 0,
+        return {"acoes": 0, "falhas": 0,
                 "motivo": f"tipo de midia '{MEDIA_NAME_TELEGRAM}' nao existe; "
                           "sincronize as cameras uma vez para cria-lo"}
     mediatypeid = _text(midias[0].get("mediatypeid"))
 
-    feitas = 0
+    feitas = falhas = 0
     for entity_type in entity_types:
         problema, recuperacao = _mensagens_telegram(_text(entity_type).lower())
         for site, chat in sorted(chats.items()):
@@ -473,10 +473,12 @@ def _configurar_telegram_por_site(
                 else:
                     _call(url, "action.create", params, auth, 408)
                 feitas += 1
-            except Exception:
+            except Exception as exc:
                 # um site com chat invalido nao pode impedir os outros
+                falhas += 1
+                logger.warning("Zabbix: %s acao do Telegram de %s/%s falhou: %s", tenant, entity_type, site, exc)
                 continue
-    return {"acoes": feitas, "motivo": ""}
+    return {"acoes": feitas, "falhas": falhas, "motivo": ""}
 
 
 GATILHO_SEM_IMAGEM = "Gravador sem imagem de camera que esta no ar ({HOST.NAME})"
@@ -643,11 +645,13 @@ _ULTIMO_SYNC: Dict[str, Dict[str, Any]] = {}
 _ULTIMO_SYNC_LOCK = threading.Lock()
 
 
-def _registrar_sync(tenant: str, ok: bool, total: int = 0, pushed: int = 0, erro: str = "") -> None:
+def _registrar_sync(tenant: str, ok: bool, total: int = 0, pushed: int = 0, erro: str = "",
+                    falhas: Dict[str, int] | None = None) -> None:
     with _ULTIMO_SYNC_LOCK:
         _ULTIMO_SYNC[tenant] = {
             "em": datetime.now(timezone.utc).isoformat(), "ok": bool(ok),
             "total": int(total), "pushed": int(pushed), "erro": str(erro or "")[:300],
+            "falhas": dict(falhas or {}), "falhas_total": sum((falhas or {}).values()),
         }
 
 
@@ -663,7 +667,8 @@ def sync_monitoring_to_zabbix(entity_types: tuple[str, ...] = ("olt", "onu", "ca
     except Exception as exc:
         _registrar_sync(tenant, False, erro=f"{type(exc).__name__}: {exc}")
         raise
-    _registrar_sync(tenant, bool(result.get("ok")), result.get("total") or 0, result.get("pushed") or 0, result.get("error") or "")
+    _registrar_sync(tenant, bool(result.get("ok")), result.get("total") or 0, result.get("pushed") or 0, result.get("error") or "",
+                    result.get("falhas") if isinstance(result.get("falhas"), dict) else None)
     return result
 
 
@@ -679,8 +684,11 @@ def _sync_monitoring_to_zabbix(entity_types: tuple[str, ...]) -> Dict[str, Any]:
 
     tenant = _text(get_current_tenant_slug() or "default").lower()
     entities: List[Dict[str, Any]] = []
+    truncada = False
     for entity_type in entity_types:
-        entities.extend(list_entities(entity_type=entity_type, limit=2000))
+        linhas, cortou = list_entities_todas(entity_type=entity_type)
+        entities.extend(linhas)
+        truncada = truncada or cortou
 
     auth = _sessao(url, user, password)
     technical_names = {_host_key(tenant, row): row for row in entities}
@@ -693,6 +701,12 @@ def _sync_monitoring_to_zabbix(entity_types: tuple[str, ...]) -> Dict[str, Any]:
     # Remove hosts orfaos mesmo quando `entities` fica vazio (ex: todas as ONUs
     # de um tenant foram excluidas).
     orphan_hostids = find_orphan_hostids(current_hosts, technical_names, tenant, entity_types)
+    if orphan_hostids and truncada:
+        # Lista incompleta: o que ficou de fora nao e orfao. Apagar aqui
+        # apagaria host (e historico) de equipamento vivo.
+        logger.warning("Zabbix: %s lista de entidades cortada no limite; %s host(s) orfao(s) NAO apagados",
+                       tenant, len(orphan_hostids))
+        orphan_hostids = []
     if orphan_hostids:
         _call(url, "host.delete", orphan_hostids, auth, 20)
 
@@ -711,6 +725,7 @@ def _sync_monitoring_to_zabbix(entity_types: tuple[str, ...]) -> Dict[str, Any]:
     # subgrupos ja existiam de uma versao antiga, com hosts congelados dentro --
     # aqui eles voltam a ser preenchidos.
     _grupo_site_cache: Dict[str, str] = {}
+    falhas = {"grupos_site": 0, "hosts_atualizar": 0, "acoes_telegram": 0}
 
     def _grupo_do_site(entity_type: str, site: str) -> str:
         site = " ".join(_text(site).split()).strip()
@@ -720,7 +735,9 @@ def _sync_monitoring_to_zabbix(entity_types: tuple[str, ...]) -> Dict[str, Any]:
         if nome.lower() not in _grupo_site_cache:
             try:
                 _grupo_site_cache[nome.lower()] = _ensure_group(url, auth, nome, 200 + len(_grupo_site_cache))
-            except Exception:
+            except Exception as exc:
+                falhas["grupos_site"] += 1
+                logger.warning("Zabbix: grupo do site '%s' nao foi criado: %s", nome, exc)
                 _grupo_site_cache[nome.lower()] = ""
         return _grupo_site_cache[nome.lower()]
 
@@ -776,12 +793,15 @@ def _sync_monitoring_to_zabbix(entity_types: tuple[str, ...]) -> Dict[str, Any]:
                 "macros": _macros_da_entidade(row),
             }, auth, 300)
             atualizados += 1
-        except Exception:
+        except Exception as exc:
             # um host com problema nao pode parar os outros
+            falhas["hosts_atualizar"] += 1
+            logger.warning("Zabbix: host %s nao foi atualizado (grupos/macros): %s", technical_name, exc)
             continue
 
     telegram = _configurar_telegram_por_site(
         url, auth, tenant, cfg, _grupo_site_cache, entity_types)
+    falhas["acoes_telegram"] = int(telegram.get("falhas") or 0)
 
     all_hostids = [host_ids[name] for name in technical_names if host_ids.get(name)]
     wanted_keys = ["sightops.status", "sightops.onu_rx", "sightops.olt_rx", "sightops.distance",
@@ -980,4 +1000,5 @@ def _sync_monitoring_to_zabbix(entity_types: tuple[str, ...]) -> Dict[str, Any]:
         "created_hosts": len(create_hosts), "linked_hosts": len(host_ids),
         "created_items": len(create_items), "pushed": pushed, "removed_hosts": len(orphan_hostids),
         "gatilhos_criados": gatilhos,
+        "falhas": falhas, "falhas_total": sum(falhas.values()),
     }

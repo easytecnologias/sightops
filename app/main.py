@@ -271,11 +271,15 @@ async def _zabbix_status_sync_loop() -> None:
             for tenant_slug in await asyncio.to_thread(_zabbix_status_tenant_slugs):
                 tenant_last: dict[str, object] = {"ok": True, "modes": {}}
                 for mode in ("basic", "olt", "switch"):
-                    result = await asyncio.to_thread(
-                        _run_zabbix_status_sync_for_mode,
-                        mode,
-                        tenant_slug,
-                    )
+                    try:
+                        result = await asyncio.to_thread(
+                            _run_zabbix_status_sync_for_mode,
+                            mode,
+                            tenant_slug,
+                        )
+                    except Exception as exc:  # noqa: BLE001 - um cliente nao para os outros
+                        logger.exception("zabbix status sync: falhou para %s/%s", tenant_slug, mode)
+                        result = {"ok": False, "error": f"{type(exc).__name__}: {exc}"[:300]}
                     tenant_last["modes"][mode] = result
                     if result.get("ok"):
                         totals.append(
@@ -308,11 +312,31 @@ def _monitoring_refresh_interval_s() -> int:
 
 
 def _refresh_monitoring_tenant(tenant_slug: str) -> dict:
+    # Uma etapa que falha nao cala as outras: o Telegram roda mesmo com o
+    # Zabbix fora, e o erro de cada etapa fica no resultado do cliente.
     token = set_current_tenant_slug(tenant_slug)
     try:
-        result = refresh_from_inventory()
-        result["zabbix"] = sync_monitoring_to_zabbix()
-        result["telegram"] = process_monitoring_notifications()
+        erros: dict[str, str] = {}
+        try:
+            result = refresh_from_inventory()
+        except Exception as exc:  # noqa: BLE001 - segue para Zabbix/Telegram
+            logger.exception("monitoring refresh: inventario falhou para %s", tenant_slug)
+            result = {"ok": False}
+            erros["refresh"] = f"{type(exc).__name__}: {exc}"[:300]
+        try:
+            result["zabbix"] = sync_monitoring_to_zabbix()
+        except Exception as exc:  # noqa: BLE001 - Zabbix fora nao cala o Telegram
+            logger.exception("monitoring refresh: sync do Zabbix falhou para %s", tenant_slug)
+            result["zabbix"] = {"ok": False, "error": f"{type(exc).__name__}: {exc}"[:300]}
+            erros["zabbix"] = result["zabbix"]["error"]
+        try:
+            result["telegram"] = process_monitoring_notifications()
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("monitoring refresh: avisos do Telegram falharam para %s", tenant_slug)
+            result["telegram"] = {"ok": False, "error": f"{type(exc).__name__}: {exc}"[:300]}
+            erros["telegram"] = result["telegram"]["error"]
+        if erros:
+            result["erros"] = erros
         return result
     finally:
         reset_current_tenant_slug(token)
@@ -324,9 +348,17 @@ async def _monitoring_refresh_loop() -> None:
     while True:
         results: dict[str, object] = {}
         try:
+            algum_erro = False
             for tenant_slug in await asyncio.to_thread(list_monitoring_tenants):
-                results[tenant_slug] = await asyncio.to_thread(_refresh_monitoring_tenant, tenant_slug)
-            app.state.monitoring_refresh_last = {"ok": True, "interval_s": interval, "tenants": results}
+                try:
+                    results[tenant_slug] = await asyncio.to_thread(_refresh_monitoring_tenant, tenant_slug)
+                except Exception as exc:  # noqa: BLE001 - um cliente nao cala os outros
+                    results[tenant_slug] = {"ok": False, "error": f"{type(exc).__name__}: {exc}"[:300]}
+                    logger.exception("monitoring refresh: falhou para %s", tenant_slug)
+                if isinstance(results[tenant_slug], dict) and (
+                        results[tenant_slug].get("erros") or results[tenant_slug].get("error")):
+                    algum_erro = True
+            app.state.monitoring_refresh_last = {"ok": not algum_erro, "interval_s": interval, "tenants": results}
         except asyncio.CancelledError:
             raise
         except Exception as exc:
@@ -421,6 +453,9 @@ async def _olt_inventory_sync_loop() -> None:
                             # uma OLT fora do ar nao pode parar as outras
                             do_tenant.append({"olt_id": olt.get("id"), "ok": False, "error": str(exc)})
                     results[tenant_slug] = do_tenant
+                except Exception as exc:  # noqa: BLE001 - um cliente nao para os outros
+                    results[tenant_slug] = [{"ok": False, "error": f"{type(exc).__name__}: {exc}"[:300]}]
+                    logger.exception("olt inventory sync: falhou para %s", tenant_slug)
                 finally:
                     reset_current_tenant_slug(token)
             app.state.olt_sync_last = {"ok": True, "interval_s": interval, "tenants": results}
@@ -493,6 +528,9 @@ async def _olt_telemetry_loop() -> None:
                     except Exception as exc:
                         tenant_results.append({"switches": {"ok": False, "error": str(exc)}})
                     results[tenant_slug] = tenant_results
+                except Exception as exc:  # noqa: BLE001 - um cliente nao para os outros
+                    results[tenant_slug] = [{"ok": False, "error": f"{type(exc).__name__}: {exc}"[:300]}]
+                    logger.exception("OLT telemetry: falhou para %s", tenant_slug)
                 finally:
                     reset_current_tenant_slug(token)
             app.state.olt_telemetry_last = {"ok": True, "interval_s": interval, "tenants": results}
@@ -572,6 +610,9 @@ async def _access_control_sync_loop() -> None:
                         "events": events_count,
                         "device_errors": device_errors,
                     }
+                except Exception as exc:  # noqa: BLE001 - um cliente nao para os outros
+                    results[tenant_slug] = {"ok": False, "error": f"{type(exc).__name__}: {exc}"[:300]}
+                    logger.exception("access control sync: falhou para %s", tenant_slug)
                 finally:
                     reset_current_tenant_slug(token)
             app.state.access_control_sync_last = {"ok": True, "interval_s": interval, "tenants": results}
@@ -602,6 +643,10 @@ async def _access_control_escuta_loop() -> None:
                         alvo[tenant_slug] = [
                             d["id"] for d in await asyncio.to_thread(list_access_devices) if d.get("active")
                         ]
+                    except Exception:  # noqa: BLE001 - um cliente nao para os outros
+                        # mantem as escutas que ele ja tinha (lista vazia fecharia todas)
+                        alvo[tenant_slug] = [d for (t, d) in list(escuta._escutas) if t == tenant_slug]
+                        logger.exception("access control escuta: falhou ao listar leitores de %s", tenant_slug)
                     finally:
                         reset_current_tenant_slug(token)
                 estado = await asyncio.to_thread(escuta.reconciliar, alvo)
@@ -664,14 +709,16 @@ async def _access_email_loop() -> None:
 
 async def _alert_escalation_loop() -> None:
     """Modulo Alerta: alerta de panico que ninguem assumiu em 60s vai pro
-    Telegram do cliente. Barato (1 SELECT indexado) -- roda a cada 15s."""
-    from app.services.alert_store import escalate_unattended
+    Telegram do cliente, e aviso que falhou e tentado de novo com espera
+    crescente. Barato (SELECTs indexados) -- roda a cada 15s."""
+    from app.services.alert_store import escalate_unattended, retry_failed_notifications
 
     await asyncio.sleep(10)
     while True:
         try:
             sent = await asyncio.to_thread(escalate_unattended)
-            app.state.alert_escalation_last = {"ok": True, "escalated": sent}
+            reenvios = await asyncio.to_thread(retry_failed_notifications)
+            app.state.alert_escalation_last = {"ok": True, "escalated": sent, "reenvios": reenvios}
             if sent:
                 logger.warning("alerta: %s alerta(s) sem atendimento escalonado(s)", len(sent))
         except asyncio.CancelledError:
@@ -725,7 +772,12 @@ async def _rack_links_loop() -> None:
         resumo: dict[str, object] = {}
         try:
             for tenant_slug in await asyncio.to_thread(list_monitoring_tenants):
-                r = await asyncio.to_thread(_coletar_links_tenant, tenant_slug)
+                try:
+                    r = await asyncio.to_thread(_coletar_links_tenant, tenant_slug)
+                except Exception as exc:  # noqa: BLE001 - um cliente nao para os outros
+                    resumo[tenant_slug] = {"ok": False, "error": f"{type(exc).__name__}: {exc}"[:300]}
+                    logger.exception("rack links: falhou para %s", tenant_slug)
+                    continue
                 if r.get("switches"):
                     resumo[tenant_slug] = r
                 if r.get("falhas"):

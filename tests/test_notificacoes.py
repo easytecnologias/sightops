@@ -77,7 +77,7 @@ def test_quedas_do_mesmo_site_viram_uma_mensagem(banco, monkeypatch):
         {"entity_type": "camera", "status": "down", "entity_key": f"camera:{i}", "display_name": f"CAM {i}",
          "site": "INCOFORTE", "ip": f"10.0.0.{i}", "detail_json": "{}"} for i in range(1, 4)
     ] + [{"entity_type": "camera", "status": "up", "entity_key": "camera:9", "display_name": "CAM 9", "site": "INCOFORTE", "detail_json": "{}"}]
-    monkeypatch.setattr(TG, "list_entities", lambda limit=2000: [dict(e) for e in entidades])
+    monkeypatch.setattr(TG, "list_entities_todas", lambda **k: ([dict(e) for e in entidades], False))
     banco.clear()
     r = TG.process_monitoring_notifications()
     msgs = [d for (_, m, d) in banco if m == "sendMessage"]
@@ -103,7 +103,7 @@ def test_site_inteiro_fura_o_silencio(banco, monkeypatch):
     _grupo(nome="Noite", padrao=True, silencio={"ativo": True, "de": "00:00", "ate": "23:59"})
     entidades = [{"entity_type": "camera", "status": "down", "entity_key": f"c:{i}", "display_name": f"C{i}",
                   "site": "SUB", "detail_json": "{}"} for i in range(2)]
-    monkeypatch.setattr(TG, "list_entities", lambda limit=2000: [dict(e) for e in entidades])
+    monkeypatch.setattr(TG, "list_entities_todas", lambda **k: ([dict(e) for e in entidades], False))
     monkeypatch.setattr(N, "_no_silencio", lambda g, quando=None: True)
     banco.clear()
     TG.process_monitoring_notifications()
@@ -116,7 +116,7 @@ def test_silenciado_fica_pendente(banco, monkeypatch):
     _grupo(nome="Noite", padrao=True)
     entidades = [{"entity_type": "camera", "status": "down", "entity_key": "c:1", "display_name": "C1", "site": "A", "detail_json": "{}"},
                  {"entity_type": "camera", "status": "up", "entity_key": "c:2", "display_name": "C2", "site": "A", "detail_json": "{}"}]
-    monkeypatch.setattr(TG, "list_entities", lambda limit=2000: [dict(e) for e in entidades])
+    monkeypatch.setattr(TG, "list_entities_todas", lambda **k: ([dict(e) for e in entidades], False))
     monkeypatch.setattr(N, "_no_silencio", lambda g, quando=None: True)
     banco.clear()
     TG.process_monitoring_notifications()
@@ -213,7 +213,7 @@ def test_primeiro_grupo_nao_dispara_o_que_ja_estava_fora(banco, monkeypatch):
     N.salvar_grupo({"nome": "NOC", "chat_id": "-1001", "bot": "easy", "ativo": True, "padrao": True})
     entidades = [{"entity_type": "camera", "status": "down", "entity_key": "c:1", "display_name": "C1", "site": "A", "detail_json": "{}"},
                  {"entity_type": "camera", "status": "up", "entity_key": "c:2", "display_name": "C2", "site": "A", "detail_json": "{}"}]
-    monkeypatch.setattr(TG, "list_entities", lambda limit=2000: [dict(e) for e in entidades])
+    monkeypatch.setattr(TG, "list_entities_todas", lambda **k: ([dict(e) for e in entidades], False))
     banco.clear()
     r = TG.process_monitoring_notifications()
     assert r.get("linha_de_base") == 1 and not [1 for (_, m, _) in banco if m == "sendMessage"]
