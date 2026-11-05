@@ -132,6 +132,10 @@ class ApiAuthMiddleware(BaseHTTPMiddleware):
             (("POST",), "/api/cameras/ptz_move", "operator"),
             (("POST",), "/api/cameras/reboot", "operator"),
             (("POST",), "/api/cameras/rename", "operator"),
+            # Proxy web do equipamento: GET na camera/gravador tambem reinicia,
+            # abre porta e troca config (CGI por GET). Operador em QUALQUER
+            # metodo, antes da regra geral de /api/maintenance/.
+            (("GET", "HEAD", "OPTIONS", "POST", "PUT", "PATCH", "DELETE"), "/api/maintenance/web/", "operator"),
             # O proxy web repassa o metodo do dispositivo (PUT/PATCH/DELETE
             # inclusive), nao so POST -- com o default virando NEGAR, cobrir
             # so POST quebraria o acesso web a camera/gravador.
@@ -297,7 +301,7 @@ class ApiAuthMiddleware(BaseHTTPMiddleware):
             return False
         if self._is_public_path(path):
             return False
-        if method.upper() == "OPTIONS":
+        if method.upper() == "OPTIONS" and not path.startswith("/api/maintenance/web/"):
             return False
         if self._match_role_rule(path, method) or self._so_plataforma(path, method.upper()):
             return True
