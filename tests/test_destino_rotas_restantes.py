@@ -136,3 +136,42 @@ def test_varredura_pelo_arp_pula_so_destino_alheio(ativacao, monkeypatch):
     CA.api_activation_scan({"connector_id": "conn-a"}, _Req())
     # o IP fora das LANs coletadas fica (nao exige dono); faixa alheia e loopback saem
     assert sorted(set(ativacao)) == ["10.208.0.7", "10.77.0.9"]
+
+
+@pytest.mark.parametrize("porta", ["80@10.208.5.5", "8080/x", "0x50", "99999", "-1"])
+def test_porta_do_gravador_so_numero(porta):
+    with pytest.raises(HTTPException) as e:
+        DP._recorder_base_url("192.168.77.10", porta)
+    assert e.value.status_code == 400
+
+
+def test_porta_do_gravador_valida_segue():
+    assert DP._recorder_base_url("192.168.77.10", "8080") == "http://192.168.77.10:8080"
+    assert DP._recorder_base_url("192.168.77.10", "80") == "http://192.168.77.10"
+
+
+def test_parar_ao_vivo_de_outro_cliente_nao_derruba(monkeypatch):
+    from app.services import live_stream_service as L
+
+    apagados = []
+    monkeypatch.setattr(L, "unregister_recorder_stream", lambda **k: apagados.append(k))
+    monkeypatch.setattr(DP, "_reach_deploy_host", lambda h, c: h)
+    nome = L.recorder_stream_name("10.208.5.5", 1, True)
+    L._dono_stream[nome] = "cliente-b"
+    token = TC.set_current_tenant_slug("cliente-a")
+    try:
+        r = DP.api_deployments_recorder_live_stop({"host": "10.208.5.5", "canal": 1})
+        assert r["removido"] is False and apagados == []
+        TC.reset_current_tenant_slug(token)
+        token = TC.set_current_tenant_slug("cliente-b")
+        r = DP.api_deployments_recorder_live_stop({"host": "10.208.5.5", "canal": 1})
+        assert r["removido"] is True and len(apagados) == 1
+    finally:
+        TC.reset_current_tenant_slug(token)
+        L._dono_stream.pop(nome, None)
+
+
+def test_parar_ao_vivo_tem_guarda_de_destino():
+    rota = next(r for r in DP.router.routes if getattr(r, "path", "").endswith("/recorder-live-stop"))
+    assert rota.dependencies, "rota sem guarda de destino"
+

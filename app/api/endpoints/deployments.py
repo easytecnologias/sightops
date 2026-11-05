@@ -16,7 +16,7 @@ from app.core.erros import frase_erro_equipamento
 from fastapi import APIRouter, Depends, HTTPException, Request
 from requests.auth import HTTPBasicAuth, HTTPDigestAuth
 
-from app.core.tenant_context import tenant_recorder_inventory_path, tenant_scoped_path, tenant_snapshot_dir
+from app.core.tenant_context import get_current_tenant_slug, tenant_recorder_inventory_path, tenant_scoped_path, tenant_snapshot_dir
 from app.services.connector_service import create_job, get_connector, list_connectors, list_jobs, register_connector_known_targets
 from app.services import connector_routing_vnat as _vnat
 from app.services.inventory_json import inventory_row_key, load_inventory_json, save_inventory_json
@@ -98,7 +98,15 @@ def _recorder_base_url(host: str, port: Any = None) -> str:
         return text.rstrip("/")
     p = _text(port)
     if p and p not in ("80", "0"):
-        return f"http://{text}:{p}".rstrip("/")
+        # Porta so numero: "80@10.208.5.5" virava usuario da URL e o pedido
+        # ia para o IP depois do @, passando ao largo da guarda de destino.
+        try:
+            n = int(p)
+        except ValueError:
+            n = 0
+        if not 1 <= n <= 65535 or str(n) != p:
+            raise HTTPException(status_code=400, detail="porta do gravador invalida")
+        return f"http://{text}:{n}".rstrip("/")
     return f"http://{text}".rstrip("/")
 
 
@@ -1693,7 +1701,7 @@ def api_deployments_recorder_live_stream(payload: Dict[str, Any]) -> Dict[str, A
     return {"ok": True, "stream_name": nome}
 
 
-@router.post("/recorder-live-stop")
+@router.post("/recorder-live-stop", dependencies=[Depends(guarda_destino("recorder_host", "host"))])
 def api_deployments_recorder_live_stop(payload: Dict[str, Any]) -> Dict[str, Any]:
     """Tira o canal do go2rtc quando ninguem mais esta assistindo.
 
@@ -1713,6 +1721,12 @@ def api_deployments_recorder_live_stop(payload: Dict[str, Any]) -> Dict[str, Any
     connector_id = _text(payload.get("connector_id") or payload.get("remote_connector_id"))
     alcance = _reach_deploy_host(host, connector_id)
     alta = str(payload.get("alta", "1")).strip().lower() not in ("0", "false", "nao", "")
+    from app.services.live_stream_service import dono_do_stream, recorder_stream_name
+    dono = dono_do_stream(recorder_stream_name(alcance, canal, alta))
+    if dono != str(get_current_tenant_slug() or "").strip().lower():
+        # So quem registrou derruba; sem dono conhecido, a varredura periodica limpa.
+        logger.warning("ao vivo: pedido para parar %s canal %s recusado (dono=%s)", host, canal, dono)
+        return {"ok": True, "removido": False}
     try:
         from app.services.live_stream_service import unregister_recorder_stream
         unregister_recorder_stream(host=alcance, canal=canal, alta=alta)
