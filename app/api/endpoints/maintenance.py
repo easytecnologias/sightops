@@ -315,6 +315,22 @@ def alvo_permitido(user: Optional[Dict[str, Any]], ip: str, nivel: str = "ver",
 _LOTE_SO_LEITURA = {"test", "time_check"}
 
 
+def _conferir_destinos(alvos: List[Tuple[str, str]]) -> None:
+    """Cada (IP, dica de conector) pelo caminho que o pacote vai fazer de
+    fato (_reach): recusa faixa virtual de outro cliente, loopback, Docker,
+    link-local e IP sem dono (app.core.destino). Um recusado derruba tudo."""
+    if not alvos:
+        return
+    from app.core.destino import destinos_permitidos
+    finais: Dict[str, str] = {}
+    for ip, dica in alvos:
+        finais.setdefault(_reach(ip, dica) or ip, ip)
+    _ok, recusados = destinos_permitidos(get_current_tenant_slug(), list(finais))
+    if recusados:
+        final, motivo = next(iter(recusados.items()))
+        raise HTTPException(status_code=403, detail=f"{finais.get(final, final)}: {motivo}")
+
+
 def _alvos_do_lote(corpo: Any) -> List[Tuple[str, str]]:
     """(IP de ORIGEM, conector do item) de um lote -- o que ja existe e sera
     mexido. IP novo de destino (new_ip) nao entra: ainda nao e equipamento de
@@ -359,12 +375,15 @@ async def _conferir_lote(request: Request) -> None:
     site) para o usuario. Um IP fora derruba o lote inteiro -- melhor que
     aplicar metade."""
     user = getattr(request.state, "current_user", None)
-    if not user:
-        return
     try:
         corpo = await request.json()
     except Exception:
         return  # a propria rota responde o erro de payload
+    # Destino (faixa virtual de outro cliente, loopback, Docker...): vale
+    # sempre, com ou sem usuario e em qualquer modo de permissao.
+    await asyncio.to_thread(_conferir_destinos, _alvos_do_lote(corpo))
+    if not user:
+        return
     nome = request.url.path.rstrip("/").rsplit("/", 1)[-1]
     nivel = "ver" if nome in _LOTE_SO_LEITURA else "operar"
     for ip, dica in _alvos_do_lote(corpo):
@@ -378,8 +397,6 @@ async def _conferir_ip_do_caminho(request: Request) -> None:
     modulo e site liberado. stream_register manda o conector no corpo -- a
     mesma dica que o _reach dele usa."""
     user = getattr(request.state, "current_user", None)
-    if not user:
-        return
     ip = _as_str(request.path_params.get("ip"))
     dica = ""
     if request.method == "POST":
@@ -389,6 +406,10 @@ async def _conferir_ip_do_caminho(request: Request) -> None:
                 dica = _as_str(corpo.get("remote_connector_id"))
         except Exception:
             pass
+    if ip:
+        await asyncio.to_thread(_conferir_destinos, [(ip, dica)])
+    if not user:
+        return
     ok, motivo = await asyncio.to_thread(alvo_permitido, user, ip, "ver", dica)
     if not ok:
         raise HTTPException(status_code=403, detail=motivo)
@@ -400,8 +421,6 @@ def _conferir_ip_unico(nivel: str):
     a mesma coisa."""
     async def _dep(request: Request) -> None:
         user = getattr(request.state, "current_user", None)
-        if not user:
-            return
         ip = _as_str(request.query_params.get("ip"))
         dica = ""
         if request.method == "POST":
@@ -414,6 +433,9 @@ def _conferir_ip_unico(nivel: str):
                 dica = _as_str(corpo.get("connector_id"))
         if not ip:
             return  # a rota responde "IP obrigatorio"
+        await asyncio.to_thread(_conferir_destinos, [(ip, dica)])
+        if not user:
+            return
         ok, motivo = await asyncio.to_thread(alvo_permitido, user, ip, nivel, dica)
         if not ok:
             raise HTTPException(status_code=403, detail=f"{ip}: {motivo}")

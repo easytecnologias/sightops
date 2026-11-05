@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import time
 import uuid
 from typing import Any, Dict, List
@@ -40,6 +41,7 @@ from app.services.olt_service import (
 from app.services.onu_action_log import list_onu_actions
 
 router = APIRouter(prefix="/api", tags=["olt"])
+logger = logging.getLogger(__name__)
 _olt_sync_jobs: dict[str, dict[str, Any]] = {}
 _olt_sync_tasks: set[asyncio.Task[Any]] = set()
 _olt_telemetry_jobs: dict[str, dict[str, Any]] = {}
@@ -107,11 +109,37 @@ def _ensure_supported_registry_driver(olt_id: int) -> None:
     require_olt_capability(olt, "collect_macs", "sincronizar inventario")
 
 
+def _olt_id_do_cliente_por_ip(req: Any) -> int:
+    """olt_id da OLT do cliente atual com este IP; 400 se nao ha nenhuma (ou
+    ha mais de uma e o conector pedido nao desempata)."""
+    ip = str(getattr(req, "olt_ip", None) or "").strip()
+    if not ip:
+        raise HTTPException(status_code=400, detail="olt_id obrigatorio: escolha uma OLT cadastrada")
+    conector = str(getattr(req, "remote_connector_id", None) or getattr(req, "connector_id", None) or "").strip()
+    achadas = [o for o in (olt_registry.list_olts(include_inactive=True) or [])
+               if str(o.get("host") or "").strip() == ip]
+    if len(achadas) > 1 and conector:
+        achadas = [o for o in achadas if str(o.get("connector_id") or "").strip() == conector] or achadas
+    if len(achadas) != 1:
+        logger.warning("olt: pedido sem olt_id para %s no cliente %s -- %d OLT(s) cadastradas com o IP",
+                       ip, get_current_tenant_slug() or "default", len(achadas))
+        raise HTTPException(
+            status_code=400,
+            detail="olt_id obrigatorio: cadastre a OLT neste cliente antes de operar"
+            if not achadas else "mais de uma OLT com este IP: informe olt_id",
+        )
+    return int(achadas[0]["id"])
+
+
 def _registered_request(req: Any) -> Any:
     """Preenche credenciais e escopo no servidor quando a operacao usa olt_id."""
     olt_id = getattr(req, "olt_id", None)
     if not olt_id:
-        return req
+        # Sem olt_id o IP/senha/conector vinham do navegador e a operacao ia
+        # para qualquer OLT que respondesse naquele IP -- inclusive a de outro
+        # cliente. So vale OLT cadastrada NESTE cliente (o registro e filtrado
+        # por tenant); o IP digitado apenas a localiza.
+        olt_id = _olt_id_do_cliente_por_ip(req)
     try:
         olt = olt_registry.resolve_credentials(int(olt_id))
     except olt_registry.OltNotFound as exc:

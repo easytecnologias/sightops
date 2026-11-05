@@ -3750,7 +3750,7 @@ async function deployCheckNewIp() {
   const data = await apiJson(`/api/deployments/ip-check?ip=${encodeURIComponent(newIp)}&connector_id=${encodeURIComponent(p.connector_id)}&site=${encodeURIComponent(p.site)}`);
   if (!data) { showToast('Nao foi possivel checar o IP.', true); return; }
   if (data.in_use) {
-    const places = (data.matches || []).map(m => `${m.source || 'inventario'}: ${m.title || m.mac || m.host || '-'}`).join('<br>');
+    const places = (data.matches || []).map(m => `${esc(m.source || 'inventario')}: ${esc(m.title || m.mac || m.host || '-')}`).join('<br>');
     deploySetCheckIpResult(`IP ${esc(newIp)} ja aparece em uso.<br>${places}`, true);
     return;
   }

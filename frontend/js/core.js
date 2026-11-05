@@ -927,7 +927,7 @@ async function loadSettings() {
         <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
           <button class="ghost-action" style="padding:4px 8px;font-size:11px" onclick="openEditUserModal(${Number(u.id)})"><i data-lucide="pencil"></i> Editar</button>
           ${isSelf ? '' : `<button class="ghost-action" style="padding:4px 8px;font-size:11px" onclick="toggleUserActive(${Number(u.id)}, ${Number(u.active) ? 'false' : 'true'})"><i data-lucide="${toggleIcon}"></i> ${toggleLabel}</button>
-          <button class="ghost-action" style="padding:4px 8px;font-size:11px;color:var(--danger)" onclick="deleteUserRow(${Number(u.id)}, '${esc(u.username || '')}')"><i data-lucide="trash-2"></i> Excluir</button>`}
+          <button class="ghost-action" style="padding:4px 8px;font-size:11px;color:var(--danger)" onclick="deleteUserRow(${Number(u.id)}, '${escJs(u.username || '')}')"><i data-lucide="trash-2"></i> Excluir</button>`}
         </div>`;
       return `
       <tr>

@@ -12,7 +12,8 @@ from typing import Any, Dict, Iterable
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from app.core.security import AUTH_COOKIE_NAME
-from app.core.tenant_context import reset_current_tenant_slug, set_current_tenant_slug, tenant_snapshot_dir
+from app.core.destino import destino_permitido_atual, destinos_permitidos
+from app.core.tenant_context import get_current_tenant_slug, reset_current_tenant_slug, set_current_tenant_slug, tenant_snapshot_dir
 from app.services.ws_scan_service import run_ws_scan
 from app.services.maintenance_ping_service import maintenance_ping_hub
 from app.services.auth_store import auth_enabled, get_user_by_token
@@ -319,6 +320,12 @@ async def ws_snapshot(ws: WebSocket) -> None:
                 await ws.send_text(json.dumps({"type": "error", "message": "IP nÃ£o informado."}, ensure_ascii=False))
                 continue
 
+            # Faixa virtual de outro cliente, loopback, Docker, IP sem dono: recusa.
+            destino_ok, destino_motivo = await asyncio.to_thread(destino_permitido_atual, ip)
+            if not destino_ok:
+                await ws.send_text(json.dumps({"type": "error", "message": f"{ip}: {destino_motivo}"}, ensure_ascii=False))
+                continue
+
             snap_dir = tenant_snapshot_dir("ip")
             # Se existir uma pasta bugada com nome *.jpg, remove (bug legado ao passar path errado)
             try:
@@ -470,6 +477,14 @@ async def ws_portscan(ws: WebSocket) -> None:
 
         if not targets:
             await _send({"type": "error", "message": "Informe ao menos um alvo para escanear."})
+            return
+        # Faixa virtual de outro cliente, loopback, Docker, IP sem dono: fora.
+        targets, recusados = await asyncio.to_thread(destinos_permitidos, get_current_tenant_slug(), targets)
+        if recusados:
+            await _send({"type": "status", "message": f"{len(recusados)} alvo(s) recusado(s): "
+                         + ", ".join(f"{k} ({v})" for k, v in list(recusados.items())[:5])})
+        if not targets:
+            await _send({"type": "error", "message": "Nenhum alvo permitido para este cliente."})
             return
         if not ports:
             await _send({"type": "error", "message": "Informe ao menos uma porta para escanear."})

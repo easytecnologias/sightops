@@ -16,7 +16,7 @@ async function loadInvDvr() {
       <td class="text-muted">${esc(d.last_snapshot || '')}</td>
       <td>${statusBadge(d.status)}</td>
       <td>
-        <button class="ghost-action" style="padding:4px 8px;font-size:12px" onclick="openCamera('${esc(d.ip)}')">
+        <button class="ghost-action" style="padding:4px 8px;font-size:12px" onclick="openCamera('${escJs(d.ip)}')">
           <i data-lucide="external-link"></i>
         </button>
       </td>
@@ -698,13 +698,13 @@ function renderNvrTable(rows) {
           <input type="checkbox" class="chk-rec-grupo" data-host="${esc(host)}"
                  title="Selecionar os ${total} canais deste gravador"
                  style="margin-right:8px;vertical-align:middle">
-          <span class="rec-group-toggle" onclick="toggleDvrGroup('${esc(host)}')" style="cursor:pointer;display:inline-flex;align-items:center;gap:6px">
+          <span class="rec-group-toggle" onclick="toggleDvrGroup('${escJs(host)}')" style="cursor:pointer;display:inline-flex;align-items:center;gap:6px">
             <i data-lucide="${collapsed ? 'chevron-right' : 'chevron-down'}" style="width:14px;height:14px"></i>
             <strong>${esc(nome)}</strong>
             <span class="text-muted monospace" style="font-size:11px">${esc(host)}</span>
             <span class="text-muted" style="font-size:11px">${total} camera${total !== 1 ? 's' : ''}</span>
           </span>
-          <button class="ghost-action" style="padding:2px 6px;font-size:11px;margin-left:8px" onclick="event.stopPropagation();renameDvrGroup('${esc(host)}')" title="Renomear gravador">
+          <button class="ghost-action" style="padding:2px 6px;font-size:11px;margin-left:8px" onclick="event.stopPropagation();renameDvrGroup('${escJs(host)}')" title="Renomear gravador">
             <i data-lucide="pencil" style="width:12px;height:12px"></i>
           </button>
         </td>

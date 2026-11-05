@@ -44,7 +44,13 @@ async function downloadWithAuth(path, filename) {
 
 //  Utilidades 
 function esc(str) {
-  return String(str ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  return String(str ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
+// Texto dentro de string JS '...' de um atributo on*="...". So esc() nao basta:
+// o navegador decodifica &#39; ANTES de rodar o JS e a aspa fecharia a string.
+function escJs(str) {
+  return esc(String(str ?? '').replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/[\r\n\u2028\u2029]+/g, ' '));
 }
 
 function setText(id, val) {

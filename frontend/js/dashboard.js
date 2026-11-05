@@ -188,7 +188,7 @@ async function openDashDrawerIp(filterKey, filtros) {
   _drawerRenderRows(filtered.map(r => {
     const ip = esc(r.ip || '');
     const view = r._dashMode === 'switch' ? 'inv-switch' : 'inv-olt';
-    return `<div class="drawer-item" style="cursor:pointer" onclick="_drawerGoToInventory('${view}','${ip}','${esc(r._dashMode || 'olt')}')" title="Abrir no inventario">
+    return `<div class="drawer-item" style="cursor:pointer" onclick="_drawerGoToInventory('${escJs(view)}','${escJs(r.ip || '')}','${escJs(r._dashMode || 'olt')}')" title="Abrir no inventario">
       ${_drawerStatusDot(r.status)}
       <div class="drawer-item-main">
         <div class="drawer-item-title">${esc(r.titulo || r.ip || '')}</div>
