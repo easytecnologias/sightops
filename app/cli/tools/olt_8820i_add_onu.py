@@ -160,12 +160,21 @@ def read_until_prompt(chan, timeout: float = 10.0) -> str:
     return buffer
 
 
+def _comando_de_uma_linha(cmd: str) -> str:
+    """Um comando = uma linha. Quebra de linha no meio (descricao, serial ou
+    profile vindos da tela) viraria um SEGUNDO comando na OLT."""
+    cmd_str = cmd.strip()
+    if "\r" in cmd_str or "\n" in cmd_str:
+        raise ValueError("comando da OLT com quebra de linha recusado")
+    return cmd_str
+
+
 def cli_run(chan, cmd: str, timeout: float = 10.0) -> str:
+    cmd_str = _comando_de_uma_linha(cmd)
     time.sleep(0.05)
     while chan.recv_ready():
         _ = chan.recv(4096)
 
-    cmd_str = cmd.strip()
     chan.send(cmd_str + "\n")
 
     output = read_until_prompt(chan, timeout=timeout)
@@ -198,11 +207,11 @@ def cli_run_with_confirmation(chan, cmd: str, answers: List[str], timeout: float
     manda a proxima resposta da lista `answers` na ordem. Sequencia validada
     em producao (telegram-olt-bot) para 'onu delete': ["y", "n", "y"].
     """
+    cmd_str = _comando_de_uma_linha(cmd)
     time.sleep(0.05)
     while chan.recv_ready():
         _ = chan.recv(4096)
 
-    cmd_str = cmd.strip()
     chan.send(cmd_str + "\n")
 
     output = ""

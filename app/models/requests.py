@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from typing import List
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 
 # Copiado do legado (main.py) para refatoração incremental (opção 1)
 # Mantemos os mesmos campos/defaults para não quebrar o front.
@@ -59,7 +59,25 @@ class RescanSingleIPRequest(BaseModel):
     inventory_mode: str = "olt"
     # Se True, faz a captura do snapshot local (saida/snapshot)
     capture_snapshot: bool = True
-class OltRegistryRequest(BaseModel):
+class _OltSemQuebraDeLinha(BaseModel):
+    """Texto que vai para a OLT (descricao, serial, profile, usuario...) nao
+    pode ter CR nem LF: na sessao SSH/Telnet a quebra vira OUTRO comando.
+    `notes` e so do cadastro e nunca chega ao equipamento."""
+
+    @model_validator(mode="after")
+    def _sem_quebra_de_linha(self):
+        for nome, valor in self:
+            if nome == "notes":
+                continue
+            textos = [valor] if isinstance(valor, str) else []
+            if isinstance(valor, list):
+                textos = [v for v in valor if isinstance(v, str)]
+            if any("\r" in t or "\n" in t for t in textos):
+                raise ValueError(f"{nome}: quebra de linha nao e permitida")
+        return self
+
+
+class OltRegistryRequest(_OltSemQuebraDeLinha):
     """Cadastro de OLT. `id` presente = edicao.
 
     `password` vazio numa edicao mantem a senha atual (ver olt_registry.save_olt):
@@ -80,7 +98,7 @@ class OltRegistryRequest(BaseModel):
     active: bool = True
 
 
-class OltCollectMacsRequest(BaseModel):
+class OltCollectMacsRequest(_OltSemQuebraDeLinha):
     olt_id: int | None = None
     olt_ip: str = ""
     user: str = ""
@@ -109,7 +127,7 @@ class SwitchCollectMacsRequest(BaseModel):
     connector_id: str | None = None
 
 
-class OltDiscoverOnusRequest(BaseModel):
+class OltDiscoverOnusRequest(_OltSemQuebraDeLinha):
     olt_id: int | None = None
     olt_ip: str = ""
     user: str = ""
@@ -123,7 +141,7 @@ class OltDiscoverOnusRequest(BaseModel):
     timeout: float = 12.0
 
 
-class OnuServiceEntry(BaseModel):
+class OnuServiceEntry(_OltSemQuebraDeLinha):
     service: str = "downlink"
     vlan: int
     name: str = ""
@@ -132,7 +150,7 @@ class OnuServiceEntry(BaseModel):
     cos: int = 0
 
 
-class OltAddOnuRequest(BaseModel):
+class OltAddOnuRequest(_OltSemQuebraDeLinha):
     olt_id: int | None = None
     olt_ip: str = ""
     user: str = ""
@@ -162,7 +180,7 @@ class OltAddOnuRequest(BaseModel):
     timeout: float = 15.0
 
 
-class OltAddOnuBridgeRequest(BaseModel):
+class OltAddOnuBridgeRequest(_OltSemQuebraDeLinha):
     """Retoma so o passo de bridge/servico/VLAN numa ONU 8820i ja autorizada
     (posicao pon/onu ja tem 'onu set' feito) -- recuperacao para quando
     `add_onu` autorizou mas o `bridge add` falhou."""
@@ -188,7 +206,7 @@ class OltAddOnuBridgeRequest(BaseModel):
     timeout: float = 15.0
 
 
-class OltFindOnuRequest(BaseModel):
+class OltFindOnuRequest(_OltSemQuebraDeLinha):
     olt_id: int | None = None
     olt_ip: str = ""
     user: str = ""
@@ -202,7 +220,7 @@ class OltFindOnuRequest(BaseModel):
     timeout: float = 10.0
 
 
-class OltDeleteOnuRequest(BaseModel):
+class OltDeleteOnuRequest(_OltSemQuebraDeLinha):
     olt_id: int | None = None
     olt_ip: str = ""
     user: str = ""
@@ -220,7 +238,7 @@ class OltDeleteOnuRequest(BaseModel):
     timeout: float = 22.0
 
 
-class OltRebootOnuRequest(BaseModel):
+class OltRebootOnuRequest(_OltSemQuebraDeLinha):
     olt_id: int | None = None
     olt_ip: str = ""
     user: str = ""
@@ -237,7 +255,7 @@ class OltRebootOnuRequest(BaseModel):
     timeout: float = 20.0
 
 
-class OltOnuSignalRequest(BaseModel):
+class OltOnuSignalRequest(_OltSemQuebraDeLinha):
     olt_id: int | None = None
     olt_ip: str = ""
     user: str = ""
