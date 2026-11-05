@@ -236,7 +236,7 @@ class ApiAuthMiddleware(BaseHTTPMiddleware):
         if path.startswith("/api/access-control/whatsapp/meta/"):
             return True
         # Foto do aviso por e-mail: o responsavel abre do e-mail, sem login. A
-        # protecao e o token aleatorio que vence em 7 dias (access_control_email).
+        # protecao e o token aleatorio que vence em 24 h (access_control_email).
         if path.startswith("/api/access-control/foto/"):
             return True
         return False

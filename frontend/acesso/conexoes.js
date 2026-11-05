@@ -315,8 +315,9 @@ function emDesenhar() {
               ${radio('emQuando', 'resumo', c.quando, 'Resumo do dia', 'Um e-mail só por pessoa, no horário abaixo, com entrada e saída.')}</div>
             ${c.quando === 'resumo' ? `<label class="rl-campo">Horário do resumo<input id="emHora" type="time" value="${esc(c.resumo_hora || '18:30')}"></label>` : ''}
             <span class="dv-rot">Foto</span>
-            <div class="ag-ops">${radio('emFoto', 'link', c.foto, 'Link que expira em 7 dias (recomendado)', 'A foto fica no SightOps; o e-mail leva o link. Mais seguro para foto de criança (LGPD).')}
-              ${radio('emFoto', 'anexo', c.foto, 'Foto dentro do e-mail', 'A imagem vai no e-mail e fica com quem recebeu.')}</div>
+            <div class="ag-ops">${radio('emFoto', 'link', c.foto, `Link que expira em ${Number(c.link_horas) || 24} horas (recomendado)`, 'A foto fica no SightOps; o e-mail leva o link. Cada abertura fica no Histórico. Mais seguro para foto de criança (LGPD).')}
+              ${radio('emFoto', 'anexo', c.foto, 'Foto dentro do e-mail', 'A imagem vai no e-mail e fica com quem recebeu.')}
+              ${radio('emFoto', 'nenhuma', c.foto, 'Sem foto', 'O e-mail vai só com o texto; nenhuma foto é tirada da câmera.')}</div>
             <label class="dv-chave"><input type="checkbox" id="emSemFoto" ${c.sem_foto_envia !== false ? 'checked' : ''}><span></span>Sem foto da câmera, mandar mesmo assim (só o texto)</label>
           </fieldset>
         </section>

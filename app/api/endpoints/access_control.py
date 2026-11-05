@@ -1282,14 +1282,17 @@ def api_access_control_painel_cameras_foto(device_id: str, chave: str = Query(..
 
 
 @router.get("/foto/{token}")
-def api_access_control_foto_publica(token: str):
-    """Link do e-mail (rota publica em security.py): so com o token, ate vencer."""
+def api_access_control_foto_publica(token: str, request: Request):
+    """Link do e-mail (rota publica em security.py): so com o token, ate vencer.
+    Cada abertura vai para o historico do cliente (sem cache: cada vez conta)."""
     from fastapi.responses import FileResponse
     from app.services.access_control_email import foto_publica
-    arq = foto_publica(token)
+    ip = (request.headers.get("cf-connecting-ip") or request.headers.get("x-real-ip")
+          or (request.client.host if request.client else "") or "")
+    arq = foto_publica(token, ip=ip)
     if not arq:
         raise HTTPException(status_code=404, detail="Foto nao encontrada ou o link venceu.")
-    return FileResponse(arq, media_type="image/jpeg", headers={"Cache-Control": "private, max-age=3600"})
+    return FileResponse(arq, media_type="image/jpeg", headers={"Cache-Control": "no-store"})
 
 
 # ---- Relatorios por modo do local (catalogo, dados na tela e PDF)

@@ -285,6 +285,32 @@ def registrar(user: Dict[str, Any], method: str, path: str, modelo: str, status:
         logger.exception("historico: falha ao registrar %s %s", method, path)
 
 
+def registrar_lgpd(tenant_slug: str, acao: str, recurso_id: str, detalhe: Dict[str, Any],
+                   user_id: Optional[int] = None) -> bool:
+    """Evento de dado pessoal sem usuario logado na requisicao (link do e-mail
+    aberto, eliminacao de pessoa): grava na hora no historico do cliente dono,
+    acao "lgpd.<acao>". Nunca levanta; devolve se gravou."""
+    try:
+        from app.services.auth_store import _audit, _conn, _ensure_schema, _fetchone
+
+        slug = str(tenant_slug or "").strip().lower()
+        if not slug:
+            logger.warning("historico lgpd: %s sem cliente, nao registrado", acao)
+            return False
+        _ensure_schema()
+        with _conn() as c:
+            row = _fetchone(c, "SELECT id FROM tenants WHERE slug=?", (slug,))
+            if not row:
+                logger.warning("historico lgpd: cliente %s nao existe, %s nao registrado", slug, acao)
+                return False
+            _audit(c, action=f"lgpd.{acao}", tenant_id=int(row["id"]), user_id=user_id, resource_type="lgpd",
+                   resource_id=str(recurso_id or "")[:200], detail_json=json.dumps(detalhe or {}, ensure_ascii=False)[:4000])
+        return True
+    except Exception:
+        logger.exception("historico lgpd: falha ao registrar %s (%s)", acao, tenant_slug)
+        return False
+
+
 def _garantir_thread() -> None:
     global _thread
     if _thread and _thread.is_alive():
@@ -334,6 +360,7 @@ TIPOS = {
     "usuarios": ("user.%", "access.%", "tenant.%", "licensing.%", "exclusao_autorizada"),
     "exclusoes": ("acao.exclusao", "exclusao_autorizada"),
     "negadas": ("acao.negada",),
+    "lgpd": ("lgpd.%",),
 }
 
 
