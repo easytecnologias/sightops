@@ -23,7 +23,7 @@ def test_pasta_e_do_cliente(clientes):
 
 def test_arquivo_de_outro_cliente_da_404(clientes):
     (M.export_dir() / "gravador_1.mp4").write_bytes(b"video")
-    assert P.get_playback_file("gravador_1.mp4").path.endswith("gravador_1.mp4")
+    assert str(P.get_playback_file("gravador_1.mp4").path).endswith("gravador_1.mp4")
     token = TC.set_current_tenant_slug("cliente-b")
     try:
         with pytest.raises(HTTPException) as exc:
