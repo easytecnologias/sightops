@@ -47,6 +47,7 @@ from __future__ import annotations
 
 import ipaddress
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -56,6 +57,7 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Set
 
 WG_INTERFACE = "wg-sightops"
+WG_APOSENTADOS_PATH = Path("/opt/sightops/scripts/wg_aposentados.txt")
 WG_CONF_PATH = Path("/etc/wireguard/wg-sightops.conf")
 CONNECTORS_JSON_CANDIDATES = [
     # V3 PRIMEIRO: o volume do v2 continua no disco mesmo com os
@@ -100,6 +102,24 @@ def canon_cidr(value: str) -> Optional[str]:
         return None
 
 
+def _aposentados() -> Set[str]:
+    """Ids de conector migrado a mao cujo peer antigo no wg-sightops deve sair.
+
+    Um id por linha em WG_APOSENTADOS_PATH (# comenta). A variavel de ambiente
+    SIGHTOPS_WG_APOSENTADOS (ids separados por virgula) substitui o arquivo:
+    serve para simular com --dry-run antes de gravar o arquivo, que o timer le
+    a cada minuto. Arquivo ausente ou ilegivel = nenhum (nada muda).
+    """
+    env = os.environ.get("SIGHTOPS_WG_APOSENTADOS")
+    if env is not None:
+        return {i.strip() for i in env.split(",") if i.strip()}
+    try:
+        linhas = WG_APOSENTADOS_PATH.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return set()
+    return {l.split("#", 1)[0].strip() for l in linhas if l.split("#", 1)[0].strip()}
+
+
 def _is_auto_isolated(row: Dict[str, Any]) -> bool:
     """Conector que nasceu isolado por tabela de rota (iso_provisioner).
 
@@ -109,9 +129,11 @@ def _is_auto_isolated(row: Dict[str, Any]) -> bool:
     abre conexao vinda do conector (SIERRA -> GenieACS, 06/10/2026).
     Exigir o wgc<N> no host evita apagar o unico caminho de um conector
     cujo tunel isolado ainda nao subiu. wgc1..7 (iso_manual) ficam de fora:
-    alguns mantem a rota antiga viva de proposito.
+    alguns mantem a rota antiga viva de proposito. Quem ja nao precisa dela
+    entra em wg_aposentados.txt e passa a ser tratado como isolado aqui -- so
+    aqui: o iso_provisioner continua sem tocar no tunel wgc<N> dele.
     """
-    if row.get("iso_manual"):
+    if row.get("iso_manual") and str(row.get("id") or "") not in _aposentados():
         return False
     try:
         n = int(row.get("iso_index") or 0)
