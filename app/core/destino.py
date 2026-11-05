@@ -238,10 +238,12 @@ class _Contexto:
                 return f"{item}: {motivo}"
         return ""
 
-    def conferir(self, alvo: str, exigir_dono: bool = True) -> str:
+    def fixar(self, alvo: str, exigir_dono: bool = True) -> Tuple[str, str]:
+        """(IP aprovado, motivo da recusa). Resolve o nome uma vez so: quem
+        conecta usa este IP, ou o DNS responderia outro na segunda consulta."""
         alvo = str(alvo or "").strip().strip("[]")
         if not alvo:
-            return "destino vazio"
+            return "", "destino vazio"
         try:
             enderecos = [ipaddress.ip_address(alvo)]
         except ValueError:
@@ -249,32 +251,44 @@ class _Contexto:
                 infos = socket.getaddrinfo(alvo, None)
                 enderecos = list({ipaddress.ip_address(i[4][0].split("%")[0]) for i in infos if i and i[4]})
             except (OSError, ValueError, UnicodeError) as exc:
-                return f"nome nao resolvido ({exc})"
+                return "", f"nome nao resolvido ({exc})"
             if not enderecos:
-                return "nome nao resolvido"
+                return "", "nome nao resolvido"
         for ip in enderecos:
             motivo = self.conferir_ip(ip, exigir_dono)
             if motivo:
-                return motivo
-        return ""
+                return "", motivo
+        enderecos.sort(key=lambda ip: ip.version)  # IPv4 primeiro: as ferramentas usam AF_INET
+        return str(enderecos[0]), ""
+
+    def conferir(self, alvo: str, exigir_dono: bool = True) -> str:
+        return self.fixar(alvo, exigir_dono)[1]
 
 
-def destinos_permitidos(tenant_slug: str, alvos: Iterable[str]) -> Tuple[List[str], Dict[str, str]]:
-    """(permitidos na ordem de entrada, {recusado: motivo})."""
+def destinos_fixados(tenant_slug: str, alvos: Iterable[str]) -> Tuple[Dict[str, str], Dict[str, str]]:
+    """({alvo: IP aprovado}, {recusado: motivo}). Quem abre a conexao usa o IP
+    aprovado, nunca o nome de novo (DNS rebinding)."""
     ctx = _Contexto(tenant_slug)
-    ok: List[str] = []
+    fixos: Dict[str, str] = {}
     recusados: Dict[str, str] = {}
     for alvo in alvos:
-        motivo = ctx.conferir(alvo)
+        ip, motivo = ctx.fixar(alvo)
         if motivo:
             recusados[str(alvo)] = motivo
         else:
-            ok.append(alvo)
+            fixos[alvo] = ip
     if recusados:
         amostra = ", ".join(f"{k} ({v})" for k, v in list(recusados.items())[:5])
         logger.warning("destino: cliente %s, %d destino(s) recusado(s): %s",
                        tenant_slug or "(sem cliente)", len(recusados), amostra)
-    return ok, recusados
+    return fixos, recusados
+
+
+def destinos_permitidos(tenant_slug: str, alvos: Iterable[str]) -> Tuple[List[str], Dict[str, str]]:
+    """(permitidos na ordem de entrada, {recusado: motivo})."""
+    lista = list(alvos)
+    fixos, recusados = destinos_fixados(tenant_slug, lista)
+    return [alvo for alvo in lista if alvo in fixos], recusados
 
 
 def destino_permitido(tenant_slug: str, ip: str) -> Tuple[bool, str]:
@@ -323,5 +337,5 @@ def sem_faixa_virtual_alheia(tenant_slug: str, linhas: List[Dict]) -> List[Dict]
     return saida
 
 
-__all__ = ["destino_permitido", "destinos_permitidos", "destino_permitido_atual", "redes_bloqueadas",
+__all__ = ["destino_permitido", "destinos_fixados", "destinos_permitidos", "destino_permitido_atual", "redes_bloqueadas",
            "sem_faixa_virtual_alheia", "varredura_recusada"]

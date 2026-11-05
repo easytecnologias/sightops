@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from app.core import permissions
-from app.core.destino import destino_permitido_atual, destinos_permitidos
+from app.core.destino import destino_permitido_atual, destinos_fixados
 from fastapi import APIRouter, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, Response, StreamingResponse
 
@@ -826,7 +826,8 @@ async def api_discovery_run(payload: Dict[str, Any]) -> Dict[str, Any]:
         raise HTTPException(400, "Informe ao menos um alvo (IP/range/CIDR).")
     if not ports:
         raise HTTPException(400, "Informe ao menos uma porta.")
-    targets, recusados = await asyncio.to_thread(destinos_permitidos, get_current_tenant_slug(), targets)
+    fixos, recusados = await asyncio.to_thread(destinos_fixados, get_current_tenant_slug(), targets)
+    targets = [t for t in targets if t in fixos]
     if not targets:
         raise HTTPException(403, {"message": "destino recusado", "recusados": dict(list(recusados.items())[:50])})
 
@@ -840,7 +841,7 @@ async def api_discovery_run(payload: Dict[str, Any]) -> Dict[str, Any]:
         async with sem:
             for p in ports:
                 try:
-                    conn = asyncio.open_connection(ip, int(p))
+                    conn = asyncio.open_connection(fixos[ip], int(p))  # IP aprovado, nao o nome
                     reader, writer = await asyncio.wait_for(conn, timeout=timeout_s)
                     open_ports.append(int(p))
                     try:
@@ -868,7 +869,7 @@ async def api_discovery_run(payload: Dict[str, Any]) -> Dict[str, Any]:
                 try:
                     info = await asyncio.to_thread(
                         probe_device,
-                        ip,
+                        fixos[ip],
                         user,
                         password,
                         (timeout_s, max(1.0, timeout_s * 2.0)),
