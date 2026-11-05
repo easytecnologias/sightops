@@ -306,6 +306,7 @@ function renderIntegrationCards(health, telegram) {
         ['Equipamentos com host', `${licNum((h.total || 0) - (h.sem_zabbix || 0))} / ${licNum(h.total || 0)}`],
         ['Último envio', esc(zu.em ? cfgMinutos(zu.em) : '—')],
         ['Valores no último envio', zu.em ? licNum(zu.pushed || 0) : '—'],
+        ...(zu.falhas_total ? [['Falhas de configuração', `<span class="badge badge-amber">${licNum(zu.falhas_total)}</span>`]] : []),
         ['Fora do ar (SightOps)', licNum(h.fora || 0)],
       ],
     }),
