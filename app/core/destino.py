@@ -114,6 +114,7 @@ class _Contexto:
         self.virtuais: List[Tuple[_Rede, str]] = []  # (faixa virtual, conector)
         self.meus: set = set()
         self.minhas_redes: List[_Rede] = []
+        self.redes_do_conector: Dict[str, List[_Rede]] = {}  # cid -> LANs dele
         self.tuneis_alheios: set = set()
         self.lans_alheias: List[_Rede] = []
         self.falhou = False  # mapa ou conectores ilegiveis: nega em vez de liberar
@@ -151,7 +152,9 @@ class _Contexto:
                     self.tuneis_alheios.add(endereco)
             self.lans_alheias.extend(real for real, _virt in mapa.get(str(row.get("id") or "").strip(), []))
             try:
-                self.lans_alheias.extend(ipaddress.ip_network(str(c), strict=False) for c in cs._extract_connector_lans(row))
+                # so a LAN detectada: a digitada de outro cliente nao tira rede de ninguem
+                self.lans_alheias.extend(ipaddress.ip_network(str(c), strict=False)
+                                         for c in cs._extract_connector_lans(row, include_saved_tunnel=False))
             except (ValueError, TypeError, AttributeError) as exc:
                 logger.warning("destino: LANs do conector %s ilegiveis (%s)", row.get("id"), exc)
         for row in linhas:
@@ -160,18 +163,34 @@ class _Contexto:
                 self.meus.add(cid)
             if str(row.get("type") or "").strip().lower() == "ruijie":
                 self.tem_ruijie = True
+            redes: List[_Rede] = [real for real, _virt in mapa.get(cid, [])]
             try:
-                lans = cs._extract_connector_lans(row)
+                detectadas = cs._extract_connector_lans(row, include_saved_tunnel=False)
+                tunel = row.get("tunnel") if isinstance(row.get("tunnel"), dict) else {}
+                digitadas = [c for c in cs._split_cidr_values(tunel.get("client_lans")) if c not in detectadas]
             except Exception as exc:
                 logger.warning("destino: LANs do conector %s ilegiveis (%s)", cid, exc)
-                lans = []
-            for cidr in lans:
+                detectadas, digitadas = [], []
+            for cidr in detectadas:
                 try:
-                    self.minhas_redes.append(ipaddress.ip_network(str(cidr), strict=False))
+                    redes.append(ipaddress.ip_network(str(cidr), strict=False))
                 except ValueError:
                     continue
-            for real, _virt in mapa.get(cid, []):
-                self.minhas_redes.append(real)
+            for cidr in digitadas:
+                try:
+                    rede = ipaddress.ip_network(str(cidr), strict=False)
+                except ValueError:
+                    continue
+                # client_lans e digitado pelo admin: sobrepondo LAN de conector de
+                # outro cliente, nao prova nada (seria so declarar a rede alheia)
+                if any(rede.version == a.version and rede.overlaps(a) for a in self.lans_alheias):
+                    logger.warning("destino: client_lans %s do conector %s sobrepoe LAN de outro cliente -- ignorada",
+                                   cidr, cid)
+                    continue
+                redes.append(rede)
+            self.minhas_redes.extend(redes)
+            if cid:
+                self.redes_do_conector[cid] = redes
 
     def _equipamento_meu(self, ip: str) -> bool:
         """IP de equipamento com linha apontando para conector deste cliente."""
@@ -181,7 +200,7 @@ class _Contexto:
                 return False  # o inventario e lido pelo contexto: outro cliente, nao confere
             from app.api.endpoints import maintenance as m
             if self._equipamentos is None:
-                self._equipamentos = m._equipamentos_com_conector(self.meus)
+                self._equipamentos = m._equipamentos_com_conector(self.redes_do_conector)
             if ip in self._equipamentos:
                 return True
             return bool(self.tem_ruijie) and m._ruijie_gateway_owner(ip) in self.meus

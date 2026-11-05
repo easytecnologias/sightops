@@ -156,16 +156,26 @@ def _ip_belongs_to_current_tenant(ip: str) -> bool:
     )
 
 
-def _equipamentos_com_conector(meus: set) -> set:
+def _equipamentos_com_conector(meus: Dict[str, list]) -> set:
     """IPs de equipamento do cliente atual cuja linha aponta para um conector
-    dele (`meus`). Inventario sozinho nao prova posse -- POST /api/cameras/save
-    grava qualquer IP --, e o conector da linha sim. Uma passada so: um lote nao
-    rele os inventarios por IP. Fonte ilegivel so deixa de contar como posse."""
+    dele (`meus`: conector -> LANs dele) E cujo IP esta numa LAN desse conector.
+    Inventario sozinho nao prova posse -- POST /api/cameras/save grava qualquer
+    IP com qualquer conector do cliente. Uma passada so: um lote nao rele os
+    inventarios por IP. Fonte ilegivel so deixa de contar como posse."""
     ips: set = set()
 
-    def _de(nome: str, coleta) -> None:
+    def _na_lan(ip: str, cid: str) -> bool:
         try:
-            ips.update(_as_str(ip) for ip, cid in coleta() if _as_str(ip) and _as_str(cid) in meus)
+            alvo = ipaddress.ip_address(ip)
+        except ValueError:
+            return False
+        return any(alvo.version == r.version and alvo in r for r in meus.get(cid) or [])
+
+    def _de(nome: str, coleta, exigir_lan: bool = True) -> None:
+        try:
+            ips.update(_as_str(ip) for ip, cid in coleta()
+                       if _as_str(ip) and _as_str(cid) in meus
+                       and (not exigir_lan or _na_lan(_as_str(ip), _as_str(cid))))
         except Exception as exc:
             logger.warning("destino: fonte %s ilegivel: %s", nome, exc)
 
@@ -207,8 +217,10 @@ def _equipamentos_com_conector(meus: set) -> set:
                 yield addr, _connector_tunnel_ip_owner(addr)
 
     for nome, coleta in (("cameras", _cameras), ("gravadores", _gravadores), ("switches", _switches),
-                         ("onus", _onus), ("leitores", _leitores), ("roteadores", _roteadores)):
+                         ("onus", _onus), ("leitores", _leitores)):
         _de(nome, coleta)
+    # IP do tunel nao e da LAN: o dono ja vem de _connector_tunnel_ip_owner
+    _de("roteadores", _roteadores, exigir_lan=False)
     return ips
 
 

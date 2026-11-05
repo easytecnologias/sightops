@@ -34,8 +34,28 @@ def test_linha_sem_conector_nao_prova_posse_para_cliente_com_conector(inventario
     assert not ok and "nao pertence" in motivo
 
 
-def test_linha_com_conector_do_cliente_prova_posse(inventario):
-    assert D.destino_permitido("cliente-a", "10.99.0.2") == (True, "")
+def test_linha_com_conector_do_cliente_fora_da_lan_dele_nao_prova_posse(inventario):
+    """POST /api/cameras/save aceita qualquer IP com o conector do cliente."""
+    ok, motivo = D.destino_permitido("cliente-a", "10.99.0.2")
+    assert not ok and "nao pertence" in motivo
+
+
+def test_conferencia_de_equipamento_exige_a_lan_do_conector_da_linha(inventario):
+    from ipaddress import ip_network
+    redes = {"conn-a": [ip_network("10.99.0.0/24")]}
+    assert ORIGINAL(redes) == {"10.99.0.2"}
+    assert ORIGINAL({"conn-a": [ip_network("192.168.10.0/24")]}) == set()
+
+
+def test_client_lans_digitado_sobre_lan_de_outro_cliente_nao_vale(rede, monkeypatch):
+    linhas = [dict(c) for c in CONECTORES]
+    linhas[0] = {"id": "conn-a", "tenant_slug": "cliente-a",
+                 "tunnel": {"client_lans": ["172.16.80.0/23", "10.77.0.0/24"]}}
+    linhas[1] = {"id": "conn-b", "tenant_slug": "cliente-b", "host": {"lan_networks": ["172.16.80.0/23"]}}
+    monkeypatch.setattr(cs, "_load_connectors", lambda: linhas)
+    monkeypatch.setattr(vnat, "_load_map", lambda: {})
+    assert D.destino_permitido("cliente-a", "172.16.80.9")[0] is False
+    assert D.destino_permitido("cliente-a", "10.77.0.9")[0] is True
 
 
 def test_linha_com_conector_de_outro_cliente_nao_prova_posse(inventario):
