@@ -9,6 +9,7 @@ import re
 import socket
 import time
 import ipaddress
+import logging
 import unicodedata
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
@@ -537,6 +538,64 @@ def _proxy_location_header(location: str, *, ip: str) -> str:
     if loc.startswith("/"):
         return proxy_root + loc.lstrip("/")
     return loc
+
+
+logger = logging.getLogger("cam-snapshot")
+
+
+def _web_proxy_isolamento(request: Request, ip: str) -> dict[str, str]:
+    """Cabecalhos que prendem a pagina do equipamento a pasta dela no proxy.
+
+    A pagina da camera roda na MESMA origem do painel. `CSP: sandbox` sem
+    allow-same-origin quebra a tela nativa (subrecurso sai sem o cookie Lax da
+    sessao e toma 401; document.cookie/localStorage da camera dao erro), e com
+    allow-same-origin nao protege nada. Entao: fetch/XHR/WebSocket, frame,
+    object, worker, form e <base> so para /api/maintenance/web/<ip>/ (nao
+    alcanca /api/auth/agent-token nem o resto da API), e COOP same-origin corta
+    o acesso a janela do painel (opener e pop-up)."""
+    raiz = f"/api/maintenance/web/{quote(str(ip), safe='')}/"
+    host = str(request.headers.get("host") or "").strip()
+    fonte = f"{host}{raiz}" if re.fullmatch(r"[A-Za-z0-9.-]+(:\d{1,5})?", host) else "'self'"
+    csp = "; ".join(f"{d} {fonte}" for d in
+                    ("connect-src", "frame-src", "worker-src", "object-src", "form-action", "base-uri"))
+    return {"Content-Security-Policy": csp, "Cross-Origin-Opener-Policy": "same-origin"}
+
+
+def _web_proxy_location_segura(destino: str, host_painel: str, ip: str) -> str:
+    """O caminho do CSP deixa de valer depois de um redirect: um 302 da camera
+    para https://<painel>/api/auth/agent-token passaria pelo connect-src. Quem
+    aponta para o proprio painel volta para a pasta do equipamento. O navegador
+    trata \\ como / e ignora tab/quebra de linha: confere ja normalizado."""
+    limpo = re.sub(r"[\x00-\x20]", "", str(destino or "")).replace("\\", "/")
+    alvo = urlsplit("http:" + limpo if limpo.startswith("//") else limpo)
+    painel = str(host_painel or "").split(":", 1)[0].strip().lower()
+    if alvo.scheme.lower() in ("http", "https", "ws", "wss", "") and alvo.netloc and (alvo.hostname or "") == painel:
+        logger.warning("proxy web %s: redirect para o painel recusado", ip)
+        return f"/api/maintenance/web/{quote(str(ip), safe='')}/"
+    return destino
+
+
+def _web_proxy_set_cookies(upstream: Any, ip: str) -> list[str]:
+    """Set-Cookie do equipamento NUNCA passa cru: sem Domain, Path preso a
+    pasta do equipamento no proxy e nome nosso (sightops_*) recusado -- antes a
+    camera podia sobrescrever/fixar o cookie de sessao do painel."""
+    raiz = f"/api/maintenance/web/{quote(str(ip), safe='')}/"
+    out: list[str] = []
+    for ck in getattr(upstream, "cookies", None) or []:
+        nome = str(getattr(ck, "name", "") or "")
+        if not nome or nome.lower().startswith("sightops") or not re.fullmatch(r"[!#$%&'*+.^_`|~0-9A-Za-z-]+", nome):
+            logger.warning("proxy web %s: Set-Cookie %r do equipamento descartado", ip, nome)
+            continue
+        valor = str(getattr(ck, "value", "") or "").replace(";", "").replace("\r", "").replace("\n", "")
+        partes = [f"{nome}={valor}", f"Path={raiz}", "SameSite=Lax"]
+        if getattr(ck, "expires", None) is not None:
+            partes.append(f"Max-Age={max(0, int(ck.expires - time.time()))}")
+        if getattr(ck, "secure", False):
+            partes.append("Secure")
+        if hasattr(ck, "has_nonstandard_attr") and ck.has_nonstandard_attr("HttpOnly"):
+            partes.append("HttpOnly")
+        out.append("; ".join(partes))
+    return out
 
 
 def _camera_cookie_header(request: Request) -> str:
@@ -2440,6 +2499,10 @@ async def maintenance_camera_web_proxy(ip: str, request: Request, path: str = ""
     liberada, motivo = web_liberada_para(getattr(request.state, "current_user", None), ip)
     if not liberada:
         raise HTTPException(status_code=403, detail=motivo)
+    # Service worker registrado pela pagina da camera escaparia do CSP dela.
+    if str(request.headers.get("service-worker") or "").lower() == "script":
+        raise HTTPException(status_code=403, detail="service worker do equipamento nao e permitido")
+    isolamento = _web_proxy_isolamento(request, ip)
 
     query = str(request.url.query or "")
     cacheavel = request.method == "GET" and _is_static_device_asset(path)
@@ -2454,6 +2517,7 @@ async def maintenance_camera_web_proxy(ip: str, request: Request, path: str = ""
                     "Cache-Control": f"private, max-age={_CDN_CACHE_MAX_AGE_SECONDS}",
                     "X-Frame-Options": "SAMEORIGIN",
                     "X-SightOps-Proxy-Cache": "hit",
+                    **isolamento,
                 },
             )
 
@@ -2535,6 +2599,7 @@ async def maintenance_camera_web_proxy(ip: str, request: Request, path: str = ""
         "Cache-Control": "no-store",
         "X-Frame-Options": "SAMEORIGIN",
         **filter_response_headers(upstream.headers),
+        **isolamento,
     }
     # "private", nao "public": o Cloudflare guarda .jpg/.js/.css por URL e
     # entregaria a QUALQUER um (sem login, outro cliente com o mesmo IP
@@ -2552,16 +2617,19 @@ async def maintenance_camera_web_proxy(ip: str, request: Request, path: str = ""
     )
     location = upstream.headers.get("location")
     if location:
-        resp_headers["Location"] = _proxy_location_header(location, ip=ip)
+        resp_headers["Location"] = _web_proxy_location_segura(
+            _proxy_location_header(location, ip=ip), str(request.headers.get("host") or ""), ip)
     set_cookie = upstream.headers.get("set-cookie")
-    if set_cookie:
-        resp_headers["Set-Cookie"] = set_cookie
 
     media_type = upstream.headers.get("content-type") or "application/octet-stream"
     content = _rewrite_camera_web_content(upstream.content or b"", ip=ip, content_type=media_type)
     if cacheavel and upstream.status_code == 200 and not set_cookie:
         _static_cache_put(chave_cache, upstream.status_code, content, media_type)
-    return Response(content=content, status_code=upstream.status_code, media_type=media_type, headers=resp_headers)
+    resposta = Response(content=content, status_code=upstream.status_code, media_type=media_type, headers=resp_headers)
+    if set_cookie:
+        for valor in _web_proxy_set_cookies(upstream, ip):
+            resposta.headers.append("set-cookie", valor)
+    return resposta
 
 
 # URLs que SO respondem autenticadas. Servem de prova de senha: 401 em todas
