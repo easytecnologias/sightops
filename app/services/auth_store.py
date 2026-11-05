@@ -715,13 +715,21 @@ MODULE_CATALOG: List[Dict[str, str]] = [
     {"key": "access-live", "label": "Acesso ao Vivo", "section": "Controle de Acesso"},
     {"key": "access-messenger", "label": "Messenger", "section": "Controle de Acesso"},
     {"key": "access-control", "label": "Controle de Acesso", "section": "Controle de Acesso"},
+    {"key": "access-painel", "label": "Painel do Controle de Acesso", "section": "Controle de Acesso"},
     {"key": "alert-live", "label": "Alerta ao Vivo", "section": "Alerta"},
     {"key": "alert-members", "label": "Pessoas do Alerta", "section": "Alerta"},
+    {"key": "alert-reports", "label": "Relatorios do Alerta", "section": "Alerta"},
     {"key": "rotas-vivo", "label": "Rotas ao Vivo", "section": "Controle de Rotas"},
     {"key": "rotas-viagens", "label": "Viagens", "section": "Controle de Rotas"},
     {"key": "rotas-cadastro", "label": "Rotas e Alunos", "section": "Controle de Rotas"},
     {"key": "rotas-frota", "label": "Frota e Motoristas", "section": "Controle de Rotas"},
     {"key": "rotas-pnate", "label": "Prestacao de Contas PNATE", "section": "Controle de Rotas"},
+    # Ponto de venda: so as telas que existem no menu. pdv-revisao e
+    # pdv-operadores estao em permissions.MODULOS mas nao sao tela (ainda).
+    {"key": "pdv-visao", "label": "PDV - Visao geral", "section": "Ponto de venda"},
+    {"key": "pdv-lojas", "label": "PDV - Lojas", "section": "Ponto de venda"},
+    {"key": "pdv-vivo", "label": "PDV - Ao vivo", "section": "Ponto de venda"},
+    {"key": "pdv-cupons", "label": "PDV - Rankings", "section": "Ponto de venda"},
 ]
 _MODULE_KEYS = {m["key"] for m in MODULE_CATALOG}
 

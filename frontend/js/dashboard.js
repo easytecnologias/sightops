@@ -394,6 +394,80 @@ function _dashPriorityAction(action) {
   return null;
 }
 
+// Primeiros passos (P1): cliente novo (0 conector e 0 equipamento) via "Sem
+// pendencias / OK" num painel vazio. Mostra 4 passos com atalho para a tela
+// certa; cada um se marca sozinho com o que o /api/dashboard/summary ja traz
+// (o Telegram e a unica leitura extra, so quando o cartao aparece).
+const DASH_PASSOS = [
+  { key: 'conector', view: 'connectors', icon: 'plug', title: 'Instalar o conector', sub: 'Liga a rede do local ao SightOps' },
+  { key: 'varrer', view: 'inv-olt', icon: 'radar', title: 'Varrer a rede', sub: 'Encontra câmeras e gravadores do local' },
+  { key: 'foto', view: 'snap-cam', icon: 'image', title: 'Ver a primeira foto', sub: 'Confere que as câmeras estão respondendo' },
+  { key: 'telegram', view: 'settings', tab: 'notifications', icon: 'send', title: 'Ligar avisos no Telegram', sub: 'Recebe aviso quando algo cair' },
+];
+
+function _dashPassosFeitos(data) {
+  const tot = data.totals || {};
+  const monitoring = data.monitoring?.types || {};
+  const conectores = _dashNum(monitoring.connector?.total);
+  const equipamentos = _dashNum(tot.items) + Object.entries(monitoring)
+    .filter(([tipo]) => tipo !== 'connector' && tipo !== 'whatsapp')
+    .reduce((sum, [, item]) => sum + _dashNum(item?.total), 0);
+  return {
+    conectores,
+    equipamentos,
+    conectoresOnline: _dashNum(monitoring.connector?.up ?? monitoring.connector?.online),
+    // Equipamento ja cadastrado sem conector (rede direta) tambem cumpre o passo 1.
+    conector: conectores > 0 || equipamentos > 0,
+    varrer: equipamentos > 0,
+    foto: _dashNum(tot.snapshots) > 0,
+  };
+}
+
+let _dashPassosVez = 0;
+
+function _dashPrimeirosPassos(data, el, prioridades) {
+  const vez = ++_dashPassosVez;
+  // Usuario com modulo escondido ve numeros zerados que nao sao do cliente.
+  if ((data.modulos_ocultos || []).length) return false;
+  const feito = _dashPassosFeitos(data);
+  // Sem equipamento ainda (com ou sem conector) o cartao fica. Com equipamento,
+  // so no lugar do "Sem pendencias" e enquanto faltar a primeira foto -- e so
+  // se ha camera/gravador (cliente so de OLT/ONU nunca tera foto).
+  const inv = data.inventory || {};
+  const comCamera = _dashNum(inv.ip?.total) + _dashNum(inv.dvr?.total) + _dashNum(inv.nvr?.total) > 0;
+  if (feito.equipamentos > 0 && (prioridades || feito.foto || !comCamera)) return false;
+  const semAcesso = new Set(_currentUser?.views_sem_acesso || []);
+  const desenhar = (telegram) => {
+    const estado = { ...feito, telegram: !!telegram };
+    const total = DASH_PASSOS.filter(p => estado[p.key]).length;
+    el.innerHTML = `<div class="dash-priority-sub" style="font-size:12px;padding:0 2px"><strong style="color:var(--text)">Primeiros passos</strong> · ${total} de ${DASH_PASSOS.length} feitos</div>`
+      + DASH_PASSOS.map((p, i) => {
+        const ok = estado[p.key];
+        let sub = p.sub;
+        if (p.key === 'conector' && feito.conectores && !feito.conectoresOnline) sub = 'Cadastrado, ainda sem contato. Confira o roteador';
+        const acao = ok
+          ? '<span class="dash-priority-sub" style="color:var(--primary);font-weight:700">Feito</span>'
+          : (semAcesso.has(p.view) ? '' : `<button type="button" class="ghost-action" style="padding:4px 10px;font-size:12px" data-passo="${i}">Abrir</button>`);
+        return `<div class="dash-priority-item" style="cursor:default">
+          <span class="dash-priority-icon" style="background:${ok ? 'var(--primary-soft)' : 'var(--surface-soft)'};color:${ok ? 'var(--primary)' : 'var(--muted)'}"><i data-lucide="${ok ? 'check-circle-2' : p.icon}"></i></span>
+          <span class="dash-priority-copy"><span class="dash-priority-title">${i + 1}. ${esc(p.title)}</span><span class="dash-priority-sub">${esc(sub)}</span></span>
+          ${acao}
+        </div>`;
+      }).join('');
+    el.querySelectorAll('[data-passo]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const p = DASH_PASSOS[Number(btn.dataset.passo)];
+        if (p.tab) { try { sessionStorage.setItem('sightops.settings.tab', p.tab); } catch (_) {} }
+        navigateTo(p.view);
+      });
+    });
+    if (typeof lucide !== 'undefined') lucide.createIcons();
+  };
+  desenhar(false);
+  apiJson('/api/monitoring/telegram').then(tg => { if (tg?.enabled && vez === _dashPassosVez) desenhar(true); }).catch(() => {});
+  return true;
+}
+
 function renderDashboardPriorities(data) {
   const inv = data.inventory || {};
   const ip = inv.ip || {};
@@ -415,6 +489,7 @@ function renderDashboardPriorities(data) {
 
   const el = document.getElementById('dashPriorityList');
   if (!el) return;
+  if (_dashPrimeirosPassos(data, el, priorities.length)) return;
   if (!priorities.length) {
     el.innerHTML = `<div class="dash-priority-item" style="cursor:default">
       <span class="dash-priority-icon info"><i data-lucide="check-circle-2"></i></span>
