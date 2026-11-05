@@ -74,6 +74,8 @@ MODULOS: List[Dict[str, Any]] = [
      "views": ["access-live", "access-messenger", "access-control", "access-painel"],
      "prefixos": ["/api/access-control"]},
     {"key": "alerta", "label": "Alerta de pânico", "views": ["alert-live", "alert-members", "alert-reports"], "prefixos": ["/api/alert"]},
+    # "/api/termico" nao comeca com "/api/alert": prefixo proprio, sem colisao.
+    {"key": "termico", "label": "Alerta Térmico (pessoa pelo calor)", "views": ["termico"], "prefixos": ["/api/termico"]},
     {"key": "rotas", "label": "Controle de rotas (transporte escolar)",
      "views": ["rotas-vivo", "rotas-viagens", "rotas-cadastro", "rotas-frota", "rotas-pnate"],
      "prefixos": ["/api/rotas"]},

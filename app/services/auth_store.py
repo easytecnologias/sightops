@@ -719,6 +719,7 @@ MODULE_CATALOG: List[Dict[str, str]] = [
     {"key": "alert-live", "label": "Alerta ao Vivo", "section": "Alerta"},
     {"key": "alert-members", "label": "Pessoas do Alerta", "section": "Alerta"},
     {"key": "alert-reports", "label": "Relatorios do Alerta", "section": "Alerta"},
+    {"key": "termico", "label": "Alerta Termico (pessoa pelo calor)", "section": "Alerta"},
     {"key": "rotas-vivo", "label": "Rotas ao Vivo", "section": "Controle de Rotas"},
     {"key": "rotas-viagens", "label": "Viagens", "section": "Controle de Rotas"},
     {"key": "rotas-cadastro", "label": "Rotas e Alunos", "section": "Controle de Rotas"},

@@ -30,6 +30,7 @@ from .alert import router as alert_router
 from .rotas import router as rotas_router
 from .pdv import router as pdv_router
 from .maquete import router as maquete_router
+from .termico import router as termico_router
 from .mapa_rack import router as mapa_rack_router
 from .switch_provedores import router as switch_provedores_router
 from .recorder_driver import router as recorder_driver_router

@@ -198,6 +198,10 @@ class ApiAuthMiddleware(BaseHTTPMiddleware):
             # Gerar o PDF so le o projeto (POST porque leva as imagens da tela).
             (("POST",), "/api/maquete/pdf/", "viewer"),
             (("POST", "PUT", "DELETE"), "/api/maquete/", "operator"),
+            # Alerta Termico: incluir camera, ajustar a regra, dar Ciente ou
+            # Falso alarme. Remover camera (DELETE) sobe para admin sozinho
+            # (permissions.e_exclusao).
+            (("POST", "PUT", "DELETE"), "/api/termico/", "operator"),
             # Ponto de venda: caixa, token do coletor e reprocessar o dia
             # mexem na configuracao do cliente -- so administrador.
             (("POST",), "/api/pdv/caixas", "admin"),

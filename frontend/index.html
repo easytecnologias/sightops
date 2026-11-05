@@ -147,6 +147,7 @@
         <button class="nav-item" data-view="alert-live"><i data-lucide="siren"></i><span>Central ao vivo</span><span class="alert-nav-badge" id="alertNavBadge" hidden>0</span></button>
         <button class="nav-item" data-view="alert-members"><i data-lucide="contact"></i><span>Pessoas e aparelhos</span></button>
         <button class="nav-item" data-view="alert-reports"><i data-lucide="file-text"></i><span>Relatórios</span></button>
+        <button class="nav-item" data-view="termico"><i data-lucide="thermometer-sun"></i><span>Alerta Térmico</span></button>
 
         <!-- Controle de Rotas (transporte escolar / PNATE) -->
         <div class="nav-section-label">Controle de Rotas</div>
@@ -4919,6 +4920,8 @@
       <!-- --- VIEW: PROJETOS / PLANEJAMENTO --- -->
       <!-- Maquete 3D: conteudo montado por js/maquete.js -->
       <section class="workspace hidden" id="viewMaquete"></section>
+      <!-- Alerta Termico: conteudo montado por js/termico.js -->
+      <section class="workspace hidden" id="viewTermico"></section>
 
       <section class="workspace hidden planning-view" id="viewPlanning">
         <div class="page-heading">
@@ -8164,7 +8167,7 @@
        trechos do app.js original na sequencia em que estavam, entao carregar
        fora de ordem muda o comportamento. Ao adicionar um arquivo novo, entre
        antes de bootstrap.js, que e quem liga os botoes no DOMContentLoaded. -->
-  <script src="js/core.js?v=1793400009"></script>
+  <script src="js/core.js?v=1793410002"></script>
   <script src="js/licencas.js?v=1792600103"></script>
   <script src="js/configuracoes.js?v=1793400008"></script>
   <script src="js/notificacoes.js?v=1792600139"></script>
@@ -8213,6 +8216,7 @@
   <script src="js/controleRotas.js?v=1792600341"></script>
   <script src="js/pdv.js?v=1793300002"></script>
   <script src="js/maquete.js?v=1793400014"></script>
+  <script src="js/termico.js?v=1793410001"></script>
   <script src="js/tr069.js?v=1791000212"></script>
   <script src="js/bootstrap.js?v=1793400005"></script>
 </body>

@@ -597,6 +597,126 @@ def _garantir_gatilhos_pdv(url: str, auth: str, technical_names: Dict[str, Dict[
         return 0
 
 
+GATILHO_TERMICO_PESSOA = "Pessoa detectada pelo calor (sem resposta)"
+GATILHO_TERMICO_SEM_MEDICAO = "Camera termica sem medicao de temperatura"
+
+
+def _juntar_termico(tenant: str, entities: List[Dict[str, Any]]) -> None:
+    """Poe no detail_json (so nesta copia em memoria) os campos do Alerta
+    Termico das cameras que estao nele. O detalhe gravado da camera e
+    reescrito inteiro a cada verificacao de status: guardar la sumiria."""
+    try:
+        from app.services.termico_store import chave, resumo_para_zabbix
+        por_camera = resumo_para_zabbix(tenant)
+    except Exception as exc:
+        logger.warning("Zabbix: sem dados do Alerta Termico para %s: %s", tenant, exc)
+        return
+    if not por_camera:
+        return
+    for row in entities:
+        if _text(row.get("entity_type")).lower() != "camera":
+            continue
+        try:
+            detalhe = json.loads(_text(row.get("detail_json")) or "{}")
+        except Exception:
+            continue
+        # IP + conector: a mesma faixa privada se repete em usinas diferentes.
+        extra = por_camera.get(chave(detalhe.get("ip"), row.get("connector_id")))
+        if extra:
+            detalhe.update({k: v for k, v in extra.items() if v is not None})
+            row["detail_json"] = json.dumps(detalhe, ensure_ascii=False)
+
+
+def enviar_termico_agora(tenant: str, ip: str, connector_id: str) -> bool:
+    """Manda os campos do Alerta Termico de UMA camera ao Zabbix na hora (alerta
+    novo ou respondido). O sync completo leva ate ~2 min por cliente -- para
+    intruso numa usina e tarde. So empurra item que o sync ja criou; se ainda
+    nao existe, o proximo sync cria e manda. Nunca levanta erro."""
+    try:
+        from app.services.termico_store import chave, resumo_para_zabbix
+        dados = resumo_para_zabbix(tenant).get(chave(ip, connector_id))
+        if not dados:
+            return False
+        settings = load_app_settings()
+        raw_cfg = settings.get("zabbix_ip_sync") if isinstance(settings.get("zabbix_ip_sync"), dict) else {}
+        cfg = _default_zabbix_cfg(raw_cfg)
+        url = _api_url(cfg.get("url"))
+        user = _text(cfg.get("user"))
+        password = _text(cfg.get("pass") or cfg.get("password"))
+        if not (url and user and password):
+            return False
+        from app.services.db_store import _conn
+        hostids = []
+        with _conn() as c:
+            for r in c.execute(
+                    "SELECT zabbix_hostid, detail_json FROM monitoring_entities WHERE tenant_slug=? AND entity_type='camera' "
+                    "AND connector_id=? AND zabbix_hostid<>''", (tenant, _text(connector_id))).fetchall():
+                r = dict(r)
+                try:
+                    if _text((json.loads(r.get("detail_json") or "{}") or {}).get("ip")) == _text(ip):
+                        hostids.append(_text(r.get("zabbix_hostid")))
+                except Exception:
+                    continue
+        if not hostids:
+            return False
+        auth = _sessao(url, user, password)
+        chaves = ["sightops.termico_pendentes", "sightops.termico_leitura", "sightops.termico_fundo_c"]
+        itens = _call(url, "item.get", {"output": ["itemid", "key_"], "hostids": hostids, "filter": {"key_": chaves}}, auth, 170) or []
+        valores = {"sightops.termico_pendentes": dados.get("termico_pendentes"),
+                   "sightops.termico_leitura": dados.get("termico_leitura"),
+                   "sightops.termico_fundo_c": dados.get("termico_fundo_c")}
+        linhas = [{"itemid": _text(i.get("itemid")), "value": str(valores[_text(i.get("key_"))])}
+                  for i in itens if valores.get(_text(i.get("key_"))) is not None]
+        if linhas:
+            _call(url, "history.push", linhas, auth, 171)
+        return bool(linhas)
+    except Exception as exc:
+        logger.warning("Zabbix: envio imediato do Alerta Termico falhou (%s %s): %s", tenant, ip, exc)
+        return False
+
+
+def _garantir_gatilhos_termico(url: str, auth: str, technical_names: Dict[str, Dict[str, Any]],
+                               host_ids: Dict[str, str], item_by_host_key: Dict[Any, str],
+                               falhas: Dict[str, int] | None = None) -> int:
+    """Camera termica: pessoa detectada que ninguem respondeu, e camera que
+    parou de mandar a temperatura (sem isso a usina parece vigiada e nao esta).
+    Falha aqui nao derruba o sync."""
+    regras = (
+        ("sightops.termico_pendentes", GATILHO_TERMICO_PESSOA, "last(/{n}/sightops.termico_pendentes)>0",
+         "last(/{n}/sightops.termico_pendentes)=0", 4,
+         "A camera termica viu uma mancha com temperatura de corpo e ninguem marcou Ciente ou Falso alarme. "
+         "Veja a foto em Alerta Termico > Alarmes."),
+        ("sightops.termico_leitura", GATILHO_TERMICO_SEM_MEDICAO, "last(/{n}/sightops.termico_leitura)=0",
+         "last(/{n}/sightops.termico_leitura)=1", 3,
+         "O SightOps nao consegue ler a temperatura desta camera: medicao desligada na camera, senha trocada "
+         "ou camera fora. Enquanto isso NAO ha alerta de pessoa nela."),
+    )
+    total = 0
+    try:
+        for chave, descricao, expr, recup, prioridade, comentario in regras:
+            alvos = {}
+            for nome, row in technical_names.items():
+                hostid = host_ids.get(nome, "")
+                if _text(row.get("entity_type")).lower() == "camera" and hostid and item_by_host_key.get((hostid, chave)):
+                    alvos[hostid] = nome
+            if not alvos:
+                continue
+            existentes = _call(url, "trigger.get", {
+                "output": ["triggerid"], "selectHosts": ["hostid"], "hostids": list(alvos),
+                "filter": {"description": [descricao]}}, auth, 160) or []
+            tem = {_text(h.get("hostid")) for t in existentes for h in (t.get("hosts") or [])}
+            novos = [{"description": descricao, "expression": expr.format(n=nome), "recovery_mode": 1,
+                      "recovery_expression": recup.format(n=nome), "priority": prioridade, "comments": comentario}
+                     for hostid, nome in alvos.items() if hostid not in tem]
+            for i, lote in enumerate(_chunks(novos)):
+                _call(url, "trigger.create", lote, auth, 161 + i)
+            total += len(novos)
+    except Exception as exc:
+        logger.warning("Zabbix: falha ao criar gatilhos da camera termica: %s", exc)
+        _contar_falha_gatilho(falhas)
+    return total
+
+
 def _garantir_gatilhos_link(url: str, auth: str, technical_names: Dict[str, Dict[str, Any]],
                             host_ids: Dict[str, str], item_by_host_key: Dict[Any, str],
                            falhas: Dict[str, int] | None = None) -> int:
@@ -708,6 +828,7 @@ def _sync_monitoring_to_zabbix(entity_types: tuple[str, ...]) -> Dict[str, Any]:
         entities.extend(linhas)
         truncada = truncada or cortou
 
+    _juntar_termico(tenant, entities)
     auth = _sessao(url, user, password)
     technical_names = {_host_key(tenant, row): row for row in entities}
     current_hosts = _call(
@@ -837,7 +958,8 @@ def _sync_monitoring_to_zabbix(entity_types: tuple[str, ...]) -> Dict[str, Any]:
                    "sightops.disco_c_livre_pct", "sightops.defender_tempo_real", "sightops.alertas",
                    "sightops.link_in_bps", "sightops.link_out_bps", "sightops.link_erros",
                    "sightops.sfp_rx_dbm", "sightops.sfp_tx_dbm",
-                   "sightops.pdv_contato_s", "sightops.pdv_evento_s"]
+                   "sightops.pdv_contato_s", "sightops.pdv_evento_s",
+                   "sightops.termico_pendentes", "sightops.termico_leitura", "sightops.termico_fundo_c"]
     items = _call(
         url, "item.get",
         {"output": ["itemid", "hostid", "key_"], "hostids": all_hostids, "filter": {"key_": wanted_keys}},
@@ -874,6 +996,9 @@ def _sync_monitoring_to_zabbix(entity_types: tuple[str, ...]) -> Dict[str, Any]:
         "sightops.sfp_tx_dbm": ("SightOps - Sinal da fibra enviado", 0, "Potencia optica enviada pelo SFP da porta do provedor, em dBm"),
         "sightops.pdv_contato_s": ("SightOps - Coletor do caixa: ultimo contato", 3, "Segundos desde o ultimo envio do coletor do PDV (sinal de vida a cada 30 s)"),
         "sightops.pdv_evento_s": ("SightOps - Caixa: ultima venda lida", 3, "Segundos desde o ultimo evento do Espiao recebido (cresce a noite e com o caixa fechado)"),
+        "sightops.termico_pendentes": ("SightOps - Termica: pessoas detectadas sem resposta", 3, "Alertas de pessoa pelo calor ainda sem Ciente/Falso alarme (Alerta Termico)"),
+        "sightops.termico_leitura": ("SightOps - Termica: medicao de temperatura", 3, "1 = o SightOps le a temperatura da camera; 0 = sem leitura (medicao desligada, senha, rede, leitura parada); 2 = camera desligada/removida do Alerta Termico"),
+        "sightops.termico_fundo_c": ("SightOps - Termica: temperatura media da cena", 0, "Media do fundo aprendido pela deteccao, em graus C"),
         "sightops.alertas": ("SightOps - Alertas de saude", 3, "Windows: alertas do inventario (sem SSD, pouca memoria, disco cheio, Defender, BitLocker, TPM, Windows sem suporte). Gateway/AP Ruijie: alarmes ativos no equipamento + conflito de IP"),
     }
     # bit/s ja vem calculado (olt_snmp_health, entre duas leituras SNMP). A
@@ -915,8 +1040,11 @@ def _sync_monitoring_to_zabbix(entity_types: tuple[str, ...]) -> Dict[str, Any]:
         # Caixa (PDV): o coletor manda sinal de vida; a idade do ultimo evento
         # mostra caixa "vivo" que parou de ler o Espiao.
         "pdv": ["sightops.pdv_contato_s", "sightops.pdv_evento_s"],
+        # Camera termica no Alerta Termico (_juntar_termico). Camera comum nao
+        # traz esses campos: so_se_presente impede item vazio nela.
+        "camera": ["sightops.termico_pendentes", "sightops.termico_leitura", "sightops.termico_fundo_c"],
     }
-    so_se_presente = {"connector", "access_point", "link", "switch_provedor"}
+    so_se_presente = {"connector", "access_point", "link", "switch_provedor", "camera"}
     create_items = []
     for technical_name, row in technical_names.items():
         hostid = host_ids.get(technical_name, "")
@@ -949,6 +1077,7 @@ def _sync_monitoring_to_zabbix(entity_types: tuple[str, ...]) -> Dict[str, Any]:
     gatilhos += _garantir_gatilhos_link(url, auth, technical_names, host_ids, item_by_host_key, falhas)
     gatilhos += _garantir_gatilhos_switch_provedor(url, auth, technical_names, host_ids, item_by_host_key, falhas)
     gatilhos += _garantir_gatilhos_pdv(url, auth, technical_names, host_ids, item_by_host_key, falhas)
+    gatilhos += _garantir_gatilhos_termico(url, auth, technical_names, host_ids, item_by_host_key, falhas)
 
     status_value = {"up": "1", "down": "0", "unstable": "2", "unknown": "3", "maintenance": "4"}
     push_rows = []
@@ -997,6 +1126,9 @@ def _sync_monitoring_to_zabbix(entity_types: tuple[str, ...]) -> Dict[str, Any]:
             ("sightops.sfp_tx_dbm", _number(detail.get("sfp_tx_dbm"))),
             ("sightops.pdv_contato_s", _number(detail.get("contato_s"))),
             ("sightops.pdv_evento_s", _number(detail.get("evento_s"))),
+            ("sightops.termico_pendentes", _number(detail.get("termico_pendentes"))),
+            ("sightops.termico_leitura", _number(detail.get("termico_leitura"))),
+            ("sightops.termico_fundo_c", _number(detail.get("termico_fundo_c"))),
         ):
             metric_itemid = item_by_host_key.get((hostid, key), "")
             if metric_itemid and value is not None:

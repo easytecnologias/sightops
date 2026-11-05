@@ -68,6 +68,7 @@ from app.api.endpoints import (
     rotas_router,
     pdv_router,
     maquete_router,
+    termico_router,
     mapa_rack_router,
     switch_provedores_router,
     recorder_driver_router,
@@ -165,6 +166,7 @@ app.include_router(alert_router)
 app.include_router(rotas_router)
 app.include_router(pdv_router)
 app.include_router(maquete_router)
+app.include_router(termico_router)
 app.include_router(mapa_rack_router)
 app.include_router(switch_provedores_router)
 app.include_router(recorder_driver_router)
@@ -762,6 +764,25 @@ async def _ruijie_poll_loop() -> None:
         await asyncio.sleep(RUIJIE_POLL_INTERVAL_S)
 
 
+async def _termico_loop() -> None:
+    """Alerta Termico: le as cameras termicas ativas e grava o alerta quando
+    aparece pessoa pelo calor. A rodada so agenda leituras (cada camera numa
+    thread, uma por vez) -- volta logo; sem camera ativa custa um SELECT."""
+    from app.services.termico_vigia import INTERVALO_ARMADO_S, vigia_global
+
+    await asyncio.sleep(25)
+    vigia = vigia_global()
+    while True:
+        try:
+            app.state.termico_last = {"ok": True, **await asyncio.to_thread(vigia.rodada)}
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            app.state.termico_last = {"ok": False, "error": str(exc)}
+            logger.exception("termico loop failed")
+        await asyncio.sleep(INTERVALO_ARMADO_S)
+
+
 RACK_LINKS_INTERVAL_S = 60
 
 
@@ -868,6 +889,7 @@ async def startup_events() -> None:
     app.state.ruijie_poll_task = asyncio.create_task(_ruijie_poll_loop(), name="ruijie-poll-loop")
     app.state.rack_links_task = asyncio.create_task(_rack_links_loop(), name="rack-links-loop")
     app.state.telegram_bot_task = asyncio.create_task(_telegram_bot_loop(), name="telegram-bot-loop")
+    app.state.termico_task = asyncio.create_task(_termico_loop(), name="termico-loop")
 
 
 @app.on_event("shutdown")
@@ -886,6 +908,7 @@ async def shutdown_events() -> None:
         "ruijie_poll_task",
         "rack_links_task",
         "telegram_bot_task",
+        "termico_task",
     ):
         task = getattr(app.state, task_name, None)
         if task:

@@ -671,6 +671,7 @@ const VIEW_META = {
   'net-operate':   { title: 'Manutenção - Rede', sub: 'Túneis, diagnóstico e teste pontual' },
   planning:        { title: 'Projetos de CFTV', sub: 'Planejamento antes da implantação' },
   maquete:         { title: 'Maquete 3D',       sub: 'Planta em 3D com câmeras, cabos e rack' },
+  termico:         { title: 'Alerta Térmico',   sub: 'Pessoa detectada pelo calor nas câmeras térmicas' },
   'deploy-olt':    { title: 'Implantação - OLT', sub: 'Cadastro das OLTs usadas na operação' },
   'deploy-onu':    { title: 'Implantação - ONU', sub: 'Provisionamento em campo' },
   'deploy-recorder': { title: 'Implantação - Gravadores', sub: 'Cadastro de DVR/NVR' },
@@ -728,6 +729,7 @@ const VIEW_ID_MAP = {
   'net-operate':    'viewNetOperate',
   planning:         'viewPlanning',
   maquete:          'viewMaquete',
+  termico:          'viewTermico',
   'deploy-olt':     'viewDeployOlt',
   'deploy-onu':     'viewDeployOnu',
   'deploy-recorder':'viewDeployRecorder',
@@ -862,6 +864,7 @@ function loadView(view) {
     case 'net-operate': loadNetOperate();   break;
     case 'planning':    loadPlanning();     break;
     case 'maquete':     loadMaquete();      break;
+    case 'termico':     loadTermico();      break;
     case 'deploy-olt':  loadDeployOlt();    break;
     case 'deploy-onu':  loadDeployOnu();    break;
     case 'deploy-recorder': loadDeployRecorder(); break;

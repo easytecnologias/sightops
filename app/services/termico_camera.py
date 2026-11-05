@@ -20,6 +20,20 @@ def base_da_camera(host: str, porta: Any = 80, connector_id: str = "") -> str:
     return _base(host, porta, connector_id)
 
 
+def buscar_foto(base: str, usuario: str, senha: str, canal_video: int = 1, timeout: float = 15.0) -> bytes:
+    """Foto (JPEG) do canal de video -- 1 = colorido, 2 = termico. So na hora
+    do alerta: a leitura de 2 em 2 s vem sem a colorida para poupar o link."""
+    url = f"{base}/ISAPI/Streaming/channels/{int(canal_video)}01/picture"
+    r = None
+    for auth in (HTTPDigestAuth(usuario, senha), HTTPBasicAuth(usuario, senha)):
+        r = requests.get(url, auth=auth, timeout=timeout, verify=False)
+        if r.status_code not in (401, 403):
+            break
+    if r is None or r.status_code != 200 or not r.content.startswith(b"\xff\xd8"):
+        raise ValueError(f"foto do canal {canal_video} nao veio (HTTP {getattr(r, 'status_code', '?')})")
+    return r.content
+
+
 def buscar_quadro(base: str, usuario: str, senha: str, canal: int = 2, timeout: float = 15.0) -> Quadro:
     """Um quadro termico. Levanta ValueError com a causa (credencial recusada,
     medicao desligada, resposta estranha) e deixa erro de rede subir."""
