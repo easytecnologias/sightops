@@ -3,13 +3,14 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
+import uuid
 from typing import Any, Dict, List
 
 from fastapi import HTTPException
 
 from app.core.destino import varredura_recusada
 from app.core.paths import BASE_DIR, SAIDA_DIR, TOOLS_DIR, ensure_dirs
-from app.core.tenant_context import get_current_tenant_slug
+from app.core.tenant_context import get_current_tenant_slug, tenant_scoped_path
 from app.models.requests import RescanSingleIPRequest
 from app.services.inventory_json import load_inventory_json, save_inventory_json, normalize_row, dedup_cam_inventory
 from app.services.camsnapshot.device_info import get_snapshot
@@ -32,7 +33,7 @@ def rescan_single_ip(req: RescanSingleIPRequest) -> Dict[str, Any]:
     # registro sem exigir uma varredura anterior.
     inventory = load_inventory_json(mode=inventory_mode) or []
 
-    tmp_json = SAIDA_DIR / f"rescan_{ip.replace('.', '_')}.tmp.json"
+    tmp_json = tenant_scoped_path(f"rescan-{uuid.uuid4().hex}.tmp.json")
     script = TOOLS_DIR / "inventory_dry.py"
     if not script.exists():
         raise HTTPException(500, "inventory_dry.py não encontrado em tools/")
@@ -73,6 +74,8 @@ def rescan_single_ip(req: RescanSingleIPRequest) -> Dict[str, Any]:
                 new_rows = json.load(f)
     except Exception:
         new_rows = []
+    finally:
+        tmp_json.unlink(missing_ok=True)
 
     if not isinstance(new_rows, list) or not new_rows:
         return {

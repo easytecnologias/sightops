@@ -5,6 +5,7 @@ import shutil
 import subprocess
 import sys
 import ipaddress
+import uuid
 import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
@@ -14,7 +15,7 @@ from fastapi import HTTPException
 
 from app.core.destino import varredura_recusada
 from app.core.paths import BASE_DIR, INVENTORY_JSON_PATH, SAIDA_DIR, TOOLS_DIR, DATA_DIR, ensure_dirs
-from app.core.tenant_context import get_current_tenant_slug
+from app.core.tenant_context import get_current_tenant_slug, tenant_scoped_path
 from app.models.requests import ScanRequest
 from app.services.camsnapshot.device_info import get_snapshot
 from app.services.camsnapshot.uploader_imgbb import upload_to_imgbb
@@ -740,10 +741,10 @@ def run_http_scan(req: ScanRequest) -> Dict[str, Any]:
         # Para apagar tudo, use o endpoint/botao "Apagar inventario".
         should_merge = bool(old_rows_for_merge)
 
-        out_path = inv_json
-        if should_merge:
-            tmp_out = inv_json.with_suffix(".tmp.json")
-            out_path = tmp_out
+        # Nome unico na pasta do cliente: o caminho antigo era global, e duas
+        # varreduras de clientes diferentes liam o resultado uma da outra.
+        tmp_out = tenant_scoped_path(f"scan-{uuid.uuid4().hex}.tmp.json")
+        out_path = tmp_out
 
         script = TOOLS_DIR / "inventory_dry.py"
         if not script.exists():
