@@ -103,7 +103,8 @@ def _normalize_mac(raw: str | None) -> str | None:
 def _try_get(url, user, password, timeout, use_digest=False, stream=False):
     auth = HTTPDigestAuth(user, password) if use_digest else (user, password)
     try:
-        return requests.get(url, auth=auth, timeout=timeout, headers=HEADERS, stream=stream)
+        # sem redirect: o destino conferido e o do IP, nao o que a resposta mandar
+        return requests.get(url, auth=auth, timeout=timeout, headers=HEADERS, stream=stream, allow_redirects=False)
     except Exception:
         return None
 

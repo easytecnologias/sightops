@@ -226,7 +226,8 @@ async def _run_http(targets: List[str], port: int, timeout: int, fixos: Dict[str
             raw = target if target.startswith(("http://", "https://")) else f"http://{target}:{port}"
             # Nome: pede no IP ja aprovado, nao resolve de novo (DNS rebinding).
             partes = urlparse(raw)
-            fixo = (fixos or {}).get(partes.hostname or "", "")
+            # hostname do urlparse vem em minusculas; a chave e o que o operador digitou
+            fixo = {k.lower(): v for k, v in (fixos or {}).items()}.get(partes.hostname or "", "")
             url, cabecalhos = raw, None
             if fixo and fixo != partes.hostname:
                 netloc = (f"[{fixo}]" if ":" in fixo else fixo) + (f":{partes.port}" if partes.port else "")
@@ -349,7 +350,7 @@ async def api_network_tools_run(payload: Dict[str, Any]) -> Dict[str, Any]:
         from app.core.tenant_context import get_current_tenant_slug
 
         def _host(alvo: str) -> str:
-            return (urlsplit(alvo).hostname or "") if alvo.startswith(("http://", "https://")) else alvo
+            return (urlsplit(alvo).hostname or "") if alvo.lower().startswith(("http://", "https://")) else alvo.lower()
 
         fixos, por_host = destinos_fixados(get_current_tenant_slug(), [_host(t) for t in targets])
         recusados = {de_volta.get(t, t): por_host[_host(t)] for t in targets if _host(t) in por_host}

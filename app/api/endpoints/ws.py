@@ -12,7 +12,7 @@ from typing import Any, Dict, Iterable
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from app.core.security import AUTH_COOKIE_NAME
-from app.core.destino import destino_permitido_atual, destinos_fixados
+from app.core.destino import destino_permitido_atual, destinos_fixados, ip_canonico
 from app.core.tenant_context import get_current_tenant_slug, reset_current_tenant_slug, set_current_tenant_slug, tenant_snapshot_dir
 from app.services.ws_scan_service import run_ws_scan
 from app.services.maintenance_ping_service import maintenance_ping_hub
@@ -321,7 +321,9 @@ async def ws_snapshot(ws: WebSocket) -> None:
                 continue
 
             # Faixa virtual de outro cliente, loopback, Docker, IP sem dono: recusa.
-            destino_ok, destino_motivo = await asyncio.to_thread(destino_permitido_atual, ip)
+            # Nome nao: seria resolvido de novo na captura (DNS rebinding).
+            destino_ok, destino_motivo = (await asyncio.to_thread(destino_permitido_atual, ip)
+                                          if ip_canonico(ip) else (False, "informe o IP (sem nome)"))
             if not destino_ok:
                 await ws.send_text(json.dumps({"type": "error", "message": f"{ip}: {destino_motivo}"}, ensure_ascii=False))
                 continue

@@ -389,9 +389,12 @@ def _conferir_destinos(alvos: List[Tuple[str, str]]) -> None:
     link-local e IP sem dono (app.core.destino). Um recusado derruba tudo."""
     if not alvos:
         return
-    from app.core.destino import destinos_permitidos
+    from app.core.destino import destinos_permitidos, ip_canonico
     finais: Dict[str, str] = {}
     for ip, dica in alvos:
+        # So IP literal: nome seria resolvido de novo na conexao (DNS rebinding)
+        if not ip_canonico(ip):
+            raise HTTPException(status_code=400, detail=f"{ip}: informe o IP (sem nome)")
         finais.setdefault(_reach(ip, dica) or ip, ip)
     _ok, recusados = destinos_permitidos(get_current_tenant_slug(), list(finais))
     if recusados:
@@ -2390,7 +2393,7 @@ def maintenance_mjpeg_stream(ip: str, user: str = "admin", password: str = ""):
     for cam_url in cam_urls:
         for auth in (HTTPDigestAuth(user, password), HTTPBasicAuth(user, password)):
             try:
-                r = _req.get(cam_url, auth=auth, stream=True, timeout=(6, 15))
+                r = _req.get(cam_url, auth=auth, stream=True, timeout=(6, 15), allow_redirects=False)
                 if r.status_code != 200 or "multipart" not in r.headers.get("Content-Type", ""):
                     r.close()
                     continue
@@ -2489,7 +2492,7 @@ def maintenance_live_snapshot(ip: str, user: str = "admin", password: str = ""):
     ]:
         for auth in (HTTPDigestAuth(user, password), HTTPBasicAuth(user, password)):
             try:
-                r = _req.get(url, auth=auth, timeout=5)
+                r = _req.get(url, auth=auth, timeout=5, allow_redirects=False)
                 if r.status_code == 200 and r.content[:2] == b'\xff\xd8':
                     return Response(content=r.content, media_type="image/jpeg",
                                     headers={"Cache-Control": "no-store"})

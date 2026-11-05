@@ -769,6 +769,9 @@ async def api_cameras_ping(
         raise HTTPException(status_code=400, detail="method invÃ¡lido: use auto|icmp|tcp")
 
     connector_id = str(remote_connector_id or "").strip()
+    from app.core.destino import ip_canonico
+    if not ip_canonico(target):
+        raise HTTPException(status_code=400, detail=f"{target}: informe o IP (sem nome)")
     _h, _sep, _p = target.partition(":")
     _final = _vnat.virtual_ip_for(connector_id, _h) or _h
     # Conector sem mapa nao passa pelo IP_BLOQUEADO do vnat, e o fallback abaixo
@@ -835,12 +838,16 @@ async def api_cameras_ping_many(req: PingBatchRequest) -> Dict[str, Any]:
     _ok, recusados = await asyncio.to_thread(
         destinos_permitidos, get_current_tenant_slug(), list(dict.fromkeys(_final(i) for i in items)))
 
+    from app.core.destino import ip_canonico
+
     async def _run_one(item: PingBatchItem) -> Dict[str, Any]:
         async with semaphore:
             try:
                 connector_id = item.remote_connector_id or ""
                 host, sep, porta = item.ip.partition(":")
                 final = _final(item)
+                if not ip_canonico(item.ip):
+                    recusados.setdefault(final, "informe o IP (sem nome)")
                 if final in recusados:
                     # sem_rota: fora do persist, nao e camera offline.
                     return {
