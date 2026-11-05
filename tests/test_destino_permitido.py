@@ -11,6 +11,7 @@ from fastapi import HTTPException
 
 from app.api.endpoints import maintenance as M
 from app.api.endpoints import network_tools as NT
+from app.api.endpoints import ws as W
 from app.core import destino as D
 from app.core.tenant_context import reset_current_tenant_slug, set_current_tenant_slug
 from app.services import connector_routing_vnat as vnat
@@ -82,6 +83,52 @@ def test_ferramenta_de_rede_nao_conecta_no_virtual_de_outro_cliente(rede, monkey
     assert conectados == []
     res = asyncio.run(NT.api_network_tools_run({"test": "tcp", "targets": "10.208.1.5,10.208.0.5", "ports": "80"}))
     assert conectados == ["10.208.0.5"] and "10.208.1.5" in res["recusados"]
+
+
+class _Ws:
+    def __init__(self, fica_aberto=False):
+        self.enviados = []
+        self.fica_aberto = fica_aberto  # desconectar cancelaria a varredura
+
+    async def send_text(self, texto):
+        self.enviados.append(texto)
+
+    async def receive_text(self):
+        if self.fica_aberto:
+            await asyncio.Event().wait()
+        raise W.WebSocketDisconnect()
+
+
+def _sessao(monkeypatch, primeiro):
+    async def _aceita(ws, *, min_role="viewer"):
+        return True, {"effective_tenant_slug": "cliente-a"}, primeiro
+
+    monkeypatch.setattr(W, "_accept_ws_session", _aceita)
+
+
+def test_ws_portscan_nao_conecta_no_virtual_de_outro_cliente(rede, monkeypatch):
+    conectados = []
+
+    async def _abre(host, port):
+        conectados.append(host)
+        raise OSError("sem rota")
+
+    monkeypatch.setattr(W.asyncio, "open_connection", _abre)
+    _sessao(monkeypatch, {"targets": "10.208.1.5 10.208.0.5", "ports": "80", "fast_discovery": False})
+    ws = _Ws(fica_aberto=True)
+    asyncio.run(W.ws_portscan(ws))
+    assert conectados == ["10.208.0.5"]
+    assert any("10.208.1.5" in t and "recusado" in t for t in ws.enviados)
+
+
+def test_ws_snapshot_recusa_virtual_de_outro_cliente(rede, monkeypatch):
+    capturas = []
+    monkeypatch.setattr(W, "get_snapshot", lambda *a: capturas.append(a))
+    _sessao(monkeypatch, {"ip": "10.208.1.5", "usuario": "admin", "senha": "x"})
+    ws = _Ws()
+    asyncio.run(W.ws_snapshot(ws))
+    assert capturas == []
+    assert any("outro cliente" in t for t in ws.enviados)
 
 
 def test_rotas_do_container_viram_redes_bloqueadas(tmp_path):
