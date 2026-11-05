@@ -25,6 +25,7 @@ from app.services import camera_xray
 from app.api.endpoints.nvr import _recorder_connector_for_host
 
 from app.core.guarda_destino import guarda_destino  # noqa: E402
+from app.core.saida import com_contexto, pedir_mesmo_host  # noqa: E402
 
 router = APIRouter(prefix="/api/deployments", tags=["deployments"])
 
@@ -572,7 +573,7 @@ def _capture_recorder_snapshots(
         )
         for auth in (HTTPDigestAuth(user, password), HTTPBasicAuth(user, password)):
             try:
-                resp = requests.get(url, auth=auth, timeout=(2.0, 6.0), stream=True, verify=False)
+                resp = pedir_mesmo_host("get", url, auth=auth, timeout=(2.0, 6.0), stream=True, verify=False)
                 ctype = str(resp.headers.get("Content-Type") or "").lower()
                 if resp.status_code != 200 or "image" not in ctype:
                     continue
@@ -606,7 +607,7 @@ def _capture_recorder_snapshots(
         return channel, ""
 
     with ThreadPoolExecutor(max_workers=min(6, len(channels))) as pool:
-        futures = [pool.submit(capture, channel) for channel in channels]
+        futures = [pool.submit(com_contexto(capture), channel) for channel in channels]
         for future in as_completed(futures):
             channel, snapshot_url = future.result()
             if snapshot_url and channel in channels:

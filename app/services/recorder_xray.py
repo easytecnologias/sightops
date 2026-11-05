@@ -26,7 +26,7 @@ import requests
 import urllib3
 from requests.auth import HTTPBasicAuth, HTTPDigestAuth
 
-from app.core.saida import pedir_mesmo_host
+from app.core.saida import com_contexto, pedir_mesmo_host
 from app.services import connector_routing_vnat as _vnat
 
 urllib3.disable_warnings()
@@ -336,7 +336,7 @@ def _xray_intelbras(base: str, user: str, password: str, fase: str = "completo")
         return nome, (_cgi_pares(corpo) if cod and 200 <= cod < 300 else {})
 
     with ThreadPoolExecutor(max_workers=_PARALELO) as pool:
-        for nome, pares in pool.map(buscar, secoes):
+        for nome, pares in pool.map(com_contexto(buscar), secoes):
             cru[nome] = pares
 
     def v(secao: str, chave: str) -> str:
@@ -563,7 +563,7 @@ def _xray_hikvision(base: str, user: str, password: str) -> Dict[str, Any]:
         return rota, (corpo if cod and 200 <= cod < 300 else "")
 
     with ThreadPoolExecutor(max_workers=_PARALELO) as pool:
-        for rota, corpo in pool.map(buscar, list(_ROTAS_ISAPI)):
+        for rota, corpo in pool.map(com_contexto(buscar), list(_ROTAS_ISAPI)):
             cru[_ROTAS_ISAPI[rota]] = corpo
 
     def arvore(chave: str):
@@ -902,7 +902,7 @@ def _varrer_rede(connector_id: str, user: str, password: str, so_hikvision: bool
     recusaram = 0
     with ThreadPoolExecutor(max_workers=8) as pool:
         for item in pool.map(
-                lambda t: _quem_atende(t[0], t[1], t[2], user, password, so_hikvision), alvos):
+                com_contexto(lambda t: _quem_atende(t[0], t[1], t[2], user, password, so_hikvision)), alvos):
             if item.get("recusou_senha"):
                 recusaram += 1
             elif item:

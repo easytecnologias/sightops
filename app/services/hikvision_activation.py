@@ -29,6 +29,7 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Dict, List, Tuple
 
 import requests
+from app.core.saida import com_contexto, pedir_mesmo_host
 import urllib3
 
 urllib3.disable_warnings()
@@ -56,7 +57,7 @@ def _campo(xml: str, nome: str) -> str:
 def _get(url: str, timeout: float) -> Tuple[int, str, str]:
     """(codigo, corpo, desafio) -- o desafio e o cabecalho WWW-Authenticate."""
     try:
-        r = requests.get(url, timeout=timeout, verify=False)
+        r = pedir_mesmo_host("get", url, timeout=timeout, verify=False)
         return r.status_code, (r.text or ""), (r.headers.get("WWW-Authenticate") or "")
     except Exception:
         return 0, "", ""
@@ -175,7 +176,7 @@ def procurar(por_virtual: Dict[str, str], macs: Dict[str, str] = None) -> List[D
         return achados
     with ThreadPoolExecutor(max_workers=_PARALELO) as pool:
         for (virtual, real), achado in zip(
-                alvos, pool.map(lambda t: sondar(f"http://{t[0]}", t[1]), alvos)):
+                alvos, pool.map(com_contexto(lambda t: sondar(f"http://{t[0]}", t[1])), alvos)):
             if achado.get("presente"):
                 achados.append(_como_dispositivo(
                     real, achado, (macs or {}).get(real, "")))

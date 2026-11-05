@@ -28,6 +28,7 @@ SIGHTOPS_SAIDA_MODO: "aviso" (padrao, so loga), "valer" (recusa) ou "desligado".
 """
 from __future__ import annotations
 
+import contextvars
 import errno
 import ipaddress
 import logging
@@ -39,6 +40,8 @@ import time
 import traceback
 from typing import Dict, FrozenSet, Iterable, List, Optional, Set, Tuple
 from urllib.parse import urljoin, urlsplit
+
+from urllib3.util import parse_url
 
 from app.core.tenant_context import get_current_tenant_slug
 
@@ -185,6 +188,12 @@ def recarregar(com_nomes: bool = True) -> None:
         _ips_servico = _ips_servico | frozenset(_resolver(_nomes_de_servico()))
         _nomes_em = time.monotonic() + _NOMES_S
     reais, virtuais = _redes_do_mapa()
+    if virtuais and not any(dono for _rede, dono in virtuais):
+        # Mapa cheio e nenhum dono: cadastro de conectores ilegivel (vira lista
+        # vazia em silencio). Sem isto, em valer, todo cliente perderia a
+        # propria faixa virtual.
+        logger.warning("saida: conectores ilegiveis, segue a lista anterior de faixas virtuais")
+        virtuais = _estado.virtuais if _estado is not None else []
     if not reais and _estado is not None and _estado.reais:
         # Mapa vazio ou ilegivel (o _load_map devolve {} nos dois casos) nao
         # esvazia a trava: segue a ultima lista boa.
@@ -229,8 +238,10 @@ def _classificar(estado: _Estado, host: str) -> Tuple[bool, Optional[str]]:
         ip = ipaddress.ip_address(host.split("%")[0])
     except ValueError:
         return False, None  # nome: quem conecta resolve antes; aqui nao se consulta DNS
+    # ::ffff:10.209.0.5 e o mesmo destino que 10.209.0.5.
+    ip = getattr(ip, "ipv4_mapped", None) or ip
     resposta: Tuple[bool, Optional[str]] = (False, None)
-    if not ip.is_loopback and host not in estado.ips and not any(ip in r for r in estado.excecoes):
+    if not ip.is_loopback and str(ip) not in estado.ips and not any(ip in r for r in estado.excecoes):
         dono = next((d for v, d in estado.virtuais if ip in v), None)
         resposta = (any(ip in r for r in estado.reais), dono)
     if len(estado.decidido) < 65536:
@@ -270,13 +281,29 @@ def pedir_mesmo_host(metodo: str, url: str, **kw: object):
         destino = (getattr(resposta, "headers", None) or {}).get("Location")
         if getattr(resposta, "status_code", 0) not in (301, 302, 303, 307, 308) or not destino:
             break
-        proximo = urljoin(url, destino)
-        if urlsplit(proximo).hostname != urlsplit(url).hostname:
-            logger.warning("saida: redirect de %s para outro host (%s) nao seguido", urlsplit(url).hostname, proximo)
+        try:
+            proximo = urljoin(url, destino)
+            # Compara como o urllib3 conecta: "http://X\@H/" no urlsplit e H,
+            # mas a conexao vai para X.
+            mesmo = "\\" not in proximo and (parse_url(proximo).host or "").lower() == (parse_url(url).host or "").lower()
+        except ValueError:
+            mesmo = False
+        if not mesmo:
+            logger.warning("saida: redirect de %s para outro host (%s) nao seguido", urlsplit(url).hostname, destino)
             break
         url = proximo
         resposta = getattr(requests, metodo)(url, **kw)
     return resposta
+
+
+def com_contexto(funcao):
+    """Para pool.submit/pool.map: a thread do pool nao herda o cliente da
+    requisicao, e sem cliente a trava nao sabe o que e faixa alheia."""
+    base = contextvars.copy_context()
+
+    def rodar(*a, **k):
+        return base.copy().run(funcao, *a, **k)
+    return rodar
 
 
 def _pilha_curta() -> Tuple[str, str]:

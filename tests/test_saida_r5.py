@@ -258,3 +258,47 @@ def test_mapa_vazio_mantem_a_lista_anterior(estado, monkeypatch):
         assert S.recusar("10.209.128.5")
     finally:
         TC.reset_current_tenant_slug(token)
+
+
+def test_redirect_com_barra_invertida_nao_e_seguido(web):
+    chamadas, respostas = web
+    respostas.append(_R(302, "http://10.209.128.5\@10.208.0.9/x"))
+    assert S.pedir_mesmo_host("get", "http://10.208.0.9/a", timeout=1).status_code == 302
+    assert len(chamadas) == 1
+
+
+def test_redirect_com_location_invalido_nao_estoura(web):
+    chamadas, respostas = web
+    respostas.append(_R(302, "http://[x/"))
+    assert S.pedir_mesmo_host("get", "http://10.208.0.9/a", timeout=1).status_code == 302
+    assert len(chamadas) == 1
+
+
+def test_ipv4_mapeado_em_ipv6_conta_como_ipv4(estado):
+    token = _como("cliente-a")
+    try:
+        assert S.recusar("10.209.128.5") == S.recusar("::ffff:10.209.128.5")
+        assert S.recusar("::ffff:192.168.1.5") == S.recusar("192.168.1.5")
+    finally:
+        TC.reset_current_tenant_slug(token)
+
+
+def test_conectores_ilegiveis_nao_tiram_a_faixa_do_proprio_cliente(estado, monkeypatch):
+    antes = list(S._estado.virtuais)
+    assert any(d for _r, d in antes)
+    monkeypatch.setattr(cs, "_load_connectors", lambda: [])
+    S.recarregar()
+    assert list(S._estado.virtuais) == antes
+
+
+def test_com_contexto_leva_o_cliente_para_a_thread():
+    from concurrent.futures import ThreadPoolExecutor
+
+    token = _como("cliente-a")
+    try:
+        with ThreadPoolExecutor(max_workers=3) as pool:
+            sem = list(pool.map(lambda _: TC.get_current_tenant_slug(), range(3)))
+            com = list(pool.map(S.com_contexto(lambda _: TC.get_current_tenant_slug()), range(3)))
+    finally:
+        TC.reset_current_tenant_slug(token)
+    assert com == ["cliente-a"] * 3 and sem != com
