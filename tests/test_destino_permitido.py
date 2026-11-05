@@ -56,7 +56,7 @@ def test_destinos_internos_sempre_recusados(rede, ip):
 
 
 def test_ip_privado_exige_dono(rede):
-    assert D.destino_permitido("cliente-a", "192.168.10.40")[0] is True  # LAN do conector
+    assert D.destino_permitido("cliente-a", "10.208.0.40")[0] is True  # faixa virtual do conector
     assert D.destino_permitido("cliente-a", "10.50.0.7")[0] is True       # inventario
     ok, motivo = D.destino_permitido("cliente-a", "10.99.0.1")
     assert not ok and "nao pertence" in motivo

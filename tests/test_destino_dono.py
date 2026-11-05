@@ -96,7 +96,7 @@ def test_rede_direta_pode_ser_desligada(sem_conector, monkeypatch):
 
 def test_cliente_sem_conector_nao_alcanca_lan_de_outro(sem_conector):
     ok, motivo = D.destino_permitido("cliente-c", "192.168.10.5")
-    assert not ok and "outro cliente" in motivo
+    assert not ok and ("outro cliente" in motivo or "IP virtual" in motivo)
 
 
 def test_mapa_vazio_nao_abre_a_faixa_virtual(rede, monkeypatch):

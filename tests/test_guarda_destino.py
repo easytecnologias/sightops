@@ -85,7 +85,7 @@ def test_switch_e_implantacao(cliente, caminho, corpo):
 def test_conferir_alcance_sem_conector_agora_confere(rede):
     with pytest.raises(ValueError):
         RX.conferir_alcance("10.208.1.5", "")
-    RX.conferir_alcance("192.168.10.9", "")
+    RX.conferir_alcance("192.168.10.9", "conn-a")
 
 
 def test_playback_recusa_antes_do_download(rede, monkeypatch):

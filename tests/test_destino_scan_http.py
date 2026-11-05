@@ -33,7 +33,7 @@ def test_scan_http_recusa_antes_do_subprocesso(sem_subprocesso, alvo):
 
 def test_scan_http_da_lan_do_cliente_segue(sem_subprocesso):
     with pytest.raises(RuntimeError):
-        S.run_http_scan(ScanRequest(alvo="192.168.10.0/28"))
+        S.run_http_scan(ScanRequest(alvo="10.208.0.0/28"))
     assert len(sem_subprocesso) == 1
 
 

@@ -120,6 +120,17 @@ def _conector_do_cliente(cid: str) -> bool:
     return permitido
 
 
+def _conector_existe(cid: str) -> bool:
+    """Conector cadastrado (de qualquer cliente). Falha ao ler conta como
+    existente: o chamador entao bloqueia em vez de liberar o IP real."""
+    try:
+        from app.services.connector_service import get_connector
+        return get_connector(cid, include_token=False) is not None
+    except Exception as exc:
+        logger.warning("vnat: conectores ilegiveis ao conferir %s (%s) -- bloqueado", cid, exc)
+        return True
+
+
 def virtual_ip_for(connector_id: Optional[str], real_ip: Optional[str]) -> Optional[str]:
     """IP que a API deve usar pra falar com `real_ip` deste conector.
 
@@ -137,6 +148,10 @@ def virtual_ip_for(connector_id: Optional[str], real_ip: Optional[str]) -> Optio
         return real_ip
     pares = _load_map().get(cid, [])
     if pares and not _conector_do_cliente(cid):
+        return IP_BLOQUEADO
+    # Sem mapa tambem: conector que EXISTE e e de outro cliente nao devolve o
+    # IP real (ia cru pela rota do host). Inexistente segue como antes.
+    if not pares and not _conector_do_cliente(cid) and _conector_existe(cid):
         return IP_BLOQUEADO
     for real_net, virt_net in pares:
         if ip in real_net:

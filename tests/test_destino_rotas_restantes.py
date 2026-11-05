@@ -71,7 +71,7 @@ def ia(rede, monkeypatch):
 
     app.include_router(IA.router)
     from app.api.endpoints import nvr as NV
-    monkeypatch.setattr(NV, "_recorder_connector_for_host", lambda ip: "")
+    monkeypatch.setattr(NV, "_recorder_connector_for_host", lambda ip: "conn-a" if ip == "192.168.10.9" else "")
     monkeypatch.setattr(IA, "_exigir_host_liberado", lambda host: None)  # gravador fora do cadastro passa nela
     monkeypatch.setattr(IA, "_resolve_ia_password", lambda h, u, p: ("admin", "x"))
     tocou = []

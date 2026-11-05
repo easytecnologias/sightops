@@ -120,6 +120,13 @@ class _Contexto:
         self.redes_do_conector: Dict[str, List[_Rede]] = {}  # cid -> LANs dele
         self.tuneis_alheios: set = set()
         self.lans_alheias: List[_Rede] = []
+        # LAN REAL de conector isolado (tem mapa vnat), de qualquer cliente: o
+        # host roteia parte delas pelo wg-sightops (10.0.0.0/23 em 05/11/2026),
+        # entao conectar no IP real cai no conector de outro cliente. So o IP
+        # virtual e destino de conexao. Excecao: LAN de conector SEM mapa deste
+        # cliente (rede direta dele).
+        self.reais_isoladas: List[_Rede] = []
+        self.diretas_minhas: List[_Rede] = []
         self.falhou = False  # mapa ou conectores ilegiveis: nega em vez de liberar
         self.sem_conector = False
         self.tem_ruijie = False
@@ -132,8 +139,9 @@ class _Contexto:
             mapa = {}
             self.falhou = True
         for cid, pares in mapa.items():
-            for _real, virt in pares:
+            for real, virt in pares:
                 self.virtuais.append((virt, str(cid)))
+                self.reais_isoladas.append(real)
         if not self.slug:
             return
         try:
@@ -199,6 +207,8 @@ class _Contexto:
             self.minhas_redes.extend(redes)
             if cid:
                 self.redes_do_conector[cid] = redes
+            if not mapa.get(cid):
+                self.diretas_minhas.extend(redes)
 
     def _equipamento_meu(self, ip: str) -> bool:
         """IP de equipamento com linha apontando para conector deste cliente."""
@@ -215,6 +225,11 @@ class _Contexto:
         except Exception as exc:
             logger.warning("destino: equipamentos do cliente %s ilegiveis para %s (%s)", self.slug, ip, exc)
             return False
+
+    def _real_isolada(self, ip: ipaddress._BaseAddress) -> bool:
+        if ip.is_global or any(ip.version == d.version and ip in d for d in self.diretas_minhas):
+            return False
+        return any(ip.version == r.version and ip in r for r in self.reais_isoladas)
 
     def _em_rede_minha(self, ip: ipaddress._BaseAddress) -> bool:
         return any(ip.version == r.version and ip in r for r in self.minhas_redes)
@@ -234,6 +249,8 @@ class _Contexto:
             return "faixa virtual de conector sem dono neste cliente"
         if str(ip) in self.tuneis_alheios:
             return "IP de conector de outro cliente"
+        if self.slug and self._real_isolada(ip):
+            return "IP real de rede atras de conector isolado: use o IP virtual do conector"
         if ip.is_global or not self.slug or not exigir_dono:
             return ""
         if self._em_rede_minha(ip):
@@ -253,6 +270,9 @@ class _Contexto:
         if not any(int(r.network_address) <= inicio and fim <= int(r.broadcast_address) for r in minhas):
             return False
         alheias = list(self.bloqueadas) + [v for v, cid in self.virtuais if cid not in self.meus]
+        if any(inicio <= int(r.broadcast_address) and int(r.network_address) <= fim and self._real_isolada(r.network_address)
+               for r in self.reais_isoladas):
+            return False
         return not any(inicio <= int(r.broadcast_address) and int(r.network_address) <= fim for r in alheias)
 
     def conferir_bloco(self, inicio: int, fim: int, exigir_dono: bool) -> str:

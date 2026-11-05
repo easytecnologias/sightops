@@ -25,6 +25,6 @@ def test_lan_digitada_ja_no_mapa_nao_avisa_e_a_outra_avisa_uma_vez(lans_digitada
     with caplog.at_level(logging.WARNING, logger=D.logger.name):
         for _ in range(3):
             assert D.destino_permitido("cliente-a", "10.40.0.5")[0] is False  # decisao nao muda
-            assert D.destino_permitido("cliente-a", "192.168.10.5")[0] is True
+            assert D.destino_permitido("cliente-a", "10.208.0.5")[0] is True
     avisos = [r.getMessage() for r in caplog.records if "client_lans" in r.getMessage()]
     assert avisos == ["destino: client_lans 10.40.0.0/24 do conector conn-a sobrepoe LAN de outro cliente -- ignorada"]

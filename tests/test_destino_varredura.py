@@ -85,11 +85,14 @@ def test_proxy_web_recusa_virtual_alheio_com_linha_no_inventario(rede, monkeypat
     with pytest.raises(HTTPException) as exc:
         M._camera_web_target_url("10.208.1.5")
     assert exc.value.status_code == 403
-    assert M._camera_web_target_url("192.168.10.9")
+    # camera propria: a linha aponta o conector isolado dela, o alvo e o virtual
+    monkeypatch.setattr(M, "_camera_row_for_ip", lambda ip, hint="": {"remote_connector_id": "conn-a"})
+    assert "10.208.0.9" in M._camera_web_target_url("192.168.10.9")
 
 
 def test_ponte_web_recusa_virtual_alheio_com_linha_no_inventario(rede, monkeypatch):
     monkeypatch.setattr(M, "_ip_belongs_to_current_tenant", lambda ip: True)
     monkeypatch.setattr(M, "web_liberada_para", lambda u, ip, hint="": (True, ""))
     assert W._web_tunnel_destino({}, "10.208.1.5", 80) == ""
-    assert W._web_tunnel_destino({}, "192.168.10.9", 80) != ""
+    monkeypatch.setattr(M, "_camera_row_for_ip", lambda ip, hint="": {"remote_connector_id": "conn-a"})
+    assert W._web_tunnel_destino({}, "192.168.10.9", 80) == "10.208.0.9"

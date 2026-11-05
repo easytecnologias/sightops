@@ -42,7 +42,7 @@ def test_scan_grava_o_temporario_na_pasta_do_cliente(saidas, monkeypatch, tmp_pa
     monkeypatch.setattr(S, "save_inventory_json", _para)
     for _ in range(2):
         with pytest.raises(RuntimeError):
-            S.run_http_scan(ScanRequest(alvo="192.168.10.0/30"))
+            S.run_http_scan(ScanRequest(alvo="10.208.0.0/30"))
     assert all(_pasta(saidas, tmp_path))
     assert len(set(saidas)) == 2
     assert not list((tmp_path / "tenants" / "cliente-a").glob("*.tmp.json"))  # apagados
@@ -50,6 +50,6 @@ def test_scan_grava_o_temporario_na_pasta_do_cliente(saidas, monkeypatch, tmp_pa
 
 def test_rescan_grava_o_temporario_na_pasta_do_cliente(saidas, monkeypatch, tmp_path):
     monkeypatch.setattr(R, "load_inventory_json", lambda mode="olt": [])
-    R.rescan_single_ip(RescanSingleIPRequest(ip="192.168.10.5"))
+    R.rescan_single_ip(RescanSingleIPRequest(ip="10.208.0.5"))
     assert all(_pasta(saidas, tmp_path))
     assert not list((tmp_path / "tenants" / "cliente-a").glob("*.tmp.json"))
