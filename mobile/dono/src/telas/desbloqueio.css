@@ -1,0 +1,19 @@
+/* Tela de PIN (abrir o app e voltar do segundo plano). Classes com prefixo desbloq- para nao cruzar com as telas do PDV. */
+.desbloq { position: fixed; inset: 0; z-index: 1000; display: flex; flex-direction: column; align-items: center; gap: 22px; padding: calc(48px + env(safe-area-inset-top, 0px)) 32px calc(16px + env(safe-area-inset-bottom, 0px)); background: var(--azul); color: #fff; overflow-y: auto; }
+.desbloq-topo { display: flex; flex-direction: column; align-items: center; gap: 8px; text-align: center; }
+.desbloq-topo h1 { margin: 6px 0 0; font-size: 22px; }
+.desbloq-topo p { margin: 0; font-size: 14px; color: var(--azul-claro); }
+.desbloq-bolas { display: flex; gap: 18px; }
+.desbloq-bolas span { width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--azul-claro); }
+.desbloq-bolas span.on { background: #fff; border-color: #fff; }
+.desbloq-bolas.erro { animation: desbloq-tremer .35s; }
+@keyframes desbloq-tremer { 25% { transform: translateX(-8px); } 75% { transform: translateX(8px); } }
+.desbloq-msg { min-height: 20px; font-size: 13.5px; color: #ffe3e3; text-align: center; }
+.desbloq-teclado { width: 100%; max-width: 330px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.desbloq-teclado button { height: 64px; border-radius: 16px; border: 0; background: var(--azul-esc); color: #fff; font-size: 26px; font-weight: 500; display: grid; place-items: center; }
+.desbloq-teclado button:active { background: #1c5d99; }
+.desbloq-teclado button.vazio { background: none; }
+.desbloq-teclado button svg { width: 26px; height: 26px; }
+.desbloq-pe { margin-top: auto; padding-bottom: 12px; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.desbloq-pe button { background: none; border: 0; padding: 10px 0 4px; color: #fff; font-size: 14px; font-weight: 600; text-decoration: underline; }
+.desbloq-pe small { font-size: 12.5px; color: var(--azul-claro); text-align: center; }
