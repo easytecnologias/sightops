@@ -19,15 +19,15 @@
         <div class="brand-mark">S</div>
         <div>
           <strong>SightOps</strong>
-          <span>Gestao de CFTV</span>
+          <span>Operação de segurança eletrônica e rede</span>
         </div>
       </div>
       <h2>Entrar</h2>
-      <p>Acesse o painel de operacoes.</p>
+      <p>Acesse o painel de operações.</p>
       <p id="loginError" class="login-error" hidden></p>
       <form id="loginForm">
-        <label>Usuario
-          <input id="loginUser" type="text" autocomplete="username" placeholder="elishafan" value="elishafan" required>
+        <label>Usuário
+          <input id="loginUser" type="text" autocomplete="username" placeholder="seu usuário" required>
         </label>
         <label>Senha
           <input id="loginPassword" type="password" autocomplete="current-password" placeholder="********" required>
@@ -58,7 +58,7 @@
         </button>
 
         <!-- Implantacao -->
-        <div class="nav-section-label">Implantacao</div>
+        <div class="nav-section-label">Implantação</div>
         <button class="nav-item" data-view="planning"><i data-lucide="drafting-compass"></i><span>Projetos</span></button>
         <div class="nav-group" id="ngDeployRedes">
           <button class="nav-item nav-group-toggle">
@@ -79,16 +79,16 @@
             <i data-lucide="chevron-right" class="nav-chevron"></i>
           </button>
           <div class="nav-sub">
-            <button class="nav-item nav-sub-item" data-view="deploy-activation"><i data-lucide="key-round"></i><span>Ativacao de Cameras</span></button>
-            <button class="nav-item nav-sub-item" data-view="deploy-onvif"><i data-lucide="user-cog"></i><span>Usuario ONVIF</span></button>
-            <button class="nav-item nav-sub-item" data-view="deploy-new"><i data-lucide="camera"></i><span>Cameras IP</span></button>
+            <button class="nav-item nav-sub-item" data-view="deploy-activation"><i data-lucide="key-round"></i><span>Ativação de Câmeras</span></button>
+            <button class="nav-item nav-sub-item" data-view="deploy-onvif"><i data-lucide="user-cog"></i><span>Usuário ONVIF</span></button>
+            <button class="nav-item nav-sub-item" data-view="deploy-new"><i data-lucide="camera"></i><span>Câmeras IP</span></button>
             <button class="nav-item nav-sub-item" data-view="deploy-recorder"><i data-lucide="hard-drive-upload"></i><span>Gravadores</span></button>
           </div>
         </div>
 
         <!-- Inventario -->
-        <div class="nav-section-label">Inventario</div>
-        <button class="nav-item" data-view="inv-olt"><i data-lucide="camera"></i><span>Cameras IP</span></button>
+        <div class="nav-section-label">Inventário</div>
+        <button class="nav-item" data-view="inv-olt"><i data-lucide="camera"></i><span>Câmeras IP</span></button>
         <button class="nav-item" data-view="inv-nvr"><i data-lucide="hard-drive-upload"></i><span>Gravadores</span></button>
         <button class="nav-item" data-view="olt"><i data-lucide="radio"></i><span>OLT</span></button>
         <div class="nav-group" id="ngSnapshots">
@@ -97,14 +97,14 @@
             <i data-lucide="chevron-right" class="nav-chevron"></i>
           </button>
           <div class="nav-sub">
-            <button class="nav-item nav-sub-item" data-view="snap-cam"><i data-lucide="camera"></i><span>Cameras IP</span></button>
+            <button class="nav-item nav-sub-item" data-view="snap-cam"><i data-lucide="camera"></i><span>Câmeras IP</span></button>
             <button class="nav-item nav-sub-item" data-view="snap-dvr"><i data-lucide="hard-drive-upload"></i><span>Gravadores</span></button>
           </div>
         </div>
         <button class="nav-item" data-view="inv-windows"><i data-lucide="monitor"></i><span>Computadores</span></button>
 
         <!-- Integracoes (logo apos Inventario) -->
-        <div class="nav-section-label">Integracoes</div>
+        <div class="nav-section-label">Integrações</div>
         <button class="nav-item" data-view="script-grafana"><i data-lucide="bar-chart-2"></i><span>Grafana</span></button>
         <button class="nav-item" data-view="kmz"><i data-lucide="map"></i><span>Mapa</span></button>
         <button class="nav-item" data-view="maquete"><i data-lucide="box"></i><span>Maquete 3D</span></button>
@@ -112,13 +112,13 @@
         <button class="nav-item" data-view="connectors"><i data-lucide="plug"></i><span>Conectores</span></button>
 
         <!-- Manutencao -->
-        <div class="nav-section-label">Manutencao</div>
-        <button class="nav-item" data-view="mnt-cam"><i data-lucide="camera"></i><span>Cameras IP</span></button>
+        <div class="nav-section-label">Manutenção</div>
+        <button class="nav-item" data-view="mnt-cam"><i data-lucide="camera"></i><span>Câmeras IP</span></button>
         <button class="nav-item" data-view="monitoring"><i data-lucide="activity"></i><span>Monitoramento</span></button>
         <button class="nav-item" data-view="net-operate"><i data-lucide="zap"></i><span>Rede</span></button>
 
         <!-- Analise -->
-        <div class="nav-section-label">Analise</div>
+        <div class="nav-section-label">Análise</div>
         <button class="nav-item" data-view="playback"><i data-lucide="search"></i><span>Investigação</span></button>
         <button class="nav-item" data-view="ia-nvr"><i data-lucide="cpu"></i><span>IA - NVR</span></button>
 
@@ -146,7 +146,7 @@
         <div class="nav-section-label">Alerta</div>
         <button class="nav-item" data-view="alert-live"><i data-lucide="siren"></i><span>Central ao vivo</span><span class="alert-nav-badge" id="alertNavBadge" hidden>0</span></button>
         <button class="nav-item" data-view="alert-members"><i data-lucide="contact"></i><span>Pessoas e aparelhos</span></button>
-        <button class="nav-item" data-view="alert-reports"><i data-lucide="file-text"></i><span>Relatorios</span></button>
+        <button class="nav-item" data-view="alert-reports"><i data-lucide="file-text"></i><span>Relatórios</span></button>
 
         <!-- Controle de Rotas (transporte escolar / PNATE) -->
         <div class="nav-section-label">Controle de Rotas</div>
@@ -177,7 +177,7 @@
 
       <div class="sidebar-footer">
         <button class="nav-item" data-view="settings" style="width:100%">
-          <i data-lucide="settings"></i><span>Configuracoes</span>
+          <i data-lucide="settings"></i><span>Configurações</span>
         </button>
         <button class="nav-item" id="logoutBtn" style="width:100%;color:#ff8787">
           <i data-lucide="log-out"></i><span>Sair</span>
@@ -309,13 +309,13 @@
           <div class="panel dash-panel" style="margin:0">
             <div class="panel-header"><div><h2>Prioridades</h2><p>O que precisa de atenção agora</p></div><i data-lucide="list-checks" class="dash-panel-header-icon"></i></div>
             <div class="dash-priority-list" id="dashPriorityList">
-              <div class="dash-status-row skeleton-row"><span>Carregando-</span></div>
+              <div class="dash-status-row skeleton-row"><span>Carregando…</span></div>
             </div>
           </div>
           <div class="panel dash-panel" style="margin:0">
             <div class="panel-header"><div><h2>Saúde operacional</h2><p>Câmeras, rede óptica e infraestrutura</p></div><i data-lucide="heart-pulse" class="dash-panel-header-icon"></i></div>
             <div class="dash-health-grid" id="dashHealthGrid">
-              <div class="dash-status-row skeleton-row"><span>Carregando-</span></div>
+              <div class="dash-status-row skeleton-row"><span>Carregando…</span></div>
             </div>
           </div>
         </div>
@@ -327,7 +327,7 @@
           <div class="panel" style="margin:0">
             <div class="panel-header"><div><h2>Status por tipo</h2><p>Online e offline por categoria</p></div><i data-lucide="layers-3" class="dash-panel-header-icon"></i></div>
             <div id="dashStatusGrid" style="display:flex;flex-direction:column;gap:0">
-              <div class="dash-status-row skeleton-row"><span>Carregando-</span></div>
+              <div class="dash-status-row skeleton-row"><span>Carregando…</span></div>
             </div>
           </div>
 
@@ -335,7 +335,7 @@
           <div class="panel" style="margin:0">
             <div class="panel-header"><div><h2>Atividade recente</h2><p>Última atualização de cada inventário</p></div><i data-lucide="history" class="dash-panel-header-icon"></i></div>
             <div id="dashActivity" style="display:flex;flex-direction:column;gap:0">
-              <div class="dash-status-row skeleton-row"><span>Carregando-</span></div>
+              <div class="dash-status-row skeleton-row"><span>Carregando…</span></div>
             </div>
           </div>
 
@@ -349,7 +349,7 @@
           <div>
             <p class="eyebrow">Inventario</p>
             <h1>Cameras IP</h1>
-            <p>Varredura, filtros e casamento com informa--es da OLT e Switch.</p>
+            <p>Varredura, filtros e casamento com informações da OLT e Switch.</p>
           </div>
           <div class="page-heading-actions">
             <button class="secondary-action" id="btnAllowlist"><i data-lucide="list-checks"></i> IPs permitidos</button>
@@ -570,7 +570,7 @@
           <div>
             <p class="eyebrow">Inventario</p>
             <h1>DVR</h1>
-            <p>Gravadores digitais de v-deo catalogados.</p>
+            <p>Gravadores digitais de vídeo catalogados.</p>
           </div>
           <button class="primary-action" id="btnScanDvr"><i data-lucide="scan-search"></i> Varrer</button>
         </div>
@@ -578,7 +578,7 @@
           <div class="filters">
             <label class="search-box" style="flex:1">
               <i data-lucide="search"></i>
-              <input id="searchInvDvr" placeholder="Buscar IP, marca ou site-">
+              <input id="searchInvDvr" placeholder="Buscar IP, marca ou site…">
             </label>
           </div>
           <div class="table-wrap">
@@ -653,7 +653,7 @@
         <div class="filters" style="padding:0 0 12px;border:none">
           <label class="search-box" style="flex:1">
             <i data-lucide="search"></i>
-            <input id="searchInvNvr" placeholder="Buscar host, canal, titulo, camera, local-">
+            <input id="searchInvNvr" placeholder="Buscar host, canal, titulo, camera, local…">
           </label>
           <select class="filter-select" id="filterNvrStatus">
             <option value="">Todos</option>
@@ -891,7 +891,7 @@
         <div class="filters" style="padding:0 0 12px;border:none">
           <label class="search-box" style="flex:1">
             <i data-lucide="search"></i>
-            <input id="searchSnapCam" placeholder="Buscar IP, titulo ou local-">
+            <input id="searchSnapCam" placeholder="Buscar IP, titulo ou local…">
           </label>
           <select class="filter-select" id="filterSnapCamStatus">
             <option value="">Todas</option>
@@ -906,7 +906,7 @@
 
         <!-- Grid de fotos -->
         <div id="snapCamGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:14px">
-          <p style="padding:40px;color:var(--muted);grid-column:1/-1;text-align:center">Carregando-</p>
+          <p style="padding:40px;color:var(--muted);grid-column:1/-1;text-align:center">Carregando…</p>
         </div>
       </section>
 
@@ -937,7 +937,7 @@
         <div class="filters" style="padding:0 0 12px;border:none">
           <label class="search-box" style="flex:1">
             <i data-lucide="search"></i>
-            <input id="searchSnapGrav" placeholder="Buscar host, canal, titulo ou local-">
+            <input id="searchSnapGrav" placeholder="Buscar host, canal, titulo ou local…">
           </label>
           <select class="filter-select" id="filterSnapGravTipo">
             <option value="">DVR + NVR</option>
@@ -956,7 +956,7 @@
         </div>
 
         <div id="snapGravGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:14px">
-          <p style="padding:40px;color:var(--muted);grid-column:1/-1;text-align:center">Carregando-</p>
+          <p style="padding:40px;color:var(--muted);grid-column:1/-1;text-align:center">Carregando…</p>
         </div>
       </section>
 
@@ -1039,7 +1039,7 @@
           <h2 id="mntCamMostrando">Carregando...</h2>
         </div>
         <div class="mnt-cam-grid" id="mntCamGrid">
-          <div style="grid-column:1/-1;text-align:center;padding:40px;color:var(--muted)">Carregando-</div>
+          <div style="grid-column:1/-1;text-align:center;padding:40px;color:var(--muted)">Carregando…</div>
         </div>
 
         <!-- Console de log (fixo na base) -->
@@ -1183,7 +1183,7 @@
                 </tr>
               </thead>
               <tbody id="mntDvrTable">
-                <tr class="empty-row"><td colspan="6">Carregando-</td></tr>
+                <tr class="empty-row"><td colspan="6">Carregando…</td></tr>
               </tbody>
             </table>
           </div>
@@ -1263,7 +1263,7 @@
           <div>
             <p class="eyebrow">Analise</p>
             <h1>Reproducao</h1>
-            <p>Consulta direta em grava--es Intelbras por DVR, canal e horário.</p>
+            <p>Consulta direta em gravações Intelbras por DVR, canal e horário.</p>
           </div>
         </div>
 
@@ -1353,7 +1353,7 @@
           <div>
             <p class="eyebrow">Analise</p>
             <h1>IA - NVR</h1>
-            <p>Descreva o que aconteceu e encontre o momento nas grava--es -- inclusive em varias cameras seguidas.</p>
+            <p>Descreva o que aconteceu e encontre o momento nas gravações -- inclusive em varias cameras seguidas.</p>
           </div>
         </div>
 
@@ -1408,7 +1408,7 @@
               </p>
               <div class="form-group">
                 <label for="iaNvrQuery">O que procurar</label>
-                <input id="iaNvrQuery" placeholder="Ex: um carro branco entrando, uma pessoa saiu correndo-" required>
+                <input id="iaNvrQuery" placeholder="Ex: um carro branco entrando, uma pessoa saiu correndo…" required>
               </div>
               <details style="margin:2px 0 12px">
                 <summary style="cursor:pointer;font-size:12px;color:var(--muted)">Avancado</summary>
@@ -3846,7 +3846,7 @@
         <div class="filters" style="padding:0 0 12px;border:none">
           <label class="search-box" style="flex:1">
             <i data-lucide="search"></i>
-            <input id="oltSearch" placeholder="Buscar: site, OLT IP, PON, ONU, serial, MAC, VLAN-">
+            <input id="oltSearch" placeholder="Buscar: site, OLT IP, PON, ONU, serial, MAC, VLAN…">
           </label>
           <select class="filter-select" id="oltFilterSite">
             <option value="">Todos os sites</option>
@@ -4059,7 +4059,7 @@
           <div class="map-sidebar">
             <div class="map-sidebar-title">Camadas</div>
             <div id="mapLayersList" class="map-layers-list">
-              <div style="font-size:12px;color:var(--muted);padding:6px;text-align:center">Carregando-</div>
+              <div style="font-size:12px;color:var(--muted);padding:6px;text-align:center">Carregando…</div>
             </div>
           </div>
 
@@ -4136,12 +4136,12 @@
           <div class="panel grafana-log-card" style="padding:0;overflow:hidden;display:flex;flex-direction:column;height:100%">
             <div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-shrink:0">
               <div>
-                <strong style="font-size:14px">Log de execu--o</strong>
+                <strong style="font-size:14px">Log de execução</strong>
                 <span style="font-size:12px;color:var(--muted);margin-left:8px">Resultado da importacao no Grafana</span>
               </div>
               <span id="gfStatusBadge" style="display:none;padding:4px 10px;border-radius:20px;font-size:12px;font-weight:600"></span>
             </div>
-            <div class="ws-log grafana-log-terminal" id="grafanaLog" style="flex:1;border-radius:0;min-height:0">Aguardando configuracao-</div>
+            <div class="ws-log grafana-log-terminal" id="grafanaLog" style="flex:1;border-radius:0;min-height:0">Aguardando configuração…</div>
           </div>
         </div>
       </section>
@@ -4164,7 +4164,7 @@
 
             <div style="display:flex;align-items:center;gap:6px">
               <span style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)">Conexão Zabbix</span>
-              <span class="info-tip" data-tip="Exporta cameras do inventário como hosts no Zabbix. Hosts existentes s-o atualizados, novos criados automaticamente. A mensagem do Telegram se adapta ao modo OLT ou Switch."><i data-lucide="info" style="width:13px;height:13px"></i></span>
+              <span class="info-tip" data-tip="Exporta cameras do inventário como hosts no Zabbix. Hosts existentes são atualizados, novos criados automaticamente. A mensagem do Telegram se adapta ao modo OLT ou Switch."><i data-lucide="info" style="width:13px;height:13px"></i></span>
             </div>
             <div class="form-group" style="margin:0">
               <label>URL</label>
@@ -4234,7 +4234,7 @@
             <div style="border-top:1px solid var(--border);padding-top:12px">
               <label style="display:flex;align-items:center;gap:10px;cursor:pointer;margin-bottom:10px">
                 <input type="checkbox" id="zbxTgAuto" style="accent-color:var(--primary);width:15px;height:15px">
-                <span style="font-size:13px;font-weight:600">Notifica--es Telegram</span>
+                <span style="font-size:13px;font-weight:600">Notificações Telegram</span>
               </label>
               <div id="zbxTgFields" style="display:none">
                 <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;min-width:0">
@@ -4261,12 +4261,12 @@
           <div class="panel grafana-log-card" style="padding:0;overflow:hidden;display:flex;flex-direction:column;height:100%">
             <div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-shrink:0">
               <div>
-                <strong style="font-size:14px">Log de execu--o</strong>
+                <strong style="font-size:14px">Log de execução</strong>
                 <span style="font-size:12px;color:var(--muted);margin-left:8px">Resultado da sincronizacao com o Zabbix</span>
               </div>
               <span id="zbxStatusBadge" style="display:none;padding:4px 10px;border-radius:20px;font-size:12px;font-weight:600"></span>
             </div>
-            <div class="ws-log grafana-log-terminal" id="zabbixLog" style="flex:1;border-radius:0;min-height:0">Aguardando configuracao-</div>
+            <div class="ws-log grafana-log-terminal" id="zabbixLog" style="flex:1;border-radius:0;min-height:0">Aguardando configuração…</div>
           </div>
         </div>
       </section>
@@ -4723,7 +4723,7 @@
       <!-- Views stub para subp-ginas nao implementadas -->
       <section class="workspace hidden" id="viewInvSwitch">
         <div class="page-heading"><div><p class="eyebrow">Inventario</p><h1>Cameras via Switch</h1><p>Cameras descobertas via varredura no switch gerenciavel.</p></div></div>
-        <div class="panel" style="padding:40px;text-align:center;color:var(--muted)">Em constru--o.</div>
+        <div class="panel" style="padding:40px;text-align:center;color:var(--muted)">Em construção.</div>
       </section>
       <section class="workspace hidden" id="viewNetOperate">
 
@@ -7145,7 +7145,7 @@
         </div>
 
         <!-- Log -->
-        <div class="ws-log" id="scanLog" style="min-height:80px;max-height:160px;margin-top:14px">Aguardando inicio-</div>
+        <div class="ws-log" id="scanLog" style="min-height:80px;max-height:160px;margin-top:14px">Aguardando início…</div>
       </div>
       <div class="modal-actions">
         <button class="secondary-action" id="cancelScan">Fechar</button>
@@ -7214,7 +7214,7 @@
             <option value="switch">Via Switch</option>
           </select>
           <label style="display:flex;align-items:center;gap:5px;font-size:13px;white-space:nowrap;padding:8px 10px;border:1px solid var(--border);border-radius:7px;background:var(--surface);cursor:pointer">
-            <input type="number" id="nvrScanStart" value="1" min="1" max="256" style="width:36px;border:0;outline:none;font-size:13px;padding:0;text-align:center"> at-
+            <input type="number" id="nvrScanStart" value="1" min="1" max="256" style="width:36px;border:0;outline:none;font-size:13px;padding:0;text-align:center"> até
             <input type="number" id="nvrScanEnd" value="32" min="1" max="256" style="width:36px;border:0;outline:none;font-size:13px;padding:0;text-align:center">
             <span style="color:var(--muted);font-size:11px">canais</span>
           </label>
@@ -7243,7 +7243,7 @@
           </div>
         </div>
 
-        <div class="ws-log" id="nvrScanLog" style="min-height:60px;max-height:120px;margin-top:14px">Aguardando inicio-</div>
+        <div class="ws-log" id="nvrScanLog" style="min-height:60px;max-height:120px;margin-top:14px">Aguardando início…</div>
         <div style="display:flex;justify-content:flex-end;margin-top:4px;min-height:16px">
           <span id="nvrScanFooter" style="font-size:11px;color:var(--muted);font-family:monospace"></span>
         </div>
@@ -7541,7 +7541,7 @@
         <button class="ping-term-btn" id="oltTermClose" title="Fechar"><i data-lucide="x"></i></button>
       </div>
     </div>
-    <div class="ping-term-body" id="oltConsole">Aguardando inicio-</div>
+    <div class="ping-term-body" id="oltConsole">Aguardando início…</div>
     <div class="ping-term-footer" id="oltTermFooter"></div>
   </div>
 
@@ -7991,7 +7991,7 @@
   <div class="modal-backdrop hidden" id="modalMntQuality" onclick="if(event.target===this)this.classList.add('hidden')">
     <div class="modal" style="max-width:420px">
       <div class="modal-header">
-        <div><p class="eyebrow">Manutencao</p><h2>Qualidade de v-deo</h2></div>
+        <div><p class="eyebrow">Manutencao</p><h2>Qualidade de vídeo</h2></div>
         <button class="icon-button" onclick="document.getElementById('modalMntQuality').classList.add('hidden')"><i data-lucide="x"></i></button>
       </div>
       <div style="padding:0 24px 20px;display:flex;flex-direction:column;gap:14px">
@@ -8146,7 +8146,7 @@
         <div>
           <p style="font-size:11px;color:var(--muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:.05em">Preview da operacao</p>
           <div id="mntShiftPreviewBox" style="background:var(--surface-soft);border:1px solid var(--border);border-radius:8px;padding:10px 14px;font-size:12px;font-family:monospace;max-height:200px;overflow-y:auto;color:var(--text)">
-            <em style="color:var(--muted)">Preencha os campos acima-</em>
+            <em style="color:var(--muted)">Preencha os campos acima…</em>
           </div>
         </div>
         <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:4px">

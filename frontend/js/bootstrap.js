@@ -714,7 +714,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     const data = await res?.json().catch(() => ({}));
     if (!res?.ok || data?.ok === false) {
-      showToast(data?.detail || data?.error || 'NAo foi possAvel remover as cAmeras.', true);
+      showToast(data?.detail || data?.error || 'Não foi possível remover as câmeras.', true);
       return;
     }
     _camRemoveIpsLocally(keys);
@@ -1880,15 +1880,16 @@ document.addEventListener('DOMContentLoaded', () => {
     btn.innerHTML = '<i data-lucide="bar-chart-2"></i> Importar Dashboard';
     lucide.createIcons();
 
-    if (data?.error) {
-      log.textContent = ' Erro: ' + data.error + '\n\n' + (data.stderr || '') + (data.stdout || '');
+    if (!res?.ok || data?.error || data?.ok === false) {
+      const motivo = textoDoErro(data?.error || data?.detail) || `HTTP ${res?.status || 'falha'}`;
+      _logResumo(log, `Não foi possível importar o dashboard. ${_erroIntegracao(motivo, 'Grafana')}`, [data?.stderr, data?.stdout], true);
       badge.textContent = 'Erro';
       badge.style.background = 'var(--danger-soft)';
       badge.style.color = 'var(--danger)';
       badge.style.display = 'inline-block';
     } else {
-      log.textContent = data?.stdout || data?.result || 'Concluido.';
-      if (data?.stderr) log.textContent += '\n\n[stderr]\n' + data.stderr;
+      const urlDash = String(data?.stdout || '').match(/^url=(.+)$/m)?.[1] || '';
+      _logResumo(log, `Dashboard importado no Grafana.${urlDash ? ` Endereço: ${urlDash}` : ''}`, [data?.stdout || data?.result, data?.stderr]);
       badge.textContent = ' Importado';
       badge.style.background = 'var(--primary-soft)';
       badge.style.color = 'var(--primary)';
@@ -1896,6 +1897,22 @@ document.addEventListener('DOMContentLoaded', () => {
       showToast('Dashboard importado no Grafana!');
     }
   });
+// Saida de Zabbix/Grafana: resumo em uma frase e o log tecnico (stdout/stderr)
+  // dentro de "Ver detalhes", em vez de despejar o texto cru na tela.
+  function _logResumo(el, resumo, tecnicos = [], erro = false) {
+    const tecnico = tecnicos.map(t => String(t || '').trim()).filter(Boolean).join('\n\n');
+    el.innerHTML = `<div class="${erro ? 'log-err' : 'log-ok'}">${esc(resumo)}</div>`
+      + (tecnico ? `<details style="margin-top:8px"><summary style="cursor:pointer">Ver detalhes técnicos</summary><pre style="white-space:pre-wrap;margin:6px 0 0;font:inherit">${esc(tecnico)}</pre></details>` : '');
+  }
+  function _erroIntegracao(msg, sistema) {
+    const t = String(msg || '').toLowerCase();
+    if (/password is incorrect|incorrect user name|login name or password|unauthorized|\b401\b|invalid api key/.test(t)) return `O ${sistema} recusou o usuário, a senha ou a chave. Confira as credenciais.`;
+    if (/timed out|timeout/.test(t)) return `O ${sistema} não respondeu a tempo. Confira o endereço e tente de novo.`;
+    if (/connection refused|failed to establish|max retries|no route to host|name or service not known|getaddrinfo|falha ao conectar/.test(t)) return `Não consegui falar com o ${sistema}. Confira a URL e se ele está no ar.`;
+    const linha = String(msg || '').split('\n').map(l => l.trim()).filter(Boolean).pop() || '';
+    return linha.length > 160 ? `${linha.slice(0, 160)}…` : linha;
+  }
+
 // Templates padrao por fonte
   const ZBX_TEMPLATES = {
     'ip':         'Template Module ICMP Ping',
@@ -1990,14 +2007,24 @@ document.addEventListener('DOMContentLoaded', () => {
     lucide.createIcons();
 
     if (!res?.ok || data?.error || data?.ok === false) {
-      log.textContent = ' Erro: ' + (data?.error || data?.detail || `HTTP ${res?.status || 'falha'}`) + '\n\n' + (data?.stderr || '');
+      const motivo = textoDoErro(data?.error || data?.detail) || `HTTP ${res?.status || 'falha'}`;
+      _logResumo(log, `A sincronização com o Zabbix falhou. ${_erroIntegracao(motivo, 'Zabbix')}`, [data?.stderr, data?.stdout], true);
       badge.textContent = 'Erro';
       badge.style.background = 'var(--danger-soft)';
       badge.style.color = 'var(--danger)';
       badge.style.display = 'inline-block';
     } else {
-      const output = data?.stdout || data?.result || JSON.stringify(data, null, 2) || 'Concluido.';
-      log.textContent = output;
+      const saida = String(data?.stdout || '');
+      const criados = (saida.match(/^created:/gm) || []).length;
+      const atualizados = (saida.match(/^updated:/gm) || []).length;
+      const total = saida.match(/^OK: (\d+) hosts processados/m)?.[1] ?? data?.rows_used;
+      const avisos = String(data?.stderr || '').split('\n').filter(l => /AVISO|WARN/.test(l)).length;
+      const partes = [
+        total != null ? `${total} equipamento(s) enviados ao Zabbix` : 'Equipamentos enviados ao Zabbix',
+        criados ? `${criados} novo(s)` : '', atualizados ? `${atualizados} atualizado(s)` : '',
+        avisos ? `${avisos} aviso(s), veja os detalhes` : '',
+      ].filter(Boolean);
+      _logResumo(log, partes.join(' · ') + '.', [data?.stdout || data?.result || JSON.stringify(data, null, 2), data?.stderr]);
       badge.textContent = ' Sincronizado';
       badge.style.background = 'var(--primary-soft)';
       badge.style.color = 'var(--primary)';

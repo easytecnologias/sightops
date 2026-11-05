@@ -186,7 +186,9 @@ def test_erro_do_leitor_nao_sai_como_502_no_controle_de_acesso():
     r = asyncio.run(m._erro_do_leitor_sem_502(req("/api/access-control/devices/d1/test"),
                                               HTTPException(502, "Usuario ou senha invalidos no dispositivo.")))
     assert r.status_code == 424 and b"Usuario ou senha invalidos" in r.body
-    assert asyncio.run(m._erro_do_leitor_sem_502(req("/api/cameras/c1"), HTTPException(502, "x"))).status_code == 502
+    # E3: vale para todo /api/ (gravador, camera...), fora de /api/ continua 502
+    assert asyncio.run(m._erro_do_leitor_sem_502(req("/api/cameras/c1"), HTTPException(504, "x"))).status_code == 424
+    assert asyncio.run(m._erro_do_leitor_sem_502(req("/healthz"), HTTPException(502, "x"))).status_code == 502
 
 
 def test_canal_sem_camera_no_inventario_usa_a_verificacao_do_gravador():

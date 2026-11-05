@@ -101,11 +101,14 @@ app = FastAPI(
     redoc_url="/redoc" if settings.enable_docs else None,
     openapi_url="/openapi.json" if settings.enable_docs else None,
 )
+from app.core import erros as _erros
+_erros.instalar(app)
 
 # Erro do LEITOR de acesso (senha errada, sem resposta) saia como 502, e o
 # Cloudflare troca 502/504 vindos da origem pela pagina dele: a tela mostrava
 # "HTTP 502" e o motivo ("Usuario ou senha invalidos no dispositivo") sumia.
-# 424 (a dependencia falhou) passa com o JSON intacto. So no controle de acesso.
+# 424 (a dependencia falhou) passa com o JSON intacto. Vale para todo /api/:
+# gravador, camera, OLT e Zabbix tambem caiam na pagina do Cloudflare.
 from fastapi import HTTPException as _HTTPException
 from fastapi.exception_handlers import http_exception_handler as _http_exception_handler
 from starlette.exceptions import HTTPException as _StarletteHTTPException
@@ -113,7 +116,7 @@ from starlette.exceptions import HTTPException as _StarletteHTTPException
 
 @app.exception_handler(_StarletteHTTPException)
 async def _erro_do_leitor_sem_502(request: Request, exc: _StarletteHTTPException):
-    if exc.status_code in (502, 504) and request.url.path.startswith("/api/access-control/"):
+    if exc.status_code in (502, 504) and request.url.path.startswith("/api/"):
         exc = _HTTPException(status_code=424, detail=exc.detail, headers=getattr(exc, "headers", None))
     return await _http_exception_handler(request, exc)
 

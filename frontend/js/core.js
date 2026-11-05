@@ -302,18 +302,45 @@ async function apiJson(path, opts = {}) {
   return data;
 }
 
-async function jsonOrReadableError(res, fallback = 'Erro na requisicao.') {
+// `detail` pode vir como texto, lista (validacao do FastAPI) ou objeto.
+// Sem isto a tela mostrava "[object Object]".
+function textoDoErro(valor) {
+  if (valor == null || valor === '') return '';
+  if (typeof valor === 'string') return valor;
+  if (Array.isArray(valor)) {
+    return valor.map(item => {
+      if (item && typeof item === 'object') {
+        const campo = Array.isArray(item.loc) ? item.loc.filter(p => !['body', 'query', 'path', 'header'].includes(p)).join('.') : '';
+        const msg = item.msg || item.message || item.detail || '';
+        return campo && msg ? `${campo}: ${msg}` : (msg || JSON.stringify(item));
+      }
+      return String(item);
+    }).filter(Boolean).join('; ');
+  }
+  if (typeof valor === 'object') return textoDoErro(valor.detail || valor.message || valor.msg || valor.error) || JSON.stringify(valor);
+  return String(valor);
+}
+
+function fraseDoStatus(status) {
+  if (status === 502 || status === 503 || status === 504) return `O servidor não respondeu a tempo (HTTP ${status}). Tente de novo em instantes.`;
+  if (status === 404) return 'Recurso não encontrado (HTTP 404).';
+  if (status >= 500) return `Erro no servidor (HTTP ${status}). Tente de novo; se continuar, avise o suporte.`;
+  return status ? `Resposta inesperada do servidor (HTTP ${status}).` : '';
+}
+
+async function jsonOrReadableError(res, fallback = 'Erro na requisição.') {
   if (!res) throw new Error(fallback);
   const text = await res.text();
   let data = null;
   try {
     data = text ? JSON.parse(text) : {};
   } catch {
-    const clean = text.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 180);
-    throw new Error(clean ? `Servidor retornou resposta inesperada: ${clean}` : fallback);
+    // Resposta em HTML (pagina do Cloudflare/nginx) nao vai para a tela.
+    console.warn('Resposta nao-JSON', res.status, text.slice(0, 500));
+    throw new Error(fraseDoStatus(res.status) || fallback);
   }
   if (!res.ok || data?.ok === false) {
-    throw new Error(data?.detail || data?.error || data?.msg || data?.message || fallback);
+    throw new Error(textoDoErro(data?.detail) || textoDoErro(data?.error) || textoDoErro(data?.msg) || textoDoErro(data?.message) || fraseDoStatus(res.ok ? 0 : res.status) || fallback);
   }
   return data;
 }
@@ -612,26 +639,26 @@ async function showApp() {
 
 //  Navegacao
 const VIEW_META = {
-  dashboard:       { title: 'Dashboard',        sub: 'Visao geral do parque' },
-  'inv-olt':       { title: 'Cameras IP', sub: 'Varredura, filtros e casamento OLT/Switch' },
-  'inv-switch':    { title: 'Cameras IP  Switch', sub: 'Cameras via switch gerenciavel' },
-  'inv-dvr':       { title: 'Inventario  DVR',  sub: 'Gravadores DVR' },
-  'inv-nvr':       { title: 'Gravadores', sub: 'Canais NVR com cameras associadas' },
-  'inv-windows':   { title: 'Inventario - Computadores', sub: 'Computadores Windows' },
-  'snap-cam':      { title: 'Snapshots  Cameras', sub: 'Fotos das cameras IP' },
-  'snap-dvr':      { title: 'Snapshots  DVR',   sub: 'Fotos dos canais DVR' },
-  'snap-nvr':      { title: 'Snapshots  NVR',   sub: 'Fotos dos canais NVR' },
-  'mnt-cam':       { title: 'Manutencao  Cameras', sub: 'Operacoes em lote' },
+  dashboard:       { title: 'Dashboard',        sub: 'Visão geral do parque' },
+  'inv-olt':       { title: 'Câmeras IP', sub: 'Varredura, filtros e casamento OLT/Switch' },
+  'inv-switch':    { title: 'Câmeras IP - Switch', sub: 'Câmeras via switch gerenciável' },
+  'inv-dvr':       { title: 'Inventário - DVR',  sub: 'Gravadores DVR' },
+  'inv-nvr':       { title: 'Gravadores', sub: 'Canais NVR com câmeras associadas' },
+  'inv-windows':   { title: 'Inventário - Computadores', sub: 'Computadores Windows' },
+  'snap-cam':      { title: 'Snapshots - Câmeras', sub: 'Fotos das câmeras IP' },
+  'snap-dvr':      { title: 'Snapshots - DVR',   sub: 'Fotos dos canais DVR' },
+  'snap-nvr':      { title: 'Snapshots - NVR',   sub: 'Fotos dos canais NVR' },
+  'mnt-cam':       { title: 'Manutenção - Câmeras', sub: 'Operações em lote' },
   playback:        { title: 'Investigação',     sub: 'Ache o momento nas gravações' },
-  'ia-nvr':        { title: 'IA  NVR',          sub: 'Indexacao e busca inteligente' },
-  'access-live':    { title: 'Acesso ao Vivo', sub: 'Movimentacao em tempo real' },
+  'ia-nvr':        { title: 'IA - NVR',          sub: 'Indexação e busca inteligente' },
+  'access-live':    { title: 'Acesso ao Vivo', sub: 'Movimentação em tempo real' },
   'access-messenger': { title: 'Messenger', sub: 'Conversas de WhatsApp enviadas e recebidas' },
   'access-whatsapp-triage': { title: 'Triagem WhatsApp', sub: 'Fila de cadastros recebidos por grupos' },
-  'access-control': { title: 'Controle de Acesso', sub: 'Reconhecimento facial e eventos de entrada e saida' },
+  'access-control': { title: 'Controle de Acesso', sub: 'Reconhecimento facial e eventos de entrada e saída' },
   'access-painel':  { title: 'Controle de Acesso', sub: 'Ao vivo, pessoas, horários, relatórios e mensagens' },
-  'alert-live':     { title: 'Central ao vivo', sub: 'Pedidos de ajuda do botao de panico' },
+  'alert-live':     { title: 'Central ao vivo', sub: 'Pedidos de ajuda do botão de pânico' },
   'alert-members':  { title: 'Pessoas e aparelhos', sub: 'Quem pode pedir ajuda e se o celular esta pronto' },
-  'alert-reports':  { title: 'Relatorios do Alerta', sub: 'Pedidos de ajuda e como foram atendidos' },
+  'alert-reports':  { title: 'Relatórios do Alerta', sub: 'Pedidos de ajuda e como foram atendidos' },
   'rotas-vivo':     { title: 'Controle de Rotas', sub: 'Ônibus em viagem agora' },
   'pdv-lojas':      { title: 'Ponto de venda', sub: 'Vendas e caixas de cada loja' },
   'pdv-vivo':       { title: 'Ponto de venda', sub: 'Câmera e cupom de cada caixa agora' },
@@ -641,27 +668,27 @@ const VIEW_META = {
   'rotas-cadastro': { title: 'Controle de Rotas', sub: 'Rotas, paradas e alunos' },
   'rotas-frota':    { title: 'Controle de Rotas', sub: 'Veículos, motoristas e vencimentos' },
   'rotas-pnate':    { title: 'Controle de Rotas', sub: 'Prestação de contas do PNATE' },
-  'net-operate':   { title: 'Manutencao - Rede', sub: 'Tuneis, diagnostico e teste pontual' },
-  planning:        { title: 'Projetos de CFTV', sub: 'Planejamento antes da implantacao' },
+  'net-operate':   { title: 'Manutenção - Rede', sub: 'Túneis, diagnóstico e teste pontual' },
+  planning:        { title: 'Projetos de CFTV', sub: 'Planejamento antes da implantação' },
   maquete:         { title: 'Maquete 3D',       sub: 'Planta em 3D com câmeras, cabos e rack' },
-  'deploy-olt':    { title: 'Implantacao - OLT', sub: 'Cadastro das OLTs usadas na operacao' },
-  'deploy-onu':    { title: 'Implantacao - ONU', sub: 'Provisionamento em campo' },
-  'deploy-recorder': { title: 'Implantacao - Gravadores', sub: 'Cadastro de DVR/NVR' },
-  'deploy-new':    { title: 'Implantacao - CFTV', sub: 'Assistente de campo' },
-  'deploy-activation': { title: 'Ativacao de Cameras', sub: 'Cameras de fabrica, ativadas pelo tunel do conector' },
-  'deploy-onvif': { title: 'Usuario ONVIF', sub: 'Camera Hikvision em gravador de outra marca' },
+  'deploy-olt':    { title: 'Implantação - OLT', sub: 'Cadastro das OLTs usadas na operação' },
+  'deploy-onu':    { title: 'Implantação - ONU', sub: 'Provisionamento em campo' },
+  'deploy-recorder': { title: 'Implantação - Gravadores', sub: 'Cadastro de DVR/NVR' },
+  'deploy-new':    { title: 'Implantação - CFTV', sub: 'Assistente de campo' },
+  'deploy-activation': { title: 'Ativação de Câmeras', sub: 'Câmeras de fábrica, ativadas pelo túnel do conector' },
+  'deploy-onvif': { title: 'Usuário ONVIF', sub: 'Câmera Hikvision em gravador de outra marca' },
   'deploy-tr069':  { title: 'TR-069',            sub: 'ONUs gerenciadas pelo servidor de gerência' },
   olt:             { title: 'OLT',               sub: 'Coleta de MACs da OLT' },
   switch:          { title: 'Switch',            sub: 'Coleta de MACs do switch' },
   'switch-provedores': { title: 'Switch Provedores', sub: 'Switches da rede neutra e os links dos provedores' },
-  kmz:             { title: 'KMZ  Mapa',        sub: 'Localizacao das cameras' },
-  'script-grafana':{ title: 'Scripts  Grafana', sub: '' },
-  'script-zabbix': { title: 'Scripts  Zabbix',  sub: '' },
+  kmz:             { title: 'KMZ - Mapa',        sub: 'Localização das câmeras' },
+  'script-grafana':{ title: 'Scripts - Grafana', sub: '' },
+  'script-zabbix': { title: 'Scripts - Zabbix',  sub: '' },
   connectors:      { title: 'Conectores',       sub: 'Roteadores dos clientes (MikroTik e Ruijie)' },
-  monitoring:      { title: 'Monitoramento',     sub: 'Saude dos equipamentos e alertas' },
+  monitoring:      { title: 'Monitoramento',     sub: 'Saúde dos equipamentos e alertas' },
   tools:           { title: 'Ferramentas',       sub: '' },
-  backup:          { title: 'Backup',            sub: 'Exportacao e importacao' },
-  settings:        { title: 'Configuracoes',     sub: '' },
+  backup:          { title: 'Backup',            sub: 'Exportação e importação' },
+  settings:        { title: 'Configurações',     sub: '' },
   'owner-overview':{ title: 'Visão geral',       sub: 'Administração da plataforma' },
   'owner-clients': { title: 'Clientes',          sub: 'Organizações SaaS' },
   'owner-plans':   { title: 'Planos e licenças', sub: 'O que cada cliente pode usar' },
@@ -1128,6 +1155,32 @@ async function saveTenantZabbixAccess() {
   }
 }
 
+// Historico do dono: frase por tipo de acao em vez do JSON cru (o JSON fica
+// no title, para quem precisar do detalhe).
+const _AUDIT_CHAVES = { ip: 'IP', username: 'usuário', role: 'perfil', modules: 'módulos', plan: 'plano', caminho: 'caminho', operador: 'operador', autorizado_por: 'autorizado por', tenant_slug: 'cliente', name: 'nome' };
+function _auditDados(e) {
+  try { return e?.detail_json ? JSON.parse(e.detail_json) : {}; } catch (err) { return null; }
+}
+function auditAcaoTexto(e) {
+  const d = _auditDados(e) || {};
+  const acao = String(e?.action || '');
+  if (acao.startsWith('acao')) return d.r || acao;
+  return (typeof AUDIT_ACOES !== 'undefined' && AUDIT_ACOES[acao]) || acao || '-';
+}
+function auditDetalheTexto(e) {
+  const d = _auditDados(e);
+  if (d === null) return String(e.detail_json || '-');  // nao e JSON: mostra como veio
+  if (!d || typeof d !== 'object') return String(d ?? '-');
+  const partes = [];
+  if (String(e.action || '').startsWith('acao') && d.ok === false) partes.push(`falhou${d.s ? ` (código ${d.s})` : ''}`);
+  Object.entries(d).forEach(([k, v]) => {
+    if (['r', 'ok', 's'].includes(k) || v == null || v === '' || typeof v === 'object' && !Array.isArray(v)) return;
+    const valor = Array.isArray(v) ? v.join(', ') : (v === true ? 'sim' : v === false ? 'não' : String(v));
+    if (valor) partes.push(`${_AUDIT_CHAVES[k] || k.replace(/_/g, ' ')}: ${valor}`);
+  });
+  return partes.slice(0, 4).join(' · ') || '-';
+}
+
 async function loadOwnerAudit() {
   if (!_currentUser?.is_platform_admin) return;
   const data = await apiJson('/api/auth/audit/platform', { forceRefresh: true });
@@ -1139,9 +1192,9 @@ async function loadOwnerAudit() {
       <tr>
         <td class="settings-cell-date"><span class="text-muted">${esc(formatDateTimeShort(e.created_at || ''))}</span></td>
         <td class="settings-cell-truncate" title="${esc(e.tenant_name || e.tenant_slug || '')}">${esc(e.tenant_name || e.tenant_slug || '-')}</td>
-        <td>${esc(e.action || '')}</td>
+        <td class="settings-cell-truncate" title="${esc(e.action || '')}">${esc(auditAcaoTexto(e))}</td>
         <td class="settings-cell-truncate" title="${esc(e.resource_type || '')} ${esc(e.resource_id || '')}">${esc(e.resource_type || '')} ${esc(e.resource_id || '')}</td>
-        <td class="settings-cell-truncate" title="${esc(e.detail_json || '')}">${esc(e.detail_json || '-')}</td>
+        <td class="settings-cell-truncate" title="${esc(e.detail_json || '')}">${esc(auditDetalheTexto(e))}</td>
       </tr>`).join('') : '<tr class="empty-row"><td colspan="5">Nenhum evento registrado.</td></tr>';
   }
   if (typeof renderOwnerPermissions === 'function') await renderOwnerPermissions();

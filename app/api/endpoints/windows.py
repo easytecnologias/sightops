@@ -188,5 +188,5 @@ async def api_windows_agent_report(request: Request) -> Dict[str, Any]:
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
+    # Outro erro segue para app/core/erros.py: 500 com codigo e traceback no
+    # log (antes devolvia str(exc) cru, sem nada no log).
