@@ -43,6 +43,8 @@ def test_ponte_fecha_o_websocket_quando_o_equipamento_fecha(monkeypatch):
     monkeypatch.setattr(maintenance, "web_liberada_para", lambda u, h, c="": (True, ""))
     monkeypatch.setattr(maintenance, "_ruijie_gateway_owner", lambda h: "")
     monkeypatch.setattr(maintenance, "_reach", lambda h, c="": "127.0.0.1")
+    # o equipamento falso e um socket local; loopback real e recusado pela regra
+    monkeypatch.setattr(ws_mod, "destino_permitido_atual", lambda ip: (True, ""))
     monkeypatch.setattr(nvr, "_recorder_connector_for_host", lambda h: "")
 
     porta = _equipamento_http10()
