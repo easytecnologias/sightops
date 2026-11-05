@@ -1201,6 +1201,8 @@ function alertRenderList() {
         <span class="alert-card-tags">
           <span class="alert-tag ${inc.kind === 'duress' ? 'is-coacao' : 'is-panico'}">${inc.kind === 'duress' ? 'COACAO' : 'PANICO'}</span>
           ${gps ? `<span class="alert-tag">${esc(gps)}</span>` : ''}${dono}
+          ${inc.aviso_situacao === 'nao_entregue' ? `<span class="alert-tag is-coacao" title="${esc(inc.aviso_erro)}">AVISO NAO ENTREGUE</span>` : ''}
+          ${inc.aviso_situacao === 'tentando' ? `<span class="alert-tag" title="${esc(inc.aviso_erro)}">REENVIANDO AVISO</span>` : ''}
         </span>
       </button>`;
   };
@@ -1311,7 +1313,9 @@ const ALERT_LOG_LABEL = {
   step_undo: 'Passo desmarcado',
   note: 'Observacao',
   close: 'Encerrado',
-  escalated: 'Aviso enviado ao Telegram',
+  escalated: 'Ninguem assumiu: avisando os grupos',
+  aviso_entregue: 'Aviso entregue',
+  aviso_falhou: 'Aviso NAO entregue',
 };
 
 function alertRenderDetail() {

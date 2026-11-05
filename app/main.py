@@ -709,14 +709,16 @@ async def _access_email_loop() -> None:
 
 async def _alert_escalation_loop() -> None:
     """Modulo Alerta: alerta de panico que ninguem assumiu em 60s vai pro
-    Telegram do cliente. Barato (1 SELECT indexado) -- roda a cada 15s."""
-    from app.services.alert_store import escalate_unattended
+    Telegram do cliente, e aviso que falhou e tentado de novo com espera
+    crescente. Barato (SELECTs indexados) -- roda a cada 15s."""
+    from app.services.alert_store import escalate_unattended, retry_failed_notifications
 
     await asyncio.sleep(10)
     while True:
         try:
             sent = await asyncio.to_thread(escalate_unattended)
-            app.state.alert_escalation_last = {"ok": True, "escalated": sent}
+            reenvios = await asyncio.to_thread(retry_failed_notifications)
+            app.state.alert_escalation_last = {"ok": True, "escalated": sent, "reenvios": reenvios}
             if sent:
                 logger.warning("alerta: %s alerta(s) sem atendimento escalonado(s)", len(sent))
         except asyncio.CancelledError:

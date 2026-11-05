@@ -42,6 +42,8 @@ logger = logging.getLogger("cam-snapshot")
 OPEN_STATUSES = ("new", "acknowledged", "dispatched")
 FINAL_STATUSES = ("closed", "cancelled")
 ESCALATION_AFTER_S = 60
+# Espera antes de cada nova tentativa do aviso: 5 tentativas no total.
+AVISO_ESPERAS_S = (15, 30, 60, 120)
 RECENT_FINAL_WINDOW_MIN = 30
 ACTIVATION_TTL_DAYS = 7
 # Alfabeto sem 0/O/1/I/L: codigo e ditado por telefone ou lido de papel.
@@ -814,6 +816,9 @@ def trigger_incident(ctx: Dict[str, Any], position: Dict[str, Any], source: str 
             _log(c, tenant, incident_id, "retriggered", member.get("full_name") or "", "Botao acionado de novo")
         _insert_position(c, tenant, incident_id, position or {})
         inc = _row(c, "SELECT * FROM alert_incidents WHERE id=?", (incident_id,))
+    if created:
+        # Fora do `with`: a thread do aviso le o alerta ja gravado.
+        notify_async(tenant, incident_id, "panic")
     return {"incident": _app_incident_view(inc), "created": created}
 
 
@@ -866,6 +871,15 @@ def cancel_incident(ctx: Dict[str, Any], incident_id: str, pin: str) -> Dict[str
 # central (painel ao vivo)
 # --------------------------------------------------------------------------
 
+def _aviso_situacao(inc: Dict[str, Any]) -> str:
+    """Para o selo da central. So a central ve: o app nao recebe nada disto."""
+    if inc.get("aviso_proximo_at"):
+        return "tentando"
+    if inc.get("aviso_erro") and not inc.get("aviso_entregue_at"):
+        return "nao_entregue"
+    return "entregue" if inc.get("aviso_entregue_at") else "sem_tentativa"
+
+
 def _incident_view(inc: Dict[str, Any], member: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     m = member or {}
     return {
@@ -885,6 +899,11 @@ def _incident_view(inc: Dict[str, Any], member: Optional[Dict[str, Any]]) -> Dic
         "close_note": inc.get("close_note") or "",
         "duress_at": inc.get("duress_at") or "",
         "escalated_at": inc.get("escalated_at") or "",
+        "aviso_entregue": bool(inc.get("aviso_entregue_at")),
+        "aviso_entregue_at": inc.get("aviso_entregue_at") or "",
+        "aviso_erro": inc.get("aviso_erro") or "",
+        "aviso_tentativas": int(inc.get("aviso_tentativas") or 0),
+        "aviso_situacao": _aviso_situacao(inc),
         "last_lat": inc.get("last_lat"),
         "last_lon": inc.get("last_lon"),
         "last_accuracy": inc.get("last_accuracy"),
@@ -1433,7 +1452,7 @@ def _site_do_alerta(inc: Dict[str, Any]) -> str:
     return str(m.get("unit_name") or "").strip()
 
 
-def _send_telegram_for(tenant: str, incident_id: str, reason: str) -> Dict[str, Any]:
+def _enviar_aviso(tenant: str, incident_id: str, reason: str) -> Dict[str, Any]:
     """Pelos grupos do site (Configuracoes > Notificacoes). Panico e sempre
     urgente: passa por cima do silencio da noite."""
     from app.services import notificacoes_service as N
@@ -1443,13 +1462,60 @@ def _send_telegram_for(tenant: str, incident_id: str, reason: str) -> Dict[str, 
         inc = get_incident(incident_id)
         res = N.enviar_evento("panico", _site_do_alerta(inc), _format_message(inc, reason), urgente=True, tela="alert-live")
         if not res["destinos"]:
-            return {"ok": False, "error": "Nenhum grupo do Telegram recebe alerta de panico deste site."}
-        return {"ok": res["ok"], "error": "; ".join(res["erros"])} if not res["ok"] else {"ok": True, "enviados": res["enviados"]}
+            return {"ok": False, "sem_destino": True,
+                    "error": "Nenhum grupo do Telegram recebe alerta de panico deste site."}
+        if not res["ok"]:
+            return {"ok": False, "error": "; ".join(res["erros"])}
+        return {"ok": True, "enviados": res["enviados"], "error": "; ".join(res["erros"])}
     except Exception as exc:
         logger.exception("alerta: falha ao enviar Telegram (%s/%s)", tenant, incident_id)
         return {"ok": False, "error": str(exc)}
     finally:
         reset_current_tenant_slug(ctx_token)
+
+
+def _registrar_entrega(tenant: str, incident_id: str, reason: str, res: Dict[str, Any]) -> None:
+    """Grava no alerta e no log o que aconteceu com o aviso e, se falhou,
+    agenda a proxima tentativa. Motivo novo (coacao, escalonamento) recomeca a
+    contagem. Sem grupo de destino nao ha o que tentar de novo."""
+    agora = _now_dt()
+    erro = _text(res.get("error"), 500)
+    with db_store._conn() as c:
+        inc = _row(c, "SELECT aviso_tentativas, aviso_motivo, aviso_entregue_at FROM alert_incidents WHERE tenant_slug=? AND id=?",
+                   (tenant, incident_id))
+        if not inc:
+            return
+        if res.get("ok"):
+            c.execute(
+                "UPDATE alert_incidents SET aviso_entregue_at=?, aviso_erro=?, aviso_tentativas=0, aviso_proximo_at='', "
+                "aviso_motivo=? WHERE tenant_slug=? AND id=?",
+                (_iso(agora), erro, reason, tenant, incident_id),
+            )
+            nota = f"Aviso ({reason}) entregue a {res.get('enviados', 0)} grupo(s)"
+            _log(c, tenant, incident_id, "aviso_entregue", "sistema", f"{nota}. Falhou em: {erro}" if erro else nota)
+            return
+        falhas = int(inc.get("aviso_tentativas") or 0) + 1 if inc.get("aviso_motivo") == reason else 1
+        espera = None if res.get("sem_destino") or falhas > len(AVISO_ESPERAS_S) else AVISO_ESPERAS_S[falhas - 1]
+        proximo = _iso(agora + timedelta(seconds=espera)) if espera else ""
+        # Grupo que ja recebeu o panico continua avisado; coacao e noticia nova.
+        entregue = "" if reason == "duress" else inc.get("aviso_entregue_at") or ""
+        c.execute(
+            "UPDATE alert_incidents SET aviso_entregue_at=?, aviso_erro=?, aviso_tentativas=?, aviso_proximo_at=?, "
+            "aviso_motivo=? WHERE tenant_slug=? AND id=?",
+            (entregue, erro or "falha no envio", falhas, proximo, reason, tenant, incident_id),
+        )
+        fim = f"nova tentativa em {espera}s" if espera else "sem nova tentativa"
+        _log(c, tenant, incident_id, "aviso_falhou", "sistema", f"Aviso ({reason}), tentativa {falhas}: {erro}; {fim}")
+    logger.warning("alerta: aviso %s nao entregue (%s/%s), tentativa %s: %s", reason, tenant, incident_id, falhas, erro)
+
+
+def _send_telegram_for(tenant: str, incident_id: str, reason: str) -> Dict[str, Any]:
+    res = _enviar_aviso(tenant, incident_id, reason)
+    try:
+        _registrar_entrega(tenant, incident_id, reason, res)
+    except Exception:
+        logger.exception("alerta: falha ao registrar a entrega do aviso (%s/%s)", tenant, incident_id)
+    return res
 
 
 def notify_async(tenant: str, incident_id: str, reason: str) -> None:
@@ -1464,8 +1530,9 @@ def escalate_unattended(after_s: int = ESCALATION_AFTER_S) -> List[Dict[str, Any
     """Alertas 'new' sem ninguem assumir ha mais de `after_s`: avisa uma vez.
 
     Varre TODOS os tenants (roda no loop de fundo, sem request). Marca
-    escalated_at antes de enviar -- se o Telegram falhar, nao fica reenviando
-    a cada 15s; a tela ao vivo continua tocando a sirene de qualquer jeito.
+    escalated_at antes de enviar para nao escalonar de novo a cada 15s; se o
+    Telegram falhar, quem tenta de novo e `retry_failed_notifications`, com
+    espera crescente. A entrega fica em aviso_* e no log do alerta.
     """
     cutoff = _iso(_now_dt() - timedelta(seconds=after_s))
     with db_store._conn() as c:
@@ -1477,9 +1544,29 @@ def escalate_unattended(after_s: int = ESCALATION_AFTER_S) -> List[Dict[str, Any
         now = _now()
         for r in rows:
             c.execute("UPDATE alert_incidents SET escalated_at=? WHERE id=?", (now, r["id"]))
-            _log(c, r["tenant_slug"], r["id"], "escalated", "sistema", f"Ninguem assumiu em {after_s}s: aviso enviado")
+            _log(c, r["tenant_slug"], r["id"], "escalated", "sistema", f"Ninguem assumiu em {after_s}s: avisando os grupos")
     results = []
     for r in rows:
         res = _send_telegram_for(r["tenant_slug"], r["id"], "escalation")
+        results.append({"id": r["id"], "tenant": r["tenant_slug"], **res})
+    return results
+
+
+def retry_failed_notifications() -> List[Dict[str, Any]]:
+    """Avisos que falharam e chegaram na hora de tentar de novo, em todos os
+    tenants (loop de fundo). So alerta aberto: encerrado nao precisa de aviso.
+    Limpa aviso_proximo_at antes de enviar para a volta seguinte nao repetir."""
+    with db_store._conn() as c:
+        rows = _rows(
+            c,
+            "SELECT id, tenant_slug, aviso_motivo FROM alert_incidents WHERE aviso_proximo_at<>'' AND aviso_proximo_at<=? "
+            f"AND status IN ({','.join('?' * len(OPEN_STATUSES))})",
+            (_now(), *OPEN_STATUSES),
+        )
+        for r in rows:
+            c.execute("UPDATE alert_incidents SET aviso_proximo_at='' WHERE tenant_slug=? AND id=?", (r["tenant_slug"], r["id"]))
+    results = []
+    for r in rows:
+        res = _send_telegram_for(r["tenant_slug"], r["id"], r["aviso_motivo"] or "panic")
         results.append({"id": r["id"], "tenant": r["tenant_slug"], **res})
     return results
