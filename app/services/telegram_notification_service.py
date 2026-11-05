@@ -19,7 +19,7 @@ from typing import Any, Dict, List
 from app.core.tenant_context import get_current_tenant_slug
 from app.services import notificacoes_service as N
 from app.services.db_store import _conn
-from app.services.monitoring_service import list_entities
+from app.services.monitoring_service import list_entities_todas
 
 ROTULO_TIPO = {"camera": "câmera", "nvr": "NVR", "dvr": "DVR", "onu": "ONU", "olt": "OLT", "switch": "switch",
                "access_point": "access point", "access_device": "controladora", "connector": "conector",
@@ -125,7 +125,8 @@ def _coletar(cfg: Dict[str, Any]) -> tuple[List[Dict[str, Any]], Dict[str, Dict[
     por_site: Dict[str, Dict[str, int]] = defaultdict(lambda: {"total": 0, "down": 0})
     sinal = cfg.get("sinal") or {}
     warn, crit = float(sinal.get("warn_rx", -27)), float(sinal.get("critical_rx", -29))
-    for row in list_entities(limit=2000):
+    # Todas (paginado): com o corte de 2000, o que passava dele nunca era avisado.
+    for row in sorted(list_entities_todas()[0], key=lambda r: _text(r.get("display_name"))):
         tipo, status = _text(row.get("entity_type")), _text(row.get("status"))
         key, nome, site = _text(row.get("entity_key")), _text(row.get("display_name")), _text(row.get("site"))
         sk = N._site_chave(site)

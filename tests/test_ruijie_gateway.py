@@ -216,7 +216,7 @@ def test_telegram_avisa_alarme_de_ap(monkeypatch):
     [ap] = ms._access_point_entities([_conector_publico()])
     linha = {"entity_key": ap["entity_key"], "entity_type": "access_point", "status": "up",
              "display_name": ap["display_name"], "site": "S", "detail_json": json.dumps(ap["detail"])}
-    monkeypatch.setattr(tg, "list_entities", lambda limit=2000: [linha])
+    monkeypatch.setattr(tg, "list_entities_todas", lambda **k: ([linha], False))
     tg.process_monitoring_notifications()
     tg.process_monitoring_notifications()  # mesmo alarme: nao repete
     assert len(enviados) == 1 and "Alarme no equipamento" in enviados[0] and "Alimentacao insuficiente" in enviados[0]

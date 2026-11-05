@@ -14,7 +14,7 @@ import requests
 
 from app.core.tenant_context import get_current_tenant_slug
 from app.services.db_store import _conn, load_app_settings
-from app.services.monitoring_service import list_entities
+from app.services.monitoring_service import list_entities_todas
 
 logger = logging.getLogger("cam-snapshot")
 
@@ -679,8 +679,11 @@ def _sync_monitoring_to_zabbix(entity_types: tuple[str, ...]) -> Dict[str, Any]:
 
     tenant = _text(get_current_tenant_slug() or "default").lower()
     entities: List[Dict[str, Any]] = []
+    truncada = False
     for entity_type in entity_types:
-        entities.extend(list_entities(entity_type=entity_type, limit=2000))
+        linhas, cortou = list_entities_todas(entity_type=entity_type)
+        entities.extend(linhas)
+        truncada = truncada or cortou
 
     auth = _sessao(url, user, password)
     technical_names = {_host_key(tenant, row): row for row in entities}
@@ -693,6 +696,12 @@ def _sync_monitoring_to_zabbix(entity_types: tuple[str, ...]) -> Dict[str, Any]:
     # Remove hosts orfaos mesmo quando `entities` fica vazio (ex: todas as ONUs
     # de um tenant foram excluidas).
     orphan_hostids = find_orphan_hostids(current_hosts, technical_names, tenant, entity_types)
+    if orphan_hostids and truncada:
+        # Lista incompleta: o que ficou de fora nao e orfao. Apagar aqui
+        # apagaria host (e historico) de equipamento vivo.
+        logger.warning("Zabbix: %s lista de entidades cortada no limite; %s host(s) orfao(s) NAO apagados",
+                       tenant, len(orphan_hostids))
+        orphan_hostids = []
     if orphan_hostids:
         _call(url, "host.delete", orphan_hostids, auth, 20)
 
