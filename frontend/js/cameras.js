@@ -3987,7 +3987,7 @@ async function camAction(action) {
     });
     const data = await res?.json().catch(() => ({}));
     if (!res?.ok || data?.ok === false) {
-      showToast(data?.detail || data?.error || 'NAo foi possAvel remover a cAmera.', true);
+      showToast(data?.detail || data?.error || 'Não foi possível remover a câmera.', true);
       return;
     }
     _camRemoveIpsLocally([key]);

@@ -714,7 +714,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     const data = await res?.json().catch(() => ({}));
     if (!res?.ok || data?.ok === false) {
-      showToast(data?.detail || data?.error || 'NAo foi possAvel remover as cAmeras.', true);
+      showToast(data?.detail || data?.error || 'Não foi possível remover as câmeras.', true);
       return;
     }
     _camRemoveIpsLocally(keys);
