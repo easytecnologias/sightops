@@ -41,6 +41,9 @@ logger = logging.getLogger(__name__)
 
 _BLOCO_MAXIMO = 4096  # acima disto a varredura nao confere IP por IP
 _REDES_PADRAO = "10.250.0.0/24"  # wg-sightops, compartilhada entre conectores
+# De onde saem as faixas virtuais dos conectores. Fica fora para quem nao e dono
+# mesmo com o mapa vazio ou desatualizado.
+_FAIXA_VIRTUAL = ipaddress.ip_network("10.208.0.0/12")
 
 _Rede = ipaddress._BaseNetwork
 
@@ -112,6 +115,8 @@ class _Contexto:
         self.meus: set = set()
         self.minhas_redes: List[_Rede] = []
         self.tuneis_alheios: set = set()
+        self.lans_alheias: List[_Rede] = []
+        self.falhou = False  # mapa ou conectores ilegiveis: nega em vez de liberar
         self.sem_conector = False
         self.tem_ruijie = False
         self._equipamentos: set | None = None
@@ -121,6 +126,7 @@ class _Contexto:
         except Exception as exc:
             logger.warning("destino: mapa do vnat ilegivel (%s) -- faixas virtuais sem dono conhecido", exc)
             mapa = {}
+            self.falhou = True
         for cid, pares in mapa.items():
             for _real, virt in pares:
                 self.virtuais.append((virt, str(cid)))
@@ -135,11 +141,19 @@ class _Contexto:
         except Exception as exc:
             logger.warning("destino: conectores do cliente %s ilegiveis (%s)", self.slug, exc)
             todas = linhas = []
+            self.falhou = True
         for row in todas:
-            if row not in linhas and isinstance(row.get("tunnel"), dict):
+            if row in linhas:
+                continue
+            if isinstance(row.get("tunnel"), dict):
                 endereco = str(row["tunnel"].get("client_address") or "").split("/")[0].strip()
                 if endereco:
                     self.tuneis_alheios.add(endereco)
+            self.lans_alheias.extend(real for real, _virt in mapa.get(str(row.get("id") or "").strip(), []))
+            try:
+                self.lans_alheias.extend(ipaddress.ip_network(str(c), strict=False) for c in cs._extract_connector_lans(row))
+            except (ValueError, TypeError, AttributeError) as exc:
+                logger.warning("destino: LANs do conector %s ilegiveis (%s)", row.get("id"), exc)
         for row in linhas:
             cid = str(row.get("id") or "").strip()
             if cid:
@@ -175,24 +189,32 @@ class _Contexto:
             logger.warning("destino: equipamentos do cliente %s ilegiveis para %s (%s)", self.slug, ip, exc)
             return False
 
+    def _em_rede_minha(self, ip: ipaddress._BaseAddress) -> bool:
+        return any(ip.version == r.version and ip in r for r in self.minhas_redes)
+
     def conferir_ip(self, ip: ipaddress._BaseAddress, exigir_dono: bool = True) -> str:
         motivo = _motivo_fixo(ip, self.bloqueadas)
         if motivo:
             return motivo
+        if self.falhou and self.slug and not ip.is_global:
+            return "nao foi possivel conferir o dono deste IP"
         for virt, cid in self.virtuais:
             if ip.version == virt.version and ip in virt:
                 if not self.slug or cid in self.meus:
                     return ""
                 return "IP virtual de conector de outro cliente"
+        if self.slug and ip.version == 4 and ip in _FAIXA_VIRTUAL and not self._em_rede_minha(ip):
+            return "faixa virtual de conector sem dono neste cliente"
         if str(ip) in self.tuneis_alheios:
             return "IP de conector de outro cliente"
         if ip.is_global or not self.slug or not exigir_dono:
             return ""
-        for rede in self.minhas_redes:
-            if ip.version == rede.version and ip in rede:
-                return ""
+        if self._em_rede_minha(ip):
+            return ""
         if self._equipamento_meu(str(ip)):
             return ""
+        if any(ip.version == r.version and ip in r for r in self.lans_alheias) and self.sem_conector:
+            return "IP em rede de conector de outro cliente"
         if self.sem_conector and os.getenv("DESTINO_REDE_DIRETA", "").strip().lower() != "nunca":
             return ""
         return "IP nao pertence a equipamento nem rede deste cliente"

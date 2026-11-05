@@ -6,6 +6,7 @@ import pytest
 
 from app.api.endpoints import maintenance as M
 from app.core import destino as D
+from app.services import connector_routing_vnat as vnat
 from app.services import connector_service as cs
 from test_destino_permitido import CONECTORES, rede  # noqa: F401  (fixture)
 
@@ -71,6 +72,32 @@ def test_cliente_sem_conector_nao_alcanca_o_que_e_de_outro(sem_conector, monkeyp
 def test_rede_direta_pode_ser_desligada(sem_conector, monkeypatch):
     monkeypatch.setenv("DESTINO_REDE_DIRETA", "nunca")
     assert D.destino_permitido("cliente-c", "192.168.77.5")[0] is False
+
+
+def test_cliente_sem_conector_nao_alcanca_lan_de_outro(sem_conector):
+    ok, motivo = D.destino_permitido("cliente-c", "192.168.10.5")
+    assert not ok and "outro cliente" in motivo
+
+
+def test_mapa_vazio_nao_abre_a_faixa_virtual(rede, monkeypatch):
+    monkeypatch.setattr(vnat, "_load_map", lambda: {})
+    assert D.destino_permitido("cliente-a", "10.208.1.5")[0] is False
+    assert D.destino_permitido("cliente-c", "10.211.5.252")[0] is False
+
+
+def test_lan_real_dentro_da_faixa_virtual_segue_do_dono(rede, monkeypatch):
+    linhas = [{"id": "conn-a", "tenant_slug": "cliente-a", "host": {"lan_networks": ["10.220.0.0/24"]}}]
+    monkeypatch.setattr(cs, "_load_connectors", lambda: linhas)
+    assert D.destino_permitido("cliente-a", "10.220.0.9")[0] is True
+
+
+def test_mapa_ilegivel_nega(rede, monkeypatch):
+    def _quebra():
+        raise OSError("disco")
+
+    monkeypatch.setattr(vnat, "_load_map", _quebra)
+    assert D.destino_permitido("cliente-a", "192.168.10.5")[0] is False
+    assert D.destino_permitido("cliente-a", "8.8.8.8")[0] is True
 
 
 def test_falha_ao_ler_conectores_nao_vira_cliente_sem_conector(rede, monkeypatch):
