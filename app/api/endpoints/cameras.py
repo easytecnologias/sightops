@@ -8,6 +8,7 @@ import urllib3
 from urllib3.exceptions import InsecureRequestWarning
 from pathlib import Path
 import shutil
+import threading
 
 from datetime import datetime, timezone
 from app.api.endpoints.auth import current_user
@@ -269,6 +270,8 @@ class CamerasSaveRequest(BaseModel):
 class PingBatchItem(BaseModel):
     ip: str
     preferred_ports: List[int] | None = None
+    # Camera atras de conector isolado so responde pelo IP virtual.
+    remote_connector_id: str | None = None
 
 
 class PingBatchRequest(BaseModel):
@@ -782,13 +785,15 @@ async def api_cameras_ping_many(req: PingBatchRequest) -> Dict[str, Any]:
         if ip_s:
             items_in.append(PingBatchItem(ip=ip_s, preferred_ports=[]))
     items: list[PingBatchItem] = []
-    seen: set[str] = set()
+    # Conector entra na chave: 10.200.0.5 em dois sites sao duas cameras.
+    seen: set[tuple[str, str]] = set()
     for item in items_in:
         ip = (item.ip or "").strip()
-        if not ip or ip in seen:
+        connector_id = (item.remote_connector_id or "").strip()
+        if not ip or (ip, connector_id) in seen:
             continue
-        seen.add(ip)
-        items.append(PingBatchItem(ip=ip, preferred_ports=item.preferred_ports or []))
+        seen.add((ip, connector_id))
+        items.append(PingBatchItem(ip=ip, preferred_ports=item.preferred_ports or [], remote_connector_id=connector_id))
 
     if not items:
         return {"ok": True, "results": [], "count": 0}
@@ -804,16 +809,29 @@ async def api_cameras_ping_many(req: PingBatchRequest) -> Dict[str, Any]:
     async def _run_one(item: PingBatchItem) -> Dict[str, Any]:
         async with semaphore:
             try:
-                return await ping_with_cache(
-                    ip=item.ip,
+                connector_id = item.remote_connector_id or ""
+                host, sep, porta = item.ip.partition(":")
+                virtual = _vnat.virtual_ip_for(connector_id, host) if connector_id else ""
+                result = dict(await ping_with_cache(
+                    ip=(virtual or host) + sep + porta,
                     timeout=timeout_i,
                     method=method_n,
                     force=req.force,
                     preferred_ports=item.preferred_ports or [],
-                )
+                ))
+                result["ip"] = item.ip
+                if connector_id:
+                    result["remote_connector_id"] = connector_id
+                    # Sem IP virtual o servidor nao alcanca a camera: nao
+                    # responder aqui nao quer dizer que ela esta fora do ar.
+                    # (O ping pelo conector leva ate 45 s, inviavel em lote.)
+                    if not virtual and not result.get("online"):
+                        result["sem_rota"] = True
+                return result
             except Exception as exc:
                 return {
                     "ip": item.ip,
+                    "remote_connector_id": item.remote_connector_id or "",
                     "online": False,
                     "method": method_n,
                     "rtt_ms": None,
@@ -827,7 +845,7 @@ async def api_cameras_ping_many(req: PingBatchRequest) -> Dict[str, Any]:
     status_by_ip = {
         str(row.get("ip") or "").strip(): _status_from_ping(row)
         for row in results
-        if str(row.get("ip") or "").strip()
+        if str(row.get("ip") or "").strip() and not row.get("sem_rota")
     }
     persisted = (
         _persist_camera_statuses(status_by_ip)
@@ -973,6 +991,11 @@ def api_snapshot_save(req: SnapshotSaveRequest) -> Dict[str, Any]:
     return {"ok": True, "message": f"Snapshot salvo em {dst.name}", "filename": dst.name, "path": str(dst)}
 
 
+# A captura le o inventario inteiro, marca a foto e grava tudo de volta. Em
+# lote (4 a 6 ao mesmo tempo) quem gravasse por ultimo apagava a foto das outras.
+_CAPTURA_INVENTARIO_LOCK = threading.Lock()
+
+
 @router.post("/cameras/snapshot/capture", tags=["cameras"])
 def api_cameras_snapshot_capture(req: SnapshotCaptureRequest) -> Dict[str, Any]:
     ip = str(req.ip or "").strip()
@@ -1012,26 +1035,27 @@ def api_cameras_snapshot_capture(req: SnapshotCaptureRequest) -> Dict[str, Any]:
         raise HTTPException(status_code=502, detail="Nao foi possivel capturar snapshot da camera.")
 
     mode = (req.mode or "olt").strip().lower()
-    rows = load_inventory_json(mode=mode) or []
-    updated = False
-    for cam in rows:
-        if not isinstance(cam, dict) or str(cam.get("ip") or "").strip() != ip:
-            continue
-        _rc = str(cam.get("remote_connector_id") or cam.get("connector_id") or "").strip()
-        if connector_id and _rc and _rc != connector_id:
-            continue
-        attach_snapshot_fields(cam, ip, out_name)
-        if connector_id and not _rc:
-            cam["remote_connector_id"] = connector_id
-        updated = True
-        break
-    if not updated:
-        cam = {"ip": ip, "titulo": "Captura manual"}
-        if connector_id:
-            cam["remote_connector_id"] = connector_id
-        attach_snapshot_fields(cam, ip, out_name)
-        rows.append(cam)
-    save_inventory_json(rows, mode=mode)
+    with _CAPTURA_INVENTARIO_LOCK:
+        rows = load_inventory_json(mode=mode) or []
+        updated = False
+        for cam in rows:
+            if not isinstance(cam, dict) or str(cam.get("ip") or "").strip() != ip:
+                continue
+            _rc = str(cam.get("remote_connector_id") or cam.get("connector_id") or "").strip()
+            if connector_id and _rc and _rc != connector_id:
+                continue
+            attach_snapshot_fields(cam, ip, out_name)
+            if connector_id and not _rc:
+                cam["remote_connector_id"] = connector_id
+            updated = True
+            break
+        if not updated:
+            cam = {"ip": ip, "titulo": "Captura manual"}
+            if connector_id:
+                cam["remote_connector_id"] = connector_id
+            attach_snapshot_fields(cam, ip, out_name)
+            rows.append(cam)
+        save_inventory_json(rows, mode=mode)
     return {"ok": True, "url": f"/data/snapshot/{out_name}", "filename": out_name}
 
 # Endpoints de PTZ/reboot/rename moraram aqui, mas nao sao usados por esta

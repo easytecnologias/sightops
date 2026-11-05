@@ -694,18 +694,23 @@ document.addEventListener('DOMContentLoaded', () => {
     const btn = ev.currentTarget;
     if (btn.disabled) return;
     const checks = [...document.querySelectorAll('.chk-olt:checked')];
-    const ips = checks.map(c => c.value);
-    if (!ips.length) { showToast('Selecione ao menos uma camera', true); return; }
+    if (!checks.length) { showToast('Selecione ao menos uma camera', true); return; }
+    // Com o conector: camera atras de conector isolado so responde pelo IP virtual.
+    const conectorDe = chk => {
+      const cam = _invOltAll_get().find(c => _camKey(c) === chk.dataset.key) || {};
+      return String(cam.remote_connector_id || cam.connector_id || '');
+    };
+    const items = checks.map(c => ({ ip: c.value, remote_connector_id: conectorDe(c) }));
     // Botao ocupado (girando) enquanto o ping roda; o resultado fica na linha.
     btn.disabled = true;
     btn.querySelector('svg')?.classList.add('spin');
     checks.forEach(c => c.closest('tr')?.querySelector('.ping-res')?.remove());
-    showToast(`Pingando ${ips.length} camera(s)...`);
+    showToast(`Pingando ${items.length} camera(s)...`);
     let res = null, data = {};
     try {
       res = await api('/api/cameras/ping_many', {
         method: 'POST',
-        body: JSON.stringify({ ips, force: 1, timeout: 3 }),
+        body: JSON.stringify({ items, force: 1, timeout: 3 }),
       });
       data = await res?.json().catch(() => ({}));
     } finally {
@@ -716,16 +721,21 @@ document.addEventListener('DOMContentLoaded', () => {
       showToast(data?.detail || data?.error || 'Erro ao executar ping.', true);
       return;
     }
-    const porIp = new Map((data.results || []).map(r => [String(r.ip || ''), r]));
+    const chave = (ip, conector) => `${ip}|${conector || ''}`;
+    const porCamera = new Map((data.results || []).map(r => [chave(r.ip, r.remote_connector_id), r]));
+    let semRota = 0;
     checks.forEach(c => {
-      const r = porIp.get(String(c.value));
+      const r = porCamera.get(chave(c.value, conectorDe(c)));
       const cel = c.closest('tr')?.children[1];
       if (!r || !cel) return;
       const up = !!r.online;
-      const txt = up ? (r.rtt_ms != null ? `${Math.round(r.rtt_ms)} ms` : 'ok') : 'sem resposta';
-      cel.insertAdjacentHTML('beforeend', ` <span class="ping-res" title="Ping: ${esc(txt)}" style="font-size:11px;font-weight:600;color:${up ? 'var(--primary)' : 'var(--danger)'}">● ${esc(txt)}</span>`);
+      if (r.sem_rota) semRota += 1;
+      const txt = up ? (r.rtt_ms != null ? `${Math.round(r.rtt_ms)} ms` : 'ok') : (r.sem_rota ? 'sem rota' : 'sem resposta');
+      const cor = up ? 'var(--primary)' : (r.sem_rota ? 'var(--muted)' : 'var(--danger)');
+      cel.insertAdjacentHTML('beforeend', ` <span class="ping-res" title="Ping: ${esc(txt)}" style="font-size:11px;font-weight:600;color:${cor}">● ${esc(txt)}</span>`);
     });
-    showToast(`Ping concluido: ${data.online || 0} responderam, ${data.offline || 0} sem resposta. Status da tabela nao foi alterado.`);
+    const naoResp = Math.max(0, (data.offline || 0) - semRota);
+    showToast(`Ping concluido: ${data.online || 0} responderam, ${naoResp} sem resposta${semRota ? `, ${semRota} sem rota daqui (use o ping da camera)` : ''}. Status da tabela nao foi alterado.`);
   });
 
   // Editar selecionados (um ou varios)
@@ -1053,17 +1063,17 @@ document.addEventListener('DOMContentLoaded', () => {
   // vazio e voltava 404 calado.
   const SNAP_CAM_PARALELO = 4;
   let _snapCamCapturando = false;
-  async function snapCamCapturarLote(ips) {
+  async function snapCamCapturarLote(cams) {
     if (_snapCamCapturando) { showToast('Ja existe uma captura em andamento.', true); return; }
     _snapCamCapturando = true;
     const botoes = ['btnSnapCamAll', 'btnSnapCamSelected'].map(id => document.getElementById(id)).filter(Boolean);
     botoes.forEach(b => { b.disabled = true; });
-    const total = ips.length;
+    const total = cams.length;
     let feitas = 0, ok = 0, semSenha = 0;
     const erros = [];
     showToast(`Capturando 0 de ${total}...`);
-    const capturar = async ip => {
-      const cam = (_snapCamAll || []).find(c => String(c.ip || '') === ip) || {};
+    const capturar = async cam => {
+      const ip = String(cam.ip || '');
       try {
         const res = await api('/api/cameras/snapshot/capture', {
           method: 'POST',
@@ -1080,7 +1090,7 @@ document.addEventListener('DOMContentLoaded', () => {
       showToast(`Capturando ${feitas} de ${total}...`);
     };
     try {
-      const fila = [...ips];
+      const fila = [...cams];
       const trabalhador = async () => { while (fila.length) await capturar(fila.shift()); };
       await Promise.all(Array.from({ length: Math.min(SNAP_CAM_PARALELO, total) }, trabalhador));
     } finally {
@@ -1096,19 +1106,20 @@ document.addEventListener('DOMContentLoaded', () => {
     loadSnapCam();
   }
   document.getElementById('btnSnapCamAll')?.addEventListener('click', async () => {
-    const ips = [...new Set((_snapCamAll || []).map(c => String(c.ip || '')).filter(Boolean))];
-    if (!ips.length) { showToast('Nenhuma camera no inventario.', true); return; }
-    const minutos = Math.max(1, Math.ceil(ips.length / SNAP_CAM_PARALELO * 5 / 60));
+    const cams = (_snapCamAll || []).filter(c => c.ip);
+    if (!cams.length) { showToast('Nenhuma camera no inventario.', true); return; }
+    const minutos = Math.max(1, Math.ceil(cams.length / SNAP_CAM_PARALELO * 5 / 60));
     const sim = await showConfirm({ eyebrow: 'Snapshots', title: 'Atualizar todas as fotos',
-      msg: `Capturar a foto de ${ips.length} camera(s), ${SNAP_CAM_PARALELO} por vez. Leva cerca de ${minutos} min.`,
+      msg: `Capturar a foto de ${cams.length} camera(s), ${SNAP_CAM_PARALELO} por vez. Leva cerca de ${minutos} min.`,
       label: 'Atualizar', danger: false });
     if (!sim) return;
-    await snapCamCapturarLote(ips);
+    await snapCamCapturarLote(cams);
   });
   document.getElementById('btnSnapCamSelected')?.addEventListener('click', async () => {
-    const ips = [...document.querySelectorAll('.chk-snap-cam:checked')].map(c => c.value);
-    if (!ips.length) { showToast('Selecione cameras para capturar', true); return; }
-    await snapCamCapturarLote(ips);
+    // Pela chave: o mesmo IP pode existir em dois conectores (sao duas cameras).
+    const chaves = new Set([...document.querySelectorAll('.chk-snap-cam:checked')].map(c => c.dataset.key));
+    if (!chaves.size) { showToast('Selecione cameras para capturar', true); return; }
+    await snapCamCapturarLote((_snapCamAll || []).filter(c => chaves.has(c.inventory_key || c.ip)));
   });
 
   // Varredura DVR
