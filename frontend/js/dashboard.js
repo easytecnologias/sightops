@@ -226,12 +226,11 @@ async function openDashDrawerRecorder(source, filterKey, filtros) {
   const label = source === 'all' ? 'DVR/NVR' : (source === 'dvr' ? 'DVR' : 'NVR');
   _openDashDrawer('Gravadores', `Canais ${label}`);
   if (!_dashDrawerData) _dashDrawerData = {};
-  for (const src of sources) {
-    if (!_dashDrawerData?.[src]) {
-      const res = await apiJson(`/api/${src}/inventory`);
-      _dashDrawerData[src] = (res?.inventory || []).map(row => ({ ...row, _dashRecorderSource: src }));
-    }
-  }
+  // DVR e NVR juntos (antes em serie).
+  await Promise.all(sources.filter(src => !_dashDrawerData?.[src]).map(async src => {
+    const res = await apiJson(`/api/${src}/inventory`).catch(() => null);
+    _dashDrawerData[src] = (res?.inventory || []).map(row => ({ ...row, _dashRecorderSource: src }));
+  }));
   const rows = sources.flatMap(src => _dashDrawerData[src] || []);
   const isOnline  = r => ['online','ok','up','ativo','active'].includes((r.status||'').toLowerCase());
   // camera_offline/nvr_offline/sem_imagem: vocabulario dos canais. Sem eles o

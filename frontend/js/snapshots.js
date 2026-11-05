@@ -13,7 +13,7 @@ function renderSnapCamGrid(cams) {
     return `<div class="snap-card" data-ip="${esc(c.ip)}" style="cursor:pointer">
       <div style="position:relative">
         <label style="position:absolute;top:8px;left:8px;z-index:2;cursor:pointer" onclick="event.stopPropagation()">
-          <input type="checkbox" class="chk-snap-cam" value="${esc(c.ip)}" style="accent-color:var(--primary);width:15px;height:15px">
+          <input type="checkbox" class="chk-snap-cam" value="${esc(c.ip)}" data-key="${esc(c.inventory_key || c.ip)}" style="accent-color:var(--primary);width:15px;height:15px">
         </label>
         ${temFoto
           ? `<img src="${imgSrc}" alt="${esc(c.ip)}" loading="lazy" decoding="async" style="width:100%;aspect-ratio:16/9;object-fit:cover;display:block;background:#1a1a2e" onerror="this.style.opacity='.3'">`

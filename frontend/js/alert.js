@@ -41,7 +41,11 @@ const ALERT_REFRESH_MS = 3000;
 // Consulta leve do resumo (badge + som em qualquer tela). Era 10 s: um alerta
 // que chegava logo depois de uma consulta so tocava ~10 s depois. O backend
 // aguenta 1,5 s (uma consulta indexada, site do conector em cache).
+// Sem alerta aberto o resumo vai a ~9 s (menos de 10 s de atraso para a
+// sirene de um alerta novo); com alerta aberto/sirene segue a 1,5 s.
 const ALERT_SUMMARY_MS = 1500;
+const ALERT_SUMMARY_IDLE_MS = 9000;
+let _alertSummaryHot = false;  // ultimo resumo tinha alerta aberto
 const ALERT_CIRCULO_MAX_M = 100;   // acima disso nao desenha o circulo de erro do GPS
 const ALERT_CAMS_MAX = 8;          // cameras da lotacao mostradas de cara (as mais proximas)
 let _alertCamsTodas = '';          // id do alerta em que pediram "ver todas"
@@ -538,6 +542,7 @@ async function alertPollSummary() {
     const res = await api('/api/alert/summary', { skipLogout: true });
     if (!res || !res.ok) return;
     const s = await res.json();
+    _alertSummaryHot = (s.open || 0) > 0 || (s.new || 0) > 0 || (s.duress || 0) > 0;
     if (typeof s.postos_online === 'number') { _alertPostos = s.postos_online; if (alertLiveVisible()) alertRenderChips(); }
     const badge = document.getElementById('alertNavBadge');
     if (badge) {
@@ -573,12 +578,14 @@ async function alertPollSummary() {
 // minimizado ou atras de outra aba.
 function alertStartClock() {
   if (_alertSummaryTimer) return;
-  let n = 0;
   const everyPoll = Math.max(1, Math.round(ALERT_SUMMARY_MS / 1500));
+  const everyPollIdle = Math.max(everyPoll, Math.floor(ALERT_SUMMARY_IDLE_MS / 1500));
+  let desde = 0;  // ticks desde a ultima consulta
   const onTick = () => {
-    n += 1;
+    desde += 1;
     if (_alertSirenTimer) alertSirenTick();
-    if (n % everyPoll === 0) alertPollSummary();
+    const hot = _alertSummaryHot || !!_alertSirenTimer;
+    if (desde >= (hot ? everyPoll : everyPollIdle)) { desde = 0; alertPollSummary(); }
   };
   try {
     const src = 'setInterval(function(){postMessage(1)},1500)';

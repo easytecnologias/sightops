@@ -261,13 +261,23 @@ async function saveAlarmProfiles() {
   const mudados = [...document.querySelectorAll('[data-alarm-profile]')].filter(i => i.value !== i.dataset.alarmOrig);
   if (!mudados.length) { showToast('Nada mudou nos alarmes.'); return; }
   try {
-    for (const inp of mudados) {
-      const res = await api(`/api/monitoring/profiles/${encodeURIComponent(inp.dataset.alarmProfile)}`, {
-        method: 'PUT', body: JSON.stringify({ failure_threshold: Number(inp.value) }),
-      });
-      await jsonOrReadableError(res, 'Não foi possível salvar o alarme.');
-      inp.dataset.alarmOrig = inp.value;
-    }
+    // 4 por vez em vez de um a um; o primeiro erro aparece depois de tentar todos.
+    const fila = [...mudados];
+    let erro = null;
+    const trabalhador = async () => {
+      while (fila.length) {
+        const inp = fila.shift();
+        try {
+          const res = await api(`/api/monitoring/profiles/${encodeURIComponent(inp.dataset.alarmProfile)}`, {
+            method: 'PUT', body: JSON.stringify({ failure_threshold: Number(inp.value) }),
+          });
+          await jsonOrReadableError(res, 'Não foi possível salvar o alarme.');
+          inp.dataset.alarmOrig = inp.value;
+        } catch (e) { erro = erro || e; }
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(4, mudados.length) }, trabalhador));
+    if (erro) throw erro;
     showToast(`${mudados.length} alarme${mudados.length === 1 ? '' : 's'} salvo${mudados.length === 1 ? '' : 's'}. Vale a partir da próxima verificação.`);
   } catch (e) { showToast(e?.message || 'Não foi possível salvar o alarme.', true); }
 }

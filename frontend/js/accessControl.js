@@ -243,10 +243,12 @@ async function saveAccessPersonGroupMembership(personId) {
       };
     })
     .filter(Boolean);
-  for (const payload of updates) {
+  // Grupos diferentes, linhas diferentes: 4 por vez em vez de um a um.
+  const erros = await _accessEmLote(updates, async payload => {
     const res = await api('/api/access-control/groups', { method: 'POST', body: JSON.stringify(payload) });
     await jsonOrReadableError(res, 'Pessoa salva, mas nao foi possivel atualizar os grupos.');
-  }
+  });
+  if (erros.length) throw erros[0].erro;
   if (updates.length) {
     _accessPersonAccessLoaded = false;
     await ensureAccessPersonAccessData(true);
@@ -2637,6 +2639,26 @@ function editSelectedAccessPerson() {
   openAccessPersonModal(selected[0]);
 }
 
+// Roda fn em cada item, ACCESS_LOTE_PARALELO por vez (fila com trabalhadores:
+// um item lento nao segura os outros). Devolve [{ item, erro }] das falhas;
+// onFeito(feitos, total) a cada item terminado, para o contador "X de N".
+const ACCESS_LOTE_PARALELO = 4;
+async function _accessEmLote(itens, fn, onFeito) {
+  const fila = [...itens];
+  const erros = [];
+  let feitos = 0;
+  const trabalhador = async () => {
+    while (fila.length) {
+      const item = fila.shift();
+      try { await fn(item); } catch (erro) { erros.push({ item, erro }); }
+      feitos += 1;
+      if (onFeito) onFeito(feitos, itens.length);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(ACCESS_LOTE_PARALELO, itens.length) }, trabalhador));
+  return erros;
+}
+
 async function deleteAccessPeopleBatch(people, title, msg) {
   if (!people.length) {
     showToast('Nenhuma pessoa selecionada.', true);
@@ -2645,14 +2667,20 @@ async function deleteAccessPeopleBatch(people, title, msg) {
   const ok = await showConfirm({ title, msg, label: 'Excluir' });
   if (!ok) return;
   try {
-    for (const person of people) {
+    showToast(`Excluindo 0 de ${people.length}...`);
+    const erros = await _accessEmLote(people, async person => {
       const res = await api(`/api/access-control/people/${encodeURIComponent(person.id)}`, { method: 'DELETE' });
       await jsonOrReadableError(res, `Nao foi possivel excluir ${person.full_name || 'a pessoa'}.`);
-    }
+    }, (feitos, total) => showToast(`Excluindo ${feitos} de ${total}...`));
     _accessPeopleSelected.clear();
     await loadAccessControl(true);
     loadAccessPeopleSiteOptions();
-    showToast(`${people.length} pessoa${people.length === 1 ? '' : 's'} excluida${people.length === 1 ? '' : 's'}.`);
+    const ok = people.length - erros.length;
+    if (erros.length) {
+      showToast(`${ok} excluida(s), ${erros.length} com erro: ${erros[0].erro?.message || erros[0].erro}`, true);
+    } else {
+      showToast(`${people.length} pessoa${people.length === 1 ? '' : 's'} excluida${people.length === 1 ? '' : 's'}.`);
+    }
   } catch (err) {
     await loadAccessControl(true);
     showToast(err?.message || 'Nao foi possivel excluir as pessoas.', true);
@@ -2694,17 +2722,14 @@ async function syncSelectedAccessPeople() {
   let ok = 0;
   let failed = 0;
   try {
-    for (const person of people) {
-      showToast(`Sincronizando ${ok + failed + 1}/${people.length}: ${person.full_name || 'pessoa'}...`);
+    showToast(`Sincronizando 0 de ${people.length}...`);
+    const erros = await _accessEmLote(people, async person => {
       const res = await api(`/api/access-control/people/${encodeURIComponent(person.id)}/sync`, { method: 'POST' });
-      try {
-        await jsonOrReadableError(res, `Nao foi possivel sincronizar ${person.full_name || 'a pessoa'}.`);
-        ok += 1;
-      } catch (err) {
-        failed += 1;
-        console.warn('Falha ao sincronizar pessoa', person.id, err);
-      }
-    }
+      await jsonOrReadableError(res, `Nao foi possivel sincronizar ${person.full_name || 'a pessoa'}.`);
+    }, (feitos, total) => showToast(`Sincronizando ${feitos} de ${total}...`));
+    erros.forEach(({ item, erro }) => console.warn('Falha ao sincronizar pessoa', item.id, erro));
+    failed = erros.length;
+    ok = people.length - failed;
     await loadAccessControl(true);
     const msg = failed
       ? `${ok} sincronizada(s), ${failed} com erro.`

@@ -517,8 +517,10 @@
 
   async function carregarCadastro() {
     const porChave = {}, porRotulo = {}, porIp = {}, lista = [];
-    for (const m of ['basico', 'switch', 'olt']) {
-      const d = await apiJson(`/api/cameras?mode=${m}`).catch(() => null);
+    // Os tres modos juntos (antes em serie); a ordem segue a prioridade.
+    const porModo = await Promise.all(['basico', 'switch', 'olt'].map(m =>
+      apiJson(`/api/cameras?mode=${m}`).catch(() => null)));
+    for (const d of porModo) {
       (d?.cameras || []).forEach(c => {
         const ip = String(c.ip || '').trim(); if (!ip) return;
         const site = String(c.site || c.site_name || c.local || '').trim();
