@@ -53,6 +53,7 @@ from app.services.access_control_sync import provision_person_everywhere, resolv
 from app.services.access_control_sync import enqueue_person_provisioning
 from app.services.access_control_notifications import (
     assinatura_webhook_valida,
+    webhook_pode_atender_numero,
     disconnect_access_whatsapp,
     get_access_whatsapp_connection,
     resolver_cliente_por_numero,
@@ -224,6 +225,8 @@ class AccessWhatsappConfigRequest(BaseModel):
     provider: str = "cloud_api"
     base_url: str = ""
     api_key: str = ""
+    # Sem ele o webhook da Meta recusa tudo (assinatura_webhook_valida).
+    app_secret: str = ""
     # Sem campo `instance`: o nome da instancia do Evolution e derivado do
     # tenant+site no servidor (_evolution_default_instance). Aceitar um nome
     # vindo do corpo deixaria qualquer usuario autenticado operar a instancia
@@ -474,6 +477,14 @@ async def api_access_control_whatsapp_meta_webhook(tenant_slug: str, request: Re
             "Webhook do WhatsApp para numero %s sem cliente configurado; ignorado.", numero_id
         )
         return {"ok": True, "ignored": "numero desconhecido"}
+    if numero_id and not webhook_pode_atender_numero(
+        corpo, request.headers.get("x-hub-signature-256", ""), tenant_slug, dono
+    ):
+        logger.warning(
+            "Webhook do WhatsApp em %s para numero %s de %s: nao pertence a este cliente; descartado.",
+            tenant_slug, numero_id, dono.get("tenant"),
+        )
+        return {"ok": True, "ignored": "numero de outro cliente"}
 
     ctx_token = set_current_tenant_slug(dono.get("tenant") or tenant_slug)
     try:

@@ -1368,6 +1368,9 @@ async function loadAccessWhatsappConfig(force = false) {
     porId('accessWhatsappTemplate', data.template_name);
     porId('accessWhatsappTemplateLang', data.template_language || 'pt_BR');
     porId('accessWhatsappToken', '');   // o token nunca volta do servidor
+    porId('accessWhatsappAppSecret', '');
+    const campoSegredo = document.getElementById('accessWhatsappAppSecret');
+    if (campoSegredo) campoSegredo.placeholder = data.app_secret_saved ? 'Salvo. Deixe vazio para manter o atual' : 'Obrigatorio para receber mensagens';
     updateAccessWhatsappProviderUi();
     setAccessWhatsappStatus(data);
     await loadAccessWhatsappConnection(force);
@@ -1391,6 +1394,7 @@ async function saveAccessWhatsappConfig() {
     payload.phone_number_id = document.getElementById('accessWhatsappPhoneId')?.value.trim() || '';
     payload.waba_id = document.getElementById('accessWhatsappWabaId')?.value.trim() || '';
     payload.access_token = document.getElementById('accessWhatsappToken')?.value.trim() || '';
+    payload.app_secret = document.getElementById('accessWhatsappAppSecret')?.value.trim() || '';
     payload.template_name = document.getElementById('accessWhatsappTemplate')?.value.trim() || '';
     payload.template_language = document.getElementById('accessWhatsappTemplateLang')?.value.trim() || 'pt_BR';
     if (payload.enabled && !payload.phone_number_id) {
@@ -1414,6 +1418,11 @@ async function saveAccessWhatsappConfig() {
     const data = await jsonOrReadableError(res, 'Nao foi possivel salvar o WhatsApp.');
     const campoToken = document.getElementById('accessWhatsappToken');
     if (campoToken) campoToken.value = '';
+    const campoSegredo = document.getElementById('accessWhatsappAppSecret');
+    if (campoSegredo) {
+      campoSegredo.value = '';
+      if (data.app_secret_saved) campoSegredo.placeholder = 'Salvo. Deixe vazio para manter o atual';
+    }
     _accessWhatsappCurrentConfigured = !!data.configured;
     setAccessWhatsappStatus(data);
     await loadAccessWhatsappConnection(true);

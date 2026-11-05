@@ -4,6 +4,7 @@ import base64
 import hashlib
 import hmac
 import json
+import logging
 import os
 import secrets
 import sqlite3
@@ -15,6 +16,8 @@ from urllib.parse import urlsplit, urlunsplit
 
 from app.core.migrations import apply_migrations
 from app.core.paths import DATA_DIR
+
+logger = logging.getLogger("cam-snapshot")
 
 try:
     import psycopg
@@ -1086,6 +1089,28 @@ def create_user(
             if created is not None:
                 created["_setup_completed"] = True
     return created or {}
+
+
+def tenant_da_plataforma(slug: Any) -> bool:
+    """O cliente tem admin de plataforma ativo? Na duvida (erro de banco), nao."""
+    alvo = str(slug or "").strip().lower()
+    if not alvo:
+        return False
+    try:
+        _ensure_schema()
+        with _conn() as c:
+            achou = _fetchone(
+                c,
+                """
+                SELECT u.id FROM users u JOIN tenants t ON t.id = u.tenant_id
+                WHERE t.slug=? AND u.is_platform_admin=1 AND u.active=1
+                """,
+                (alvo,),
+            )
+    except Exception as exc:
+        logger.warning("nao foi possivel conferir se %s e da plataforma: %s", alvo, exc)
+        return False
+    return bool(achou)
 
 
 def _actor_tenant_id(actor: Dict[str, Any]) -> int:

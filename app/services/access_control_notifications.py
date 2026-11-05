@@ -13,6 +13,7 @@ import requests
 from app.core.crypto import decrypt, encrypt
 from app.core.tenant_context import get_current_tenant_slug
 from app.services import db_store
+from app.services.auth_store import tenant_da_plataforma
 from app.services.access_control_whatsapp_log import log_outbound_message
 
 logger = logging.getLogger("cam-snapshot")
@@ -279,19 +280,41 @@ def assinatura_webhook_valida(corpo: bytes, cabecalho: str, site: Any = "") -> b
     triagem no cliente e faz o sistema responder para um numero escolhido por
     ele -- gastando o saldo e queimando a reputacao do numero da escola.
 
-    Sem App Secret configurado a checagem nao roda e o webhook segue aberto;
-    por isso o aviso e de nivel WARNING e nomeia o que fazer.
+    Sem App Secret configurado nao ha como conferir, entao RECUSA: sem o
+    segredo, qualquer um com a URL entraria. O aviso nomeia o que fazer.
     """
     segredo = decrypt(_text(_access_whatsapp_cfg(db_store.load_app_settings(), site).get("app_secret"), 900))
     if not segredo:
         logger.warning(
-            "Webhook do WhatsApp sem App Secret configurado: a assinatura nao esta "
-            "sendo conferida e qualquer um com a URL pode forjar mensagens."
+            "Webhook do WhatsApp recusado: cliente %s sem App Secret configurado. "
+            "Informe o App Secret em Controle de Acesso > WhatsApp.",
+            get_current_tenant_slug(),
         )
-        return True
+        return False
     esperado = hmac.new(segredo.encode("utf-8"), corpo, hashlib.sha256).hexdigest()
     recebido = _text(cabecalho, 200).replace("sha256=", "").strip()
     return hmac.compare_digest(esperado, recebido)
+
+
+def webhook_pode_atender_numero(corpo: bytes, cabecalho: str, slug_url: Any, dono: Dict[str, str]) -> bool:
+    """A assinatura ja valeu para o cliente da URL; ele responde por este numero?
+
+    Sem esta conferencia, um cliente assinava com o proprio App Secret, na URL
+    dele, um payload com o phone_number_id de OUTRO e a mensagem caia no outro.
+    O webhook unico continua valendo: numero de outro cliente passa so se a URL
+    e a da plataforma (dona do app) ou se a assinatura confere com o segredo do
+    proprio dono do numero."""
+    dono_slug = _text(dono.get("tenant"), 80).lower()
+    url = _text(slug_url, 80).lower()
+    if not dono_slug or dono_slug == url or tenant_da_plataforma(url):
+        return True
+    from app.core.tenant_context import reset_current_tenant_slug, set_current_tenant_slug
+
+    ctx = set_current_tenant_slug(dono_slug)
+    try:
+        return assinatura_webhook_valida(corpo, cabecalho, dono.get("site") or "")
+    finally:
+        reset_current_tenant_slug(ctx)
 
 
 def _cloud_cfg(cfg: Dict[str, Any]) -> Dict[str, str]:
@@ -879,6 +902,8 @@ def get_access_whatsapp_config(site: Any = "") -> Dict[str, Any]:
         "template_language": _text(cfg.get("template_language") or "pt_BR", 12),
         # o token nunca volta para a tela; so se ele existe
         "token_saved": bool(_text(cfg.get("access_token"), 600)),
+        # sem App Secret o webhook recusa tudo: a tela precisa mostrar
+        "app_secret_saved": bool(_text(cfg.get("app_secret"), 900)),
     })
     return resultado
 
@@ -928,6 +953,10 @@ def save_access_whatsapp_config(payload: Dict[str, Any]) -> Dict[str, Any]:
         settings["access_control_whatsapp_notifications_by_site"] = site_configs
     else:
         settings["access_control_whatsapp_notifications"] = saved_cfg
+    # O App Secret e do app inteiro e o webhook procura no cliente, nao no site:
+    # salvo so no site, o webhook nao acharia e recusaria tudo.
+    if site_key and _text(payload_cloud.get("app_secret"), 900):
+        settings["access_control_whatsapp_notifications"] = {**old_global, "app_secret": saved_cfg["app_secret"]}
     db_store.save_app_settings(settings)
     return get_access_whatsapp_config(site_key)
 
