@@ -24,7 +24,8 @@ from app.services import connector_routing_vnat as _vnat
 from pydantic import BaseModel
 
 from app.core.paths import INVENTORY_JSON_PATH, SAIDA_DIR, DATA_DIR
-from app.core.tenant_context import tenant_recorder_inventory_path
+from app.core.destino import destino_permitido_atual, destinos_permitidos
+from app.core.tenant_context import get_current_tenant_slug, tenant_recorder_inventory_path
 from app.services.inventory_json import guardar_onu_ultima, inventory_row_key, load_inventory_json, save_inventory_json
 from app.services.photo_store import attach_snapshot_fields, resolve_snapshot_file, snapshot_storage_dir
 from app.services.scan_service import _enrich_inventory_with_olt, _enrich_inventory_with_switch
@@ -757,7 +758,15 @@ async def api_cameras_ping(
 
     connector_id = str(remote_connector_id or "").strip()
     _h, _sep, _p = target.partition(":")
-    _probe = (_vnat.virtual_ip_for(connector_id, _h) or _h) + (_sep + _p if _sep else "")
+    _final = _vnat.virtual_ip_for(connector_id, _h) or _h
+    # Conector sem mapa nao passa pelo IP_BLOQUEADO do vnat, e o fallback abaixo
+    # mandaria job para o MikroTik dele.
+    if connector_id and not await asyncio.to_thread(_vnat._conector_do_cliente, connector_id):
+        raise HTTPException(status_code=403, detail="conector de outro cliente")
+    _pode, _motivo = await asyncio.to_thread(destino_permitido_atual, _final)
+    if not _pode:
+        raise HTTPException(status_code=403, detail=f"{target}: {_motivo}")
+    _probe = _final + (_sep + _p if _sep else "")
     result = await ping_with_cache(ip=_probe, timeout=timeout, method=method_n, force=force)
     if isinstance(result, dict) and _probe != target:
         result["ip"] = target
@@ -806,14 +815,35 @@ async def api_cameras_ping_many(req: PingBatchRequest) -> Dict[str, Any]:
     concurrency = max(1, min(int(req.concurrency or 48), 128))
     semaphore = asyncio.Semaphore(concurrency)
 
+    def _final(item: PingBatchItem) -> str:
+        host = item.ip.partition(":")[0]
+        return (_vnat.virtual_ip_for(item.remote_connector_id, host) if item.remote_connector_id else host) or host
+
+    # Destino recusado (inclui o IP_BLOQUEADO do vnat) nao vai para a rede.
+    _ok, recusados = await asyncio.to_thread(
+        destinos_permitidos, get_current_tenant_slug(), list(dict.fromkeys(_final(i) for i in items)))
+
     async def _run_one(item: PingBatchItem) -> Dict[str, Any]:
         async with semaphore:
             try:
                 connector_id = item.remote_connector_id or ""
                 host, sep, porta = item.ip.partition(":")
-                virtual = _vnat.virtual_ip_for(connector_id, host) if connector_id else ""
+                final = _final(item)
+                if final in recusados:
+                    # sem_rota: fora do persist, nao e camera offline.
+                    return {
+                        "ip": item.ip,
+                        "remote_connector_id": connector_id,
+                        "online": False,
+                        "method": method_n,
+                        "rtt_ms": None,
+                        "error": recusados[final],
+                        "ok": False,
+                        "cached": False,
+                        "sem_rota": True,
+                    }
                 result = dict(await ping_with_cache(
-                    ip=(virtual or host) + sep + porta,
+                    ip=final + sep + porta,
                     timeout=timeout_i,
                     method=method_n,
                     force=req.force,
@@ -825,7 +855,8 @@ async def api_cameras_ping_many(req: PingBatchRequest) -> Dict[str, Any]:
                     # Sem IP virtual o servidor nao alcanca a camera: nao
                     # responder aqui nao quer dizer que ela esta fora do ar.
                     # (O ping pelo conector leva ate 45 s, inviavel em lote.)
-                    if not virtual and not result.get("online"):
+                    # virtual_ip_for devolve o proprio IP quando nao ha mapa.
+                    if final == host and not result.get("online"):
                         result["sem_rota"] = True
                 return result
             except Exception as exc:
@@ -1014,6 +1045,8 @@ def api_cameras_snapshot_capture(req: SnapshotCaptureRequest) -> Dict[str, Any]:
     dst_dir = snapshot_storage_dir()
     dst_dir.mkdir(parents=True, exist_ok=True)
     probe_ip = _vnat.virtual_ip_for(connector_id, ip) or ip
+    if probe_ip == _vnat.IP_BLOQUEADO:
+        raise HTTPException(status_code=403, detail="conector de outro cliente")
     _ct, _rt = (6.0, 15.0) if connector_id else (1.5, float(req.timeout_sec or 5.0))
     saved_path = get_snapshot(probe_ip, user, password, str(dst_dir), timeout=(_ct, _rt), retries=1)
     safe_ip = ip.replace(":", "__").replace(".", "_").replace("/", "_")

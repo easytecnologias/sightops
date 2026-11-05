@@ -12,7 +12,7 @@ from typing import Any, Dict, Iterable
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from app.core.security import AUTH_COOKIE_NAME
-from app.core.destino import destino_permitido_atual, destinos_permitidos
+from app.core.destino import destino_permitido_atual, destinos_fixados
 from app.core.tenant_context import get_current_tenant_slug, reset_current_tenant_slug, set_current_tenant_slug, tenant_snapshot_dir
 from app.services.ws_scan_service import run_ws_scan
 from app.services.maintenance_ping_service import maintenance_ping_hub
@@ -479,7 +479,8 @@ async def ws_portscan(ws: WebSocket) -> None:
             await _send({"type": "error", "message": "Informe ao menos um alvo para escanear."})
             return
         # Faixa virtual de outro cliente, loopback, Docker, IP sem dono: fora.
-        targets, recusados = await asyncio.to_thread(destinos_permitidos, get_current_tenant_slug(), targets)
+        fixos, recusados = await asyncio.to_thread(destinos_fixados, get_current_tenant_slug(), targets)
+        targets = [t for t in targets if t in fixos]
         if recusados:
             await _send({"type": "status", "message": f"{len(recusados)} alvo(s) recusado(s): "
                          + ", ".join(f"{k} ({v})" for k, v in list(recusados.items())[:5])})
@@ -520,7 +521,8 @@ async def ws_portscan(ws: WebSocket) -> None:
                 async with sem:
                     if cancel_event.is_set():
                         return
-                    conn = asyncio.open_connection(host, port)
+                    # IP aprovado, nao o nome: DNS poderia responder outro agora.
+                    conn = asyncio.open_connection(fixos[host], port)
                     reader, writer = await asyncio.wait_for(conn, timeout=timeout_sec)
                     is_open = True
                     try:
@@ -707,7 +709,10 @@ def _web_tunnel_destino(current_user: Dict[str, Any], host: str, port: int) -> s
     reach = _reach(host, rec_cid) or ""  # conector isolado -> IP virtual
     # conector de outro cliente: o _reach devolve o IP de bloqueio -- recusa
     # (antes ia para a conexao, falhava e ainda ficaria guardado no cache)
-    return "" if reach == IP_BLOQUEADO else reach
+    if reach == IP_BLOQUEADO:
+        return ""
+    # Inventario nao basta: IP gravado la nao prova posse da rede.
+    return reach if destino_permitido_atual(reach)[0] else ""
 
 
 @router.websocket("/ws/web-tunnel/{ip}")

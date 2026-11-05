@@ -219,17 +219,24 @@ async def _run_tcp(targets: List[str], ports: List[int], timeout: int, concurren
     return {"items": await asyncio.gather(*checks)}
 
 
-async def _run_http(targets: List[str], port: int, timeout: int) -> Dict[str, Any]:
+async def _run_http(targets: List[str], port: int, timeout: int, fixos: Dict[str, str] | None = None) -> Dict[str, Any]:
     items: List[Dict[str, Any]] = []
     async with httpx.AsyncClient(timeout=timeout, follow_redirects=False, verify=False) as client:
         for target in targets[:50]:
             raw = target if target.startswith(("http://", "https://")) else f"http://{target}:{port}"
+            # Nome: pede no IP ja aprovado, nao resolve de novo (DNS rebinding).
+            partes = urlparse(raw)
+            fixo = (fixos or {}).get(partes.hostname or "", "")
+            url, cabecalhos = raw, None
+            if fixo and fixo != partes.hostname:
+                netloc = (f"[{fixo}]" if ":" in fixo else fixo) + (f":{partes.port}" if partes.port else "")
+                url, cabecalhos = partes._replace(netloc=netloc).geturl(), {"Host": partes.netloc}
             started = time.perf_counter()
             try:
-                resp = await client.get(raw)
+                resp = await client.get(url, headers=cabecalhos)
                 items.append({
                     "target": target,
-                    "url": str(resp.url),
+                    "url": raw if cabecalhos else str(resp.url),
                     "ok": True,
                     "status_code": resp.status_code,
                     "elapsed_ms": round((time.perf_counter() - started) * 1000, 1),
@@ -334,20 +341,27 @@ async def api_network_tools_run(payload: Dict[str, Any]) -> Dict[str, Any]:
     # Destino final (ja virtual): nada de faixa virtual de outro cliente,
     # loopback, Docker, link-local ou IP sem dono. DNS so resolve, nao conecta.
     recusados: Dict[str, str] = {}
+    fixos: Dict[str, str] = {}
     if test != "dns":
         from urllib.parse import urlsplit
 
-        from app.core.destino import destinos_permitidos
+        from app.core.destino import destinos_fixados
         from app.core.tenant_context import get_current_tenant_slug
 
         def _host(alvo: str) -> str:
             return (urlsplit(alvo).hostname or "") if alvo.startswith(("http://", "https://")) else alvo
 
-        _ok, por_host = destinos_permitidos(get_current_tenant_slug(), [_host(t) for t in targets])
+        fixos, por_host = destinos_fixados(get_current_tenant_slug(), [_host(t) for t in targets])
         recusados = {de_volta.get(t, t): por_host[_host(t)] for t in targets if _host(t) in por_host}
         targets = [t for t in targets if _host(t) not in por_host]
         if not targets:
             raise HTTPException(status_code=403, detail={"message": "destino recusado", "recusados": recusados})
+        # Daqui em diante so o IP aprovado (o HTTP precisa do nome para o Host).
+        if test != "http":
+            for t in targets:
+                if fixos[_host(t)] != t:
+                    de_volta.setdefault(fixos[_host(t)], de_volta.get(t, t))
+            targets = [fixos[_host(t)] for t in targets]
 
     if test == "ping":
         result = await _run_ping(targets, timeout, concurrency, _ports(payload.get("ports") or payload.get("port") or "80,443,554,37777,8000,8080,8291"))
@@ -355,7 +369,7 @@ async def api_network_tools_run(payload: Dict[str, Any]) -> Dict[str, Any]:
         result = await _run_tcp(targets, _ports(payload.get("ports") or payload.get("port")), timeout, concurrency)
     elif test == "http":
         ports = _ports(payload.get("port") or payload.get("ports") or 80)
-        result = await _run_http(targets, ports[0], timeout)
+        result = await _run_http(targets, ports[0], timeout, fixos)
     elif test == "dns":
         result = _run_dns(targets)
     elif test == "traceroute":

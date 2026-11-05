@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from app.core import permissions
+from app.core.destino import destino_permitido_atual, destinos_fixados
 from fastapi import APIRouter, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, Response, StreamingResponse
 
@@ -765,6 +766,9 @@ async def api_tools_scan_ip(payload: Dict[str, Any]) -> Dict[str, Any]:
         raise HTTPException(400, "IP invalido.")
     if parsed.version != 4:
         raise HTTPException(400, "A ferramenta atual aceita apenas IPv4.")
+    pode, motivo = await asyncio.to_thread(destino_permitido_atual, ip)
+    if not pode:
+        raise HTTPException(403, f"{ip}: {motivo}")
 
     ports = _parse_ports(ports_raw)
     open_ports = _quick_scan_open_ports(ip, ports, timeout_s)
@@ -822,6 +826,10 @@ async def api_discovery_run(payload: Dict[str, Any]) -> Dict[str, Any]:
         raise HTTPException(400, "Informe ao menos um alvo (IP/range/CIDR).")
     if not ports:
         raise HTTPException(400, "Informe ao menos uma porta.")
+    fixos, recusados = await asyncio.to_thread(destinos_fixados, get_current_tenant_slug(), targets)
+    targets = [t for t in targets if t in fixos]
+    if not targets:
+        raise HTTPException(403, {"message": "destino recusado", "recusados": dict(list(recusados.items())[:50])})
 
     sem = asyncio.Semaphore(concurrency)
     rows: list[dict[str, Any]] = []
@@ -833,7 +841,7 @@ async def api_discovery_run(payload: Dict[str, Any]) -> Dict[str, Any]:
         async with sem:
             for p in ports:
                 try:
-                    conn = asyncio.open_connection(ip, int(p))
+                    conn = asyncio.open_connection(fixos[ip], int(p))  # IP aprovado, nao o nome
                     reader, writer = await asyncio.wait_for(conn, timeout=timeout_s)
                     open_ports.append(int(p))
                     try:
@@ -861,7 +869,7 @@ async def api_discovery_run(payload: Dict[str, Any]) -> Dict[str, Any]:
                 try:
                     info = await asyncio.to_thread(
                         probe_device,
-                        ip,
+                        fixos[ip],
                         user,
                         password,
                         (timeout_s, max(1.0, timeout_s * 2.0)),
@@ -893,6 +901,7 @@ async def api_discovery_run(payload: Dict[str, Any]) -> Dict[str, Any]:
         "targets_checked": checked,
         "found": len(rows),
         "results": rows,
+        "recusados": dict(list(recusados.items())[:50]),
     }
 
 

@@ -13,9 +13,17 @@ qualquer modo de permissao):
   - redes do Docker/host vistas pelo container (rotas diretas em
     /proc/net/route) e as de DESTINO_REDES_BLOQUEADAS (CIDRs, virgula);
   - IP dentro da faixa VIRTUAL de conector de outro cliente.
-E exige dono para IP nao publico: equipamento do inventario do cliente,
-LAN de conector do cliente ou faixa virtual de conector do cliente.
+  - IP do proprio roteador (tunel) de conector de outro cliente.
+E exige dono para IP nao publico: LAN ou faixa virtual de conector do cliente,
+ou equipamento cuja linha aponta para conector dele. Linha sem conector NAO
+prova posse: POST /api/cameras/save grava qualquer IP.
 IP publico (internet) passa: nao e rede de cliente nenhum.
+
+Cliente SEM nenhum conector tem rede direta e nao teria como provar dono: passa
+sem a exigencia (as recusas acima continuam). DESTINO_REDE_DIRETA=nunca desliga
+isso. DESTINO_REDES_BLOQUEADAS substitui o padrao (a wg-sightops compartilhada,
+10.250.0.0/24: fora do transito isolado o pacote cai no roteador de outro
+cliente -- ver _connector_tunnel_ip_owner).
 
 Sem cliente no contexto (tarefa de fundo, autenticacao desligada) so as
 recusas fixas valem -- mesmo criterio de `_conector_do_cliente` no vnat.
@@ -25,10 +33,14 @@ from __future__ import annotations
 import ipaddress
 import logging
 import os
+import re
 import socket
 from typing import Dict, Iterable, List, Tuple
 
 logger = logging.getLogger(__name__)
+
+_BLOCO_MAXIMO = 4096  # acima disto a varredura nao confere IP por IP
+_REDES_PADRAO = "10.250.0.0/24"  # wg-sightops, compartilhada entre conectores
 
 _Rede = ipaddress._BaseNetwork
 
@@ -73,7 +85,7 @@ def _redes_do_container(caminho: str = "/proc/net/route") -> List[_Rede]:
 
 
 def redes_bloqueadas() -> List[_Rede]:
-    return _redes_do_container() + _redes_de_texto(os.getenv("DESTINO_REDES_BLOQUEADAS", ""))
+    return _redes_do_container() + _redes_de_texto(os.getenv("DESTINO_REDES_BLOQUEADAS", _REDES_PADRAO))
 
 
 def _motivo_fixo(ip: ipaddress._BaseAddress, bloqueadas: Iterable[_Rede]) -> str:
@@ -99,7 +111,10 @@ class _Contexto:
         self.virtuais: List[Tuple[_Rede, str]] = []  # (faixa virtual, conector)
         self.meus: set = set()
         self.minhas_redes: List[_Rede] = []
-        self._inventario: Dict[str, bool] = {}
+        self.tuneis_alheios: set = set()
+        self.sem_conector = False
+        self.tem_ruijie = False
+        self._equipamentos: set | None = None
         try:
             from app.services import connector_routing_vnat as vnat
             mapa = vnat._load_map() or {}
@@ -113,15 +128,24 @@ class _Contexto:
             return
         try:
             from app.services import connector_service as cs
-            linhas = [r for r in cs._load_connectors() if isinstance(r, dict)
-                      and str(r.get("tenant_slug") or "").strip().lower() == self.slug]
+            todas = [r for r in cs._load_connectors() if isinstance(r, dict)]
+            linhas = [r for r in todas if str(r.get("tenant_slug") or "").strip().lower() == self.slug]
+            # falha ao ler NAO conta como cliente sem conector: abriria a rede direta
+            self.sem_conector = not linhas
         except Exception as exc:
             logger.warning("destino: conectores do cliente %s ilegiveis (%s)", self.slug, exc)
-            linhas = []
+            todas = linhas = []
+        for row in todas:
+            if row not in linhas and isinstance(row.get("tunnel"), dict):
+                endereco = str(row["tunnel"].get("client_address") or "").split("/")[0].strip()
+                if endereco:
+                    self.tuneis_alheios.add(endereco)
         for row in linhas:
             cid = str(row.get("id") or "").strip()
             if cid:
                 self.meus.add(cid)
+            if str(row.get("type") or "").strip().lower() == "ruijie":
+                self.tem_ruijie = True
             try:
                 lans = cs._extract_connector_lans(row)
             except Exception as exc:
@@ -135,22 +159,23 @@ class _Contexto:
             for real, _virt in mapa.get(cid, []):
                 self.minhas_redes.append(real)
 
-    def _no_inventario(self, ip: str) -> bool:
-        if ip not in self._inventario:
-            try:
-                from app.core.tenant_context import get_current_tenant_slug
-                if get_current_tenant_slug() != self.slug:
-                    # o inventario e lido pelo contexto: outro cliente, nao confere
-                    self._inventario[ip] = False
-                else:
-                    from app.api.endpoints.maintenance import _ip_belongs_to_current_tenant
-                    self._inventario[ip] = bool(_ip_belongs_to_current_tenant(ip))
-            except Exception as exc:
-                logger.warning("destino: inventario do cliente %s ilegivel para %s (%s)", self.slug, ip, exc)
-                self._inventario[ip] = False
-        return self._inventario[ip]
+    def _equipamento_meu(self, ip: str) -> bool:
+        """IP de equipamento com linha apontando para conector deste cliente."""
+        try:
+            from app.core.tenant_context import get_current_tenant_slug
+            if get_current_tenant_slug() != self.slug:
+                return False  # o inventario e lido pelo contexto: outro cliente, nao confere
+            from app.api.endpoints import maintenance as m
+            if self._equipamentos is None:
+                self._equipamentos = m._equipamentos_com_conector(self.meus)
+            if ip in self._equipamentos:
+                return True
+            return bool(self.tem_ruijie) and m._ruijie_gateway_owner(ip) in self.meus
+        except Exception as exc:
+            logger.warning("destino: equipamentos do cliente %s ilegiveis para %s (%s)", self.slug, ip, exc)
+            return False
 
-    def conferir_ip(self, ip: ipaddress._BaseAddress) -> str:
+    def conferir_ip(self, ip: ipaddress._BaseAddress, exigir_dono: bool = True) -> str:
         motivo = _motivo_fixo(ip, self.bloqueadas)
         if motivo:
             return motivo
@@ -159,19 +184,66 @@ class _Contexto:
                 if not self.slug or cid in self.meus:
                     return ""
                 return "IP virtual de conector de outro cliente"
-        if ip.is_global or not self.slug:
+        if str(ip) in self.tuneis_alheios:
+            return "IP de conector de outro cliente"
+        if ip.is_global or not self.slug or not exigir_dono:
             return ""
         for rede in self.minhas_redes:
             if ip.version == rede.version and ip in rede:
                 return ""
-        if self._no_inventario(str(ip)):
+        if self._equipamento_meu(str(ip)):
+            return ""
+        if self.sem_conector and os.getenv("DESTINO_REDE_DIRETA", "").strip().lower() != "nunca":
             return ""
         return "IP nao pertence a equipamento nem rede deste cliente"
 
-    def conferir(self, alvo: str) -> str:
+    def dentro_de_rede_minha(self, inicio: int, fim: int) -> bool:
+        """Bloco inteiro numa LAN/faixa virtual do cliente, sem tocar faixa
+        alheia nem rede interna (bloco grande demais para olhar IP por IP)."""
+        minhas = self.minhas_redes + [v for v, cid in self.virtuais if cid in self.meus]
+        if not any(int(r.network_address) <= inicio and fim <= int(r.broadcast_address) for r in minhas):
+            return False
+        alheias = list(self.bloqueadas) + [v for v, cid in self.virtuais if cid not in self.meus]
+        return not any(inicio <= int(r.broadcast_address) and int(r.network_address) <= fim for r in alheias)
+
+    def conferir_bloco(self, inicio: int, fim: int, exigir_dono: bool) -> str:
+        if fim - inicio >= _BLOCO_MAXIMO:
+            return "" if self.dentro_de_rede_minha(inicio, fim) else "faixa grande demais fora das redes deste cliente"
+        for valor in range(inicio, fim + 1):
+            ip = ipaddress.ip_address(valor)
+            motivo = self.conferir_ip(ip, exigir_dono)
+            if motivo:
+                return f"{ip}: {motivo}"
+        return ""
+
+    def conferir_varredura(self, alvo: str, exigir_dono: bool) -> str:
+        for item in re.split(r"[,;\s]+", str(alvo or "").strip()):
+            if not item:
+                continue
+            item = re.sub(r"^(\d+\.\d+\.\d+\.\d+):\d+$", r"\1", item)  # IP:PORTA (NAT)
+            try:
+                if "/" in item:
+                    rede = ipaddress.ip_network(item, strict=False)
+                    motivo = self.conferir_bloco(int(rede.network_address), int(rede.broadcast_address), exigir_dono)
+                elif "-" in item:
+                    esquerda, direita = [p.strip() for p in item.split("-", 1)]
+                    fim = direita if "." in direita else f"{esquerda.rsplit('.', 1)[0]}.{direita}"
+                    limites = sorted((int(ipaddress.ip_address(esquerda)), int(ipaddress.ip_address(fim))))
+                    motivo = self.conferir_bloco(limites[0], limites[1], exigir_dono)
+                else:
+                    motivo = self.conferir(item, exigir_dono)
+            except ValueError:
+                motivo = "alvo invalido"
+            if motivo:
+                return f"{item}: {motivo}"
+        return ""
+
+    def fixar(self, alvo: str, exigir_dono: bool = True) -> Tuple[str, str]:
+        """(IP aprovado, motivo da recusa). Resolve o nome uma vez so: quem
+        conecta usa este IP, ou o DNS responderia outro na segunda consulta."""
         alvo = str(alvo or "").strip().strip("[]")
         if not alvo:
-            return "destino vazio"
+            return "", "destino vazio"
         try:
             enderecos = [ipaddress.ip_address(alvo)]
         except ValueError:
@@ -179,32 +251,44 @@ class _Contexto:
                 infos = socket.getaddrinfo(alvo, None)
                 enderecos = list({ipaddress.ip_address(i[4][0].split("%")[0]) for i in infos if i and i[4]})
             except (OSError, ValueError, UnicodeError) as exc:
-                return f"nome nao resolvido ({exc})"
+                return "", f"nome nao resolvido ({exc})"
             if not enderecos:
-                return "nome nao resolvido"
+                return "", "nome nao resolvido"
         for ip in enderecos:
-            motivo = self.conferir_ip(ip)
+            motivo = self.conferir_ip(ip, exigir_dono)
             if motivo:
-                return motivo
-        return ""
+                return "", motivo
+        enderecos.sort(key=lambda ip: ip.version)  # IPv4 primeiro: as ferramentas usam AF_INET
+        return str(enderecos[0]), ""
+
+    def conferir(self, alvo: str, exigir_dono: bool = True) -> str:
+        return self.fixar(alvo, exigir_dono)[1]
 
 
-def destinos_permitidos(tenant_slug: str, alvos: Iterable[str]) -> Tuple[List[str], Dict[str, str]]:
-    """(permitidos na ordem de entrada, {recusado: motivo})."""
+def destinos_fixados(tenant_slug: str, alvos: Iterable[str]) -> Tuple[Dict[str, str], Dict[str, str]]:
+    """({alvo: IP aprovado}, {recusado: motivo}). Quem abre a conexao usa o IP
+    aprovado, nunca o nome de novo (DNS rebinding)."""
     ctx = _Contexto(tenant_slug)
-    ok: List[str] = []
+    fixos: Dict[str, str] = {}
     recusados: Dict[str, str] = {}
     for alvo in alvos:
-        motivo = ctx.conferir(alvo)
+        ip, motivo = ctx.fixar(alvo)
         if motivo:
             recusados[str(alvo)] = motivo
         else:
-            ok.append(alvo)
+            fixos[alvo] = ip
     if recusados:
         amostra = ", ".join(f"{k} ({v})" for k, v in list(recusados.items())[:5])
         logger.warning("destino: cliente %s, %d destino(s) recusado(s): %s",
                        tenant_slug or "(sem cliente)", len(recusados), amostra)
-    return ok, recusados
+    return fixos, recusados
+
+
+def destinos_permitidos(tenant_slug: str, alvos: Iterable[str]) -> Tuple[List[str], Dict[str, str]]:
+    """(permitidos na ordem de entrada, {recusado: motivo})."""
+    lista = list(alvos)
+    fixos, recusados = destinos_fixados(tenant_slug, lista)
+    return [alvo for alvo in lista if alvo in fixos], recusados
 
 
 def destino_permitido(tenant_slug: str, ip: str) -> Tuple[bool, str]:
@@ -220,4 +304,38 @@ def destino_permitido_atual(ip: str) -> Tuple[bool, str]:
     return destino_permitido(get_current_tenant_slug(), ip)
 
 
-__all__ = ["destino_permitido", "destinos_permitidos", "destino_permitido_atual", "redes_bloqueadas"]
+def varredura_recusada(tenant_slug: str, alvo: str, exigir_dono: bool = True) -> str:
+    """Motivo para recusar a varredura de `alvo` (IP, CIDR, faixa, lista); "" =
+    pode. Um destino recusado derruba a varredura inteira: ela grava inventario
+    e tenta senha padrao em quem responder. `exigir_dono=False` e para a
+    varredura que sai do MikroTik do proprio cliente: a LAN pode nem ter sido
+    coletada ainda, mas destino interno ou faixa alheia continuam recusados."""
+    motivo = _Contexto(tenant_slug).conferir_varredura(alvo, exigir_dono)
+    if motivo:
+        logger.warning("destino: cliente %s, varredura recusada: %s", tenant_slug or "(sem cliente)", motivo)
+    return motivo
+
+
+def sem_faixa_virtual_alheia(tenant_slug: str, linhas: List[Dict]) -> List[Dict]:
+    """Tira do inventario a linha cujo IP e da faixa virtual de conector de
+    outro cliente: IP gravado vira posse em toda conferencia por inventario."""
+    if not tenant_slug or not linhas:
+        return linhas
+    ctx = _Contexto(tenant_slug)
+    saida: List[Dict] = []
+    for linha in linhas:
+        bruto = str((linha or {}).get("ip") or "").strip() if isinstance(linha, dict) else ""
+        try:
+            ip = ipaddress.ip_address(re.sub(r":\d+$", "", bruto))
+        except ValueError:
+            saida.append(linha)
+            continue
+        if any(ip.version == v.version and ip in v and cid not in ctx.meus for v, cid in ctx.virtuais):
+            logger.warning("destino: cliente %s tentou gravar %s, faixa virtual de outro cliente", tenant_slug, bruto)
+            continue
+        saida.append(linha)
+    return saida
+
+
+__all__ = ["destino_permitido", "destinos_fixados", "destinos_permitidos", "destino_permitido_atual", "redes_bloqueadas",
+           "sem_faixa_virtual_alheia", "varredura_recusada"]

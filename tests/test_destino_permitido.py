@@ -35,6 +35,7 @@ def rede(monkeypatch):
     monkeypatch.setattr(D, "_redes_do_container", lambda caminho="": [_N("172.30.0.0/16")])
     monkeypatch.setenv("DESTINO_REDES_BLOQUEADAS", "")
     monkeypatch.setattr(M, "_ip_belongs_to_current_tenant", lambda ip: ip == "10.50.0.7")
+    monkeypatch.setattr(M, "_equipamentos_com_conector", lambda meus: {"10.50.0.7"})
     token = set_current_tenant_slug("cliente-a")
     yield
     reset_current_tenant_slug(token)

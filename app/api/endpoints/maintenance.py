@@ -156,6 +156,62 @@ def _ip_belongs_to_current_tenant(ip: str) -> bool:
     )
 
 
+def _equipamentos_com_conector(meus: set) -> set:
+    """IPs de equipamento do cliente atual cuja linha aponta para um conector
+    dele (`meus`). Inventario sozinho nao prova posse -- POST /api/cameras/save
+    grava qualquer IP --, e o conector da linha sim. Uma passada so: um lote nao
+    rele os inventarios por IP. Fonte ilegivel so deixa de contar como posse."""
+    ips: set = set()
+
+    def _de(nome: str, coleta) -> None:
+        try:
+            ips.update(_as_str(ip) for ip, cid in coleta() if _as_str(ip) and _as_str(cid) in meus)
+        except Exception as exc:
+            logger.warning("destino: fonte %s ilegivel: %s", nome, exc)
+
+    def _cameras():
+        for modo in ("olt", "switch", "basic"):
+            for r in load_inventory_json(mode=modo) or []:
+                if isinstance(r, dict):
+                    yield r.get("ip"), r.get("remote_connector_id") or r.get("connector_id")
+
+    def _gravadores():
+        from app.api.endpoints.nvr import _rec_row_connector
+        from app.services.dashboard_service import _recorder_rows
+        for fonte in ("nvr", "dvr"):
+            for r in _recorder_rows(fonte) or []:
+                if isinstance(r, dict):
+                    cid = _rec_row_connector(r)
+                    yield r.get("host") or r.get("ip"), cid
+                    yield r.get("camera_ip"), cid
+
+    def _switches():
+        from app.services.switch_service import _conector_da_credencial, load_switch_mac_state
+        for cred in (load_switch_mac_state() or {}).get("switch_creds") or []:
+            if isinstance(cred, dict):
+                yield cred.get("switch_ip"), _conector_da_credencial(cred)
+
+    def _onus():
+        from app.services.tr069_service import onus_por_ip_de_gerencia
+        return (onus_por_ip_de_gerencia() or {}).items()
+
+    def _leitores():
+        from app.services.access_control_store import list_devices
+        return [(d.get("host"), d.get("connector_id")) for d in list_devices() if isinstance(d, dict)]
+
+    def _roteadores():
+        from app.services.connector_service import list_connectors
+        for row in list_connectors().get("connectors") or []:
+            addr = _as_str((row.get("tunnel") or {}).get("client_address")).split("/")[0].strip()
+            if addr:  # so o caminho exclusivo do conector (ver _connector_tunnel_ip_owner)
+                yield addr, _connector_tunnel_ip_owner(addr)
+
+    for nome, coleta in (("cameras", _cameras), ("gravadores", _gravadores), ("switches", _switches),
+                         ("onus", _onus), ("leitores", _leitores), ("roteadores", _roteadores)):
+        _de(nome, coleta)
+    return ips
+
+
 def _device_http_port(ip: str) -> int:
     """Porta HTTP configurada pra este equipamento (camera ou DVR/NVR),
     ou 80 se nao houver nada salvo/o campo estiver vazio."""
@@ -463,6 +519,8 @@ def _camera_web_target_url(ip: str, path: str = "", query: str = "") -> str:
         raise HTTPException(status_code=400, detail="proxy web permitido apenas para IP privado/CGNAT")
     if not _ip_belongs_to_current_tenant(host):
         raise HTTPException(status_code=403, detail=f"{host} nao pertence a nenhum equipamento deste cliente")
+    # Inventario nao basta: IP gravado la nao prova posse da rede.
+    _conferir_destinos([(host, "")])
     clean_path = "/" + str(path or "").lstrip("/")
     if ".." in clean_path.split("/"):
         raise HTTPException(status_code=400, detail="caminho invalido")
