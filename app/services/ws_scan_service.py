@@ -9,6 +9,7 @@ from typing import Any, Dict
 import anyio
 from fastapi import WebSocket
 
+from app.core.destino import varredura_recusada
 from app.core.tenant_context import reset_current_tenant_slug, set_current_tenant_slug
 from app.models.requests import ScanRequest
 from app.services.connector_service import create_job, get_connector, list_connectors, list_jobs
@@ -571,6 +572,15 @@ async def run_ws_scan(ws: WebSocket, payload: Dict[str, Any], tenant_slug: str =
         await _ws_send(ws, {"type": "error", "message": "Selecione um conector MikroTik para executar esta varredura remota."})
         return
 
+    # Antes de qualquer pacote (o teste de rede abaixo ja conecta): a varredura
+    # grava inventario e tenta admin/admin em quem responder. Destino interno
+    # ou faixa virtual de outro cliente nao passam em caminho nenhum.
+    slug_scan = str(tenant_slug or "").strip().lower()
+    recusa = await anyio.to_thread.run_sync(varredura_recusada, slug_scan, direct_alvo, False)
+    if recusa:
+        await _ws_send(ws, {"type": "error", "message": f"Destino recusado: {recusa}"})
+        return
+
     # "Ter VPN" so significa que o servidor alcanca o MikroTik, nao que alcanca
     # a LAN do cliente atras dele -- isso depende de client_lans estar de fato
     # aplicado (ver scripts/sightops_wireguard_sync.py). Em vez de assumir,
@@ -610,6 +620,13 @@ async def run_ws_scan(ws: WebSocket, payload: Dict[str, Any], tenant_slug: str =
             probe_targets=probe_targets,
         )
     )
+
+    if not remote_only:
+        # Caminho direto: o pacote sai do servidor, entao o alvo precisa ter dono.
+        recusa = await anyio.to_thread.run_sync(varredura_recusada, slug_scan, direct_alvo, True)
+        if recusa:
+            await _ws_send(ws, {"type": "error", "message": f"Destino recusado: {recusa}"})
+            return
 
     if remote_only:
         await _ws_send(ws, {"type": "status", "message": "Executando via conector (MikroTik)..."})

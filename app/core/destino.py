@@ -25,10 +25,13 @@ from __future__ import annotations
 import ipaddress
 import logging
 import os
+import re
 import socket
 from typing import Dict, Iterable, List, Tuple
 
 logger = logging.getLogger(__name__)
+
+_BLOCO_MAXIMO = 4096  # acima disto a varredura nao confere IP por IP
 
 _Rede = ipaddress._BaseNetwork
 
@@ -150,7 +153,7 @@ class _Contexto:
                 self._inventario[ip] = False
         return self._inventario[ip]
 
-    def conferir_ip(self, ip: ipaddress._BaseAddress) -> str:
+    def conferir_ip(self, ip: ipaddress._BaseAddress, exigir_dono: bool = True) -> str:
         motivo = _motivo_fixo(ip, self.bloqueadas)
         if motivo:
             return motivo
@@ -159,7 +162,7 @@ class _Contexto:
                 if not self.slug or cid in self.meus:
                     return ""
                 return "IP virtual de conector de outro cliente"
-        if ip.is_global or not self.slug:
+        if ip.is_global or not self.slug or not exigir_dono:
             return ""
         for rede in self.minhas_redes:
             if ip.version == rede.version and ip in rede:
@@ -168,7 +171,48 @@ class _Contexto:
             return ""
         return "IP nao pertence a equipamento nem rede deste cliente"
 
-    def conferir(self, alvo: str) -> str:
+    def dentro_de_rede_minha(self, inicio: int, fim: int) -> bool:
+        """Bloco inteiro numa LAN/faixa virtual do cliente, sem tocar faixa
+        alheia nem rede interna (bloco grande demais para olhar IP por IP)."""
+        minhas = self.minhas_redes + [v for v, cid in self.virtuais if cid in self.meus]
+        if not any(int(r.network_address) <= inicio and fim <= int(r.broadcast_address) for r in minhas):
+            return False
+        alheias = list(self.bloqueadas) + [v for v, cid in self.virtuais if cid not in self.meus]
+        return not any(inicio <= int(r.broadcast_address) and int(r.network_address) <= fim for r in alheias)
+
+    def conferir_bloco(self, inicio: int, fim: int, exigir_dono: bool) -> str:
+        if fim - inicio >= _BLOCO_MAXIMO:
+            return "" if self.dentro_de_rede_minha(inicio, fim) else "faixa grande demais fora das redes deste cliente"
+        for valor in range(inicio, fim + 1):
+            ip = ipaddress.ip_address(valor)
+            motivo = self.conferir_ip(ip, exigir_dono)
+            if motivo:
+                return f"{ip}: {motivo}"
+        return ""
+
+    def conferir_varredura(self, alvo: str, exigir_dono: bool) -> str:
+        for item in re.split(r"[,;\s]+", str(alvo or "").strip()):
+            if not item:
+                continue
+            item = re.sub(r"^(\d+\.\d+\.\d+\.\d+):\d+$", r"\1", item)  # IP:PORTA (NAT)
+            try:
+                if "/" in item:
+                    rede = ipaddress.ip_network(item, strict=False)
+                    motivo = self.conferir_bloco(int(rede.network_address), int(rede.broadcast_address), exigir_dono)
+                elif "-" in item:
+                    esquerda, direita = [p.strip() for p in item.split("-", 1)]
+                    fim = direita if "." in direita else f"{esquerda.rsplit('.', 1)[0]}.{direita}"
+                    limites = sorted((int(ipaddress.ip_address(esquerda)), int(ipaddress.ip_address(fim))))
+                    motivo = self.conferir_bloco(limites[0], limites[1], exigir_dono)
+                else:
+                    motivo = self.conferir(item, exigir_dono)
+            except ValueError:
+                motivo = "alvo invalido"
+            if motivo:
+                return f"{item}: {motivo}"
+        return ""
+
+    def conferir(self, alvo: str, exigir_dono: bool = True) -> str:
         alvo = str(alvo or "").strip().strip("[]")
         if not alvo:
             return "destino vazio"
@@ -183,7 +227,7 @@ class _Contexto:
             if not enderecos:
                 return "nome nao resolvido"
         for ip in enderecos:
-            motivo = self.conferir_ip(ip)
+            motivo = self.conferir_ip(ip, exigir_dono)
             if motivo:
                 return motivo
         return ""
@@ -220,4 +264,38 @@ def destino_permitido_atual(ip: str) -> Tuple[bool, str]:
     return destino_permitido(get_current_tenant_slug(), ip)
 
 
-__all__ = ["destino_permitido", "destinos_permitidos", "destino_permitido_atual", "redes_bloqueadas"]
+def varredura_recusada(tenant_slug: str, alvo: str, exigir_dono: bool = True) -> str:
+    """Motivo para recusar a varredura de `alvo` (IP, CIDR, faixa, lista); "" =
+    pode. Um destino recusado derruba a varredura inteira: ela grava inventario
+    e tenta senha padrao em quem responder. `exigir_dono=False` e para a
+    varredura que sai do MikroTik do proprio cliente: a LAN pode nem ter sido
+    coletada ainda, mas destino interno ou faixa alheia continuam recusados."""
+    motivo = _Contexto(tenant_slug).conferir_varredura(alvo, exigir_dono)
+    if motivo:
+        logger.warning("destino: cliente %s, varredura recusada: %s", tenant_slug or "(sem cliente)", motivo)
+    return motivo
+
+
+def sem_faixa_virtual_alheia(tenant_slug: str, linhas: List[Dict]) -> List[Dict]:
+    """Tira do inventario a linha cujo IP e da faixa virtual de conector de
+    outro cliente: IP gravado vira posse em toda conferencia por inventario."""
+    if not tenant_slug or not linhas:
+        return linhas
+    ctx = _Contexto(tenant_slug)
+    saida: List[Dict] = []
+    for linha in linhas:
+        bruto = str((linha or {}).get("ip") or "").strip() if isinstance(linha, dict) else ""
+        try:
+            ip = ipaddress.ip_address(re.sub(r":\d+$", "", bruto))
+        except ValueError:
+            saida.append(linha)
+            continue
+        if any(ip.version == v.version and ip in v and cid not in ctx.meus for v, cid in ctx.virtuais):
+            logger.warning("destino: cliente %s tentou gravar %s, faixa virtual de outro cliente", tenant_slug, bruto)
+            continue
+        saida.append(linha)
+    return saida
+
+
+__all__ = ["destino_permitido", "destinos_permitidos", "destino_permitido_atual", "redes_bloqueadas",
+           "sem_faixa_virtual_alheia", "varredura_recusada"]

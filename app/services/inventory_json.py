@@ -330,6 +330,8 @@ def save_inventory_json(rows: list[dict[str, Any]], mode: str = "olt") -> None:
     """Salva inventario IP separado por modo."""
     norm_mode = _normalize_inventory_mode(mode)
     rows = _normalize_inventory_rows(rows)
+    from app.core.destino import sem_faixa_virtual_alheia
+    rows = sem_faixa_virtual_alheia(get_current_tenant_slug(), rows)
     try:
         set_json_state(_inventory_state_key(norm_mode), {"inventory": rows})
     except Exception:

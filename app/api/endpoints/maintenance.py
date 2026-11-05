@@ -463,6 +463,8 @@ def _camera_web_target_url(ip: str, path: str = "", query: str = "") -> str:
         raise HTTPException(status_code=400, detail="proxy web permitido apenas para IP privado/CGNAT")
     if not _ip_belongs_to_current_tenant(host):
         raise HTTPException(status_code=403, detail=f"{host} nao pertence a nenhum equipamento deste cliente")
+    # Inventario nao basta: IP gravado la nao prova posse da rede.
+    _conferir_destinos([(host, "")])
     clean_path = "/" + str(path or "").lstrip("/")
     if ".." in clean_path.split("/"):
         raise HTTPException(status_code=400, detail="caminho invalido")

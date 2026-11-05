@@ -707,7 +707,10 @@ def _web_tunnel_destino(current_user: Dict[str, Any], host: str, port: int) -> s
     reach = _reach(host, rec_cid) or ""  # conector isolado -> IP virtual
     # conector de outro cliente: o _reach devolve o IP de bloqueio -- recusa
     # (antes ia para a conexao, falhava e ainda ficaria guardado no cache)
-    return "" if reach == IP_BLOQUEADO else reach
+    if reach == IP_BLOQUEADO:
+        return ""
+    # Inventario nao basta: IP gravado la nao prova posse da rede.
+    return reach if destino_permitido_atual(reach)[0] else ""
 
 
 @router.websocket("/ws/web-tunnel/{ip}")
