@@ -11,9 +11,15 @@ from urllib.parse import quote
 import requests
 from requests.auth import HTTPDigestAuth
 
-from app.core.paths import DATA_DIR
+from app.core.tenant_context import tenant_scoped_path
 
-EXPORT_DIR = DATA_DIR / "playback_exports"
+
+def export_dir() -> Path:
+    """Pasta de clipes do cliente atual: /api/playback/files/ so serve daqui."""
+    pasta = tenant_scoped_path("playback_exports")
+    pasta.mkdir(parents=True, exist_ok=True)
+    return pasta
+
 
 _DAV_MAGIC = b"DHAV"
 
@@ -293,7 +299,7 @@ def download_clip_mp4(
     channel: int,
     start_dt: datetime,
     end_dt: datetime,
-    out_dir: Path = EXPORT_DIR,
+    out_dir: Path | None = None,
     timeout_sec: int = 180,
     scale: str = "scale=640:-2",
 ) -> Path:
@@ -304,6 +310,7 @@ def download_clip_mp4(
     """
     clean = clean_host(host)
     stem = safe_stem(clean, channel, start_dt, end_dt)
+    out_dir = out_dir or export_dir()
     dav_path = out_dir / f"{stem}.dav"
     mp4_path = out_dir / f"{stem}.mp4"
     try:
@@ -340,7 +347,7 @@ def download_clip_mp4_hikvision(
     channel: int,
     start_dt: datetime,
     end_dt: datetime,
-    out_dir: Path = EXPORT_DIR,
+    out_dir: Path | None = None,
     timeout_sec: int = 900,
 ) -> Path:
     """Baixa um trecho Hikvision pelo RTSP de playback e salva em MP4 (video
@@ -356,6 +363,7 @@ def download_clip_mp4_hikvision(
     - Sem audio (`-an`): a trilha MPEG4-GENERIC/AAC do NVR entra sem frame size
       e so atrapalha o mux; o trecho e so o video.
     """
+    out_dir = out_dir or export_dir()
     out_dir.mkdir(parents=True, exist_ok=True)
     stem = safe_stem(clean_host(host), channel, start_dt, end_dt)
     mp4_path = out_dir / f"{stem}.mp4"

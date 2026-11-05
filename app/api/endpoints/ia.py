@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import time
 import uuid
+import contextvars
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Dict
 
@@ -174,7 +175,8 @@ def api_ia_nvr_search_job(req: NvrSearchRequest) -> Dict[str, Any]:
             "window_min": req.window_min,
         },
     }
-    _SEARCH_EXECUTOR.submit(_run_search_job, job_id, req)
+    # copy_context: sem ele o job roda sem cliente e o clipe sai da pasta dele
+    _SEARCH_EXECUTOR.submit(contextvars.copy_context().run, _run_search_job, job_id, req)
     return {"ok": True, "job_id": job_id, "status": "queued"}
 
 

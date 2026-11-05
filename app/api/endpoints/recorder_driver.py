@@ -9,6 +9,7 @@ pelo IP virtual quando o cliente e isolado.
 """
 from __future__ import annotations
 
+import contextvars
 import threading
 import time
 import uuid
@@ -363,9 +364,9 @@ def _baixar_trecho(g: Gravador, canal: int, inicio: datetime, fim: datetime) -> 
 def _trecho_parcial_path(g: Gravador, canal: int, inicio: datetime, fim: datetime) -> Path:
     """Caminho do MP4 enquanto o ffmpeg escreve (antes do sufixo aleatorio) --
     usado so para reportar quantos bytes ja baixaram."""
-    from app.services.recorder_media_service import (EXPORT_DIR, clean_host,
+    from app.services.recorder_media_service import (clean_host, export_dir,
                                                      safe_stem)
-    return EXPORT_DIR / f"{safe_stem(clean_host(g.alcance), canal, inicio, fim)}.mp4"
+    return export_dir() / f"{safe_stem(clean_host(g.alcance), canal, inicio, fim)}.mp4"
 
 
 @router.post("/trecho")
@@ -441,8 +442,9 @@ def api_driver_trecho_iniciar(req: TrechoRequest) -> Dict[str, Any]:
     with _trecho_lock:
         _trecho_jobs[job_id] = {"estado": "baixando", "inicio_ts": time.time(),
                                 "dur": dur, "parcial": str(parcial)}
-    threading.Thread(target=_trecho_worker,
-                     args=(job_id, g, int(req.canal), inicio, fim),
+    # copy_context: o worker grava na pasta do cliente da sessao
+    threading.Thread(target=contextvars.copy_context().run,
+                     args=(_trecho_worker, job_id, g, int(req.canal), inicio, fim),
                      daemon=True).start()
     return {"job_id": job_id, "dur": dur}
 

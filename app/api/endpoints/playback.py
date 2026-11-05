@@ -12,11 +12,11 @@ from pydantic import BaseModel, Field
 
 from app.core.erros import frase_erro_equipamento
 from app.services.recorder_media_service import (
-    EXPORT_DIR,
     RecorderAuthError,
     RecordingNotFoundError,
     clean_host,
     download_dav,
+    export_dir,
     parse_dt,
     run_ffmpeg,
     safe_stem,
@@ -168,7 +168,7 @@ def create_clip(payload: PlaybackClipRequest) -> dict:
     host = _clean_host_or_422(payload.host)
     _conferir_gravador(host, getattr(payload, "connector_id", ""))
     stem = safe_stem(host, payload.channel, start, end)
-    dav_path = EXPORT_DIR / f"{stem}.dav"
+    dav_path = export_dir() / f"{stem}.dav"
     _download_dav_or_http(payload, start, end, dav_path)
 
     if payload.format == "dav":
@@ -180,7 +180,7 @@ def create_clip(payload: PlaybackClipRequest) -> dict:
             "size": dav_path.stat().st_size,
         }
 
-    mp4_path = EXPORT_DIR / f"{stem}.mp4"
+    mp4_path = export_dir() / f"{stem}.mp4"
     try:
         _run_ffmpeg_or_http(
             ["-i", str(dav_path), "-c:v", "libx264", "-preset", "veryfast", "-crf", "26", "-movflags", "+faststart", "-an", str(mp4_path)],
@@ -225,8 +225,8 @@ def create_snapshot(payload: PlaybackSnapshotRequest) -> dict:
     host = _clean_host_or_422(payload.host)
     _conferir_gravador(host, getattr(payload, "connector_id", ""))
     stem = safe_stem(host, payload.channel, start, end)
-    dav_path = EXPORT_DIR / f"{stem}.dav"
-    jpg_path = EXPORT_DIR / f"{stem}.jpg"
+    dav_path = export_dir() / f"{stem}.dav"
+    jpg_path = export_dir() / f"{stem}.jpg"
     _download_dav_or_http(clip_payload, start, end, dav_path)
     _run_ffmpeg_or_http(["-ss", "00:00:02", "-i", str(dav_path), "-frames:v", "1", "-q:v", "3", str(jpg_path)], payload.timeout_sec)
 
@@ -250,10 +250,10 @@ def create_frames(payload: PlaybackFramesRequest) -> dict:
     host = _clean_host_or_422(payload.host)
     _conferir_gravador(host, getattr(payload, "connector_id", ""))
     stem = safe_stem(host, payload.channel, start, end)
-    dav_path = EXPORT_DIR / f"{stem}.dav"
+    dav_path = export_dir() / f"{stem}.dav"
     _download_dav_or_http(payload, start, end, dav_path)
 
-    pattern = EXPORT_DIR / f"{stem}_frame_%04d.jpg"
+    pattern = export_dir() / f"{stem}_frame_%04d.jpg"
     _run_ffmpeg_or_http(
         [
             "-i", str(dav_path),
@@ -264,7 +264,7 @@ def create_frames(payload: PlaybackFramesRequest) -> dict:
         payload.timeout_sec,
     )
 
-    files = sorted(EXPORT_DIR.glob(f"{stem}_frame_*.jpg"))
+    files = sorted(export_dir().glob(f"{stem}_frame_*.jpg"))
     frames = []
     for idx, path in enumerate(files):
         frames.append(
@@ -295,9 +295,10 @@ def create_frames(payload: PlaybackFramesRequest) -> dict:
 def get_playback_file(filename: str) -> FileResponse:
     if not SAFE_FILE.match(filename):
         raise HTTPException(status_code=404, detail="Arquivo não encontrado.")
-    path = EXPORT_DIR / filename
+    pasta = export_dir()
+    path = pasta / filename
     try:
-        path.resolve().relative_to(EXPORT_DIR.resolve())
+        path.resolve().relative_to(pasta.resolve())
     except ValueError as exc:
         raise HTTPException(status_code=404, detail="Arquivo não encontrado.") from exc
     if not path.exists() or not path.is_file():
