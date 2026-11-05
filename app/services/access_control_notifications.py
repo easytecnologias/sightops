@@ -656,26 +656,13 @@ def _resposta_json(response: requests.Response) -> Dict[str, Any]:
     return data if isinstance(data, dict) else {}
 
 
-def resolver_cliente_por_numero(phone_number_id: Any) -> Dict[str, str]:
-    """Descobre de qual cliente e escola e o numero que recebeu a mensagem.
-
-    A Meta entrega um webhook unico para o app inteiro. Como cada cliente tem
-    seu proprio numero, o phone_number_id do payload e o que separa um do outro
-    -- sem isso, mensagem de um cliente seria gravada nos dados de outro.
-    """
-    alvo = _text(phone_number_id, 60)
-    if not alvo:
-        return {}
+def _donos_do_numero(alvo: str) -> Dict[str, str]:
+    """{cliente: site} de quem declara este phone_number_id, um site por cliente."""
     from app.core.tenant_context import reset_current_tenant_slug, set_current_tenant_slug
     from app.services.monitoring_service import list_monitoring_tenants
 
-    try:
-        clientes = list_monitoring_tenants()
-    except Exception as exc:
-        logger.warning("Nao foi possivel listar clientes para resolver o webhook: %s", exc)
-        return {}
-
-    for slug in clientes:
+    donos: Dict[str, str] = {}
+    for slug in list_monitoring_tenants():
         ctx = set_current_tenant_slug(slug)
         try:
             settings = db_store.load_app_settings()
@@ -685,11 +672,38 @@ def resolver_cliente_por_numero(phone_number_id: Any) -> Dict[str, str]:
                 if not isinstance(cfg, dict):
                     continue
                 if _text(cfg.get("phone_number_id"), 60) == alvo:
-                    return {"tenant": slug, "site": site}
+                    donos[slug] = site
+                    break
         except Exception as exc:
             logger.warning("Falha ao ler configuracao de %s ao resolver webhook: %s", slug, exc)
         finally:
             reset_current_tenant_slug(ctx)
+    return donos
+
+
+def resolver_cliente_por_numero(phone_number_id: Any) -> Dict[str, str]:
+    """Descobre de qual cliente e escola e o numero que recebeu a mensagem.
+
+    A Meta entrega um webhook unico para o app inteiro. Como cada cliente tem
+    seu proprio numero, o phone_number_id do payload e o que separa um do outro
+    -- sem isso, mensagem de um cliente seria gravada nos dados de outro.
+    Numero declarado por mais de um cliente nao tem dono: nao da para escolher
+    (o primeiro em ordem alfabetica levava a mensagem do outro).
+    """
+    alvo = _text(phone_number_id, 60)
+    if not alvo:
+        return {}
+    try:
+        donos = _donos_do_numero(alvo)
+    except Exception as exc:
+        logger.warning("Nao foi possivel listar clientes para resolver o webhook: %s", exc)
+        return {}
+    if len(donos) > 1:
+        logger.warning("Numero %s do WhatsApp declarado por mais de um cliente (%s); webhook ignorado.",
+                       alvo, ", ".join(sorted(donos)))
+        return {}
+    for slug, site in donos.items():
+        return {"tenant": slug, "site": site}
     return {}
 
 
@@ -908,6 +922,25 @@ def get_access_whatsapp_config(site: Any = "") -> Dict[str, Any]:
     return resultado
 
 
+def _recusar_numero_de_outro_cliente(novo: Any, atual: Any) -> None:
+    """O phone_number_id decide de quem e a mensagem recebida: declarar o de
+    outro cliente capturaria o WhatsApp dele. So confere numero que mudou, para
+    um duplicado antigo nao trancar o resto da tela de quem nao o trocou."""
+    numero = _text(novo, 60)
+    if not numero or numero == _text(atual, 60):
+        return
+    meu = _text(get_current_tenant_slug(), 80).lower()
+    try:
+        donos = _donos_do_numero(numero)
+    except Exception as exc:
+        logger.warning("Nao foi possivel conferir o numero %s do WhatsApp de %s: %s", numero, meu, exc)
+        raise ValueError("Nao foi possivel conferir o Phone Number ID agora. Tente de novo.") from exc
+    if set(donos) - {meu}:
+        logger.warning("Cliente %s tentou declarar o numero %s do WhatsApp, ja usado por %s.",
+                       meu, numero, ", ".join(sorted(set(donos) - {meu})))
+        raise ValueError("Este Phone Number ID ja esta em uso por outro cliente. Confira o numero na Meta.")
+
+
 def save_access_whatsapp_config(payload: Dict[str, Any]) -> Dict[str, Any]:
     settings = db_store.load_app_settings()
     site_key = _site_key(payload.get("site"))
@@ -940,6 +973,7 @@ def save_access_whatsapp_config(payload: Dict[str, Any]) -> Dict[str, Any]:
     # trocar para Evolution e depois voltar pra Meta nao pode apagar
     # Phone Number ID/WABA ID/template/token so por causa da troca.
     payload_cloud = payload if provider == "cloud_api" else {}
+    _recusar_numero_de_outro_cliente(payload_cloud.get("phone_number_id"), old.get("phone_number_id"))
     saved_cfg.update({
         "phone_number_id": _text(payload_cloud.get("phone_number_id") or old.get("phone_number_id"), 60),
         "waba_id": _text(payload_cloud.get("waba_id") or old.get("waba_id"), 60),

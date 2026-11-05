@@ -278,7 +278,10 @@ def api_access_control_whatsapp_get(site: str = Query("")) -> Dict[str, Any]:
 @router.put("/whatsapp")
 def api_access_control_whatsapp_put(req: AccessWhatsappConfigRequest) -> Dict[str, Any]:
     payload = req.model_dump() if hasattr(req, "model_dump") else req.dict()
-    return {"ok": True, **save_access_whatsapp_config(payload)}
+    try:
+        return {"ok": True, **save_access_whatsapp_config(payload)}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.post("/whatsapp/test")
