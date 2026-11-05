@@ -122,3 +122,83 @@ def test_padrao_continua_link_e_cliente_pode_desligar_a_foto(banco, enviados, mo
     with pytest.raises(ValueError):
         AE.save_config({"site": "ESCOLA", "foto": "qualquer"})
 
+
+# ------------------------------------------------------------------ L2
+
+def _foto_jpg() -> bytes:
+    from io import BytesIO
+
+    from PIL import Image
+    out = BytesIO()
+    Image.new("RGB", (40, 50), (120, 90, 60)).save(out, format="JPEG")
+    return out.getvalue()
+
+
+def _passagem(leitor, pessoa, eid):
+    return S.record_event({
+        "site": "ESCOLA", "device_id": leitor["id"], "device_name": "ENTRADA", "person_id": pessoa["id"],
+        "person_name_raw": pessoa["full_name"], "event_type": "entrada", "raw_event_id": eid,
+        "raw_payload": json.dumps({"UserName": pessoa["full_name"], "CardNo": "52998224725", "method": "15", "foto": "base64..."}),
+        "occurred_at": f"2026-10-22 {7 + int(eid[-1]):02d}:00:00",   # 1 h entre elas (o leitor junta 5 min)
+    })
+
+
+def test_excluir_pessoa_apaga_foto_anonimiza_passagens_e_registra(banco, enviados, monkeypatch):
+    from app.services.access_control_photos import save_person_face_photo
+    leitor, aluno, evento, _ = _cenario(monkeypatch)
+    outra = S.save_person({"full_name": "OUTRA FICTICIA", "person_type": "student", "enrollment_code": "901",
+                           "document_id": "11144477735", "site": "ESCOLA"})
+    face = save_person_face_photo(aluno["id"], _foto_jpg())
+    arq_face = banco["dir"] / "tenants" / "escola-teste" / face["face_photo_path"]
+    assert arq_face.exists()
+    _passagem(leitor, aluno, "r1")
+    _passagem(leitor, aluno, "r2")
+    _passagem(leitor, outra, "r3")
+    AE.enfileirar(evento, agora=AGORA)
+    AE.processar_fila(agora=AGORA + timedelta(minutes=3))
+    foto_email = AE._rows("SELECT photo_file FROM access_email_queue", ())[0]["photo_file"]
+    assert (AE._pasta_fotos() / foto_email).exists()
+
+    assert S.delete_person(aluno["id"]) is True
+
+    assert not arq_face.exists()
+    assert not (AE._pasta_fotos() / foto_email).exists()
+    ev = AE._rows("SELECT person_id, person_name_raw, raw_payload FROM access_events WHERE tenant_slug=? ORDER BY raw_event_id",
+                  ("escola-teste",))
+    assert [e["person_name_raw"] for e in ev] == ["Pessoa excluída", "Pessoa excluída", "OUTRA FICTICIA"]
+    assert ev[0]["person_id"] == aluno["id"]                                      # pseudonimo: a contagem continua
+    for e in ev[:2]:
+        assert "ALUNO" not in e["raw_payload"] and "52998224725" not in e["raw_payload"] and "base64" not in e["raw_payload"]
+    assert "OUTRA FICTICIA" in ev[2]["raw_payload"]                               # quem nao foi excluido fica igual
+    fila = AE._rows("SELECT photo_file, photo_token, email FROM access_email_queue", ())[0]
+    assert fila == {"photo_file": "", "photo_token": "", "email": ""}
+    elim = _lgpd(banco["dono"], "lgpd.eliminacao")
+    assert len(elim) == 1 and elim[0]["resource_id"] == aluno["id"]
+    d = json.loads(elim[0]["detail_json"])
+    assert d["fotos_apagadas"] == 2 and d["passagens_anonimizadas"] == 2 and "ALUNO" not in elim[0]["detail_json"]
+    assert not _lgpd(banco["outro"], "lgpd.eliminacao")
+    assert S.delete_person(aluno["id"]) is False                                  # ja apagada: nada a registrar
+    assert len(_lgpd(banco["dono"], "lgpd.eliminacao")) == 1
+
+
+def test_eliminacao_nao_alcanca_outro_cliente(banco):
+    from app.services.access_control_photos import save_person_face_photo
+    leitor = S.save_device({"name": "ENTRADA - ESCOLA", "site": "ESCOLA", "vendor": "intelbras", "host": "192.168.1.201", "password": "x"})
+    aqui = S.save_person({"full_name": "ALUNO AQUI", "person_type": "student", "enrollment_code": "1", "document_id": "52998224725",
+                          "site": "ESCOLA"})
+    _passagem(leitor, aqui, "a1")
+    tk = tenant_context.set_current_tenant_slug("outra-escola")
+    try:
+        S.ensure_access_control_schema()
+        leitor_o = S.save_device({"name": "ENTRADA - X", "site": "X", "vendor": "intelbras", "host": "192.168.1.202", "password": "x"})
+        la = S.save_person({"full_name": "ALUNO LA", "person_type": "student", "enrollment_code": "1", "document_id": "52998224725",
+                            "site": "X"})
+        save_person_face_photo(la["id"], _foto_jpg())
+        _passagem(leitor_o, la, "b1")
+    finally:
+        tenant_context.reset_current_tenant_slug(tk)
+    assert S.delete_person(la["id"]) is False                                     # id do outro cliente: nada acontece
+    assert (banco["dir"] / "tenants" / "outra-escola" / "access-control" / "faces" / f"{la['id']}.jpg").exists()
+    nomes = {r["person_name_raw"] for r in AE._rows("SELECT person_name_raw FROM access_events", ())}
+    assert nomes == {"ALUNO AQUI", "ALUNO LA"}
+

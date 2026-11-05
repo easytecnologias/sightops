@@ -621,15 +621,82 @@ def update_person_face_photo(person_id: str, face_photo_path: str) -> Dict[str, 
     return _row_dict(row)
 
 
+PESSOA_EXCLUIDA = "Pessoa excluída"
+
+
 def delete_person(person_id: str) -> bool:
+    """Apaga a pessoa e elimina o que sobra dela no SightOps (LGPD L2): foto
+    facial, nome/payload nas passagens (a linha fica para a contagem, com o
+    id como pseudonimo), fotos e e-mail na fila de aviso. O usuario no leitor
+    facial e do fluxo de exclusao (access_control_pessoas.excluir)."""
     ensure_access_control_schema()
     tenant = db_store._current_tenant_slug()
     pid = _clean_text(person_id, 80)
     if not pid:
         return False
     with db_store._conn() as c:
+        row = c.execute("SELECT face_photo_path FROM access_people WHERE tenant_slug=? AND id=?", (tenant, pid)).fetchone()
         cur = c.execute("DELETE FROM access_people WHERE tenant_slug=? AND id=?", (tenant, pid))
-        return int(cur.rowcount or 0) > 0
+        removed = int(cur.rowcount or 0) > 0
+    if removed:
+        foto = str((_row_dict(row) if row is not None else {}).get("face_photo_path") or "")
+        try:
+            _eliminar_dados_da_pessoa(tenant, pid, foto)
+        except Exception:   # a pessoa ja saiu; o que nao foi eliminado fica no log para refazer
+            import logging
+            logging.getLogger("cam-snapshot").exception("eliminacao LGPD da pessoa %s (%s) incompleta", pid, tenant)
+    return removed
+
+
+def _eliminar_dados_da_pessoa(tenant: str, pid: str, face_photo_path: str) -> Dict[str, Any]:
+    import json
+    import logging
+    from pathlib import Path
+
+    from app.core.tenant_context import tenant_data_dir
+    from app.services import access_control_email as AE
+    from app.services.historico_service import registrar_lgpd
+
+    log = logging.getLogger("cam-snapshot")
+    base = tenant_data_dir(tenant).resolve()
+    fotos = {Path(face_photo_path)} if face_photo_path else set()
+    if re.fullmatch(r"[A-Za-z0-9_-]{1,80}", pid):
+        fotos.add(Path(f"access-control/faces/{pid}.jpg"))
+    apagadas = 0
+    for rel in fotos:
+        alvo = (base / rel).resolve()
+        if base not in alvo.parents:
+            log.warning("eliminacao de pessoa %s: caminho de foto fora do cliente ignorado (%s)", pid, rel)
+            continue
+        try:
+            if alvo.exists():
+                alvo.unlink()
+                apagadas += 1
+        except OSError as exc:
+            log.warning("eliminacao de pessoa %s: foto facial nao apagada (%s): %s", pid, alvo, exc)
+    with db_store._conn() as c:
+        cur = c.execute(
+            "UPDATE access_events SET person_name_raw=?, raw_payload=? WHERE tenant_slug=? AND person_id=?",
+            (PESSOA_EXCLUIDA, json.dumps({"anonimizado": True}), tenant, pid),
+        )
+        passagens = int(cur.rowcount or 0)
+    AE.ensure_schema()
+    pasta = AE._pasta_fotos(tenant)
+    fila = AE._rows("SELECT id, photo_file FROM access_email_queue WHERE tenant_slug=? AND person_id=?", (tenant, pid))
+    for r in fila:
+        if r.get("photo_file"):
+            try:
+                (pasta / Path(r["photo_file"]).name).unlink(missing_ok=True)
+                apagadas += 1
+            except OSError as exc:
+                log.warning("eliminacao de pessoa %s: foto do e-mail nao apagada (%s): %s", pid, r["photo_file"], exc)
+    AE._exec("UPDATE access_email_queue SET photo_file='', photo_token='', email='', "
+             "status=CASE WHEN status IN ('pendente', 'aguardando_resumo') THEN 'cancelado' ELSE status END "
+             "WHERE tenant_slug=? AND person_id=?", (tenant, pid))
+    resumo = {"r": "Dados pessoais eliminados (pessoa excluída)", "quem": "SightOps (exclusão de pessoa)",
+              "pessoa": pid, "fotos_apagadas": apagadas, "passagens_anonimizadas": passagens, "avisos_email": len(fila)}
+    registrar_lgpd(tenant, "eliminacao", pid, resumo)
+    return resumo
 
 
 def access_control_summary() -> Dict[str, Any]:
