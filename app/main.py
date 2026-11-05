@@ -907,6 +907,8 @@ def zabbix_status_sync_auto_state() -> JSONResponse:
 
 @app.on_event("startup")
 async def startup_events() -> None:
+    from app.core import saida
+    saida.instalar()
     init_db()
     init_auth_db()
     await maintenance_ping_hub.start()
