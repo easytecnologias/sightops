@@ -1134,6 +1134,14 @@ def _get_user_for_tenant(c: Any, tenant_id: int, user_id: int) -> Optional[Dict[
     )
 
 
+def _barrar_alvo_plataforma(c: Any, actor: Dict[str, Any], alvo_id: int) -> None:
+    """So admin da plataforma mexe em admin da plataforma: o owner do cliente em
+    que ele mora trocaria a senha e entraria com acesso a todos os clientes."""
+    alvo = _fetchone(c, "SELECT is_platform_admin FROM users WHERE id=?", (int(alvo_id),)) or {}
+    if bool(alvo.get("is_platform_admin")) and not bool(actor.get("is_platform_admin")):
+        raise ValueError("somente admin da plataforma pode alterar admin da plataforma")
+
+
 def update_user_status(actor: Dict[str, Any], target_user_id: int, active: bool) -> Dict[str, Any]:
     actor_role = str(actor.get("role") or "").strip().lower()
     if actor_role not in ("owner", "admin"):
@@ -1144,6 +1152,7 @@ def update_user_status(actor: Dict[str, Any], target_user_id: int, active: bool)
         current = _get_user_for_tenant(c, tenant_id, int(target_user_id))
         if not current:
             raise ValueError("usuario nao encontrado")
+        _barrar_alvo_plataforma(c, actor, int(current["id"]))
         if int(current["id"]) == int(actor["id"]) and not bool(active):
             raise ValueError("voce nao pode desativar o proprio usuario")
         if str(current.get("role") or "").strip().lower() == "owner" and actor_role != "owner":
@@ -1189,6 +1198,7 @@ def delete_user(actor: Dict[str, Any], target_user_id: int) -> Dict[str, Any]:
         current = _get_user_for_tenant(c, tenant_id, int(target_user_id))
         if not current:
             raise ValueError("usuario nao encontrado")
+        _barrar_alvo_plataforma(c, actor, int(current["id"]))
         if int(current["id"]) == int(actor["id"]):
             raise ValueError("voce nao pode excluir a propria conta")
         current_role = str(current.get("role") or "").strip().lower()
@@ -1226,6 +1236,7 @@ def update_user_password(actor: Dict[str, Any], target_user_id: int, new_passwor
         current = _get_user_for_tenant(c, tenant_id, int(target_user_id))
         if not current:
             raise ValueError("usuario nao encontrado")
+        _barrar_alvo_plataforma(c, actor, int(current["id"]))
         if str(current.get("role") or "").strip().lower() == "owner" and actor_role != "owner":
             raise ValueError("somente owner pode redefinir senha de owner")
         _execute(
@@ -1273,6 +1284,7 @@ def rename_user(actor: Dict[str, Any], target_user_id: int, new_username: str) -
         alvo = _get_user_for_tenant(c, tenant_id, int(target_user_id))
         if not alvo:
             raise ValueError("usuario nao encontrado")
+        _barrar_alvo_plataforma(c, actor, int(alvo["id"]))
         if str(alvo.get("role") or "") == "owner" and actor_role != "owner" and int(alvo["id"]) != int(actor["id"]):
             raise ValueError("somente owner pode mudar o login de outro owner")
         antigo = str(alvo.get("username") or "")
@@ -1309,6 +1321,7 @@ def update_user_profile(
         current = _get_user_for_tenant(c, tenant_id, int(target_user_id))
         if not current:
             raise ValueError("usuario nao encontrado")
+        _barrar_alvo_plataforma(c, actor, int(current["id"]))
         current_role = str(current.get("role") or "").strip().lower()
         if current_role == "owner" and actor_role != "owner":
             raise ValueError("somente owner pode editar outro owner")
