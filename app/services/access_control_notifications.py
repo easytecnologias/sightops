@@ -273,6 +273,11 @@ def _cifrar_token(novo: Any, antigo: Any) -> str:
     return _text(antigo, 900)      # ja esta cifrado no que veio do banco
 
 
+def _webhook_exige_segredo() -> bool:
+    """Padrao: exige. SIGHTOPS_WHATSAPP_EXIGE_SEGREDO=0 aceita cliente sem App Secret (transicao)."""
+    return _text(os.getenv("SIGHTOPS_WHATSAPP_EXIGE_SEGREDO") or "1", 10).strip().lower() not in ("0", "nao", "false", "no")
+
+
 def assinatura_webhook_valida(corpo: bytes, cabecalho: str, site: Any = "") -> bool:
     """Confere a assinatura que a Meta poe em cada POST do webhook.
 
@@ -284,6 +289,16 @@ def assinatura_webhook_valida(corpo: bytes, cabecalho: str, site: Any = "") -> b
     segredo, qualquer um com a URL entraria. O aviso nomeia o que fazer.
     """
     segredo = decrypt(_text(_access_whatsapp_cfg(db_store.load_app_settings(), site).get("app_secret"), 900))
+    if not segredo and not _webhook_exige_segredo():
+        # Transicao: cliente que ainda nao cadastrou o App Secret continua
+        # recebendo (como antes) ate o segredo ser salvo. Quem tem segredo e
+        # sempre conferido. Desligar com SIGHTOPS_WHATSAPP_EXIGE_SEGREDO=1.
+        logger.warning(
+            "Webhook do WhatsApp ACEITO sem conferir assinatura: cliente %s sem App Secret "
+            "(modo transicao). Informe o App Secret em Controle de Acesso > WhatsApp.",
+            get_current_tenant_slug(),
+        )
+        return True
     if not segredo:
         logger.warning(
             "Webhook do WhatsApp recusado: cliente %s sem App Secret configurado. "

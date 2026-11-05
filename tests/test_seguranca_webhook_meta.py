@@ -63,6 +63,21 @@ def test_sem_app_secret_recusa(webhook):
     assert entregues == []
 
 
+def test_modo_transicao_aceita_cliente_sem_secret(webhook, monkeypatch):
+    monkeypatch.setenv("SIGHTOPS_WHATSAPP_EXIGE_SEGREDO", "0")
+    c, entregues = webhook
+    corpo = CORPO.replace(b"111", b"333")
+    _post(c, "cli-sem", "", corpo)
+    assert entregues == ["cli-sem"]
+
+
+def test_modo_transicao_ainda_confere_quem_tem_secret(webhook, monkeypatch):
+    monkeypatch.setenv("SIGHTOPS_WHATSAPP_EXIGE_SEGREDO", "0")
+    c, entregues = webhook
+    assert _post(c, "cli-a", _assinar("outra"))["ignored"] == "assinatura invalida"
+    assert entregues == []
+
+
 def test_assinatura_errada_recusa(webhook):
     c, entregues = webhook
     assert _post(c, "cli-a", _assinar("outra"))["ignored"] == "assinatura invalida"
