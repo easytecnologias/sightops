@@ -91,6 +91,11 @@ def api_termico_teste(camera_id: str) -> Dict[str, Any]:
         raise HTTPException(status_code=502, detail="A câmera não respondeu.")
 
 
+@router.post("/cameras/{camera_id}/simular-pessoa")
+def api_termico_simular(camera_id: str) -> Dict[str, Any]:
+    return _executar(termico_store.simular_pessoa, camera_id)
+
+
 @router.get("/cameras/{camera_id}/manchas")
 def api_termico_manchas(camera_id: str) -> Dict[str, Any]:
     return _executar(termico_store.manchas_agora, camera_id)

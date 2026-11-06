@@ -10,7 +10,9 @@ ou seja, MAIS FRIA que o fundo. A noite inverte. O que nao muda e:
   1. a mancha tem temperatura de corpo (faixa configuravel);
   2. ela destoa do fundo aprendido daquele ponto da imagem (para mais OU para menos);
   3. tem tamanho de pessoa (minimo/maximo de pontos);
-  4. aparece em quadros seguidos (tira pisca de reflexo).
+  4. destoa do que esta EM VOLTA agora: chao esfriando com sombra ou nuvem foge
+     do fundo aprendido, mas fica igual ao entorno (alarmes falsos de 06/11);
+  5. aparece em quadros seguidos (tira pisca de reflexo).
 
 Medido na HM-TD2628-8/QA/BR (CAM P 03, UFV-RODOANEL, 05/11/2026 12:48):
 matriz 256x192 float32 little-endian; chao 32-63 °C ao meio-dia.
@@ -123,6 +125,7 @@ class Regra:
     corpo_min: float = 25.0
     corpo_max: float = 40.0
     dif_min: float = 5.0          # |temperatura - fundo| minima, °C
+    contraste_min: float = 3.0    # |temperatura - entorno agora| minima, °C
     pontos_min: int = 12          # mancha menor que isso e ruido/bicho pequeno
     pontos_max: int = 4000        # maior que isso e sombra de nuvem/mudanca de cena
     quadros_seguidos: int = 2     # quantas leituras seguidas a mancha precisa aparecer
@@ -194,6 +197,7 @@ class Mancha:
     temp_max: float
     temp_min: float
     fundo_medio: float
+    contraste: float = 0.0        # diferenca para o entorno, °C
     indices: List[int] = field(default_factory=list, repr=False)
 
     @property
@@ -209,7 +213,24 @@ class Mancha:
             "temp_min": round(self.temp_min, 1),
             "fundo_medio": round(self.fundo_medio, 1),
             "dif": self.dif,
+            "contraste": round(self.contraste, 1),
         }
+
+
+def _entorno(quadro: Quadro, x0: int, y0: int, x1: int, y1: int, folga: int = 2, largura: int = 4) -> Optional[float]:
+    """Mediana da faixa em volta da caixa (x1, y1 inclusos). A folga deixa de
+    fora a borda da propria mancha. None se quase nao houver faixa na imagem."""
+    w, h = quadro.largura, quadro.altura
+    fora = folga + largura
+    vals = []
+    for y in range(max(0, y0 - fora), min(h, y1 + fora + 1)):
+        for x in range(max(0, x0 - fora), min(w, x1 + fora + 1)):
+            if not (x0 - folga <= x <= x1 + folga and y0 - folga <= y <= y1 + folga):
+                vals.append(quadro.t(x, y))
+    if len(vals) < 8:
+        return None
+    vals.sort()
+    return vals[len(vals) // 2]
 
 
 def detectar(quadro: Quadro, fundo: Fundo, regra: Regra, vigiado: Optional[bytearray] = None) -> List[Mancha]:
@@ -247,17 +268,69 @@ def detectar(quadro: Quadro, fundo: Fundo, regra: Regra, vigiado: Optional[bytea
         ys = [i // w for i in idx]
         vals = [t[i] for i in idx]
         x0, x1, y0, y1 = min(xs), max(xs), min(ys), max(ys)
+        media = sum(vals) / len(vals)
+        volta = _entorno(quadro, x0, y0, x1, y1)
+        contraste = abs(media - volta) if volta is not None else regra.contraste_min
+        if contraste < regra.contraste_min:
+            continue
         manchas.append(Mancha(
             pontos=len(idx),
             caixa=(x0 / w, y0 / h, (x1 - x0 + 1) / w, (y1 - y0 + 1) / h),
-            temp_media=sum(vals) / len(vals),
+            temp_media=media,
             temp_max=max(vals),
             temp_min=min(vals),
             fundo_medio=sum(f[i] for i in idx) / len(idx),
+            contraste=contraste,
             indices=idx,
         ))
     manchas.sort(key=lambda m: m.pontos, reverse=True)
     return manchas
+
+
+# ---------------------------------------------------------- pessoa simulada --
+TAMANHOS_SIMULADOS = (("pequena", 3, 6), ("média", 6, 14), ("grande", 8, 20))
+
+
+def simular_pessoa(quadro: Quadro, fundo: Fundo, regra: Regra, vigiado: Optional[bytearray] = None,
+                   temp: float = 34.0, passo: int = 12) -> Dict:
+    """Desenha uma pessoa em cada ponto da cena real e passa pelo detector.
+    Responde "onde esta regra enxerga uma pessoa hoje, com este chao". A pessoa
+    e uniforme e o tamanho e em pontos da matriz: mostra a logica e os pontos
+    cegos, nao substitui uma pessoa de verdade andando na frente da camera."""
+    w, h = quadro.largura, quadro.altura
+    if vigiado is None:
+        vigiado = mascara(w, h, regra)
+    margem = 9
+    tamanhos, cegos = [], []
+    for nome, pl, pa in TAMANHOS_SIMULADOS:
+        total = achou = 0
+        for y0 in range(0, h - pa + 1, passo):
+            for x0 in range(0, w - pl + 1, passo):
+                if not vigiado[(y0 + pa // 2) * w + x0 + pl // 2]:
+                    continue
+                total += 1
+                cx0, cy0 = max(0, x0 - margem), max(0, y0 - margem)
+                cx1, cy1 = min(w, x0 + pl + margem), min(h, y0 + pa + margem)
+                cw, ch = cx1 - cx0, cy1 - cy0
+                # Recorte: a cena inteira levaria segundos em cada ponto.
+                temps, base, masc = array("f"), array("f"), bytearray()
+                for y in range(cy0, cy1):
+                    a, b = y * w + cx0, y * w + cx1
+                    temps.extend(quadro.temps[a:b])
+                    base.extend(fundo.valores[a:b])
+                    masc += vigiado[a:b]
+                for y in range(y0 - cy0, y0 - cy0 + pa):
+                    for x in range(x0 - cx0, x0 - cx0 + pl):
+                        temps[y * cw + x] = temp
+                f = Fundo(Quadro(cw, ch, base))
+                caixa = ((x0 - cx0) / cw, (y0 - cy0) / ch, pl / cw, pa / ch)
+                if any(_sobrepoe(m.caixa, caixa, 0.0) for m in detectar(Quadro(cw, ch, temps), f, regra, masc)):
+                    achou += 1
+                elif nome == "média":
+                    cegos.append([round(x0 / w, 4), round(y0 / h, 4), round(passo / w, 4), round(passo / h, 4)])
+        tamanhos.append({"nome": nome, "pontos": pl * pa, "posicoes": total, "detectadas": achou,
+                         "pct": round(100 * achou / total) if total else 0})
+    return {"temp": temp, "tamanhos": tamanhos, "cegos": cegos, "cena": quadro.resumo()}
 
 
 # ----------------------------------------------------------------- vigia ---
@@ -283,10 +356,12 @@ class Vigia:
         self._vigiado: Optional[bytearray] = None
         self._seguidas: List[Tuple[Tuple[float, float, float, float], int]] = []
         self.ultimo_alerta: float = -1e18
+        self.ultimo_quadro: Optional[Quadro] = None
 
     def processar(self, quadro: Quadro, agora: float) -> Tuple[List[Mancha], Optional[Disparo]]:
         """Devolve (manchas deste quadro, disparo ou None). O primeiro quadro
         so ensina o fundo e nunca dispara."""
+        self.ultimo_quadro = quadro
         if self.fundo is None or self.fundo.largura != quadro.largura or self.fundo.altura != quadro.altura:
             self.fundo = Fundo(quadro)
             self._vigiado = mascara(quadro.largura, quadro.altura, self.regra)

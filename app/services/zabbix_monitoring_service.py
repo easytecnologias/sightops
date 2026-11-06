@@ -599,6 +599,7 @@ def _garantir_gatilhos_pdv(url: str, auth: str, technical_names: Dict[str, Dict[
 
 GATILHO_TERMICO_PESSOA = "Pessoa detectada pelo calor (sem resposta)"
 GATILHO_TERMICO_SEM_MEDICAO = "Camera termica sem medicao de temperatura"
+GATILHO_TERMICO_FALHA = "Alerta termico: aviso ou automacao falhou"
 
 
 def _juntar_termico(tenant: str, entities: List[Dict[str, Any]]) -> None:
@@ -660,11 +661,13 @@ def enviar_termico_agora(tenant: str, ip: str, connector_id: str) -> bool:
         if not hostids:
             return False
         auth = _sessao(url, user, password)
-        chaves = ["sightops.termico_pendentes", "sightops.termico_leitura", "sightops.termico_fundo_c"]
+        chaves = ["sightops.termico_pendentes", "sightops.termico_leitura", "sightops.termico_fundo_c",
+                  "sightops.termico_falhas"]
         itens = _call(url, "item.get", {"output": ["itemid", "key_"], "hostids": hostids, "filter": {"key_": chaves}}, auth, 170) or []
         valores = {"sightops.termico_pendentes": dados.get("termico_pendentes"),
                    "sightops.termico_leitura": dados.get("termico_leitura"),
-                   "sightops.termico_fundo_c": dados.get("termico_fundo_c")}
+                   "sightops.termico_fundo_c": dados.get("termico_fundo_c"),
+                   "sightops.termico_falhas": dados.get("termico_falhas")}
         linhas = [{"itemid": _text(i.get("itemid")), "value": str(valores[_text(i.get("key_"))])}
                   for i in itens if valores.get(_text(i.get("key_"))) is not None]
         if linhas:
@@ -690,6 +693,10 @@ def _garantir_gatilhos_termico(url: str, auth: str, technical_names: Dict[str, D
          "last(/{n}/sightops.termico_leitura)=1", 3,
          "O SightOps nao consegue ler a temperatura desta camera: medicao desligada na camera, senha trocada "
          "ou camera fora. Enquanto isso NAO ha alerta de pessoa nela."),
+        ("sightops.termico_falhas", GATILHO_TERMICO_FALHA, "last(/{n}/sightops.termico_falhas)>0",
+         "last(/{n}/sightops.termico_falhas)=0", 3,
+         "Nas ultimas 24 h um alarme desta camera nao chegou a um celular ou uma automacao (speed, refletor, "
+         "sirene) falhou. Veja o historico em Cameras termicas > Automacoes."),
     )
     total = 0
     try:
@@ -959,7 +966,8 @@ def _sync_monitoring_to_zabbix(entity_types: tuple[str, ...]) -> Dict[str, Any]:
                    "sightops.link_in_bps", "sightops.link_out_bps", "sightops.link_erros",
                    "sightops.sfp_rx_dbm", "sightops.sfp_tx_dbm",
                    "sightops.pdv_contato_s", "sightops.pdv_evento_s",
-                   "sightops.termico_pendentes", "sightops.termico_leitura", "sightops.termico_fundo_c"]
+                   "sightops.termico_pendentes", "sightops.termico_leitura", "sightops.termico_fundo_c",
+                   "sightops.termico_falhas"]
     items = _call(
         url, "item.get",
         {"output": ["itemid", "hostid", "key_"], "hostids": all_hostids, "filter": {"key_": wanted_keys}},
@@ -999,6 +1007,7 @@ def _sync_monitoring_to_zabbix(entity_types: tuple[str, ...]) -> Dict[str, Any]:
         "sightops.termico_pendentes": ("SightOps - Termica: pessoas detectadas sem resposta", 3, "Alertas de pessoa pelo calor ainda sem Ciente/Falso alarme (Alerta Termico)"),
         "sightops.termico_leitura": ("SightOps - Termica: medicao de temperatura", 3, "1 = o SightOps le a temperatura da camera; 0 = sem leitura (medicao desligada, senha, rede, leitura parada); 2 = camera desligada/removida do Alerta Termico"),
         "sightops.termico_fundo_c": ("SightOps - Termica: temperatura media da cena", 0, "Media do fundo aprendido pela deteccao, em graus C"),
+        "sightops.termico_falhas": ("SightOps - Termica: avisos e automacoes com falha (24 h)", 3, "Celulares que nao receberam e acoes de automacao que falharam"),
         "sightops.alertas": ("SightOps - Alertas de saude", 3, "Windows: alertas do inventario (sem SSD, pouca memoria, disco cheio, Defender, BitLocker, TPM, Windows sem suporte). Gateway/AP Ruijie: alarmes ativos no equipamento + conflito de IP"),
     }
     # bit/s ja vem calculado (olt_snmp_health, entre duas leituras SNMP). A
@@ -1042,7 +1051,8 @@ def _sync_monitoring_to_zabbix(entity_types: tuple[str, ...]) -> Dict[str, Any]:
         "pdv": ["sightops.pdv_contato_s", "sightops.pdv_evento_s"],
         # Camera termica no Alerta Termico (_juntar_termico). Camera comum nao
         # traz esses campos: so_se_presente impede item vazio nela.
-        "camera": ["sightops.termico_pendentes", "sightops.termico_leitura", "sightops.termico_fundo_c"],
+        "camera": ["sightops.termico_pendentes", "sightops.termico_leitura", "sightops.termico_fundo_c",
+                   "sightops.termico_falhas"],
     }
     so_se_presente = {"connector", "access_point", "link", "switch_provedor", "camera"}
     create_items = []
@@ -1129,6 +1139,7 @@ def _sync_monitoring_to_zabbix(entity_types: tuple[str, ...]) -> Dict[str, Any]:
             ("sightops.termico_pendentes", _number(detail.get("termico_pendentes"))),
             ("sightops.termico_leitura", _number(detail.get("termico_leitura"))),
             ("sightops.termico_fundo_c", _number(detail.get("termico_fundo_c"))),
+            ("sightops.termico_falhas", _number(detail.get("termico_falhas"))),
         ):
             metric_itemid = item_by_host_key.get((hostid, key), "")
             if metric_itemid and value is not None:

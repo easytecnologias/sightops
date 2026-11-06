@@ -134,7 +134,7 @@ def test_sem_chave_nao_quebra_o_alerta(av, monkeypatch):
         raise FileNotFoundError("chave do Firebase não encontrada")
     monkeypatch.setattr(A, "_bearer", sem)
     feitos = _posts(A, monkeypatch)
-    assert A.avisar_pessoa("cliente-a", CAM, {"id": "x"}) == {"enviados": 0, "falhas": 0, "removidos": 0} and feitos == []
+    assert A.avisar_pessoa("cliente-a", CAM, {"id": ""}) == {"enviados": 0, "falhas": 1, "removidos": 0} and feitos == []
 
 
 def test_sair_ou_encerrar_sessoes_para_de_receber(av):
@@ -146,3 +146,12 @@ def test_sair_ou_encerrar_sessoes_para_de_receber(av):
     assert A._destinos("cliente-a", "UFV-RODOANEL") == []
     with pytest.raises(ValueError):
         A.registrar("curto", 1, "ana")
+
+
+def test_sem_chave_do_firebase_conta_como_falha(monkeypatch):
+    from app.services import termico_avisos as A
+    monkeypatch.setattr(A, "_destinos", lambda t, s: ["a", "b"])
+    def sem_chave():
+        raise RuntimeError("chave invalida")
+    monkeypatch.setattr(A, "_bearer", sem_chave)
+    assert A.enviar_aviso("cliente-a", "S", "t", "c", {})["falhas"] == 2

@@ -158,3 +158,42 @@ def test_poligono_em_coordenada_da_tela():
     # Origem no canto superior esquerdo: o quadrado de cima nao pega a linha de baixo.
     m = T.mascara(4, 4, T.Regra(areas=[[(0, 0), (1, 0), (1, 0.5), (0, 0.5)]]))
     assert list(m[:8]) == [1] * 8 and list(m[8:]) == [0] * 8
+
+
+# Quadros reais dos 2 alarmes falsos de 06/11/2026 (CAM P 03, 07:26 e 07:44):
+# chao esfriando, 6 °C abaixo do fundo aprendido e igual ao entorno.
+@pytest.mark.parametrize("nome,x0,y0,larg,alt", [("sombra1", 188, 119, 6, 3), ("sombra2", 185, 115, 9, 8)])
+def test_chao_esfriando_nao_e_pessoa(nome, x0, y0, larg, alt):
+    q = _quadro(nome)
+    fundo = T.Fundo(q)
+    for y in range(y0 - 1, y0 + alt + 1):
+        for x in range(x0 - 1, x0 + larg + 1):
+            fundo.valores[y * W + x] = q.t(x, y) + 6
+    regra = T.Regra(pontos_min=6)
+    assert T.detectar(q, fundo, T.Regra(pontos_min=6, contraste_min=0))    # sem a regra, dispara
+    assert T.detectar(q, fundo, regra) == []
+
+
+@pytest.mark.parametrize("nome", ["quadro1", "quadro2"])
+def test_pessoa_ao_sol_passa_pelo_contraste(nome):
+    q = _quadro(nome)
+    m = T.detectar(_com_pessoa(q), T.Fundo(q), T.Regra())
+    assert len(m) == 1 and m[0].contraste >= 3 and m[0].como_dict()["contraste"] == round(m[0].contraste, 1)
+
+
+def test_simular_pessoa_acha_no_chao_quente_e_some_onde_o_chao_e_igual():
+    q = _quadro("quadro1")
+    r = T.simular_pessoa(q, T.Fundo(q), T.Regra())
+    media = next(t for t in r["tamanhos"] if t["nome"] == "média")
+    assert media["posicoes"] > 100 and 50 < media["pct"] < 100 and r["cegos"]
+    # Chao inteiro a 34 °C, igual a pessoa: nenhuma posicao deve ser vista.
+    igual = T.Quadro(W, H, array("f", [34.0] * (W * H)))
+    assert all(t["detectadas"] == 0 for t in T.simular_pessoa(igual, T.Fundo(igual), T.Regra())["tamanhos"])
+
+
+def test_simular_respeita_a_area_vigiada():
+    q = _quadro("quadro1")
+    area = [[(0.0, 0.0), (0.5, 0.0), (0.5, 1.0), (0.0, 1.0)]]
+    r = T.simular_pessoa(q, T.Fundo(q), T.Regra(areas=area))
+    t = T.simular_pessoa(q, T.Fundo(q), T.Regra())
+    assert 0 < r["tamanhos"][1]["posicoes"] < t["tamanhos"][1]["posicoes"]

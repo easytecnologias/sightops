@@ -56,6 +56,15 @@ class VigiaTermico:
             return {"lendo": False, "manchas": []}
         return {"lendo": True, "manchas": est.manchas}
 
+    def simular_pessoa(self, tenant: str, camera_id: str) -> Optional[Dict[str, Any]]:
+        """Roda sobre o ultimo quadro ja lido: nao faz nenhum pedido a camera."""
+        est = self._estados.get((tenant, camera_id))
+        v = est.vigia if est else None
+        if not v or not v.ultimo_quadro or not v.fundo:
+            return None
+        from app.services.termico_deteccao import simular_pessoa
+        return simular_pessoa(v.ultimo_quadro, v.fundo, v.regra, v._vigiado)
+
     # ------------------------------------------------------------ rodada --
     def rodada(self, agora: Optional[float] = None) -> Dict[str, Any]:
         from app.services import termico_store

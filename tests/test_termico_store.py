@@ -426,3 +426,21 @@ def test_so_simular_nao_aciona_regra_valendo(monkeypatch):
     assert modos == ["simular", "simular"]
     assert A.disparar("cliente-a", "c", "a") == 1
     assert modos[2:] == ["valer", "valer"]
+
+
+def test_falha_de_aviso_e_de_automacao_vai_ao_zabbix(store):
+    from app.services import db_store
+    cam = store.adicionar("10.0.0.81", "c1")
+    store.salvar_camera(cam["id"], {"ativo": True})
+    store.registrar_leitura(cam["id"], True, "", 40.0)
+    with db_store._conn() as c:
+        linha = dict(c.execute("SELECT * FROM termico_cameras WHERE id=?", (cam["id"],)).fetchone())
+    a = store.registrar_alerta(linha, {"temp_media": 34}, {})
+    assert list(store.resumo_para_zabbix("cliente-a").values())[0]["termico_falhas"] == 0
+    store.anotar_falha_aviso("cliente-a", a["id"], 2)
+    with db_store._conn() as c:
+        c.execute("INSERT INTO automacao_execucoes(id, tenant_slug, automacao_id, alerta_id, modo, acao, ok, resposta, criado_at) "
+                  "VALUES(?,?,?,?,?,?,?,?,?)", ("e" * 32, "cliente-a", "r" * 32, a["id"], "valer", "{}", 0, "x", store._agora()))
+    assert list(store.resumo_para_zabbix("cliente-a").values())[0]["termico_falhas"] == 3
+    store.anotar_falha_aviso("cliente-b", a["id"], 9)      # outro cliente nao mexe
+    assert list(store.resumo_para_zabbix("cliente-a").values())[0]["termico_falhas"] == 3

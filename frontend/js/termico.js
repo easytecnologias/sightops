@@ -26,7 +26,7 @@
   const SIT = { novo: ['Novo', 'danger'], visto: ['Visto', 'success'], falso: ['Falso alarme', 'amber'] };
   const MOTIVOS = [['animal', 'Animal'], ['sol', 'Reflexo do sol'], ['equipe', 'Equipe da usina'], ['mato', 'Vento ou mato'], ['veiculo', 'Veículo'], ['outro', 'Outro']];
   const CAMPOS = [
-    ['dif_min', 'Dif. do fundo (°C)', 0.5], ['corpo_min', 'Corpo mín. (°C)', 0.5], ['corpo_max', 'Corpo máx. (°C)', 0.5],
+    ['dif_min', 'Dif. do fundo (°C)', 0.5], ['contraste_min', 'Contraste c/ entorno (°C)', 0.5], ['corpo_min', 'Corpo mín. (°C)', 0.5], ['corpo_max', 'Corpo máx. (°C)', 0.5],
     ['pontos_min', 'Tamanho mín. (pontos)', 1], ['quadros_seguidos', 'Leituras seguidas', 1], ['intervalo_alertas_s', 'Entre alertas (s)', 5],
   ];
 
@@ -116,6 +116,7 @@
   .tm-area{border:2px solid #3ddc97;background:rgba(61,220,151,.16)}
   .tm-ignorar{border:2px dashed #ffb44d;background:rgba(19,37,45,.5)}
   .tm-mancha{border:2px solid #ff5a5a}
+  .tm-cego{position:absolute;background:rgba(255,90,90,.28)}
   .tm-mancha span{left:0;top:-22px;white-space:nowrap}
   .tm-area span,.tm-ignorar span,.tm-mancha span{position:absolute;left:4px;top:4px;padding:1px 6px;border-radius:4px;background:rgba(19,37,45,.82);color:#fff;font-size:11px;font-weight:600}
   .tm-dica{position:absolute;left:50%;top:10px;transform:translateX(-50%);padding:4px 12px;border-radius:14px;background:rgba(19,37,45,.82);color:#fff;font-size:12px;white-space:nowrap;pointer-events:none}
@@ -876,7 +877,7 @@
       </div>
       <div class="tm-gav-pe">
         <button class="primary-action" type="button" data-tm-gsalvar style="flex:1;justify-content:center">${c.ativo ? 'Salvar' : 'Vigiar esta câmera'}</button>
-        ${c.ativo ? '<button class="secondary-action" type="button" data-tm-gteste>Testar agora</button><button class="secondary-action" type="button" data-tm-gcopiar>Copiar para a usina</button>' : ''}
+        ${c.ativo ? '<button class="secondary-action" type="button" data-tm-gteste>Testar agora</button><button class="secondary-action" type="button" data-tm-gsim>Simular pessoa</button><button class="secondary-action" type="button" data-tm-gcopiar>Copiar para a usina</button>' : ''}
         ${c.id ? `<button class="secondary-action danger-action" type="button" data-tm-gparar>${c.ativo ? 'Parar de vigiar' : 'Remover'}</button>` : ''}
       </div>`);
     const p = tocar($('tmGvT'), c, 'termica', true, $('tmGaT'));
@@ -885,6 +886,7 @@
     ligarPerguntas(g);
     g.querySelector('[data-tm-gsalvar]').onclick = salvarConfig;
     g.querySelector('[data-tm-gteste]')?.addEventListener('click', e => alternarTeste(e.currentTarget));
+    g.querySelector('[data-tm-gsim]')?.addEventListener('click', simularPessoa);
     g.querySelector('[data-tm-gcopiar]')?.addEventListener('click', copiarUsina);
     g.querySelector('[data-tm-gparar]')?.addEventListener('click', pararDeVigiar);
   }
@@ -971,6 +973,17 @@
     }
     pararGaveta();
     await carregarCameras();
+  }
+
+  // Simular pessoa: desenha uma pessoa em cada ponto da ultima leitura, com a regra salva.
+  async function simularPessoa() {
+    const txt = $('tmTesteTxt'), box = $('tmManchas');
+    txt.hidden = false; txt.textContent = 'Simulando…';
+    const r = await api(`/api/termico/cameras/${encodeURIComponent(cfg.cam.id)}/simular-pessoa`, { method: 'POST', body: '{}' });
+    const d = r?.ok ? await r.json() : null;
+    if (!d) { const e = r ? await r.json().catch(() => ({})) : {}; txt.textContent = e.detail || 'Não deu para simular agora.'; return; }
+    if (box) box.innerHTML = d.cegos.map(c => `<div class="tm-cego" style="left:${c[0] * 100}%;top:${c[1] * 100}%;width:${c[2] * 100}%;height:${c[3] * 100}%"></div>`).join('');
+    txt.textContent = `Pessoa simulada a ${num(d.temp, 0)} °C, com a regra salva e o chão de agora (${num(d.cena.min, 0)} a ${num(d.cena.max, 0)} °C). Encontrada em: ${d.tamanhos.map(t => `${t.pct}% (${t.nome})`).join(', ')}. Em vermelho, onde a pessoa média não seria vista. É uma estimativa: só uma pessoa real confirma.`;
   }
 
   // Testar agora: mostra sobre o video o que a deteccao ve, a cada 2 s.

@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 import re
 import uuid
-from datetime import datetime, time as dtime, timezone
+from datetime import datetime, time as dtime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from zoneinfo import ZoneInfo
@@ -32,6 +32,7 @@ FOTOS = {"termico": "termico.jpg", "visivel": "visivel.jpg"}
 # Limites do que a tela pode mandar na regra (fora disso e erro de digitacao).
 LIMITES = {
     "corpo_min": (-10.0, 60.0), "corpo_max": (-10.0, 80.0), "dif_min": (1.0, 40.0),
+    "contraste_min": (0.0, 40.0),
     "pontos_min": (2, 5000), "pontos_max": (10, 49152), "quadros_seguidos": (1, 10),
     "intervalo_alertas_s": (0, 3600), "aprendizado": (0.001, 0.5),
 }
@@ -80,6 +81,7 @@ def chave(ip: Any, connector_id: Any) -> str:
 
 
 REMOVIDA = "removida"
+FALHAS_JANELA_H = 24     # aviso ou automacao que falhou fica no Zabbix por este tempo
 LEITURA_VELHA_S = 180     # desarmada le a cada 60 s; mais que isso parado = sem leitura
 
 
@@ -537,6 +539,18 @@ def manchas_agora(camera_id: str) -> Dict[str, Any]:
     return vigia_global().manchas_de(tenant, cam["id"])
 
 
+def simular_pessoa(camera_id: str) -> Dict[str, Any]:
+    from app.services.termico_vigia import vigia_global
+
+    tenant = _tenant()
+    with db_store._conn() as c:
+        cam = _camera(c, tenant, camera_id)
+    res = vigia_global().simular_pessoa(tenant, cam["id"])
+    if res is None:
+        raise ValueError("A câmera ainda não mandou nenhuma leitura. Tente em 1 minuto.")
+    return res
+
+
 def camera_do_alerta(alerta_id: str) -> Dict[str, str]:
     """IP e conector da camera do alerta (para o envio imediato ao Zabbix)."""
     tenant = _tenant()
@@ -574,6 +588,29 @@ def _segundos_desde(iso: str) -> float:
         return float("inf")
 
 
+def anotar_falha_aviso(tenant: str, alerta_id: str, falhas: int) -> None:
+    """Sem sessao: roda na thread do envio, o cliente vem explicito."""
+    with db_store._conn() as c:
+        c.execute("UPDATE termico_alertas SET aviso_falhas=? WHERE tenant_slug=? AND id=?",
+                  (int(falhas), tenant, alerta_id))
+
+
+def _falhas_por_camera(c: Any, tenant: str) -> Dict[str, int]:
+    """Avisos e automacoes que nao sairam nas ultimas FALHAS_JANELA_H horas."""
+    desde = (datetime.now(timezone.utc) - timedelta(hours=FALHAS_JANELA_H)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    falhas: Dict[str, int] = {}
+    for r in c.execute("SELECT camera_id, SUM(aviso_falhas) AS n FROM termico_alertas "
+                       "WHERE tenant_slug=? AND criado_at>=? GROUP BY camera_id", (tenant, desde)).fetchall():
+        falhas[dict(r)["camera_id"]] = int(dict(r)["n"] or 0)
+    for r in c.execute("SELECT a.camera_id, COUNT(*) AS n FROM automacao_execucoes e "
+                       "JOIN termico_alertas a ON a.id=e.alerta_id AND a.tenant_slug=e.tenant_slug "
+                       "WHERE e.tenant_slug=? AND e.ok=0 AND e.criado_at>=? GROUP BY a.camera_id",
+                       (tenant, desde)).fetchall():
+        cam = dict(r)["camera_id"]
+        falhas[cam] = falhas.get(cam, 0) + int(dict(r)["n"] or 0)
+    return falhas
+
+
 def resumo_para_zabbix(tenant: str) -> Dict[str, Dict[str, Any]]:
     """Por camera (chave IP|conector): alertas pendentes, fundo e a leitura.
 
@@ -590,6 +627,7 @@ def resumo_para_zabbix(tenant: str) -> Dict[str, Dict[str, Any]]:
         pend = {dict(r)["camera_id"]: int(dict(r)["n"]) for r in c.execute(
             "SELECT camera_id, COUNT(*) AS n FROM termico_alertas WHERE tenant_slug=? AND situacao='novo' GROUP BY camera_id",
             (tenant,)).fetchall()}
+        falhas = _falhas_por_camera(c, tenant)
     saida = {}
     for cam in cams:
         leitura = cam.get("leitura") or ""
@@ -605,5 +643,6 @@ def resumo_para_zabbix(tenant: str) -> Dict[str, Dict[str, Any]]:
             "termico_pendentes": pend.get(cam["id"], 0),
             "termico_leitura": estado,
             "termico_fundo_c": fundo,
+            "termico_falhas": falhas.get(cam["id"], 0),
         }
     return saida

@@ -144,6 +144,7 @@ def _mensagem(token: str, titulo: str, corpo: str, dados: Dict[str, str]) -> Dic
 def enviar_aviso(tenant: str, site: str, titulo: str, corpo: str, dados: Dict[str, str]) -> Dict[str, int]:
     """Manda para os celulares do cliente que podem ver o site. Nunca levanta erro."""
     res = {"enviados": 0, "falhas": 0, "removidos": 0}
+    tokens: List[str] = []
     try:
         tokens = _destinos(tenant, site)
         if not tokens:
@@ -151,6 +152,8 @@ def enviar_aviso(tenant: str, site: str, titulo: str, corpo: str, dados: Dict[st
         bearer, projeto = _bearer()
     except Exception as exc:
         logger.warning("termico: notificacao nao saiu (%s): %s", tenant, exc)
+        # Chave do Firebase com problema: ninguem recebeu, e isso e falha.
+        res["falhas"] = max(1, len(tokens))
         return res
     url = f"https://fcm.googleapis.com/v1/projects/{projeto}/messages:send"
     for token in tokens:
@@ -180,4 +183,17 @@ def avisar_pessoa(tenant: str, cam: Dict[str, Any], alerta: Dict[str, Any], manc
                        f"{cam.get('nome')} · {cam.get('site')}{extra}",
                        {"tipo": "termico", "alerta_id": str(alerta.get("id") or "")})
     logger.info("termico: notificacao %s (%s) em %.1fs: %s", alerta.get("id"), tenant, time.time() - inicio, res)
+    if res["falhas"] and alerta.get("id"):
+        _anotar_falha(tenant, cam, alerta["id"], res["falhas"])
     return res
+
+
+def _anotar_falha(tenant: str, cam: Dict[str, Any], alerta_id: str, falhas: int) -> None:
+    from app.services.termico_store import anotar_falha_aviso
+    from app.services.zabbix_monitoring_service import enviar_termico_agora
+
+    try:
+        anotar_falha_aviso(tenant, alerta_id, falhas)
+        enviar_termico_agora(tenant, cam.get("ip") or "", cam.get("connector_id") or "")
+    except Exception as exc:
+        logger.warning("termico: falha de aviso nao anotada (%s): %s", alerta_id, exc)
