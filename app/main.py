@@ -774,9 +774,13 @@ async def _termico_loop() -> None:
 
     await asyncio.sleep(25)
     vigia = vigia_global()
+    voltas = 0
     while True:
         try:
             app.state.termico_last = {"ok": True, **await asyncio.to_thread(vigia.rodada)}
+            voltas += 1
+            if voltas % 15 == 0:      # cerca de 30 s
+                await asyncio.to_thread(vigia.escalar)
         except asyncio.CancelledError:
             raise
         except Exception as exc:

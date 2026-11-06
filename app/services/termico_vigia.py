@@ -56,6 +56,24 @@ class VigiaTermico:
             return {"lendo": False, "manchas": []}
         return {"lendo": True, "manchas": est.manchas}
 
+    def escalar(self) -> int:
+        """Alarme que ninguem respondeu avisa de novo (Visao geral > Se ninguem responder)."""
+        from app.services import termico_store
+        from app.services.termico_avisos import avisar_sem_resposta
+
+        total = 0
+        for tenant in termico_store.tenants_com_cameras_ativas():
+            token = set_current_tenant_slug(tenant)
+            try:
+                for alerta in termico_store.a_escalar():
+                    total += 1
+                    threading.Thread(target=avisar_sem_resposta, args=(tenant, alerta), daemon=True, name="termico-push").start()
+            except Exception:
+                logger.exception("termico: falha ao escalar alarmes de %s", tenant)
+            finally:
+                reset_current_tenant_slug(token)
+        return total
+
     def simular_pessoa(self, tenant: str, camera_id: str) -> Optional[Dict[str, Any]]:
         """Roda sobre o ultimo quadro ja lido: nao faz nenhum pedido a camera."""
         est = self._estados.get((tenant, camera_id))

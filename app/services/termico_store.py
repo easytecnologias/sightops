@@ -86,6 +86,8 @@ def chave(ip: Any, connector_id: Any) -> str:
 
 REMOVIDA = "removida"
 FALHAS_JANELA_H = 24     # aviso ou automacao que falhou fica no Zabbix por este tempo
+ESCALA_PADRAO = {"escalar_min": 10, "escalar_vezes": 2}
+ESCALA_JANELA_H = 6
 LEITURA_VELHA_S = 180     # desarmada le a cada 60 s; mais que isso parado = sem leitura
 
 
@@ -680,6 +682,112 @@ def _segundos_desde(iso: str) -> float:
         return (datetime.now(timezone.utc) - datetime.strptime(iso, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)).total_seconds()
     except Exception:
         return float("inf")
+
+
+# ------------------------------------------------------------- visao geral
+
+def _segundos_entre(de: str, ate: str) -> Optional[float]:
+    try:
+        f = "%Y-%m-%dT%H:%M:%SZ"
+        return (datetime.strptime(ate, f) - datetime.strptime(de, f)).total_seconds()
+    except (TypeError, ValueError):
+        return None
+
+
+def visao_geral(dias: int = 30) -> Dict[str, Any]:
+    """Cada usina numa linha: quem esta vigiando, o que esta sem leitura e como
+    os alarmes foram respondidos. Alarme de teste nao entra na conta."""
+    tenant = _tenant()
+    dias = max(1, min(int(dias or 30), 366))
+    desde = (datetime.now(timezone.utc) - timedelta(days=dias)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    with db_store._conn() as c:
+        cams = [dict(r) for r in c.execute("SELECT site, ativo, leitura, leitura_at FROM termico_cameras WHERE tenant_slug=?", (tenant,)).fetchall()]
+        alertas = [dict(r) for r in c.execute(
+            "SELECT site, situacao, criado_at, visto_at, mancha FROM termico_alertas WHERE tenant_slug=? AND criado_at>=?",
+            (tenant, desde)).fetchall()]
+    usinas: Dict[str, Dict[str, Any]] = {}
+
+    def usina(site: str) -> Dict[str, Any]:
+        return usinas.setdefault(site, {"site": site, "cameras": 0, "lendo": 0, "sem_leitura": 0, "pendentes": 0,
+                                        "alarmes": 0, "falsos": 0, "cientes": 0, "_tempos": []})
+
+    for cam in cams:
+        if cam.get("leitura") == REMOVIDA or not int(cam.get("ativo") or 0) or not _site_ok(cam.get("site")):
+            continue
+        u = usina(cam.get("site") or "")
+        u["cameras"] += 1
+        if cam.get("leitura") == "ok" and _segundos_desde(cam.get("leitura_at") or "") <= LEITURA_VELHA_S:
+            u["lendo"] += 1
+        else:
+            u["sem_leitura"] += 1
+    for a in alertas:
+        if not _site_ok(a.get("site")) or _json(a.get("mancha"), {}).get("teste"):
+            continue
+        u = usina(a.get("site") or "")
+        u["alarmes"] += 1
+        if a.get("situacao") == "novo":
+            u["pendentes"] += 1
+        else:
+            u["falsos" if a.get("situacao") == "falso" else "cientes"] += 1
+            t = _segundos_entre(a.get("criado_at"), a.get("visto_at"))
+            if t is not None and t >= 0:
+                u["_tempos"].append(t)
+    saida = []
+    for u in usinas.values():
+        tempos = sorted(u.pop("_tempos"))
+        u["resposta_s"] = tempos[len(tempos) // 2] if tempos else None
+        saida.append(u)
+    return {"dias": dias, "usinas": sorted(saida, key=lambda u: u["site"]), "config": config()}
+
+
+def config() -> Dict[str, int]:
+    tenant = _tenant()
+    with db_store._conn() as c:
+        r = c.execute("SELECT escalar_min, escalar_vezes FROM termico_config WHERE tenant_slug=?", (tenant,)).fetchone()
+    return ({"escalar_min": int(dict(r)["escalar_min"]), "escalar_vezes": int(dict(r)["escalar_vezes"])}
+            if r else dict(ESCALA_PADRAO))
+
+
+def salvar_config(dados: Dict[str, Any]) -> Dict[str, int]:
+    tenant = _tenant()
+    try:
+        minutos, vezes = int(dados.get("escalar_min")), int(dados.get("escalar_vezes"))
+    except (TypeError, ValueError):
+        raise ValueError("Informe minutos e vezes.")
+    if not (0 <= minutos <= 240 and 0 <= vezes <= 5):
+        raise ValueError("Use de 0 a 240 minutos e de 0 a 5 vezes.")
+    with db_store._conn() as c:
+        c.execute("DELETE FROM termico_config WHERE tenant_slug=?", (tenant,))
+        c.execute("INSERT INTO termico_config(tenant_slug, escalar_min, escalar_vezes, updated_at) VALUES(?,?,?,?)",
+                  (tenant, minutos, vezes, _agora()))
+    return config()
+
+
+def a_escalar(agora: Optional[datetime] = None) -> List[Dict[str, Any]]:
+    """Alarmes sem resposta que devem avisar de novo. Ja marca: reiniciar o
+    servidor nao repete o aviso. Alarme com mais de ESCALA_JANELA_H fica so no
+    Zabbix: ninguem quer sirene de madrugada por um alarme de ontem."""
+    tenant = _tenant()
+    cfg = config()
+    if cfg["escalar_min"] <= 0 or cfg["escalar_vezes"] <= 0:
+        return []
+    momento = agora or datetime.now(timezone.utc)
+    f = "%Y-%m-%dT%H:%M:%SZ"
+    desde = (momento - timedelta(hours=ESCALA_JANELA_H)).strftime(f)
+    limite = (momento - timedelta(minutes=cfg["escalar_min"])).strftime(f)
+    saida = []
+    with db_store._conn() as c:
+        rows = [dict(r) for r in c.execute(
+            "SELECT id, camera_id, site, camera_nome, criado_at, escalado_n, escalado_at FROM termico_alertas "
+            "WHERE tenant_slug=? AND situacao='novo' AND criado_at>=? AND escalado_n<?",
+            (tenant, desde, cfg["escalar_vezes"])).fetchall()]
+        for r in rows:
+            if (r.get("escalado_at") or r.get("criado_at") or "") > limite:
+                continue
+            c.execute("UPDATE termico_alertas SET escalado_n=escalado_n+1, escalado_at=? WHERE tenant_slug=? AND id=?",
+                      (momento.strftime(f), tenant, r["id"]))
+            saida.append(r)
+    return saida
 
 
 def anotar_falha_aviso(tenant: str, alerta_id: str, falhas: int) -> None:

@@ -221,6 +221,18 @@ def avisar_pessoa(tenant: str, cam: Dict[str, Any], alerta: Dict[str, Any], manc
     return res
 
 
+def avisar_sem_resposta(tenant: str, alerta: Dict[str, Any]) -> Dict[str, int]:
+    """Escalonamento: o mesmo alarme, de novo, dizendo que ninguem respondeu."""
+    res = enviar_aviso(tenant, alerta.get("site") or "", "SEM RESPOSTA: pessoa detectada",
+                       f"{alerta.get('camera_nome')} · {alerta.get('site')}. Abra o alarme e responda.",
+                       {"tipo": "termico", "alerta_id": str(alerta.get("id") or "")},
+                       link_foto(tenant, str(alerta.get("id") or "")))
+    if res["falhas"]:
+        from app.services.termico_store import anotar_falha_aviso
+        anotar_falha_aviso(tenant, str(alerta.get("id") or ""), res["falhas"])
+    return res
+
+
 def _anotar_falha(tenant: str, cam: Dict[str, Any], alerta_id: str, falhas: int) -> None:
     from app.services.termico_store import anotar_falha_aviso
     from app.services.zabbix_monitoring_service import enviar_termico_agora

@@ -148,7 +148,7 @@ def _quadro(titulo: str, sub: str, desenho: Drawing, legenda: str = "") -> Table
 
 # ---------------------------------------------------------------- blocos
 
-def _cabecalho(r: Dict[str, Any], usuario: str, logo: Optional[Path]) -> Table:
+def _cabecalho(r: Dict[str, Any], usuario: str, logo: Optional[Path], titulo: str = "RELATÓRIO GERENCIAL · ALERTA DE PÂNICO") -> Table:
     local = r["site"] or "Todos os sites"
     gerado = datetime.strptime(r["gerado_em"][:19], "%Y-%m-%d %H:%M:%S")
     periodo = f"{_br(r['de'])} a {_br(r['ate'])}" if r["de"] != r["ate"] else _br(r["de"])
@@ -157,7 +157,7 @@ def _cabecalho(r: Dict[str, Any], usuario: str, logo: Optional[Path]) -> Table:
         filtros.append(f"Tipo: {r['tipo_rotulo']}")
     if r.get("busca"):
         filtros.append(f"Busca: {r['busca']}")
-    esquerda = [_p("RELATÓRIO GERENCIAL · ALERTA DE PÂNICO", "kicker"), Spacer(1, 3), _p(local, "titulo"),
+    esquerda = [_p(titulo, "kicker"), Spacer(1, 3), _p(local, "titulo"),
                 Spacer(1, 2), _p(" · ".join(filtros), "sub")]
     cab_esq: Any = esquerda
     if logo and Path(logo).is_file():

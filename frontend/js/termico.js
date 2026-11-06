@@ -30,7 +30,7 @@
     ['pontos_min', 'Tamanho mín. (pontos)', 1], ['quadros_seguidos', 'Leituras seguidas', 1], ['intervalo_alertas_s', 'Entre alertas (s)', 5],
   ];
 
-  let aba = 'vivo', carregando = false;
+  let aba = 'vivo', carregando = false, geral = null;
   let alertas = { alertas: [], total: 0, por_situacao: {}, por_site: {} };
   let cams = { cameras: [], no_inventario: [] };
   let filtro = { q: '', site: '', situacao: '' };
@@ -117,6 +117,7 @@
   .tm-ignorar{border:2px dashed #ffb44d;background:rgba(19,37,45,.5)}
   .tm-mancha{border:2px solid #ff5a5a}
   .tm-cego{position:absolute;background:rgba(255,90,90,.28)}
+  .tm-geral{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,420px),1fr));gap:20px}
   .tm-grav{width:100%;aspect-ratio:4/3;background:#000;border-radius:6px;display:block}
   .tm-mancha span{left:0;top:-22px;white-space:nowrap}
   .tm-area span,.tm-ignorar span,.tm-mancha span{position:absolute;left:4px;top:4px;padding:1px 6px;border-radius:4px;background:rgba(19,37,45,.82);color:#fff;font-size:11px;font-weight:600}
@@ -204,10 +205,11 @@
       </div>
       <div class="tm-tabs" role="tablist">
         <button type="button" role="tab" data-tm-aba="vivo" class="${aba === 'vivo' ? 'on' : ''}">Ao vivo</button>
+        <button type="button" role="tab" data-tm-aba="geral" class="${aba === 'geral' ? 'on' : ''}">Visão geral</button>
         <button type="button" role="tab" data-tm-aba="alarmes" class="${aba === 'alarmes' ? 'on' : ''}">Alarmes ${pend ? `<span class="pill danger">${pend}</span>` : ''}</button>
         <button type="button" role="tab" data-tm-aba="automacoes" class="${aba === 'automacoes' ? 'on' : ''}">Automações</button>
       </div>
-      ${aba === 'vivo' ? htmlVivo() : aba === 'alarmes' ? htmlAlarmes() : htmlAutomacoes()}`;
+      ${aba === 'vivo' ? htmlVivo() : aba === 'geral' ? htmlGeral() : aba === 'alarmes' ? htmlAlarmes() : htmlAutomacoes()}`;
     ligar(sec);
     icones();
     if (aba === 'alarmes' && aberto) carregarFotos(aberto);
@@ -219,6 +221,67 @@
     return alertas.alertas.filter(a => (!filtro.site || a.site === filtro.site)
       && (!filtro.situacao || a.situacao === filtro.situacao)
       && (!q || `${a.camera_nome} ${a.site}`.toLowerCase().includes(q)));
+  }
+
+  // ------------------------------------------------------------ visao geral --
+  async function carregarGeral() {
+    const r = await api('/api/termico/visao-geral?dias=30');
+    if (!r?.ok) return;
+    geral = await r.json();
+    if (aba === 'geral') render();
+  }
+
+  const tempoCurto = s => s == null ? '—' : s < 60 ? `${Math.round(s)} s` : `${Math.round(s / 60)} min`;
+
+  function htmlGeral() {
+    if (!geral) return '<section class="tm-card"><div class="tm-vazio-card">Carregando…</div></section>';
+    const hoje = new Date(); const dia = d => d.toISOString().slice(0, 10);
+    const ini = new Date(hoje - 29 * 864e5);
+    const kpi = (rot, v, cor) => `<div><span>${rot}</span><strong${cor ? ` style="color:var(--${cor})"` : ''}>${v}</strong></div>`;
+    const cards = geral.usinas.map(u => `<section class="tm-card">
+        <div class="tm-linha"><h2>${h(u.site || '(sem local)')}</h2><button class="secondary-action" type="button" data-tm-ver-usina="${h(u.site)}">Ver ao vivo</button></div>
+        <div class="tm-medidas">${kpi('Lendo agora', `${u.lendo} de ${u.cameras}`, u.sem_leitura ? 'danger' : '')}${kpi('Sem resposta', u.pendentes, u.pendentes ? 'danger' : '')}${kpi('Alarmes 30 d', u.alarmes)}${kpi('Resposta', tempoCurto(u.resposta_s))}</div>
+        ${u.sem_leitura ? `<div class="tm-sub" style="color:var(--danger)">${u.sem_leitura} câmera(s) sem leitura: nessas, não há alerta de pessoa.</div>` : ''}
+      </section>`).join('') || '<section class="tm-card"><div class="tm-vazio-card">Nenhuma câmera vigiando ainda.</div></section>';
+    const c = geral.config;
+    const opt = (lista, atual, rot) => lista.map(([v, t]) => `<option value="${v}" ${Number(v) === Number(atual) ? 'selected' : ''}>${t}</option>`).join('');
+    const sites = geral.usinas.map(u => u.site).sort(natural);
+    return `<div class="tm-geral">${cards}</div>
+      <div class="tm-geral" style="margin-top:20px">
+        <section class="tm-card"><h2>Se ninguém responder</h2>
+          <p class="tm-sub" style="margin:0">O alarme sem Ciente avisa os celulares de novo, com a sirene.</p>
+          <div class="tm-regra"><label class="tm-campo">Avisar de novo depois de<select id="tmEscMin">${opt([[0, 'Nunca'], [5, '5 min'], [10, '10 min'], [15, '15 min'], [30, '30 min']], c.escalar_min)}</select></label>
+            <label class="tm-campo">Quantas vezes<select id="tmEscVezes">${opt([[1, '1 vez'], [2, '2 vezes'], [3, '3 vezes'], [5, '5 vezes']], c.escalar_vezes)}</select></label></div>
+          <div><button class="primary-action" type="button" data-tm-esc-salvar>Salvar</button></div>
+        </section>
+        <section class="tm-card"><h2>Relatório</h2>
+          <p class="tm-sub" style="margin:0">Alarmes, respostas e falsos alarmes do período, em PDF.</p>
+          <div class="tm-regra"><label class="tm-campo">De<input type="date" id="tmRelDe" value="${dia(ini)}"></label>
+            <label class="tm-campo">Até<input type="date" id="tmRelAte" value="${dia(hoje)}"></label>
+            <label class="tm-campo">Usina<select id="tmRelSite"><option value="">Todas</option>${sites.map(s => `<option value="${h(s)}">${h(s)}</option>`).join('')}</select></label></div>
+          <div><button class="primary-action" type="button" data-tm-pdf>Baixar PDF</button></div>
+        </section>
+      </div>`;
+  }
+
+  async function salvarEscala() {
+    const corpo = { escalar_min: Number($('tmEscMin').value), escalar_vezes: Number($('tmEscVezes').value) };
+    const r = await api('/api/termico/config', { method: 'PUT', body: JSON.stringify(corpo) });
+    if (!r?.ok) { const d = r ? await r.json().catch(() => ({})) : {}; toast(d.detail || 'Só administrador muda isso.', true); return; }
+    geral.config = await r.json();
+    toast('Salvo.');
+  }
+
+  async function baixarPdf() {
+    const q = new URLSearchParams({ de: $('tmRelDe').value, ate: $('tmRelAte').value, site: $('tmRelSite').value });
+    const r = await api(`/api/termico/relatorio/pdf?${q}`);
+    if (!r?.ok) { const d = r ? await r.json().catch(() => ({})) : {}; toast(d.detail || 'Não deu para gerar o PDF.', true); return; }
+    const nome = (r.headers.get('Content-Disposition') || '').match(/filename="([^"]+)"/)?.[1] || 'cameras-termicas.pdf';
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(await r.blob());
+    a.download = nome;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   }
 
   // Pagina vazia nao pode parecer quebrada: diz o que esta acontecendo e o que fazer.
@@ -341,7 +404,10 @@
 
   // -------------------------------------------------------------- eventos --
   function ligar(sec) {
-    sec.querySelectorAll('[data-tm-aba]').forEach(b => b.onclick = () => { aba = b.dataset.tmAba; render(); });
+    sec.querySelectorAll('[data-tm-aba]').forEach(b => b.onclick = () => { aba = b.dataset.tmAba; if (aba === 'geral') carregarGeral(); render(); });
+    sec.querySelectorAll('[data-tm-ver-usina]').forEach(b => b.onclick = () => { filtroUsina = b.dataset.tmVerUsina; aba = 'vivo'; render(); });
+    sec.querySelector('[data-tm-esc-salvar]')?.addEventListener('click', salvarEscala);
+    sec.querySelector('[data-tm-pdf]')?.addEventListener('click', baixarPdf);
     const busca = $('tmBusca');
     if (busca) busca.oninput = () => { filtro.q = busca.value; const pos = busca.selectionStart; render(); const b = $('tmBusca'); b.focus(); b.setSelectionRange(pos, pos); };
     if ($('tmSite')) $('tmSite').onchange = e => { filtro.site = e.target.value; render(); };

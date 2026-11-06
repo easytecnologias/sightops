@@ -205,6 +205,8 @@ class ApiAuthMiddleware(BaseHTTPMiddleware):
             (("POST",), "/api/termico/aparelhos", "viewer"),
             # So termica e speed de automacao (termico_store._video_liberado).
             (("POST",), "/api/termico/vivo", "viewer"),
+            # Quem e avisado de novo e quantas vezes e decisao do cliente.
+            (("PUT",), "/api/termico/config", "admin"),
             (("POST", "PUT", "DELETE"), "/api/termico/", "operator"),
             # Automacoes acionam sirene, refletor e speed no cliente: so admin.
             (("POST", "PUT", "DELETE"), "/api/automacoes", "admin"),

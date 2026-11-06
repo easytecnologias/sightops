@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import threading
 from typing import Any, Dict
 
@@ -96,6 +97,31 @@ def api_termico_teste(camera_id: str) -> Dict[str, Any]:
 def api_termico_aviso_foto(tenant: str, alerta_id: str, expira: int, assinatura: str) -> FileResponse:
     arq = _executar(termico_store.foto_do_aviso, tenant, alerta_id, expira, assinatura)
     return FileResponse(arq, media_type="image/jpeg", headers={"Cache-Control": "private, no-store"})
+
+
+@router.get("/visao-geral")
+def api_termico_visao_geral(dias: int = 30) -> Dict[str, Any]:
+    return _executar(termico_store.visao_geral, dias)
+
+
+@router.put("/config")
+def api_termico_config(payload: Dict[str, Any]) -> Dict[str, Any]:
+    return _executar(termico_store.salvar_config, payload)
+
+
+@router.get("/relatorio/pdf")
+def api_termico_relatorio_pdf(de: str = "", ate: str = "", site: str = "", user: Dict[str, Any] = Depends(current_user)) -> Response:
+    """Relatorio em PDF A4 com a logo do cliente."""
+    from app.core.tenant_context import tenant_report_logo_path
+    from app.services.termico_relatorio import gerar
+    from app.services.termico_relatorio_pdf import gerar_pdf
+
+    r = _executar(gerar, de, ate, site)
+    logo = tenant_report_logo_path("inventory")
+    pdf = gerar_pdf(r, usuario=str(user.get("username") or ""), logo=logo if logo.exists() else None)
+    nome = re.sub(r"[^A-Za-z0-9]+", "-", f"cameras-termicas {r['site'] or 'todas'} {r['de']} {r['ate']}").strip("-").lower()
+    return Response(content=pdf, media_type="application/pdf",
+                    headers={"Content-Disposition": f'attachment; filename="{nome}.pdf"', "Cache-Control": "no-store"})
 
 
 @router.post("/cameras/{camera_id}/simular-pessoa")

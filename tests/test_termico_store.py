@@ -488,3 +488,64 @@ def test_video_do_alarme_grava_e_aparece_so_com_arquivo(store, monkeypatch):
     with _como("cliente-b"):
         with pytest.raises(LookupError):
             store.caminho_video(a["id"], "termico")
+
+
+def _alerta_real(store, situacao="novo", teste=False):
+    from app.services import db_store
+    cam = store.listar_cameras()["cameras"]
+    cam = cam[0] if cam else store.adicionar("10.0.0.81", "c1")
+    with db_store._conn() as c:
+        linha = dict(c.execute("SELECT * FROM termico_cameras WHERE id=?", (cam["id"],)).fetchone())
+    a = store.registrar_alerta(linha, {"temp_media": 34, "fundo_medio": 45, **({"teste": True} if teste else {})}, {})
+    if situacao != "novo":
+        store.marcar(a["id"], situacao, "ana", "animal" if situacao == "falso" else "", "")
+    return a
+
+
+def test_visao_geral_conta_a_usina_e_deixa_o_teste_de_fora(store):
+    a = store.adicionar("10.0.0.81", "c1")
+    store.salvar_camera(a["id"], {"ativo": True})
+    store.registrar_leitura(a["id"], True, "", 40.0)
+    _alerta_real(store)
+    _alerta_real(store, teste=True)
+    g = store.visao_geral()
+    u = g["usinas"][0]
+    assert (u["cameras"], u["lendo"], u["alarmes"], u["pendentes"]) == (1, 1, 1, 1)
+    assert g["config"] == {"escalar_min": 10, "escalar_vezes": 2}
+    with _como("cliente-b"):
+        assert store.visao_geral()["usinas"] == []
+
+
+def test_escalonamento_avisa_nas_horas_certas_e_para(store):
+    from datetime import datetime, timedelta, timezone
+    a = _alerta_real(store)
+    agora = datetime.now(timezone.utc)
+    assert store.a_escalar(agora) == []                                       # acabou de disparar
+    assert [r["id"] for r in store.a_escalar(agora + timedelta(minutes=11))] == [a["id"]]
+    assert store.a_escalar(agora + timedelta(minutes=12)) == []               # avisou agora ha pouco
+    assert len(store.a_escalar(agora + timedelta(minutes=22))) == 1
+    assert store.a_escalar(agora + timedelta(minutes=40)) == []               # ja deu as 2 vezes
+    b = _alerta_real(store)
+    store.salvar_config({"escalar_min": 0, "escalar_vezes": 2})
+    assert store.a_escalar(agora + timedelta(minutes=11)) == []
+    store.salvar_config({"escalar_min": 5, "escalar_vezes": 1})
+    assert store.a_escalar(agora + timedelta(hours=7)) == []                  # velho demais
+    with pytest.raises(ValueError):
+        store.salvar_config({"escalar_min": 999, "escalar_vezes": 1})
+
+
+def test_relatorio_conta_o_periodo_e_gera_pdf(store):
+    from app.services import termico_relatorio as R
+    from app.services.termico_relatorio_pdf import gerar_pdf
+    _alerta_real(store)
+    _alerta_real(store, "falso")
+    _alerta_real(store, teste=True)
+    r = R.gerar()
+    assert r["resumo"]["alarmes"] == 2 and r["resumo"]["falsos"] == 1 and r["testes"] == 1 and sum(r["por_hora"]) == 2
+    assert r["motivos"] == [{"rotulo": "Animal", "n": 1}] and len(r["lista"]) == 2
+    assert gerar_pdf(r, "ana")[:5] == b"%PDF-"
+    assert gerar_pdf(dict(R.gerar(de="2020-01-01", ate="2020-01-02")))[:5] == b"%PDF-"     # periodo vazio
+    with pytest.raises(ValueError):
+        R.gerar(de="2026-02-01", ate="2026-01-01")
+    with _como("cliente-b"):
+        assert R.gerar()["resumo"]["alarmes"] == 0
