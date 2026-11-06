@@ -561,6 +561,7 @@ def delete_tenant(actor: Dict[str, Any], tenant_id: int) -> Dict[str, Any]:
             "automacao_execucoes",
             "automacoes",
             "termico_alertas",
+            "termico_aparelhos",
             "termico_cameras",
             "notification_states",
             "onu_signal_samples",
@@ -586,7 +587,7 @@ def delete_tenant(actor: Dict[str, Any], tenant_id: int) -> Dict[str, Any]:
                     SELECT table_name
                     FROM information_schema.tables
                     WHERE table_schema='public'
-                      AND table_name IN (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                      AND table_name IN (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     wanted_tables,
                 )
@@ -600,7 +601,7 @@ def delete_tenant(actor: Dict[str, Any], tenant_id: int) -> Dict[str, Any]:
                     SELECT name
                     FROM sqlite_master
                     WHERE type='table'
-                      AND name IN (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                      AND name IN (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     wanted_tables,
                 )
@@ -1147,6 +1148,30 @@ def _get_user_for_tenant(c: Any, tenant_id: int, user_id: int) -> Optional[Dict[
     )
 
 
+def usuario_para_aviso(user_id: int) -> Optional[Dict[str, Any]]:
+    """Cadastro ATUAL do usuario para decidir se o celular dele recebe alerta.
+    None se o usuario ou o cliente estiver inativo. Nao olha sessao: ela vence
+    em horas, e o alerta tem de continuar chegando a quem segue autorizado."""
+    _ensure_schema()
+    with _conn() as c:
+        u = _fetchone(
+            c,
+            """
+            SELECT u.id, u.tenant_id, u.username, u.role, u.active, t.active AS tenant_active,
+                   t.slug AS tenant_slug, t.enabled_modules AS tenant_enabled_modules
+            FROM users u
+            JOIN tenants t ON t.id = u.tenant_id
+            WHERE u.id=?
+            """,
+            (int(user_id),),
+        )
+    if not u or not bool(u.get("active")) or not bool(u.get("tenant_active")):
+        return None
+    u["effective_tenant_slug"] = u["tenant_slug"]
+    u["effective_enabled_modules"] = parse_enabled_modules(u.get("tenant_enabled_modules"))
+    return u
+
+
 def _barrar_alvo_plataforma(c: Any, actor: Dict[str, Any], alvo_id: int) -> None:
     """So admin da plataforma mexe em admin da plataforma: o owner do cliente em
     que ele mora trocaria a senha e entraria com acesso a todos os clientes."""
@@ -1645,6 +1670,12 @@ def revoke_user_sessions(actor: Dict[str, Any], target_user_id: int) -> Dict[str
         ativos = [int(t["id"]) for t in tokens if _token_ativo(t, agora)]
         for tid in ativos:
             _execute(c, "UPDATE auth_tokens SET revoked_at=? WHERE id=?", (_utc_text(agora), tid))
+        # Celular perdido: encerrar as sessoes tambem para os alertas nele.
+        try:
+            from app.services.termico_avisos import esquecer_usuario
+            esquecer_usuario(int(alvo["id"]))
+        except Exception:
+            logger.exception("nao apagou os aparelhos do usuario %s", alvo.get("id"))
         _audit(
             c,
             action="user.revoke_sessions",

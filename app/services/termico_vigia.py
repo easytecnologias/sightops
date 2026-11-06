@@ -172,6 +172,7 @@ class VigiaTermico:
         mancha["quadros"] = disparo.quadros
         alerta = termico_store.registrar_alerta(cam, mancha, {
             "termico.jpg": quadro.jpeg_termico, "visivel.jpg": visivel, "temps.bin": quadro.temps.tobytes()})
+        alerta["mancha"] = mancha
         logger.warning("termico: PESSOA %s %s (%s) %.1f °C dif %+.1f -> alerta %s", tenant, cam.get("nome"),
                        cam.get("ip"), mancha["temp_media"], mancha["dif"], alerta["id"])
         if self._avisar:
@@ -184,11 +185,14 @@ class VigiaTermico:
 def avisar_alerta(tenant: str, cam: Dict[str, Any], alerta: Dict[str, Any]) -> None:
     """O que acontece na hora do alerta. Hoje: Zabbix na hora (o sync completo
     leva minutos) e automacoes (speed, refletor, sirene) numa thread propria.
-    Proximas fases: notificacao no app, WhatsApp, central (Segware)."""
+    Depois: notificacao no celular. Proximas fases: WhatsApp, central (Segware)."""
     from app.services.automacao_acoes import disparar_em_thread
+    from app.services.termico_avisos import avisar_pessoa
     from app.services.zabbix_monitoring_service import enviar_termico_agora
 
     disparar_em_thread(tenant, cam["id"], alerta["id"])
+    threading.Thread(target=avisar_pessoa, args=(tenant, cam, alerta, alerta.get("mancha")),
+                     daemon=True, name="termico-push").start()
     enviar_termico_agora(tenant, cam.get("ip") or "", cam.get("connector_id") or "")
 
 

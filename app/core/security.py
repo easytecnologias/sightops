@@ -201,6 +201,8 @@ class ApiAuthMiddleware(BaseHTTPMiddleware):
             # Alerta Termico: incluir camera, ajustar a regra, dar Ciente ou
             # Falso alarme. Remover camera (DELETE) sobe para admin sozinho
             # (permissions.e_exclusao).
+            # Celular registrar para receber alerta nao altera nada do cliente.
+            (("POST",), "/api/termico/aparelhos", "viewer"),
             (("POST", "PUT", "DELETE"), "/api/termico/", "operator"),
             # Automacoes acionam sirene, refletor e speed no cliente: so admin.
             (("POST", "PUT", "DELETE"), "/api/automacoes", "admin"),

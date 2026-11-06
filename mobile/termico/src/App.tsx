@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { HashRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { carregarToken, ErroApi, obter, sair as sairDaApi } from './lib/api';
+import { desligarAvisos, ligarAvisos } from './lib/aviso';
 import { pegar, salvar } from './lib/storage';
 import { SiteCtx } from './lib/termico';
 import { Shell } from './ui/Shell';
@@ -28,7 +29,7 @@ export function App() {
       try {
         await obter('/api/auth/me');
       } catch (e) {
-        if (e instanceof ErroApi && e.status === 401) { await sairDaApi(); setEtapa('login'); return; }
+        if (e instanceof ErroApi && e.status === 401) { await desligarAvisos(); await sairDaApi(); setEtapa('login'); return; }
         // sem rede: segue com a sessao guardada
       }
       setEtapa('dentro');
@@ -39,11 +40,16 @@ export function App() {
   useEffect(() => qc.getQueryCache().subscribe((ev) => {
     const erro = ev.query.state.error;
     if (etapa === 'dentro' && erro instanceof ErroApi && erro.status === 401) {
-      void sairDaApi().then(() => { qc.clear(); setEtapa('login'); });
+      void desligarAvisos().then(sairDaApi).then(() => { qc.clear(); setEtapa('login'); });
     }
   }), [qc, etapa]);
 
+  useEffect(() => {
+    if (etapa === 'dentro') void ligarAvisos(() => void qc.invalidateQueries({ queryKey: ['alertas'] }));
+  }, [etapa, qc]);
+
   async function sair() {
+    await desligarAvisos();
     await sairDaApi();
     qc.clear();
     setEtapa('login');

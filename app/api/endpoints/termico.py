@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse, Response
 
 from app.api.endpoints.auth import current_user
-from app.services import termico_store
+from app.services import termico_avisos, termico_store
 
 # Alerta Termico (pessoa detectada pelo calor). Escrita declarada em
 # security._role_rules; DELETE vira so admin pela regra central de exclusao.
@@ -69,6 +69,17 @@ def api_termico_foto_agora(camera_id: str, tipo: str) -> Response:
     except Exception:
         raise HTTPException(status_code=502, detail="A câmera não respondeu.")
     return Response(content=dado, media_type="image/jpeg", headers={"Cache-Control": "no-store"})
+
+
+@router.post("/aparelhos")
+def api_termico_aparelho(payload: Dict[str, Any], user: Dict[str, Any] = Depends(current_user)) -> Dict[str, Any]:
+    return _executar(termico_avisos.registrar, str(payload.get("token") or ""), int(user.get("id") or 0), _quem(user),
+                     str(payload.get("plataforma") or "android"))
+
+
+@router.post("/aparelhos/sair")
+def api_termico_aparelho_sair(payload: Dict[str, Any]) -> Dict[str, Any]:
+    return _executar(termico_avisos.esquecer, str(payload.get("token") or ""))
 
 
 @router.get("/alertas")
