@@ -31,6 +31,14 @@
   ];
 
   let aba = 'vivo', carregando = false, geral = null;
+  let paleta = 'ferro';
+  try { paleta = localStorage.getItem('tm.paleta') || 'ferro'; } catch (_) { /* navegador sem armazenamento */ }
+
+  // Filtro da paleta ferro: vale para o video real porque e so CSS.
+  function aplicarPaleta() {
+    if (!$('tmFerroSvg')) document.body.insertAdjacentHTML('beforeend', `<svg id="tmFerroSvg" width="0" height="0" style="position:absolute" aria-hidden="true"><filter id="tmFerro" color-interpolation-filters="sRGB"><feColorMatrix type="saturate" values="0"/><feComponentTransfer><feFuncR type="table" tableValues="0.05 0.33 0.68 0.91 0.99 1"/><feFuncG type="table" tableValues="0.03 0.08 0.17 0.40 0.72 0.96"/><feFuncB type="table" tableValues="0.16 0.46 0.42 0.17 0.22 0.70"/></feComponentTransfer></filter></svg>`);
+    document.body.classList.toggle('tm-usa-ferro', paleta === 'ferro');
+  }
   let alertas = { alertas: [], total: 0, por_situacao: {}, por_site: {} };
   let cams = { cameras: [], no_inventario: [] };
   let filtro = { q: '', site: '', situacao: '' };
@@ -117,6 +125,101 @@
   .tm-ignorar{border:2px dashed #ffb44d;background:rgba(19,37,45,.5)}
   .tm-mancha{border:2px solid #ff5a5a}
   .tm-cego{position:absolute;background:rgba(255,90,90,.28)}
+  /* Linguagem Comando: so a faixa e o video sao escuros; cores do :root. */
+  .tm-cmd{background:var(--sidebar);color:#fff;border-radius:10px;overflow:hidden;margin-bottom:20px}
+  .tm-cmd.alarme{background:#7a1a1f}
+  .tm-cmd-lin{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:20px;padding:20px;align-items:center}
+  .tm-cmd-est{grid-column:span 4;display:flex;align-items:center;gap:14px;min-width:0}
+  .tm-cmd-pul{flex:none;width:44px;height:44px;border-radius:50%;background:rgba(61,220,151,.14);box-shadow:inset 0 0 0 1px rgba(61,220,151,.5);display:flex;align-items:center;justify-content:center}
+  .tm-cmd-pul i{width:12px;height:12px;border-radius:50%;background:#3ddc97}
+  .tm-cmd.alarme .tm-cmd-pul{background:rgba(255,255,255,.14);box-shadow:inset 0 0 0 1px rgba(255,255,255,.55);animation:tmVivo 1.4s ease-in-out infinite}
+  .tm-cmd.alarme .tm-cmd-pul i{background:#fff}
+  .tm-cmd-est b{display:block;font-size:18px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .tm-cmd-est small{display:block;color:#a9bdc6;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .tm-cmd.alarme .tm-cmd-est small,.tm-cmd.alarme .tm-cmd-met span{color:#f6d3d3}
+  .tm-cmd-met{grid-column:span 2;border-left:1px solid #2c4a56;padding-left:20px;min-width:0}
+  .tm-cmd.alarme .tm-cmd-met{border-color:rgba(255,255,255,.22)}
+  .tm-cmd-met span{display:block;color:#a9bdc6;font-size:11px;white-space:nowrap}
+  .tm-cmd-met b{display:block;font-size:24px;font-weight:700;line-height:1.2;letter-spacing:-.3px;white-space:nowrap;font-variant-numeric:tabular-nums}
+  .tm-cmd-met b em{font-style:normal;font-size:13px;font-weight:600;color:#a9bdc6}
+  .tm-cmd-met b.ok{color:#3ddc97}
+  .tm-cmd-acoes{grid-column:span 4;display:flex;gap:12px;justify-content:flex-end}
+  .tm-cmd-bt{height:40px;padding:0 16px;border:1px solid rgba(255,255,255,.5);border-radius:8px;background:none;color:#fff;font:inherit;font-weight:600;cursor:pointer;white-space:nowrap}
+  .tm-cmd-bt.cheio{background:#fff;border-color:#fff;color:#7a1a1f}
+  .tm-cmd-dia{border-top:1px solid #2c4a56;padding:12px 20px 14px;display:grid;grid-template-columns:120px minmax(0,1fr);gap:20px;align-items:end;font-size:11px;color:#a9bdc6}
+  .tm-horas{display:grid;grid-template-columns:repeat(24,minmax(0,1fr));gap:3px;align-items:end;height:40px}
+  .tm-horas span{display:flex;align-items:flex-end;height:100%;border-radius:2px;background:var(--sidebar-soft)}
+  .tm-horas span.n{background:#0d1b21}
+  .tm-horas span.ag{box-shadow:0 0 0 1px #3ddc97}
+  .tm-horas i{display:block;width:100%;background:#ff9a3c;border-radius:2px 2px 0 0}
+  .tm-horas-reg{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));margin-top:4px;font-size:10px}
+  .tm-ferr{align-items:center}
+  .tm-ferr-fim{margin-left:auto;display:flex;align-items:center;gap:8px;font-size:11px;color:var(--muted);white-space:nowrap}
+  .tm-rampa{width:150px;height:8px;border-radius:4px;background:linear-gradient(90deg,#14082e,#5a1a78,#b52d6b,#ec6a2a,#fdb93a,#fff3b0)}
+  body.tm-usa-ferro .tm-termica video,body.tm-usa-ferro .tm-termica>img{filter:url(#tmFerro)}
+  .tm-tile{position:relative}
+  .tm-tile .pdv-v-video::after{content:"";position:absolute;inset:0;background:linear-gradient(180deg,rgba(13,27,33,.5) 0,rgba(13,27,33,0) 28%,rgba(13,27,33,0) 60%,rgba(13,27,33,.8) 100%);pointer-events:none}
+  .tm-tile .pdv-v-lbl{z-index:2}
+  .tm-tile .pdv-v-nome{top:auto;bottom:10px;left:12px;right:64px;height:auto;display:block;padding:0;background:none;text-align:left;font-size:13px;font-weight:700;overflow:hidden;text-overflow:ellipsis}
+  .tm-tile .pdv-v-nome small{display:block;font-size:11px;font-weight:500;color:#c9d6dc;overflow:hidden;text-overflow:ellipsis}
+  .tm-tile .tm-l-vivo{top:12px;bottom:auto}
+  .tm-tile .tm-l-temp{background:none;font-size:15px;font-weight:700}
+  .tm-tile.tm-cor video{object-fit:fill}
+  .tm-tile-cfg{position:absolute;z-index:3;right:12px;top:42px;height:28px;padding:0 10px;border:0;border-radius:6px;background:rgba(13,27,33,.82);color:#fff;font:inherit;font-size:12px;font-weight:600;cursor:pointer;opacity:0;transition:opacity .15s}
+  .tm-tile:hover .tm-tile-cfg,.tm-tile-cfg:focus-visible{opacity:1}
+  @media (hover:none){.tm-tile-cfg{opacity:1}}
+  .tm-grande{grid-column:span 2;grid-row:span 2}
+  .tm-grande .pdv-v-video{height:100%;aspect-ratio:auto}
+  .tm-grande .pdv-v-nome{font-size:15px}
+  .tm-grande .tm-l-temp{font-size:24px;height:32px}
+  .tm-doze{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:20px}
+  .tm-c3{grid-column:span 3;min-width:0}.tm-c6{grid-column:span 6;min-width:0}.tm-c9{grid-column:span 9;min-width:0}.tm-c12{grid-column:span 12;min-width:0}
+  .tm-quatro{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+  .tm-dois{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+  .tm-med{border:1px solid var(--border);border-radius:8px;padding:12px;background:var(--surface-soft);min-width:0}
+  .tm-med span{display:block;font-size:11px;color:var(--muted);white-space:nowrap}
+  .tm-med b{display:block;font-size:22px;font-weight:700;white-space:nowrap;font-variant-numeric:tabular-nums}
+  .tm-mapa{display:grid;grid-template-columns:repeat(24,minmax(0,1fr));gap:2px}
+  .tm-mapa i{height:30px;border-radius:2px;background:var(--bg);box-shadow:inset 0 0 0 1px var(--border)}
+  .tm-mapa i.n{background:var(--surface-soft)}
+  .tm-mapa i.a1{background:#fdb93a;box-shadow:none}.tm-mapa i.a2{background:#ec6a2a;box-shadow:none}
+  .tm-pontos{display:flex;flex-wrap:wrap;gap:6px}
+  .tm-pt{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 10px;border-radius:6px;background:var(--surface-soft);box-shadow:inset 0 0 0 1px var(--border);font-size:11px;font-weight:600;white-space:nowrap}
+  .tm-pt i{width:7px;height:7px;border-radius:50%;background:var(--muted)}.tm-pt i.ok{background:var(--primary)}.tm-pt i.ruim{background:var(--danger)}
+  .tm-regua{position:relative;height:10px;border-radius:5px;background:linear-gradient(90deg,#14082e,#5a1a78,#b52d6b,#ec6a2a,#fdb93a,#fff3b0);margin:26px 0 20px}
+  .tm-regua i{position:absolute;top:-4px;width:2px;height:18px;background:var(--text)}
+  .tm-regua span{position:absolute;top:-22px;transform:translateX(-50%);font-size:11px;font-weight:700;white-space:nowrap}
+  .tm-regua em{position:absolute;top:16px;font-style:normal;font-size:10px;color:var(--muted)}
+  .tm-crono{display:flex;flex-direction:column}
+  .tm-crono div{display:grid;grid-template-columns:44px 14px minmax(0,1fr);gap:8px;min-height:46px}
+  .tm-crono time{font-size:11px;color:var(--muted)}
+  .tm-crono s{position:relative;display:flex;justify-content:center;text-decoration:none}
+  .tm-crono s::before{content:"";position:absolute;top:0;bottom:0;width:1px;background:var(--border)}
+  .tm-crono s i{position:relative;width:9px;height:9px;margin-top:3px;border-radius:50%;background:var(--muted);box-shadow:0 0 0 3px var(--surface)}
+  .tm-crono s i.da{background:var(--danger)}.tm-crono s i.ok{background:var(--primary)}.tm-crono s i.am{background:var(--amber)}
+  .tm-crono b{display:block;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .tm-crono small{display:block;color:var(--muted);font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .tm-ocorr{width:min(1240px,100vw)}
+  .tm-ocorr .tm-cmd{border-radius:0;margin:0;flex:none}
+  .tm-ocorr .tm-gav-corpo{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:20px;padding:20px;align-items:start;background:var(--bg)}
+  .tm-ocorr-esq{grid-column:span 8;display:flex;flex-direction:column;gap:20px;min-width:0}
+  .tm-ocorr-dir{grid-column:span 4;display:flex;flex-direction:column;gap:20px;min-width:0}
+  .tm-ocorr .tm-foto{border-radius:8px}
+  .tm-ocorr .tm-cor video{object-fit:fill}
+  .tm-regra-lista{display:flex;flex-direction:column}
+  .tm-regra-item{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;align-items:center;min-height:52px;width:100%;padding:0 12px;border:0;border-bottom:1px solid var(--border);background:none;font:inherit;text-align:left;cursor:pointer;color:inherit}
+  .tm-regra-item.on{background:var(--surface-soft);box-shadow:inset 2px 0 0 var(--primary)}
+  .tm-regra-item b{display:block;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .tm-regra-item small{display:block;color:var(--muted);font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .tm-fluxo{display:grid;grid-template-columns:minmax(0,1fr) 28px minmax(0,1fr) 28px minmax(0,1fr)}
+  .tm-no{border:1px solid var(--border);border-radius:8px;padding:14px;background:var(--surface-soft);min-width:0}
+  .tm-no span{display:block;font-size:10px;letter-spacing:.09em;font-weight:700;color:var(--muted);margin-bottom:6px}
+  .tm-no b{display:block;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .tm-no small{display:block;color:var(--muted);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .tm-no.q{background:var(--sidebar);border-color:var(--sidebar);color:#fff}.tm-no.q span,.tm-no.q small{color:#a9bdc6}
+  .tm-liga{align-self:center;height:2px;background:var(--primary);position:relative}
+  .tm-liga::after{content:"";position:absolute;right:-1px;top:-4px;border-left:7px solid var(--primary);border-top:5px solid transparent;border-bottom:5px solid transparent}
+  @media (max-width:1100px){.tm-cmd-est,.tm-cmd-met,.tm-cmd-acoes,.tm-c3,.tm-c6,.tm-c9,.tm-ocorr-esq,.tm-ocorr-dir{grid-column:span 12}.tm-cmd-met{border-left:0;padding-left:0}.tm-quatro{grid-template-columns:repeat(2,minmax(0,1fr))}.tm-fluxo{grid-template-columns:minmax(0,1fr);gap:8px}.tm-liga{display:none}.tm-cmd-dia{grid-template-columns:minmax(0,1fr)}.tm-rampa{width:80px}}
   .tm-perfil{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) minmax(0,1.2fr) minmax(0,.9fr) 32px;gap:8px;align-items:end}
   .tm-perfil input,.tm-perfil select{min-width:0;width:100%;box-sizing:border-box}
   @media (max-width:560px){.tm-perfil{grid-template-columns:repeat(2,minmax(0,1fr))}}
@@ -216,9 +319,10 @@
         <button type="button" role="tab" data-tm-aba="automacoes" class="${aba === 'automacoes' ? 'on' : ''}">Automações</button>
       </div>
       ${aba === 'vivo' ? htmlVivo() : aba === 'geral' ? htmlGeral() : aba === 'alarmes' ? htmlAlarmes() : htmlAutomacoes()}`;
+    aplicarPaleta();
     ligar(sec);
     icones();
-    if (aba === 'alarmes' && aberto) carregarFotos(aberto);
+    ligarAlarmes(sec);
     if (aba === 'vivo') { ligarVivo(sec); montarParede(); }
   }
 
@@ -243,16 +347,23 @@
     if (!geral) return '<section class="tm-card"><div class="tm-vazio-card">Carregando…</div></section>';
     const hoje = new Date(); const dia = d => d.toISOString().slice(0, 10);
     const ini = new Date(hoje - 29 * 864e5);
-    const kpi = (rot, v, cor) => `<div><span>${rot}</span><strong${cor ? ` style="color:var(--${cor})"` : ''}>${v}</strong></div>`;
+    const kpi = (rot, v, cor) => `<div class="tm-med"><span>${rot}</span><b${cor ? ` style="color:var(--${cor})"` : ''}>${v}</b></div>`;
+    const mapa = u => {
+      const n = horasDe(reais().filter(a => a.site === u.site));
+      return `<div><div class="tm-linha" style="margin-bottom:8px"><span class="tm-sub">Alarmes por hora, hoje</span><span class="tm-sub">00h a 23h</span></div>
+        <div class="tm-mapa" role="img" aria-label="Alarmes de hoje por hora">${n.map((v, i) => `<i class="${v > 4 ? 'a2' : v ? 'a1' : i < 6 || i >= 18 ? 'n' : ''}" title="${String(i).padStart(2, '0')}h: ${v}"></i>`).join('')}</div></div>`;
+    };
+    const pontos = u => `<div class="tm-pontos">${cams.cameras.filter(c => c.site === u.site && c.ativo).sort((a, b) => natural(a.nome, b.nome)).map(c => `<span class="tm-pt"><i class="${c.leitura === 'ok' ? 'ok' : 'ruim'}"></i>${h(c.nome)}</span>`).join('')}</div>`;
     const cards = geral.usinas.map(u => `<section class="tm-card">
         <div class="tm-linha"><h2>${h(u.site || '(sem local)')}</h2><button class="secondary-action" type="button" data-tm-ver-usina="${h(u.site)}">Ver ao vivo</button></div>
-        <div class="tm-medidas">${kpi('Lendo agora', `${u.lendo} de ${u.cameras}`, u.sem_leitura ? 'danger' : '')}${kpi('Sem resposta', u.pendentes, u.pendentes ? 'danger' : '')}${kpi('Alarmes 30 d', u.alarmes)}${kpi('Resposta', tempoCurto(u.resposta_s))}</div>
+        <div class="tm-quatro">${kpi('Medindo', `${u.lendo} de ${u.cameras}`, u.sem_leitura ? 'danger' : 'primary')}${kpi('Sem resposta', u.pendentes, u.pendentes ? 'danger' : '')}${kpi('Alarmes 30 d', u.alarmes)}${kpi('Resposta', tempoCurto(u.resposta_s))}</div>
+        ${mapa(u)}${pontos(u)}
         ${u.sem_leitura ? `<div class="tm-sub" style="color:var(--danger)">${u.sem_leitura} câmera(s) sem leitura: nessas, não há alerta de pessoa.</div>` : ''}
       </section>`).join('') || '<section class="tm-card"><div class="tm-vazio-card">Nenhuma câmera vigiando ainda.</div></section>';
     const c = geral.config;
     const opt = (lista, atual, rot) => lista.map(([v, t]) => `<option value="${v}" ${Number(v) === Number(atual) ? 'selected' : ''}>${t}</option>`).join('');
     const sites = geral.usinas.map(u => u.site).sort(natural);
-    return `<div class="tm-geral">${cards}</div>
+    return `<div id="tmFaixa">${htmlFaixa()}</div><div class="tm-geral">${cards}</div>
       <div class="tm-geral" style="margin-top:20px">
         <section class="tm-card"><h2>Se ninguém responder</h2>
           <p class="tm-sub" style="margin:0">O alarme sem Ciente avisa os celulares de novo, com a sirene.</p>
@@ -321,8 +432,9 @@
     toast('Alarme de teste criado.');
     await Promise.all([carregarAlertas(true), carregarCameras()]);
     aba = 'alarmes';
-    aberto = alertas.alertas.find(a => a.id === novo) || null;
     render();
+    const a = alertas.alertas.find(x => x.id === novo);
+    if (a) abrirAlarme(a);
   }
 
   function htmlAlarmes() {
@@ -336,7 +448,7 @@
         <td>${h(hora(a.criado_at))}</td><td title="${h(a.camera_nome)}" style="font-weight:${a.situacao === 'novo' ? 600 : 400}">${h(a.camera_nome)}${a.mancha?.teste ? ' <span class="pill neutral">TESTE</span>' : ''}</td>
         <td title="${h(a.site)}">${h(a.site)}</td><td class="tm-num">${a.dif_c == null ? '—' : `${num(a.dif_c)} °C`}</td><td><span class="pill ${cls}">${rot}</span></td></tr>`;
     }).join('') || `<tr><td colspan="5" style="text-align:center;color:var(--muted);height:80px">Nenhum alarme ${filtro.situacao || filtro.site || filtro.q ? 'com esse filtro' : 'ainda'}.</td></tr>`;
-    return `<div class="tm-grid">
+    return `<div>
       <section class="tm-card">
         <div class="tm-linha"><h2>Alarmes</h2><span class="tm-sub">mais recentes primeiro</span></div>
         <div class="tm-filtros">
@@ -345,12 +457,11 @@
           <label>Situação<select id="tmSit"><option value="">Todas</option>${Object.entries(SIT).map(([k, [rot]]) => `<option value="${k}" ${k === filtro.situacao ? 'selected' : ''}>${rot} (${ps[k] || 0})</option>`).join('')}</select></label>
         </div>
         <div class="table-wrap"><table class="tm-tab">
-          <colgroup><col style="width:56px"><col><col style="width:140px"><col style="width:96px"><col style="width:122px"></colgroup>
+          <colgroup><col style="width:72px"><col><col style="width:240px"><col style="width:110px"><col style="width:132px"></colgroup>
           <thead><tr><th>Hora</th><th>Câmera</th><th>Usina</th><th class="tm-num">Dif. fundo</th><th>Situação</th></tr></thead>
           <tbody>${linhas}</tbody></table></div>
         ${htmlTeste('secondary-action')}
       </section>
-      <section class="tm-card">${aberto ? htmlDetalhe(aberto) : '<div class="tm-vazio-card">Clique num alarme para ver as fotos e responder.</div>'}</section>
     </div>`;
   }
 
@@ -366,29 +477,6 @@
     if (!v.termico && !v.visivel) return '';
     const um = (src, rot) => src ? `<figure style="margin:0"><video class="tm-grav" src="${h(src)}" controls muted playsinline preload="metadata"></video><figcaption class="tm-legenda">${rot}</figcaption></figure>` : '';
     return `<div><div class="tm-sub" style="margin-bottom:6px">Vídeo depois do alarme</div><div class="tm-fotos">${um(v.termico, 'Térmica')}${um(v.visivel, 'Colorida')}</div></div>`;
-  }
-
-  function htmlDetalhe(a) {
-    const [rot, cls] = SIT[a.situacao] || SIT.novo;
-    const resp = a.situacao === 'novo' ? '' : `<div class="tm-sub">${a.situacao === 'falso' ? 'Falso alarme' : 'Ciente'} por ${h(a.visto_por || '—')} em ${h(dataHora(a.visto_at))}${a.motivo_falso ? ` · ${h((MOTIVOS.find(m => m[0] === a.motivo_falso) || ['', a.motivo_falso])[1])}` : ''}${a.comentario ? ` · “${h(a.comentario)}”` : ''}</div>`;
-    return `
-      <div class="tm-linha"><div style="min-width:0"><h2 style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${h(a.camera_nome)} · ${h(a.site)}</h2>
-        <div class="tm-sub">${a.mancha?.teste ? 'Alarme de teste' : 'Pessoa detectada pelo calor'} · ${h(dataHora(a.criado_at))}</div></div><span class="pill ${cls}">${rot}</span></div>
-      <div class="tm-fotos">
-        <figure style="margin:0"><div class="tm-foto" id="tmFotoT"><div class="tm-vazio">Carregando…</div><div class="tm-caixa" style="${caixaCss(a)}"></div></div><figcaption class="tm-legenda">Térmica</figcaption></figure>
-        <figure style="margin:0"><div class="tm-foto" id="tmFotoV"><div class="tm-vazio">${a.fotos.visivel ? 'Carregando…' : 'Sem foto colorida'}</div></div><figcaption class="tm-legenda">Colorida, mesmo instante</figcaption></figure>
-      </div>
-      ${htmlVideos(a)}
-      ${a.mancha?.teste ? `<div class="tm-sub">Gerado na tela para testar os avisos. Não houve detecção: as fotos são da câmera naquele momento.</div>` : `<div class="tm-medidas">
-        <div><span>Mancha</span><strong style="color:var(--danger)">${num(a.temp_c)} °C</strong></div>
-        <div><span>Fundo</span><strong>${num(a.fundo_c)} °C</strong></div>
-        <div><span>Diferença</span><strong>${num(a.dif_c)} °C</strong></div>
-        <div><span>Tamanho</span><strong>${a.mancha?.pontos || '—'} pts</strong></div>
-      </div>`}
-      ${a.situacao === 'novo' ? `<div class="tm-acoes">
-        <button class="primary-action" type="button" data-tm-ciente>Ciente</button>
-        <button class="secondary-action" type="button" data-tm-falso style="color:var(--amber)">Falso alarme</button>
-        <button class="secondary-action" type="button" data-tm-fechar>Fechar</button></div>` : resp}`;
   }
 
   async function blobUrl(url) {
@@ -418,7 +506,7 @@
     if (busca) busca.oninput = () => { filtro.q = busca.value; const pos = busca.selectionStart; render(); const b = $('tmBusca'); b.focus(); b.setSelectionRange(pos, pos); };
     if ($('tmSite')) $('tmSite').onchange = e => { filtro.site = e.target.value; render(); };
     if ($('tmSit')) $('tmSit').onchange = e => { filtro.situacao = e.target.value; render(); };
-    sec.querySelectorAll('[data-tm-alerta]').forEach(tr => tr.onclick = () => { aberto = alertas.alertas.find(a => a.id === tr.dataset.tmAlerta) || null; render(); });
+    sec.querySelectorAll('[data-tm-alerta]').forEach(tr => tr.onclick = () => { const a = alertas.alertas.find(x => x.id === tr.dataset.tmAlerta); if (a) abrirAlarme(a); });
     sec.querySelector('[data-tm-teste-alarme]')?.addEventListener('click', () => gerarTeste($('tmTesteCam')?.value));
     sec.querySelector('[data-tm-ciente]')?.addEventListener('click', () => responder('ciente', {}));
     sec.querySelector('[data-tm-falso]')?.addEventListener('click', pedirMotivo);
@@ -505,24 +593,36 @@
         <td><span class="pill ${!e.ok ? 'danger' : e.modo === 'valer' ? 'success' : 'neutral'}">${!e.ok ? 'Falhou' : e.modo === 'valer' ? 'Feito' : 'Simulado'}</span></td></tr>`;
     }).join('') || '<tr><td colspan="4" style="text-align:center;color:var(--muted);height:60px">Nada executado ainda.</td></tr>';
     if (!auto.automacoes.length && !autoAberta) return htmlSemAutomacao();
-    return `<div class="tm-grid">
-      <div style="display:flex;flex-direction:column;gap:20px;min-width:0">
-        <section class="tm-card">
-          <div class="tm-linha"><h2>Automações</h2><button class="primary-action" type="button" data-tm-nova>Nova automação</button></div>
-          <div class="table-wrap"><table class="tm-tab">
-            <colgroup><col><col style="width:170px"><col style="width:64px"><col style="width:104px"><col style="width:84px"></colgroup>
-            <thead><tr><th>Nome</th><th>Quando detectar em</th><th class="tm-num">Ações</th><th>Modo</th><th>Situação</th></tr></thead>
-            <tbody>${linhas}</tbody></table></div>
-        </section>
-        <section class="tm-card">
-          <div class="tm-linha"><h2>Histórico</h2><span class="tm-sub">últimas 15 ações</span></div>
-          <div class="table-wrap"><table class="tm-tab">
-            <colgroup><col style="width:56px"><col style="width:150px"><col><col style="width:96px"></colgroup>
-            <thead><tr><th>Hora</th><th>Automação</th><th>Ação</th><th>Resultado</th></tr></thead>
-            <tbody>${hist}</tbody></table></div>
-        </section>
-      </div>
-      <section class="tm-card">${autoAberta ? htmlFormRegra(autoAberta) : '<div class="tm-vazio-card">Clique numa automação ou crie uma nova.</div>'}</section>
+    const itens = auto.automacoes.map(r => `<button type="button" class="tm-regra-item ${autoAberta && autoAberta.id === r.id ? 'on' : ''}" data-tm-regra="${h(r.id)}">
+        <span style="min-width:0"><b title="${h(r.nome)}">${h(r.nome)}</b><small>${h(nomeOrigem(r.origem_camera_id))} · ${r.acoes.length} ação(ões)${r.ativo ? '' : ' · desligada'}</small></span>
+        <span class="pill ${r.modo === 'valer' ? 'danger' : 'neutral'}">${r.modo === 'valer' ? 'Valendo' : 'Simulando'}</span></button>`).join('')
+      || '<div class="tm-vazio-card">Nenhuma automação ainda.</div>';
+    return `<div class="tm-doze">
+      <aside class="tm-c3 tm-card" style="padding-inline:0">
+        <div class="tm-linha" style="padding:0 20px"><h2>Regras</h2><span class="tm-sub">${auto.automacoes.filter(r => r.ativo).length} ligada(s)</span></div>
+        <div class="tm-regra-lista">${itens}</div>
+        <div style="margin-top:auto;padding:0 20px"><button class="primary-action" type="button" data-tm-nova style="width:100%;justify-content:center">Nova automação</button></div>
+      </aside>
+      <section class="tm-c9 tm-card">${autoAberta ? htmlFormRegra(autoAberta) : '<div class="tm-vazio-card">Clique numa regra ou crie uma nova.</div>'}</section>
+      <section class="tm-c12 tm-card">
+        <div class="tm-linha"><h2>Histórico</h2><span class="tm-sub">últimas 15 ações</span></div>
+        <div class="table-wrap"><table class="tm-tab">
+          <colgroup><col style="width:72px"><col style="width:260px"><col><col style="width:110px"></colgroup>
+          <thead><tr><th>Hora</th><th>Automação</th><th>Ação</th><th>Resultado</th></tr></thead>
+          <tbody>${hist}</tbody></table></div>
+      </section>
+    </div>`;
+  }
+
+  function htmlFluxo(r) {
+    const a = r.acoes[0] || {};
+    const mais = r.acoes.length > 1 ? ` e mais ${r.acoes.length - 1}` : '';
+    const depois = a.tipo === 'saida' ? ['Desliga a saída', `Em ${a.segundos ?? 30} s`] : (a.voltar_s ?? 60) ? ['Volta à posição', `Em ${a.voltar_s ?? 60} s`] : ['Fica apontada', 'Até mover à mão'];
+    const faz = a.tipo === 'speed_seguir' ? 'Aponta para o alarme' : a.tipo === 'saida' ? `Liga a saída ${a.saida ?? 1}` : `Vai ao preset ${a.preset ?? 1}`;
+    return `<div class="tm-fluxo">
+      <div class="tm-no q"><span>QUANDO</span><b>Pessoa detectada</b><small>${h(nomeOrigem(r.origem_camera_id))}</small></div><div class="tm-liga"></div>
+      <div class="tm-no"><span>FAZ</span><b title="${h(a.nome || '')}">${h(a.nome || 'Escolha o equipamento')}</b><small>${h(faz + mais)}</small></div><div class="tm-liga"></div>
+      <div class="tm-no"><span>DEPOIS</span><b>${h(depois[0])}</b><small>${h(depois[1])}</small></div>
     </div>`;
   }
 
@@ -547,8 +647,9 @@
   }
 
   function htmlFormRegra(r) {
-    return `<div class="tm-linha"><h2>${r.id ? 'Automação' : 'Nova automação'}</h2>
+    return `<div class="tm-linha"><h2>${r.id ? h(r.nome) : 'Nova automação'}</h2>
         <label class="tm-linha" style="gap:8px;font-size:13px"><input type="checkbox" id="tmRAtivo" ${r.ativo ? 'checked' : ''}> Ligada</label></div>
+      ${htmlFluxo(r)}
       <label class="tm-campo">Nome<input id="tmRNome" maxlength="120" value="${h(r.nome)}" placeholder="Ex.: Speed olha a cerca"></label>
       <div class="tm-regra" style="grid-template-columns:minmax(0,2fr) minmax(0,1fr)">
         <label class="tm-campo">Quando detectar em<select id="tmROrigem"><option value="">Todas as térmicas</option>${cams.cameras.map(c => `<option value="${h(c.id)}" ${c.id === r.origem_camera_id ? 'selected' : ''}>${h(c.site)} · ${h(c.nome)}</option>`).join('')}</select></label>
@@ -707,13 +808,49 @@
   // Erro cru do go2rtc tem endereco e senha de stream: nao vai para a tela.
   const textoVideo = t => (String(t).length > 60 || /go2rtc|rtsp|dial tcp|error/i.test(t) ? 'Câmera sem resposta. Tentando de novo…' : t);
 
+  const hojeLocal = iso => new Date(iso).toDateString() === new Date().toDateString();
+  const reais = () => alertas.alertas.filter(a => !a.mancha?.teste);
+  const tempoCurtoSeg = (de, ate) => (new Date(ate) - new Date(de)) / 1000;
+  function medianaResposta(lista) {
+    const t = lista.filter(a => a.situacao !== 'novo' && a.visto_at).map(a => tempoCurtoSeg(a.criado_at, a.visto_at)).filter(s => s >= 0).sort((x, y) => x - y);
+    return t.length ? t[Math.floor(t.length / 2)] : null;
+  }
+  function horasDe(lista) {
+    const n = Array(24).fill(0);
+    lista.filter(a => hojeLocal(a.criado_at)).forEach(a => { n[new Date(a.criado_at).getHours()] += 1; });
+    return n;
+  }
+
+  // Faixa de comando: a situacao numa frase, os numeros e o dia hora a hora.
   function htmlFaixa() {
     const a = alertas.alertas.find(x => x.situacao === 'novo');
-    const ativas = cams.cameras.filter(c => c.ativo).length;
-    if (a) return `<div class="tm-faixa alarme"><span class="tm-ponto"></span>${a.mancha?.teste ? 'Alarme de teste' : 'Pessoa detectada'}: ${h(a.camera_nome)} · ${h(a.site)} <small>${h(hora(a.criado_at))}${a.mancha?.teste ? '' : `, ${num(a.temp_c, 0)} °C num fundo de ${num(a.fundo_c, 0)} °C`}</small>
-      <button class="secondary-action" type="button" data-tm-ver-alarme="${h(a.id)}" style="margin-left:auto">Ver ao vivo</button></div>`;
-    const ult = alertas.alertas[0];
-    return `<div class="tm-faixa"><span class="tm-ponto"></span>${ativas ? 'Tudo tranquilo' : 'Nenhuma câmera vigiando'} <small>${ativas} térmica(s) vigiando · nenhum alarme sem resposta${ult ? ` · último alarme ${h(dataHora(ult.criado_at))}` : ''}</small></div>`;
+    const ativas = cams.cameras.filter(c => c.ativo);
+    const lendo = ativas.filter(c => c.leitura === 'ok').length;
+    const total = cams.cameras.length + (cams.no_inventario || []).length;
+    const usinas = new Set(ativas.map(c => c.site)).size;
+    const hoje = reais().filter(x => hojeLocal(x.criado_at));
+    const pend = alertas.por_situacao?.novo || 0;
+    const resp = medianaResposta(hoje);
+    const ruim = ativas.length - lendo;
+    const est = a ? [a.mancha?.teste ? 'Alarme de teste' : 'Pessoa detectada', `${a.camera_nome} · ${a.site} · ${hora(a.criado_at)}`]
+      : !ativas.length ? ['Nenhuma câmera vigiando', 'Vá em uma câmera e clique em Vigiar']
+        : ruim ? ['Atenção na vigia', `${ruim} câmera(s) sem medição · sem alarme de pessoa nelas`]
+          : ['Perímetro protegido', `${usinas} usina(s) · nenhum alarme sem resposta`];
+    const n = horasDe(reais());
+    const maior = Math.max(1, ...n);
+    const agora = new Date().getHours();
+    const barras = n.map((v, i) => `<span class="${i < 6 || i >= 18 ? 'n' : ''} ${i === agora ? 'ag' : ''}" title="${String(i).padStart(2, '0')}h: ${v} alarme(s)"><i style="height:${Math.round((v / maior) * 100)}%"></i></span>`).join('');
+    return `<section class="tm-cmd ${a ? 'alarme' : ''}" aria-label="Situação agora">
+      <div class="tm-cmd-lin">
+        <div class="tm-cmd-est"><span class="tm-cmd-pul"><i></i></span><div style="min-width:0"><b>${h(est[0])}</b><small>${h(est[1])}</small></div></div>
+        <div class="tm-cmd-met"><span>Medindo agora</span><b class="${!a && !ruim && lendo ? 'ok' : ''}">${lendo} <em>de ${total}</em></b></div>
+        <div class="tm-cmd-met"><span>Alarmes hoje</span><b>${hoje.length}</b></div>
+        <div class="tm-cmd-met"><span>Sem resposta</span><b>${pend}</b></div>
+        ${a ? `<div class="tm-cmd-met" style="border:0;padding:0"><button class="tm-cmd-bt cheio" type="button" data-tm-ver-alarme="${h(a.id)}">Abrir alarme</button></div>`
+    : `<div class="tm-cmd-met"><span>Tempo de resposta</span><b>${resp == null ? '—' : tempoCurto(resp)}</b></div>`}
+      </div>
+      <div class="tm-cmd-dia"><span>Alarmes hora a hora</span><div><div class="tm-horas" role="img" aria-label="Alarmes de hoje por hora">${barras}</div><div class="tm-horas-reg"><span>00h</span><span>06h</span><span>12h</span><span>18h</span></div></div></div>
+    </section>`;
   }
 
   function htmlLado() {
@@ -722,20 +859,19 @@
     return `<h2>Acontecendo agora</h2>${itens || '<p class="tm-sub" style="margin:0">Nenhum alarme ainda. Quando a câmera detectar alguém, aparece aqui.</p>'}`;
   }
 
-  function htmlTile(c, i) {
+  function htmlTile(c, i, grande) {
     const [sit, cls] = situacao(c);
     const id = domId(c);
-    return `<article class="pdv-v-tile ${c.pendentes ? 'tm-alarme' : ''}" id="tmT-${id}">
+    return `<article class="pdv-v-tile tm-tile ${vista === 'termica' ? 'tm-termica' : 'tm-cor'} ${grande ? 'tm-grande' : ''} ${c.pendentes ? 'tm-alarme' : ''}" id="tmT-${id}">
       <button type="button" class="pdv-v-video tm-abrir" data-tm-abrir="${h(idCam(c))}" aria-label="Abrir ${h(c.nome)} ao vivo">
         ${i < PAREDE_MAX_VIDEOS ? `<video id="tmV-${id}" autoplay muted playsinline></video>` : ''}
         <span class="pdv-v-aviso" id="tmA-${id}">${i < PAREDE_MAX_VIDEOS ? 'Conectando...' : 'clique para ver ao vivo'}</span>
-        <span class="pdv-v-lbl pdv-v-nome">${h(c.nome)}</span>
+        <span class="pdv-v-lbl pdv-v-nome" title="${h(c.nome)}">${h(c.nome)}<small data-pe>${c.ativo ? `${h(quandoDe(c))} · ${h(rotuloSens(c.regra))}` : 'Só vídeo'}</small></span>
         <span class="pdv-v-lbl pdv-v-sit ${cls}" data-sit>${h(sit)}</span>
         <span class="pdv-v-lbl tm-l-vivo"><i class="tm-vivo"></i>AO VIVO</span>
         <span class="pdv-v-lbl tm-l-temp" data-temp ${c.fundo_c == null ? 'hidden' : ''}>${c.fundo_c == null ? '' : `${num(c.fundo_c, 0)} °C`}</span>
       </button>
-      <div class="tm-tile-pe"><span data-pe>${c.ativo ? `${h(quandoDe(c))} · ${h(rotuloSens(c.regra))}` : 'Só vídeo'}</span>
-        <button type="button" class="pdv-l-link" data-tm-config="${h(idCam(c))}">${c.ativo || c.id ? 'Configurar' : 'Vigiar'}</button></div>
+      <button type="button" class="tm-tile-cfg" data-tm-config="${h(idCam(c))}">${c.ativo || c.id ? 'Configurar' : 'Vigiar'}</button>
     </article>`;
   }
 
@@ -747,11 +883,17 @@
       const paradas = dela.filter(c => !c.ativo);
       return { s, dela, paradas };
     });
+    // Uma camera em destaque em cada usina: a do alarme, senao a que esta medindo.
+    grupos.forEach(g => {
+      const d = g.dela.find(c => c.pendentes) || g.dela.find(c => c.ativo && c.leitura === 'ok' && !c.armado_de) || g.dela.find(c => c.ativo && c.leitura === 'ok') || g.dela[0];
+      g.destaque = d;
+      if (d) g.dela = [d, ...g.dela.filter(c => c !== d)];
+    });
     let n = 0;
     const blocos = grupos.map(g => `<section class="tm-usina">
       <div class="tm-linha"><h2>${h(g.s || '(sem local)')} <span class="tm-sub" style="font-weight:400">· ${g.dela.length - g.paradas.length} vigiando${g.paradas.length ? ` · ${g.paradas.length} sem vigiar` : ''}</span></h2>
         ${g.paradas.length ? `<button class="secondary-action pdv-mini" type="button" data-tm-vigiar-usina="${h(g.s)}">Vigiar as ${g.paradas.length} desta usina</button>` : ''}</div>
-      <div class="tm-tiles">${g.dela.map(c => htmlTile(c, n++)).join('')}</div></section>`).join('');
+      <div class="tm-tiles">${g.dela.map(c => htmlTile(c, n++, c === g.destaque)).join('')}</div></section>`).join('');
     return `<div id="tmFaixa">${htmlFaixa()}</div>
       <div class="tm-ferr">
         <div class="tm-seg" role="tablist" aria-label="Imagem">
@@ -759,12 +901,17 @@
           <button type="button" class="${vista === 'colorida' ? 'on' : ''}" data-tm-vista="colorida">Colorida</button>
         </div>
         <select id="tmUsina" class="tm-sel" aria-label="Usina"><option value="">Todas as usinas (${sites.length})</option>${sites.map(s => `<option value="${h(s)}" ${s === filtroUsina ? 'selected' : ''}>${h(s)}</option>`).join('')}</select>
+        ${vista === 'termica' ? `<div class="tm-seg" role="group" aria-label="Paleta da imagem térmica">
+          <button type="button" class="${paleta === 'ferro' ? 'on' : ''}" data-tm-paleta="ferro">Ferro</button>
+          <button type="button" class="${paleta !== 'ferro' ? 'on' : ''}" data-tm-paleta="branco">Branco</button>
+        </div>
+        ${paleta === 'ferro' ? '<div class="tm-ferr-fim"><span>frio</span><span class="tm-rampa" aria-hidden="true"></span><span>quente</span></div>' : ''}` : ''}
       </div>
       <div class="tm-parede-grade">
         <div class="tm-parede">${blocos || '<div class="tm-vazio-card">Nenhuma câmera térmica no inventário deste cliente.</div>'}</div>
         <aside class="tm-lado" id="tmLado" aria-label="Acontecendo agora">${htmlLado()}</aside>
       </div>
-      <p class="tm-sub">Na parede o vídeo vai leve para poupar o link da usina. Clique numa câmera para ver grande.</p>`;
+`;
   }
 
   function montarParede() {
@@ -807,6 +954,11 @@
   function ligarVivo(sec) {
     ligarAlarmes(sec);
     sec.querySelectorAll('[data-tm-vista]').forEach(b => b.onclick = () => { vista = b.dataset.tmVista; render(); });
+    sec.querySelectorAll('[data-tm-paleta]').forEach(b => b.onclick = () => {
+      paleta = b.dataset.tmPaleta;
+      try { localStorage.setItem('tm.paleta', paleta); } catch (_) { /* fica so nesta visita */ }
+      render();
+    });
     if ($('tmUsina')) $('tmUsina').onchange = e => { filtroUsina = e.target.value; render(); };
     const achar = k => [...cams.cameras, ...(cams.no_inventario || [])].find(c => idCam(c) === k);
     sec.querySelectorAll('[data-tm-abrir]').forEach(b => b.onclick = () => {
@@ -833,35 +985,65 @@
   }
 
   // ------------------------------------------------------- gaveta do alarme
+  function cronologia(a) {
+    const passos = [{ h: a.criado_at, t: a.mancha?.teste ? 'Alarme de teste gerado' : 'Pessoa detectada', s: `${a.camera_nome} · ${a.mancha?.quadros || 1} leitura(s) seguida(s)`, c: 'da' }];
+    auto.execucoes.filter(e => e.alerta_id === a.id).reverse().forEach(e => {
+      let x = {}; try { x = JSON.parse(e.acao); } catch (_) { /* linha antiga */ }
+      passos.push({ h: e.criado_at, t: x.nome ? descrever(x) : 'Automação', s: !e.ok ? 'Falhou' : e.modo === 'valer' ? 'Feito' : 'Simulado', c: !e.ok ? 'da' : e.modo === 'valer' ? 'ok' : '' });
+    });
+    if (a.situacao !== 'novo') passos.push({ h: a.visto_at, t: a.situacao === 'falso' ? 'Falso alarme' : 'Ciente', s: `por ${a.visto_por || '—'}`, c: a.situacao === 'falso' ? 'am' : 'ok' });
+    return `<div class="tm-crono">${passos.map(p => `<div><time>${h(hora(p.h))}</time><s><i class="${p.c}"></i></s><span style="min-width:0"><b title="${h(p.t)}">${h(p.t)}</b><small>${h(p.s)}</small></span></div>`).join('')}</div>`;
+  }
+
+  function reguaCalor(a) {
+    if (a.temp_c == null || a.fundo_c == null) return '';
+    const pos = t => Math.max(2, Math.min(98, ((t - 20) / 40) * 100));
+    const [m, f] = [pos(a.temp_c), pos(a.fundo_c)];
+    const perto = Math.abs(m - f) < 16;
+    return `<div class="tm-regua" role="img" aria-label="Mancha ${num(a.temp_c)} graus, fundo ${num(a.fundo_c)} graus"><i style="left:${m}%"></i><span style="left:${perto && m < f ? m - 6 : m}%;color:var(--danger)">Mancha</span><i style="left:${f}%"></i><span style="left:${perto && f >= m ? f + 6 : f}%">Fundo</span><em style="left:0">20 °C</em><em style="right:0">60 °C</em></div>`;
+  }
+
+  // Alarme como ocorrencia: tudo o que precisa para decidir na mesma tela.
   function abrirAlarme(a) {
     const cam = cams.cameras.find(c => c.id === a.camera_id);
     const speed = auto.automacoes.flatMap(r => (r.origem_camera_id === a.camera_id || !r.origem_camera_id) ? r.acoes : []).find(x => x.tipo.startsWith('speed'));
     const novo = a.situacao === 'novo';
+    const teste = !!a.mancha?.teste;
     const g = montarGaveta(`
-      <div class="tm-gav-cab"><div style="min-width:0;flex:1"><h2 style="color:var(--danger)">${a.mancha?.teste ? 'Alarme de teste' : 'Pessoa detectada pelo calor'}</h2>
-        <div class="tm-sub">${h(a.camera_nome)} · ${h(a.site)} · ${h(dataHora(a.criado_at))}</div></div>
-        <button class="ghost-action" type="button" data-tm-gfechar aria-label="Fechar">✕</button></div>
-      <div class="tm-gav-corpo">
-        <div class="tm-fotos">
-          <div class="tm-foto"><video id="tmGvT" autoplay muted playsinline></video><span class="pdv-v-aviso" id="tmGaT">Conectando...</span><span class="pdv-v-lbl pdv-v-nome">Térmica</span><span class="pdv-v-lbl tm-l-vivo"><i class="tm-vivo"></i>AO VIVO</span></div>
-          <div class="tm-foto"><video id="tmGvC" autoplay muted playsinline></video><span class="pdv-v-aviso" id="tmGaC">Conectando...</span><span class="pdv-v-lbl pdv-v-nome">Colorida</span><span class="pdv-v-lbl tm-l-vivo"><i class="tm-vivo"></i>AO VIVO</span></div>
+      <section class="tm-cmd ${novo ? 'alarme' : ''}">
+        <div class="tm-cmd-lin">
+          <div class="tm-cmd-est"><span class="tm-cmd-pul"><i></i></span><div style="min-width:0"><b>${teste ? 'Alarme de teste' : 'Pessoa detectada pelo calor'}</b><small>${h(a.camera_nome)} · ${h(a.site)} · ${h(dataHora(a.criado_at))}</small></div></div>
+          ${teste ? '<div class="tm-cmd-met" style="grid-column:span 4"><span>Situação</span><b>Teste</b></div>' : `<div class="tm-cmd-met"><span>Mancha</span><b>${num(a.temp_c)} <em>°C</em></b></div>
+          <div class="tm-cmd-met"><span>Fundo</span><b>${num(a.fundo_c)} <em>°C</em></b></div>`}
+          <div class="tm-cmd-acoes">
+            ${novo ? `<button class="tm-cmd-bt" type="button" data-tm-gfalso>Falso alarme</button><button class="tm-cmd-bt cheio" type="button" data-tm-gciente>Dar Ciente</button>` : ''}
+            <button class="tm-cmd-bt" type="button" data-tm-gfechar aria-label="Fechar">✕</button>
+          </div>
         </div>
-        ${speed ? `<div class="tm-foto"><video id="tmGvS" autoplay muted playsinline></video><span class="pdv-v-aviso" id="tmGaS">Conectando...</span><span class="pdv-v-lbl pdv-v-nome">${h(speed.nome)}</span><span class="pdv-v-lbl tm-l-vivo"><i class="tm-vivo"></i>AO VIVO</span></div>` : ''}
-        ${a.mancha?.teste ? `<div class="tm-sub">Gerado na tela para testar os avisos. Não houve detecção.</div>` : `<div class="tm-medidas">
-          <div><span>Pessoa</span><strong style="color:var(--danger)">${num(a.temp_c)} °C</strong></div>
-          <div><span>Fundo</span><strong>${num(a.fundo_c)} °C</strong></div>
-          <div><span>Diferença</span><strong>${num(Math.abs(a.dif_c || 0))} °C</strong></div>
-          <div><span>Tamanho</span><strong>${a.mancha?.pontos || '—'} pts</strong></div>
-        </div>`}
-        <div><div class="tm-sub" style="margin-bottom:6px">Momento do disparo</div>
-          <div class="tm-fotos"><div class="tm-foto" id="tmFotoT"><div class="tm-vazio">Carregando…</div><div class="tm-caixa" style="${caixaCss(a)}"></div></div>
-            <div class="tm-foto" id="tmFotoV"><div class="tm-vazio">${a.fotos.visivel ? 'Carregando…' : 'Sem foto colorida'}</div></div></div></div>
-        ${htmlVideos(a)}
-        ${novo ? '' : `<div class="tm-sub">${a.situacao === 'falso' ? 'Falso alarme' : 'Ciente'} por ${h(a.visto_por || '—')} em ${h(dataHora(a.visto_at))}</div>`}
-      </div>
-      <div class="tm-gav-pe">${novo ? `<button class="primary-action" type="button" data-tm-gciente style="flex:1;justify-content:center">Ciente</button>
-        <button class="secondary-action" type="button" data-tm-gfalso style="color:var(--amber)">Falso alarme</button>` : ''}
-        <button class="secondary-action" type="button" data-tm-gfechar>Fechar</button></div>`);
+      </section>
+      <div class="tm-gav-corpo">
+        <div class="tm-ocorr-esq">
+          <div class="tm-foto tm-termica" style="aspect-ratio:16/8.4"><video id="tmGvT" autoplay muted playsinline></video><span class="pdv-v-aviso" id="tmGaT">Conectando...</span><span class="pdv-v-lbl pdv-v-nome">Térmica</span><span class="pdv-v-lbl tm-l-vivo"><i class="tm-vivo"></i>AO VIVO</span></div>
+          <div class="tm-fotos" style="gap:20px">
+            <div class="tm-foto tm-cor"><video id="tmGvC" autoplay muted playsinline></video><span class="pdv-v-aviso" id="tmGaC">Conectando...</span><span class="pdv-v-lbl pdv-v-nome">Colorida</span><span class="pdv-v-lbl tm-l-vivo"><i class="tm-vivo"></i>AO VIVO</span></div>
+            ${speed ? `<div class="tm-foto tm-cor"><video id="tmGvS" autoplay muted playsinline></video><span class="pdv-v-aviso" id="tmGaS">Conectando...</span><span class="pdv-v-lbl pdv-v-nome">${h(speed.nome)}</span><span class="pdv-v-lbl tm-l-vivo"><i class="tm-vivo"></i>AO VIVO</span></div>` : `<div class="tm-foto tm-termica" id="tmFotoT"><div class="tm-vazio">Carregando…</div><div class="tm-caixa" style="${caixaCss(a)}"></div></div>`}
+          </div>
+          ${htmlVideos(a)}
+        </div>
+        <aside class="tm-ocorr-dir">
+          ${teste ? '<section class="tm-card"><div class="tm-sub">Gerado na tela para testar os avisos. Não houve detecção.</div></section>' : `<section class="tm-card">
+            <div class="tm-linha"><h2>Calor da mancha</h2><span class="tm-sub">${num(Math.abs(a.dif_c || 0))} °C ${(a.dif_c || 0) < 0 ? 'abaixo' : 'acima'} do fundo</span></div>
+            ${reguaCalor(a)}
+            <div class="tm-dois"><div class="tm-med"><span>Contraste</span><b>${a.mancha?.contraste == null ? '—' : `${num(a.mancha.contraste)} °C`}</b></div><div class="tm-med"><span>Tamanho</span><b>${a.mancha?.pontos || '—'} pts</b></div></div>
+          </section>`}
+          <section class="tm-card"><div class="tm-linha"><h2>O que já aconteceu</h2></div>${cronologia(a)}</section>
+          <section class="tm-card"><div class="tm-linha"><h2>Momento do disparo</h2></div>
+            ${speed ? `<div class="tm-foto tm-termica" id="tmFotoT"><div class="tm-vazio">Carregando…</div><div class="tm-caixa" style="${caixaCss(a)}"></div></div>` : ''}
+            <div class="tm-foto" id="tmFotoV"><div class="tm-vazio">${a.fotos.visivel ? 'Carregando…' : 'Sem foto colorida'}</div></div>
+          </section>
+        </aside>
+      </div>`);
+    g.querySelector('.tm-gaveta').classList.add('tm-ocorr');
     aberto = a;
     if (cam) {
       gavPlayers.push(tocar($('tmGvT'), cam, 'termica', true, $('tmGaT')));
@@ -1003,7 +1185,7 @@
       <div class="tm-gav-corpo">
         ${c.leitura === 'erro' ? `<div class="tm-alerta-msg">Sem medição: ${h(c.leitura_erro)}</div>` : ''}
         <div class="tm-perg"><b>1. Onde vigiar?</b>
-          <div class="tm-foto tm-desenho" id="tmDesenho"><video id="tmGvT" autoplay muted playsinline></video><span class="pdv-v-aviso" id="tmGaT">Conectando...</span>
+          <div class="tm-foto tm-desenho tm-termica" id="tmDesenho"><video id="tmGvT" autoplay muted playsinline></video><span class="pdv-v-aviso" id="tmGaT">Conectando...</span>
             <div id="tmCamada" class="tm-camada">${desenhoHtml()}</div><div id="tmManchas" class="tm-camada"></div>
             <span class="pdv-v-lbl tm-l-vivo"><i class="tm-vivo"></i>AO VIVO</span><span class="tm-dica">Arraste no vídeo. Pode marcar várias áreas</span></div>
           <div class="tm-chips"><button type="button" class="on" data-tm-modo="area">Marcar área</button><button type="button" data-tm-modo="ignorar">Marcar o que ignorar</button><button type="button" data-tm-limpar>Imagem inteira</button></div>
@@ -1126,7 +1308,7 @@
         <button class="ghost-action" type="button" data-tm-gfechar aria-label="Fechar">✕</button></div>
       <div class="tm-gav-corpo">
         <div class="tm-perg"><b id="tmCalPasso"></b>
-          <div class="tm-foto tm-desenho" id="tmCalT"><video id="tmCvT" autoplay muted playsinline></video><span class="pdv-v-aviso" id="tmCaT">Conectando...</span><div id="tmCalMarcas" class="tm-camada"></div><span class="pdv-v-lbl pdv-v-nome">${h(cam.nome)}</span></div>
+          <div class="tm-foto tm-desenho tm-termica" id="tmCalT"><video id="tmCvT" autoplay muted playsinline></video><span class="pdv-v-aviso" id="tmCaT">Conectando...</span><div id="tmCalMarcas" class="tm-camada"></div><span class="pdv-v-lbl pdv-v-nome">${h(cam.nome)}</span></div>
           <div class="tm-foto"><video id="tmCvS" autoplay muted playsinline></video><span class="pdv-v-aviso" id="tmCaS">Conectando...</span><span class="tm-mira"></span><span class="pdv-v-lbl pdv-v-nome">${h(a.nome)}</span></div>
           <div class="tm-chips" aria-label="Mover a speed"><button type="button" data-tm-mv="-40,0,0" aria-label="Esquerda">◀</button><button type="button" data-tm-mv="0,40,0" aria-label="Cima">▲</button><button type="button" data-tm-mv="0,-40,0" aria-label="Baixo">▼</button><button type="button" data-tm-mv="40,0,0" aria-label="Direita">▶</button><button type="button" data-tm-mv="0,0,40" aria-label="Aproximar">+</button><button type="button" data-tm-mv="0,0,-40" aria-label="Afastar">−</button></div>
         </div>
