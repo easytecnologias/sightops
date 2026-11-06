@@ -176,10 +176,15 @@ def _validar_regra(dados: Dict[str, Any], atual: Dict[str, Any]) -> Dict[str, An
             regra[campo] = _poligonos(dados[campo], campo)
     if "perfis" in dados:
         regra["perfis"] = _validar_perfis(dados["perfis"])
-    if float(regra.get("corpo_min", Regra.corpo_min)) >= float(regra.get("corpo_max", Regra.corpo_max)):
-        raise ValueError("A temperatura mínima de corpo tem que ser menor que a máxima.")
-    if int(regra.get("pontos_min", Regra.pontos_min)) >= int(regra.get("pontos_max", Regra.pontos_max)):
-        raise ValueError("O tamanho mínimo tem que ser menor que o máximo.")
+    # Cada faixa herda da regra o que nao troca: confere a combinacao final,
+    # senao a faixa fica sem detectar nada e ninguem percebe.
+    for p in [{}] + list(regra.get("perfis") or []):
+        efetiva = {**regra, **p}
+        rotulo = f"Faixa {p['de']} a {p['ate']}: " if p else ""
+        if float(efetiva.get("corpo_min", Regra.corpo_min)) >= float(efetiva.get("corpo_max", Regra.corpo_max)):
+            raise ValueError(f"{rotulo}A temperatura mínima de corpo tem que ser menor que a máxima.")
+        if int(efetiva.get("pontos_min", Regra.pontos_min)) >= int(efetiva.get("pontos_max", Regra.pontos_max)):
+            raise ValueError(f"{rotulo}O tamanho mínimo tem que ser menor que o máximo.")
     return regra
 
 

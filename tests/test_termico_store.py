@@ -563,3 +563,10 @@ def test_faixas_sao_validadas_e_voltam_na_regra(store):
                  [{"de": "18:00", "ate": "06:00", "dif_min": "x"}], "nao", [{"de": "01:00", "ate": "02:00"}] * 9):
         with pytest.raises(ValueError):
             store.salvar_camera(cam["id"], {"regra": {"perfis": ruim}})
+
+
+def test_faixa_contraditoria_e_recusada(store):
+    cam = store.adicionar("10.0.0.81", "c1")
+    for ruim in ({"corpo_min": 50, "corpo_max": 30}, {"pontos_min": 5000}, {"corpo_min": 45}):
+        with pytest.raises(ValueError, match="Faixa 18:00 a 06:00"):
+            store.salvar_camera(cam["id"], {"regra": {"perfis": [{"de": "18:00", "ate": "06:00", **ruim}]}})
