@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react';
+import { useState, type FocusEvent, type FormEvent } from 'react';
 import { entrar } from '../lib/api';
 import { MARCA } from '../lib/marca';
 import { Logo } from '../ui/pecas';
@@ -33,6 +33,12 @@ export function Login({ aoEntrar }: { aoEntrar: () => void }) {
     }
   }
 
+  // O teclado leva um instante para abrir: rola o campo para a vista depois disso.
+  const mostrar = (e: FocusEvent<HTMLInputElement>) => {
+    const campo = e.currentTarget;
+    window.setTimeout(() => campo.scrollIntoView({ block: 'center', behavior: 'smooth' }), 300);
+  };
+
   return (
     <div className="entrada">
       <div className="entrada-topo">
@@ -43,9 +49,9 @@ export function Login({ aoEntrar }: { aoEntrar: () => void }) {
       <form className="entrada-form" onSubmit={enviar}>
         <h2>Entrar</h2>
         <label className="campo"><span>Usuário</span>
-          <input autoComplete="username" autoCapitalize="none" value={usuario} onChange={(e) => setUsuario(e.target.value)} required /></label>
+          <input autoComplete="username" autoCapitalize="none" onFocus={mostrar} value={usuario} onChange={(e) => setUsuario(e.target.value)} required /></label>
         <label className="campo"><span>Senha</span>
-          <input type="password" autoComplete="current-password" value={senha} onChange={(e) => setSenha(e.target.value)} required /></label>
+          <input type="password" autoComplete="current-password" onFocus={mostrar} value={senha} onChange={(e) => setSenha(e.target.value)} required /></label>
         {erro ? <p className="msg-erro">{erro}</p> : null}
         <button type="submit" className="btn" disabled={indo}>{indo ? 'Entrando…' : 'Entrar'}</button>
         <p className="versao">tecnologia SightOps · versão {MARCA.versao}</p>

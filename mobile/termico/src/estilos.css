@@ -24,7 +24,8 @@ small { font-size: 12px; color: var(--apagado); }
 .abertura { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; background: var(--cor); color: #fff; text-align: center; padding: 24px; }
 .abertura strong { font-size: 24px; font-weight: 800; }
 .abertura span:last-child { opacity: .85; font-size: 13px; }
-.entrada { min-height: 100%; display: flex; flex-direction: column; background: var(--cor); }
+.entrada { height: 100%; overflow-y: auto; display: flex; flex-direction: column; background: var(--cor); }
+.entrada-form { flex: none; }
 .entrada-topo { flex: 1; min-height: 240px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; color: #fff; padding: calc(24px + env(safe-area-inset-top, 0px)) 24px 24px; text-align: center; }
 .entrada-topo p { margin: 0; opacity: .85; font-size: 13px; }
 .entrada-form { background: #fff; border-radius: 28px 28px 0 0; padding: 24px 20px calc(20px + env(safe-area-inset-bottom, 0px)); display: flex; flex-direction: column; gap: 12px; }
@@ -203,3 +204,12 @@ a.mosaico-item { position: relative; display: block; border-radius: 16px; overfl
 a.btn2 { display: flex; align-items: center; justify-content: center; }
 .btn2.com-icone { gap: 8px; color: var(--cor); }
 .conta-aviso { display: flex; flex-direction: column; gap: 12px; }
+
+/* Teclado aberto: a tela fica baixa e a marca cede lugar aos campos. */
+@media (max-height: 560px) {
+  .entrada-topo { flex: none; min-height: 0; padding: 10px 24px; }
+  .entrada-topo .logo, .entrada-topo p { display: none; }
+  .entrada-topo h1 { font-size: 17px; }
+  .entrada-form { flex: 1; padding-top: 14px; gap: 8px; }
+  .entrada-form h2, .entrada-form .versao { display: none; }
+}
