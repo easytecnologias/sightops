@@ -556,7 +556,7 @@ def test_faixas_sao_validadas_e_voltam_na_regra(store):
     p = [{"de": "18:00", "ate": "06:00", "dif_min": 3, "pontos_min": 6, "lixo": 1}]
     salvo = store.salvar_camera(cam["id"], {"regra": {"perfis": p}})
     assert salvo["regra"]["perfis"] == [{"de": "18:00", "ate": "06:00", "dif_min": 3.0, "pontos_min": 6}]
-    assert store.regra_de({"regra": salvo["regra"]}).no_minuto(23 * 60).dif_min == 3.0
+    assert store.regra_de({"regra": json.dumps(salvo["regra"])}).no_minuto(23 * 60).dif_min == 3.0
     assert store.salvar_camera(cam["id"], {"regra": {"perfis": []}})["regra"]["perfis"] == []
     for ruim in ([{"de": "18:00", "ate": "18:00"}], [{"de": "", "ate": "06:00"}], [{"de": "18:00", "ate": "06:00", "dif_min": 999}],
                  [{"de": "18:00", "ate": "06:00", "dif_min": "x"}], "nao", [{"de": "01:00", "ate": "02:00"}] * 9):
