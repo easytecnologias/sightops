@@ -20,7 +20,7 @@ from app.services import db_store
 
 ID_RE = re.compile(r"^[0-9a-f]{32}$")
 MODOS = ("simular", "valer")
-TIPOS = ("saida", "speed_preset")
+TIPOS = ("saida", "speed_preset", "speed_seguir")
 MAX_ACOES = 8
 MAX_SEGUNDOS = 600
 
@@ -87,12 +87,21 @@ def _validar_acoes(acoes: Any) -> List[Dict[str, Any]]:
                     raise ValueError
                 if not 1 <= item["segundos"] <= MAX_SEGUNDOS:
                     raise ValueError
+            elif a["tipo"] == "speed_seguir":
+                from app.services.speed_calibracao import validar
+                item["pontos"] = validar(a.get("pontos"))
+                item["zoom"] = int(a.get("zoom") or 10)
+                item["voltar_s"] = int(60 if a.get("voltar_s") is None else a.get("voltar_s"))
+                if not 0 <= item["voltar_s"] <= 3600 or not 0 <= item["zoom"] <= 1000:
+                    raise ValueError
             else:
                 item["preset"] = int(a.get("preset") or 0)
                 item["voltar_s"] = int(60 if a.get("voltar_s") is None else a.get("voltar_s"))
                 if not 1 <= item["preset"] <= 300 or not 0 <= item["voltar_s"] <= 3600:
                     raise ValueError
-        except (TypeError, ValueError):
+        except (TypeError, ValueError) as exc:
+            if a["tipo"] == "speed_seguir" and str(exc):
+                raise ValueError(f"Ação em {eq['nome']}: {exc}")
             raise ValueError(f"Ação em {eq['nome']}: número fora da faixa (saída 1 a 16, tempo 1 a {MAX_SEGUNDOS} s, preset 1 a 300, voltar 0 a 3600 s).")
         saida.append(item)
     return saida
@@ -195,6 +204,8 @@ def salvar(dados: Dict[str, Any], regra_id: str = "") -> Dict[str, Any]:
     if not 10 <= intervalo <= 3600:
         raise ValueError("Intervalo: use de 10 a 3600 segundos.")
     origem = _txt(dados.get("origem_camera_id"))
+    if not origem and any(a["tipo"] == "speed_seguir" for a in acoes):
+        raise ValueError("Seguir o alarme vale para uma câmera: escolha em Quando detectar em.")
     agora = _agora()
     ativo = 1 if dados.get("ativo", True) else 0
     with db_store._conn() as c:

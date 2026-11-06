@@ -21,6 +21,7 @@ from requests.auth import HTTPBasicAuth, HTTPDigestAuth
 
 from app.core.tenant_context import reset_current_tenant_slug, set_current_tenant_slug
 from app.services import automacao_store
+from app.services.speed_calibracao import apontar
 
 logger = logging.getLogger(__name__)
 
@@ -59,13 +60,47 @@ def _posicao(base: str, cred: Dict[str, str]) -> Tuple[int, int, int]:
     return tuple(int(re.search(rf"<{k}>(-?\d+)", r.text).group(1)) for k in ("elevation", "azimuth", "absoluteZoom"))
 
 
+def _absoluto(base: str, cred: Dict[str, str], pos: Tuple[int, int, int]) -> Tuple[int, str]:
+    corpo = (f'<?xml version="1.0" encoding="UTF-8"?><PTZData><AbsoluteHigh><elevation>{pos[0]}</elevation>'
+             f'<azimuth>{pos[1]}</azimuth><absoluteZoom>{pos[2]}</absoluteZoom></AbsoluteHigh></PTZData>')
+    return _put(f"{base}/ISAPI/PTZCtrl/channels/1/absolute", cred["username"], cred["password"], corpo)
+
+
+def _speed_do_usuario(ip: str, connector_id: str) -> Dict[str, Any]:
+    eq = automacao_store.equipamento_do_inventario(ip, connector_id)
+    if not eq or not automacao_store._site_ok(eq["site"]) or not re.match(r"^DS-2(DE|DF|DY)", eq.get("modelo") or ""):
+        raise LookupError("Speed não encontrada.")
+    return eq
+
+
+def posicao_speed(ip: str, connector_id: str) -> Dict[str, int]:
+    """Calibracao: onde a speed esta olhando. So le."""
+    eq = _speed_do_usuario(ip, connector_id)
+    base, cred = _alvo({"ip": eq["ip"], "connector_id": eq["connector_id"]})
+    el, az, zoom = _posicao(base, cred)
+    return {"el": el, "az": az, "zoom": zoom}
+
+
+def mover_speed(ip: str, connector_id: str, pan: int, tilt: int, zoom: int) -> Dict[str, Any]:
+    """Calibracao: um passo de meio segundo. `momentary` para sozinho: se a rede
+    cair no meio, a speed nao fica girando."""
+    eq = _speed_do_usuario(ip, connector_id)
+    if not all(-100 <= int(v) <= 100 for v in (pan, tilt, zoom)):
+        raise ValueError("Velocidade fora da faixa.")
+    base, cred = _alvo({"ip": eq["ip"], "connector_id": eq["connector_id"]})
+    corpo = (f'<?xml version="1.0" encoding="UTF-8"?><PTZData><pan>{int(pan)}</pan><tilt>{int(tilt)}</tilt><zoom>{int(zoom)}</zoom>'
+             '<Momentary><duration>500</duration></Momentary></PTZData>')
+    cod, txt = _put(f"{base}/ISAPI/PTZCtrl/channels/1/momentary", cred["username"], cred["password"], corpo)
+    if cod != 200:
+        raise ValueError(f"A speed respondeu {cod}: {txt[:120]}")
+    return {"ok": True}
+
+
 def _voltar_speed(tenant: str, acao: Dict[str, Any], pos: Tuple[int, int, int]) -> None:
     token = set_current_tenant_slug(tenant)
     try:
         base, cred = _alvo(acao)
-        corpo = (f'<?xml version="1.0" encoding="UTF-8"?><PTZData><AbsoluteHigh><elevation>{pos[0]}</elevation>'
-                 f'<azimuth>{pos[1]}</azimuth><absoluteZoom>{pos[2]}</absoluteZoom></AbsoluteHigh></PTZData>')
-        cod, txt = _put(f"{base}/ISAPI/PTZCtrl/channels/1/absolute", cred["username"], cred["password"], corpo)
+        cod, txt = _absoluto(base, cred, pos)
         if cod != 200:
             logger.error("automacao: speed %s NAO voltou: HTTP %s %s", acao.get("ip"), cod, txt[:120])
     except Exception as exc:
@@ -105,8 +140,10 @@ def _desligar_depois(tenant: str, acao: Dict[str, Any], regra_id: str = "", aler
 
 def executar_acao(tenant: str, acao: Dict[str, Any], modo: str,
                   agendar: Callable[[float, Callable, tuple], Any] | None = None,
-                  regra_id: str = "", alerta_id: str = "") -> Tuple[bool, str]:
-    if acao.get("tipo") == "saida":
+                  regra_id: str = "", alerta_id: str = "", ponto: Tuple[float, float] = (0.5, 0.5)) -> Tuple[bool, str]:
+    if acao.get("tipo") == "speed_seguir":
+        descr = f"apontar {acao.get('nome')} para o alarme"
+    elif acao.get("tipo") == "saida":
         descr = f"ligar saída {acao.get('saida')} de {acao.get('nome')} por {acao.get('segundos')} s"
     else:
         descr = f"levar {acao.get('nome')} ao preset {acao.get('preset')}"
@@ -120,12 +157,21 @@ def executar_acao(tenant: str, acao: Dict[str, Any], modo: str,
             return ok, msg
         base, cred = _alvo(acao)
         voltar = int(acao.get("voltar_s") or 0)
+        destino = None
+        if acao.get("tipo") == "speed_seguir":
+            az, el = apontar(acao["pontos"], ponto[0], ponto[1])
+            destino = (el, az, int(acao.get("zoom") or 10))
         pos = None
         if voltar:
             try:
                 pos = _posicao(base, cred)
             except Exception as exc:     # nao deixa de apontar para o alarme por causa disso
                 logger.warning("automacao: sem posicao de %s, nao vai voltar: %s", acao.get("ip"), exc)
+        if destino:
+            cod, txt = _absoluto(base, cred, destino)
+            if cod == 200 and pos:
+                (agendar or _timer)(float(voltar), _voltar_speed, (tenant, acao, pos))
+            return cod == 200, f"apontou para az {destino[1]}, el {destino[0]}: HTTP {cod}" + ("" if cod == 200 else f" {txt[:120]}")
         cod, txt = _put(f"{base}/ISAPI/PTZCtrl/channels/1/presets/{int(acao['preset'])}/goto", cred["username"], cred["password"])
         if cod == 200 and pos:
             (agendar or _timer)(float(voltar), _voltar_speed, (tenant, acao, pos))
@@ -154,8 +200,12 @@ def _dentro_do_intervalo(regra: Dict[str, Any]) -> bool:
 
 def rodar_regra(tenant: str, regra: Dict[str, Any], alerta_id: str = "", so_simular: bool = False) -> None:
     modo = "simular" if so_simular else regra["modo"]
+    ponto = (0.5, 0.5)
+    if any(a.get("tipo") == "speed_seguir" for a in regra["acoes"]):
+        from app.services.termico_store import ponto_do_alerta
+        ponto = ponto_do_alerta(alerta_id)
     for acao in regra["acoes"]:
-        ok, msg = executar_acao(tenant, acao, modo, regra_id=regra["id"], alerta_id=alerta_id)
+        ok, msg = executar_acao(tenant, acao, modo, regra_id=regra["id"], alerta_id=alerta_id, ponto=ponto)
         automacao_store.registrar_execucao(regra["id"], alerta_id, modo, acao, ok, msg)
         if not ok:
             logger.warning("automacao %s (%s): %s", regra.get("nome"), tenant, msg)

@@ -420,7 +420,7 @@ def test_so_simular_nao_aciona_regra_valendo(monkeypatch):
     regra = {"id": "r", "nome": "x", "modo": "valer", "acoes": [{"tipo": "saida"}]}
     monkeypatch.setattr(A.automacao_store, "regras_da_camera", lambda c: [regra])
     monkeypatch.setattr(A, "_dentro_do_intervalo", lambda r: False)
-    monkeypatch.setattr(A, "executar_acao", lambda t, a, m, regra_id="", alerta_id="": (modos.append(m), (True, "ok"))[1])
+    monkeypatch.setattr(A, "executar_acao", lambda t, a, m, **k: (modos.append(m), (True, "ok"))[1])
     monkeypatch.setattr(A.automacao_store, "registrar_execucao", lambda *a: modos.append(a[2]))
     assert A.disparar("cliente-a", "c", "a", so_simular=True) == 1
     assert modos == ["simular", "simular"]

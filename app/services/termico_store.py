@@ -14,7 +14,7 @@ import re
 import uuid
 from datetime import datetime, time as dtime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 from zoneinfo import ZoneInfo
 
 from app.core.tenant_context import get_current_tenant_slug, tenant_scoped_path
@@ -456,12 +456,12 @@ def _video_liberado(eq: Dict[str, Any]) -> bool:
         rows = c.execute("SELECT acoes FROM automacoes WHERE tenant_slug=?", (tenant,)).fetchall()
     for r in rows:
         for a in _json(dict(r).get("acoes"), []):
-            if a.get("tipo") == "speed_preset" and a.get("ip") == eq["ip"] and (a.get("connector_id") or "") == eq["connector_id"]:
+            if a.get("tipo") in ("speed_preset", "speed_seguir") and a.get("ip") == eq["ip"] and (a.get("connector_id") or "") == eq["connector_id"]:
                 return True
     return False
 
 
-def abrir_vivo(ip: str, connector_id: str, tipo: str, alta: bool = False) -> Dict[str, Any]:
+def abrir_vivo(ip: str, connector_id: str, tipo: str, alta: bool = False, calibrando: bool = False) -> Dict[str, Any]:
     """Abre o video de uma camera do inventario do cliente e devolve o stream
     para o player. Termica: canal 2; colorida (e speed): canal 1. Parede usa o
     fluxo leve; `alta` so ao abrir a camera grande."""
@@ -475,7 +475,8 @@ def abrir_vivo(ip: str, connector_id: str, tipo: str, alta: bool = False) -> Dic
     if tipo not in ("termica", "colorida"):
         raise LookupError("Vídeo não encontrado.")
     eq = equipamento_do_inventario(ip, connector_id)
-    if not eq or not _site_ok(eq["site"]) or not _video_liberado(eq):
+    # calibrando: so a rota de admin de /api/automacoes/speed, antes de a regra existir.
+    if not eq or not _site_ok(eq["site"]) or not (calibrando or _video_liberado(eq)):
         raise LookupError("Câmera não encontrada.")
     cred = resolve_camera_credential(eq["mac"], eq["site"])
     if not cred:
@@ -556,6 +557,19 @@ def simular_pessoa(camera_id: str) -> Dict[str, Any]:
     if res is None:
         raise ValueError("A câmera ainda não mandou nenhuma leitura. Tente em 1 minuto.")
     return res
+
+
+def ponto_do_alerta(alerta_id: str) -> Tuple[float, float]:
+    """Centro da mancha na imagem. Alarme de teste e Testar agora nao tem mancha:
+    usa o centro da imagem, para ver a speed apontar."""
+    tenant = _tenant()
+    if ID_RE.match(alerta_id or ""):
+        with db_store._conn() as c:
+            r = c.execute("SELECT mancha FROM termico_alertas WHERE tenant_slug=? AND id=?", (tenant, alerta_id)).fetchone()
+        caixa = _json(dict(r).get("mancha"), {}).get("caixa") if r else None
+        if caixa:
+            return caixa[0] + caixa[2] / 2, caixa[1] + caixa[3] / 2
+    return 0.5, 0.5
 
 
 def camera_do_alerta(alerta_id: str) -> Dict[str, str]:

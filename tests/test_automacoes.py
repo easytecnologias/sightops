@@ -163,3 +163,50 @@ def test_saida_que_nao_desliga_fica_ligada_ao_alerta(monkeypatch):
     monkeypatch.setattr(A.automacao_store, "registrar_execucao", lambda *a: gravados.append(a))
     A._desligar_depois("cliente-a", {"ip": "1.1.1.1"}, "regra", "alerta1")
     assert gravados[0][1] == "alerta1" and gravados[0][4] is False
+
+
+# ------------------------------------------------------ seguir o alarme ----
+PONTOS = [{"x": 0.1, "y": 0.1, "az": 100, "el": 50}, {"x": 0.9, "y": 0.1, "az": 900, "el": 50},
+          {"x": 0.9, "y": 0.9, "az": 900, "el": 450}, {"x": 0.1, "y": 0.9, "az": 100, "el": 450}]
+
+
+def test_calibracao_acerta_os_4_pontos_e_o_meio():
+    from app.services.speed_calibracao import apontar
+    for p in PONTOS:
+        assert apontar(PONTOS, p["x"], p["y"]) == (p["az"], p["el"])
+    assert apontar(PONTOS, 0.5, 0.5) == (500, 250)
+
+
+def test_calibracao_atravessa_o_norte():
+    from app.services.speed_calibracao import apontar
+    p = [dict(q) for q in PONTOS]
+    p[0]["az"], p[3]["az"] = 3500, 3500
+    p[1]["az"], p[2]["az"] = 100, 100
+    assert apontar(p, 0.5, 0.5)[0] == 0     # meio entre 350 e 10 graus
+
+
+def test_calibracao_recusa_pontos_ruins():
+    from app.services.speed_calibracao import validar
+    assert len(validar(PONTOS)) == 4
+    with pytest.raises(ValueError):
+        validar(PONTOS[:3])
+    with pytest.raises(ValueError):       # em linha
+        validar([{**q, "y": 0.5} for q in PONTOS])
+    with pytest.raises(ValueError):       # espremidos
+        validar([{**q, "x": 0.5 + q["x"] / 100, "y": 0.5 + q["y"] / 100} for q in PONTOS])
+    with pytest.raises(ValueError):
+        validar([{**PONTOS[0], "az": 9999}] + PONTOS[1:])
+
+
+def test_seguir_vai_para_a_posicao_do_alarme_e_volta(monkeypatch):
+    from app.services import automacao_acoes as A
+    feitos, agenda = [], []
+    monkeypatch.setattr(A, "_alvo", lambda a: ("http://speed", {"username": "u", "password": "s"}))
+    monkeypatch.setattr(A, "_posicao", lambda b, c: (10, 20, 30))
+    monkeypatch.setattr(A, "_absoluto", lambda b, c, pos: (feitos.append(pos), (200, ""))[1])
+    acao = {"tipo": "speed_seguir", "nome": "S", "pontos": PONTOS, "zoom": 12, "voltar_s": 60}
+    ok, msg = A.executar_acao("cliente-a", acao, "valer", agendar=lambda s, fn, a: agenda.append((s, a[2])), ponto=(0.5, 0.5))
+    assert ok and feitos == [(250, 500, 12)] and agenda == [(60.0, (10, 20, 30))]
+    feitos.clear()
+    ok, msg = A.executar_acao("cliente-a", acao, "simular", ponto=(0.5, 0.5))
+    assert ok and msg.startswith("simulado") and feitos == []

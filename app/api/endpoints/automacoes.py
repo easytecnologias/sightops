@@ -12,6 +12,16 @@ from app.services import automacao_acoes, automacao_store
 router = APIRouter(prefix="/api/automacoes", tags=["automacoes"])
 
 
+def _rede(fn, *args) -> Any:
+    """Fala com a speed: sem resposta dela vira aviso na tela, nao erro 500."""
+    try:
+        return _executar(fn, *args)
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=502, detail="A speed não respondeu.")
+
+
 def _executar(fn, *args) -> Any:
     try:
         return fn(*args)
@@ -21,6 +31,26 @@ def _executar(fn, *args) -> Any:
         raise HTTPException(status_code=403, detail=str(exc))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+
+
+# Calibracao da speed (automacao Seguir o alarme). POST so admin, como o resto.
+@router.get("/speed/posicao")
+def api_speed_posicao(ip: str, connector_id: str = "") -> Dict[str, Any]:
+    return _rede(automacao_acoes.posicao_speed, ip, connector_id)
+
+
+@router.post("/speed/mover")
+def api_speed_mover(payload: Dict[str, Any]) -> Dict[str, Any]:
+    return _rede(automacao_acoes.mover_speed, str(payload.get("ip") or ""), str(payload.get("connector_id") or ""),
+                 int(payload.get("pan") or 0), int(payload.get("tilt") or 0), int(payload.get("zoom") or 0))
+
+
+@router.post("/speed/vivo")
+def api_speed_vivo(payload: Dict[str, Any]) -> Dict[str, Any]:
+    from app.services import termico_store
+
+    return _rede(lambda: termico_store.abrir_vivo(str(payload.get("ip") or ""), str(payload.get("connector_id") or ""),
+                                                  "colorida", True, True))
 
 
 @router.get("")

@@ -117,6 +117,8 @@
   .tm-ignorar{border:2px dashed #ffb44d;background:rgba(19,37,45,.5)}
   .tm-mancha{border:2px solid #ff5a5a}
   .tm-cego{position:absolute;background:rgba(255,90,90,.28)}
+  .tm-marco{position:absolute;width:22px;height:22px;margin:-11px 0 0 -11px;border-radius:50%;background:var(--primary);color:#fff;font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center}
+  .tm-mira{position:absolute;left:50%;top:50%;width:26px;height:26px;margin:-13px 0 0 -13px;border:2px solid #fff;border-radius:50%;pointer-events:none}
   .tm-geral{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,420px),1fr));gap:20px}
   .tm-grav{width:100%;aspect-ratio:4/3;background:#000;border-radius:6px;display:block}
   .tm-mancha span{left:0;top:-22px;white-space:nowrap}
@@ -521,19 +523,21 @@
   }
 
   function htmlAcao(a, i) {
-    const lista = auto.equipamentos.filter(e => (a.tipo === 'speed_preset' ? e.speed : true));
+    const lista = auto.equipamentos.filter(e => (a.tipo.startsWith('speed') ? e.speed : true));
     const valor = `${a.ip || ''}|${a.connector_id || ''}`;
     const opcoes = lista.map(e => `<option value="${h(e.ip)}|${h(e.connector_id)}" ${`${e.ip}|${e.connector_id}` === valor ? 'selected' : ''}>${h(e.site)} · ${h(e.nome)}</option>`).join('');
     const num = (k, rot, v, min, max) => `<label class="tm-campo">${rot}<input type="number" min="${min}" max="${max}" data-tm-a="${k}" value="${h(v)}"></label>`;
     return `<div class="tm-acao" data-tm-acao="${i}">
       <div class="tm-linha"><strong style="font-size:13px">Ação ${i + 1}</strong><button class="ghost-action" type="button" data-tm-tirar="${i}" aria-label="Tirar ação ${i + 1}">✕</button></div>
       <div class="tm-regra" style="grid-template-columns:minmax(0,1fr) minmax(0,2fr)">
-        <label class="tm-campo">Tipo<select data-tm-a="tipo"><option value="speed_preset" ${a.tipo === 'speed_preset' ? 'selected' : ''}>Speed: preset</option><option value="saida" ${a.tipo === 'saida' ? 'selected' : ''}>Saída de alarme</option></select></label>
+        <label class="tm-campo">Tipo<select data-tm-a="tipo"><option value="speed_preset" ${a.tipo === 'speed_preset' ? 'selected' : ''}>Speed: preset</option><option value="speed_seguir" ${a.tipo === 'speed_seguir' ? 'selected' : ''}>Speed: seguir o alarme</option><option value="saida" ${a.tipo === 'saida' ? 'selected' : ''}>Saída de alarme</option></select></label>
         <label class="tm-campo">Equipamento<select data-tm-a="alvo"><option value="|">Escolha…</option>${opcoes}</select></label>
       </div>
       <div class="tm-regra" style="grid-template-columns:repeat(2,minmax(0,1fr))">
         ${a.tipo === 'saida'
           ? num('saida', 'Saída', a.saida ?? 1, 1, 16) + num('segundos', 'Ligada por (s)', a.segundos ?? 30, 1, 600)
+          : a.tipo === 'speed_seguir'
+          ? `<div class="tm-campo">Pontaria<button class="secondary-action" type="button" data-tm-calib="${i}" ${a.ip ? '' : 'disabled title="Escolha a speed"'}>${(a.pontos || []).length === 4 ? 'Calibrada: refazer' : 'Calibrar 4 pontos'}</button></div>` + num('voltar_s', 'Voltar depois de (s, 0 = fica)', a.voltar_s ?? 60, 0, 3600)
           : num('preset', 'Preset', a.preset ?? 1, 1, 300) + num('voltar_s', 'Voltar depois de (s, 0 = fica)', a.voltar_s ?? 60, 0, 3600)}
       </div></div>`;
   }
@@ -594,6 +598,7 @@
       autoAberta = r ? JSON.parse(JSON.stringify(r)) : null; render();
     });
     sec.querySelector('[data-tm-mais]')?.addEventListener('click', () => { lerForm(); autoAberta.acoes.push({ tipo: 'speed_preset', ip: '', connector_id: '' }); render(); });
+    sec.querySelectorAll('[data-tm-calib]').forEach(b => b.onclick = () => { lerForm(); abrirCalibracao(Number(b.dataset.tmCalib)); });
     sec.querySelectorAll('[data-tm-tirar]').forEach(b => b.onclick = () => { lerForm(); autoAberta.acoes.splice(Number(b.dataset.tmTirar), 1); render(); });
     sec.querySelectorAll('[data-tm-a="tipo"]').forEach(s => s.onchange = () => { lerForm(); render(); });
     if ($('tmRModo')) $('tmRModo').onchange = () => { lerForm(); render(); };
@@ -821,7 +826,7 @@
   // ------------------------------------------------------- gaveta do alarme
   function abrirAlarme(a) {
     const cam = cams.cameras.find(c => c.id === a.camera_id);
-    const speed = auto.automacoes.flatMap(r => (r.origem_camera_id === a.camera_id || !r.origem_camera_id) ? r.acoes : []).find(x => x.tipo === 'speed_preset');
+    const speed = auto.automacoes.flatMap(r => (r.origem_camera_id === a.camera_id || !r.origem_camera_id) ? r.acoes : []).find(x => x.tipo.startsWith('speed'));
     const novo = a.situacao === 'novo';
     const g = montarGaveta(`
       <div class="tm-gav-cab"><div style="min-width:0;flex:1"><h2 style="color:var(--danger)">${a.mancha?.teste ? 'Alarme de teste' : 'Pessoa detectada pelo calor'}</h2>
@@ -1050,6 +1055,77 @@
     }
     pararGaveta();
     await carregarCameras();
+  }
+
+  // Calibrar a speed: 4 marcos vistos pelas duas cameras. Clique no marco na
+  // termica, aponte a speed para ele e marque.
+  function abrirCalibracao(i) {
+    const a = autoAberta.acoes[i];
+    const cam = cams.cameras.find(c => c.id === autoAberta.origem_camera_id);
+    if (!cam) { toast('Escolha a câmera em Quando detectar em.', true); return; }
+    const pontos = [];
+    let alvo = null;
+    const g = montarGaveta(`
+      <div class="tm-gav-cab"><div style="min-width:0;flex:1"><h2>Calibrar ${h(a.nome)}</h2>
+        <div class="tm-sub">Escolha 4 marcos espalhados pelo chão, como postes e cantos de cerca.</div></div>
+        <button class="ghost-action" type="button" data-tm-gfechar aria-label="Fechar">✕</button></div>
+      <div class="tm-gav-corpo">
+        <div class="tm-perg"><b id="tmCalPasso"></b>
+          <div class="tm-foto tm-desenho" id="tmCalT"><video id="tmCvT" autoplay muted playsinline></video><span class="pdv-v-aviso" id="tmCaT">Conectando...</span><div id="tmCalMarcas" class="tm-camada"></div><span class="pdv-v-lbl pdv-v-nome">${h(cam.nome)}</span></div>
+          <div class="tm-foto"><video id="tmCvS" autoplay muted playsinline></video><span class="pdv-v-aviso" id="tmCaS">Conectando...</span><span class="tm-mira"></span><span class="pdv-v-lbl pdv-v-nome">${h(a.nome)}</span></div>
+          <div class="tm-chips" aria-label="Mover a speed"><button type="button" data-tm-mv="-40,0,0" aria-label="Esquerda">◀</button><button type="button" data-tm-mv="0,40,0" aria-label="Cima">▲</button><button type="button" data-tm-mv="0,-40,0" aria-label="Baixo">▼</button><button type="button" data-tm-mv="40,0,0" aria-label="Direita">▶</button><button type="button" data-tm-mv="0,0,40" aria-label="Aproximar">+</button><button type="button" data-tm-mv="0,0,-40" aria-label="Afastar">−</button></div>
+        </div>
+      </div>
+      <div class="tm-gav-pe"><button class="primary-action" type="button" data-tm-cmarcar style="flex:1;justify-content:center">Marcar este ponto</button><button class="secondary-action" type="button" data-tm-czerar>Recomeçar</button></div>`);
+    const p1 = tocar($('tmCvT'), cam, 'termica', true, $('tmCaT'));
+    if (p1) gavPlayers.push(p1);
+    if (typeof mountLiveStream === 'function') {
+      const aviso = $('tmCaS');
+      gavPlayers.push(mountLiveStream($('tmCvS'), { ip: a.ip, user: 'admin', pass: '', subtype: 1, connectorId: a.connector_id,
+        registrar: async () => {
+          const r = await api('/api/automacoes/speed/vivo', { method: 'POST', body: JSON.stringify({ ip: a.ip, connector_id: a.connector_id }) });
+          const j = await r?.json().catch(() => ({}));
+          if (!r?.ok || !j?.stream_name) throw new Error(j?.detail || 'não consegui abrir o vídeo');
+          return j.stream_name;
+        },
+        onStatus: t => { aviso.hidden = !t; if (t) aviso.textContent = t; } }));
+    }
+    const pintar = () => {
+      $('tmCalPasso').textContent = pontos.length < 4
+        ? `Ponto ${pontos.length + 1} de 4: ${alvo ? 'aponte a speed para o mesmo marco, com ele no centro, e marque' : 'clique no marco na imagem térmica'}`
+        : 'Pontos marcados.';
+      const m = (p, n) => `<div class="tm-marco" style="left:${p.x * 100}%;top:${p.y * 100}%">${n}</div>`;
+      $('tmCalMarcas').innerHTML = pontos.map((p, n) => m(p, n + 1)).join('') + (alvo ? m(alvo, pontos.length + 1) : '');
+    };
+    $('tmCalT').onclick = e => {
+      if (pontos.length >= 4) return;
+      const r = $('tmCalT').getBoundingClientRect();
+      alvo = { x: (e.clientX - r.left) / r.width, y: (e.clientY - r.top) / r.height };
+      pintar();
+    };
+    g.querySelectorAll('[data-tm-mv]').forEach(b => b.onclick = async () => {
+      const [pan, tilt, zoom] = b.dataset.tmMv.split(',').map(Number);
+      const r = await api('/api/automacoes/speed/mover', { method: 'POST', body: JSON.stringify({ ip: a.ip, connector_id: a.connector_id, pan, tilt, zoom }) });
+      if (!r?.ok) { const d = r ? await r.json().catch(() => ({})) : {}; toast(d.detail || 'A speed não respondeu.', true); }
+    });
+    g.querySelector('[data-tm-czerar]').onclick = () => { pontos.length = 0; alvo = null; pintar(); };
+    g.querySelector('[data-tm-cmarcar]').onclick = async () => {
+      if (!alvo) { toast('Clique primeiro no marco na imagem térmica.', true); return; }
+      const r = await api(`/api/automacoes/speed/posicao?ip=${encodeURIComponent(a.ip)}&connector_id=${encodeURIComponent(a.connector_id)}`);
+      const d = r?.ok ? await r.json() : null;
+      if (!d) { toast('A speed não informou a posição.', true); return; }
+      pontos.push({ ...alvo, az: d.az, el: d.el });
+      a.zoom = d.zoom;
+      alvo = null;
+      pintar();
+      if (pontos.length === 4) {
+        a.pontos = [...pontos];
+        toast('Calibrada. Salve a automação e use Testar agora.');
+        pararGaveta();
+        render();
+      }
+    };
+    pintar();
   }
 
   // Simular pessoa: desenha uma pessoa em cada ponto da ultima leitura, com a regra salva.
