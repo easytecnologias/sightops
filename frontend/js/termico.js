@@ -31,8 +31,12 @@
   ];
 
   let aba = 'vivo', carregando = false, geral = null;
-  let paleta = 'ferro';
-  try { paleta = localStorage.getItem('tm.paleta') || 'ferro'; } catch (_) { /* navegador sem armazenamento */ }
+  let paleta = 'ferro', ordem = {};
+  try {
+    paleta = localStorage.getItem('tm.paleta') || 'ferro';
+    ordem = JSON.parse(localStorage.getItem('tm.ordem') || '{}') || {};
+  } catch (_) { /* navegador sem armazenamento */ }
+  function salvarOrdem() { try { localStorage.setItem('tm.ordem', JSON.stringify(ordem)); } catch (_) { /* vale so nesta visita */ } }
 
   // Filtro da paleta ferro: vale para o video real porque e so CSS.
   function aplicarPaleta() {
@@ -95,7 +99,7 @@
   .tm-seg button{height:34px;padding:0 12px;border:0;background:none;color:var(--muted);cursor:pointer}
   .tm-seg button.on{background:var(--blue-soft);color:var(--blue);font-weight:600}
   .tm-sel{height:36px;border:1px solid var(--border);border-radius:6px;padding:0 8px;background:var(--surface);color:var(--text);font:inherit}
-  .tm-parede-grade{display:grid;grid-template-columns:minmax(0,1fr) 280px;gap:20px;align-items:start;margin-bottom:10px}
+  .tm-parede-grade{margin-bottom:10px}
   .tm-parede{display:flex;flex-direction:column;gap:18px;min-width:0}
   .tm-usina{display:flex;flex-direction:column;gap:10px}
   .tm-usina h2{margin:0;font-size:15px}
@@ -125,6 +129,20 @@
   .tm-ignorar{border:2px dashed #ffb44d;background:rgba(19,37,45,.5)}
   .tm-mancha{border:2px solid #ff5a5a}
   .tm-cego{position:absolute;background:rgba(255,90,90,.28)}
+  .tm-tiles{grid-template-columns:repeat(4,minmax(0,1fr));grid-auto-flow:dense}
+  .tm-tile{cursor:grab}
+  .tm-tile.tm-arrastando{opacity:.45}
+  .tm-tile.tm-alvo{box-shadow:0 0 0 3px var(--primary)}
+  .tm-tile-acoes{position:absolute;z-index:3;right:12px;top:42px;display:flex;gap:6px;opacity:0;transition:opacity .15s}
+  .tm-tile:hover .tm-tile-acoes,.tm-tile-acoes:focus-within{opacity:1}
+  @media (hover:none){.tm-tile-acoes{opacity:1}}
+  .tm-tile-acoes button{height:28px;padding:0 10px;border:0;border-radius:6px;background:rgba(13,27,33,.82);color:#fff;font:inherit;font-size:12px;font-weight:600;cursor:pointer}
+  .tm-grande .tm-dest{display:none}
+  .tm-agora-gav{width:min(420px,100vw)}
+  .tm-agora-gav .tm-lado{box-shadow:none;border-radius:0;padding:0;gap:0}
+  .tm-agora-gav .tm-lado h2{display:none}
+  .tm-ferr-acoes{margin-left:auto;display:flex;align-items:center;gap:12px}
+  .tm-ferr-acoes .tm-ferr-fim{margin-left:0}
   /* Linguagem Comando: so a faixa e o video sao escuros; cores do :root. */
   .tm-cmd{background:var(--sidebar);color:#fff;border-radius:10px;overflow:hidden;margin-bottom:20px}
   .tm-cmd.alarme{background:#7a1a1f}
@@ -165,9 +183,6 @@
   .tm-tile .tm-l-vivo{top:12px;bottom:auto}
   .tm-tile .tm-l-temp{background:none;font-size:15px;font-weight:700}
   .tm-tile.tm-cor video{object-fit:fill}
-  .tm-tile-cfg{position:absolute;z-index:3;right:12px;top:42px;height:28px;padding:0 10px;border:0;border-radius:6px;background:rgba(13,27,33,.82);color:#fff;font:inherit;font-size:12px;font-weight:600;cursor:pointer;opacity:0;transition:opacity .15s}
-  .tm-tile:hover .tm-tile-cfg,.tm-tile-cfg:focus-visible{opacity:1}
-  @media (hover:none){.tm-tile-cfg{opacity:1}}
   .tm-grande{grid-column:span 2;grid-row:span 2}
   .tm-grande .pdv-v-video{height:100%;aspect-ratio:auto}
   .tm-grande .pdv-v-nome{font-size:15px}
@@ -241,8 +256,8 @@
   @keyframes tmPulsa{50%{box-shadow:0 0 0 2px var(--danger),0 0 0 10px rgba(201,42,42,.05)}}
   @keyframes tmFaixa{50%{background:#a51f1f}}
   @media (prefers-reduced-motion:reduce){.tm-vivo,.tm-alarme,.tm-faixa.alarme{animation:none}}
-  @media (max-width:1180px){.tm-parede-grade{grid-template-columns:minmax(0,1fr)}.tm-tiles{grid-template-columns:repeat(2,minmax(0,1fr))}}
-  @media (max-width:640px){.tm-tiles{grid-template-columns:minmax(0,1fr)}}
+  @media (max-width:1180px){.tm-tiles{grid-template-columns:repeat(2,minmax(0,1fr))}}
+  @media (max-width:640px){.tm-tiles{grid-template-columns:minmax(0,1fr)}.tm-grande{grid-column:span 1;grid-row:span 1}.tm-grande .pdv-v-video{height:auto;aspect-ratio:16/9}}
   .tm-acao{border:1px solid var(--border);border-radius:8px;padding:12px;display:flex;flex-direction:column;gap:10px}
   .tm-modal-fundo{position:fixed;inset:0;background:rgba(19,37,45,.45);z-index:1000;display:flex;align-items:center;justify-content:center}
   .tm-modal{background:var(--surface);border-radius:10px;padding:20px;width:min(460px,92vw);display:flex;flex-direction:column;gap:14px;box-shadow:var(--shadow)}
@@ -854,7 +869,7 @@
   }
 
   function htmlLado() {
-    const itens = alertas.alertas.slice(0, 6).map(a => `<button type="button" class="tm-ev" data-tm-ver-alarme="${h(a.id)}"><span>${h(hora(a.criado_at))}</span>
+    const itens = alertas.alertas.slice(0, 30).map(a => `<button type="button" class="tm-ev" data-tm-ver-alarme="${h(a.id)}"><span>${h(hora(a.criado_at))}</span>
       <span><b>${h((SIT[a.situacao] || SIT.novo)[0])}: ${h(a.camera_nome)}</b>${h(a.site)}</span></button>`).join('');
     return `<h2>Acontecendo agora</h2>${itens || '<p class="tm-sub" style="margin:0">Nenhum alarme ainda. Quando a câmera detectar alguém, aparece aqui.</p>'}`;
   }
@@ -862,7 +877,7 @@
   function htmlTile(c, i, grande) {
     const [sit, cls] = situacao(c);
     const id = domId(c);
-    return `<article class="pdv-v-tile tm-tile ${vista === 'termica' ? 'tm-termica' : 'tm-cor'} ${grande ? 'tm-grande' : ''} ${c.pendentes ? 'tm-alarme' : ''}" id="tmT-${id}">
+    return `<article class="pdv-v-tile tm-tile ${vista === 'termica' ? 'tm-termica' : 'tm-cor'} ${grande ? 'tm-grande' : ''} ${c.pendentes ? 'tm-alarme' : ''}" id="tmT-${id}" data-tm-id="${h(idCam(c))}">
       <button type="button" class="pdv-v-video tm-abrir" data-tm-abrir="${h(idCam(c))}" aria-label="Abrir ${h(c.nome)} ao vivo">
         ${i < PAREDE_MAX_VIDEOS ? `<video id="tmV-${id}" autoplay muted playsinline></video>` : ''}
         <span class="pdv-v-aviso" id="tmA-${id}">${i < PAREDE_MAX_VIDEOS ? 'Conectando...' : 'clique para ver ao vivo'}</span>
@@ -871,7 +886,7 @@
         <span class="pdv-v-lbl tm-l-vivo"><i class="tm-vivo"></i>AO VIVO</span>
         <span class="pdv-v-lbl tm-l-temp" data-temp ${c.fundo_c == null ? 'hidden' : ''}>${c.fundo_c == null ? '' : `${num(c.fundo_c, 0)} °C`}</span>
       </button>
-      <button type="button" class="tm-tile-cfg" data-tm-config="${h(idCam(c))}">${c.ativo || c.id ? 'Configurar' : 'Vigiar'}</button>
+      <div class="tm-tile-acoes"><button type="button" class="tm-dest" data-tm-destacar aria-label="Deixar ${h(c.nome)} em destaque">Destacar</button><button type="button" data-tm-config="${h(idCam(c))}">${c.ativo || c.id ? 'Configurar' : 'Vigiar'}</button></div>
     </article>`;
   }
 
@@ -883,8 +898,16 @@
       const paradas = dela.filter(c => !c.ativo);
       return { s, dela, paradas };
     });
-    // Uma camera em destaque em cada usina: a do alarme, senao a que esta medindo.
+    // A primeira de cada usina fica grande. Quem organizou a parede manda; sem
+    // isso, vai a do alarme ou a que esta medindo.
     grupos.forEach(g => {
+      const o = ordem[g.s];
+      if (o?.length) {
+        const pos = c => { const i = o.indexOf(idCam(c)); return i < 0 ? 999 : i; };
+        g.dela = [...g.dela].sort((a, b) => pos(a) - pos(b));
+        g.destaque = g.dela[0];
+        return;
+      }
       const d = g.dela.find(c => c.pendentes) || g.dela.find(c => c.ativo && c.leitura === 'ok' && !c.armado_de) || g.dela.find(c => c.ativo && c.leitura === 'ok') || g.dela[0];
       g.destaque = d;
       if (d) g.dela = [d, ...g.dela.filter(c => c !== d)];
@@ -893,7 +916,7 @@
     const blocos = grupos.map(g => `<section class="tm-usina">
       <div class="tm-linha"><h2>${h(g.s || '(sem local)')} <span class="tm-sub" style="font-weight:400">· ${g.dela.length - g.paradas.length} vigiando${g.paradas.length ? ` · ${g.paradas.length} sem vigiar` : ''}</span></h2>
         ${g.paradas.length ? `<button class="secondary-action pdv-mini" type="button" data-tm-vigiar-usina="${h(g.s)}">Vigiar as ${g.paradas.length} desta usina</button>` : ''}</div>
-      <div class="tm-tiles">${g.dela.map(c => htmlTile(c, n++, c === g.destaque)).join('')}</div></section>`).join('');
+      <div class="tm-tiles" data-tm-site="${h(g.s)}">${g.dela.map(c => htmlTile(c, n++, c === g.destaque)).join('')}</div></section>`).join('');
     return `<div id="tmFaixa">${htmlFaixa()}</div>
       <div class="tm-ferr">
         <div class="tm-seg" role="tablist" aria-label="Imagem">
@@ -905,11 +928,15 @@
           <button type="button" class="${paleta === 'ferro' ? 'on' : ''}" data-tm-paleta="ferro">Ferro</button>
           <button type="button" class="${paleta !== 'ferro' ? 'on' : ''}" data-tm-paleta="branco">Branco</button>
         </div>
-        ${paleta === 'ferro' ? '<div class="tm-ferr-fim"><span>frio</span><span class="tm-rampa" aria-hidden="true"></span><span>quente</span></div>' : ''}` : ''}
+` : ''}
+        <div class="tm-ferr-acoes">
+          ${vista === 'termica' && paleta === 'ferro' ? '<div class="tm-ferr-fim"><span>frio</span><span class="tm-rampa" aria-hidden="true"></span><span>quente</span></div>' : ''}
+          ${Object.keys(ordem).length ? '<button class="secondary-action" type="button" data-tm-ordem-padrao>Ordem padrão</button>' : ''}
+          <button class="secondary-action" type="button" data-tm-agora>Acontecendo agora <span class="pill danger" id="tmAgoraN" ${alertas.por_situacao?.novo ? '' : 'hidden'}>${alertas.por_situacao?.novo || 0}</span></button>
+        </div>
       </div>
       <div class="tm-parede-grade">
         <div class="tm-parede">${blocos || '<div class="tm-vazio-card">Nenhuma câmera térmica no inventário deste cliente.</div>'}</div>
-        <aside class="tm-lado" id="tmLado" aria-label="Acontecendo agora">${htmlLado()}</aside>
       </div>
 `;
   }
@@ -930,6 +957,8 @@
     if (faixa) { faixa.innerHTML = htmlFaixa(); ligarAlarmes(faixa); }
     const lado = $('tmLado');
     if (lado) { lado.innerHTML = htmlLado(); ligarAlarmes(lado); }
+    const pend = $('tmAgoraN');
+    if (pend) { pend.hidden = !alertas.por_situacao?.novo; pend.textContent = alertas.por_situacao?.novo || 0; }
     todasCams().forEach(c => {
       const t = $(`tmT-${domId(c)}`);
       if (!t) return;
@@ -951,8 +980,80 @@
     });
   }
 
+  // Gaveta lateral: a parede fica com a largura toda.
+  function abrirAgora() {
+    const g = montarGaveta(`
+      <div class="tm-gav-cab"><div style="min-width:0;flex:1"><h2>Acontecendo agora</h2><div class="tm-sub">Alarmes mais recentes</div></div>
+        <button class="ghost-action" type="button" data-tm-gfechar aria-label="Fechar">✕</button></div>
+      <div class="tm-gav-corpo"><div class="tm-lado" id="tmLado">${htmlLado()}</div></div>`);
+    g.querySelector('.tm-gaveta').classList.add('tm-agora-gav');
+    ligarAlarmes(g);
+  }
+
+  // A ordem vive no navegador de quem organizou. Mover o elemento, em vez de
+  // redesenhar, nao derruba o video; so precisa dar play de novo.
+  function fixarParede(box) {
+    const tiles = [...box.children];
+    tiles.forEach((t, i) => {
+      t.classList.toggle('tm-grande', i === 0);
+      const v = t.querySelector('video');
+      if (v) v.play().catch(() => {});
+    });
+    ordem[box.dataset.tmSite] = tiles.map(t => t.dataset.tmId);
+    salvarOrdem();
+    const f = secao().querySelector('[data-tm-agora]');
+    if (f && !secao().querySelector('[data-tm-ordem-padrao]')) {
+      f.insertAdjacentHTML('beforebegin', '<button class="secondary-action" type="button" data-tm-ordem-padrao>Ordem padrão</button>');
+      ligarOrdemPadrao(secao());
+    }
+  }
+
+  function trocarTiles(a, b) {
+    const box = a.parentNode;
+    const marca = document.createComment('');
+    box.insertBefore(marca, a);
+    box.insertBefore(a, b);
+    box.insertBefore(b, marca);
+    marca.remove();
+    fixarParede(box);
+  }
+
+  function ligarOrdemPadrao(sec) {
+    sec.querySelector('[data-tm-ordem-padrao]')?.addEventListener('click', () => { ordem = {}; salvarOrdem(); render(); });
+  }
+
+  function ligarArrasto(sec) {
+    let arrastada = null;
+    const limpar = () => sec.querySelectorAll('.tm-alvo').forEach(t => t.classList.remove('tm-alvo'));
+    sec.querySelectorAll('.tm-tile').forEach(t => {
+      t.draggable = true;
+      t.addEventListener('dragstart', e => {
+        arrastada = t;
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', t.dataset.tmId);
+        t.classList.add('tm-arrastando');
+      });
+      t.addEventListener('dragend', () => { t.classList.remove('tm-arrastando'); limpar(); arrastada = null; });
+      t.addEventListener('dragover', e => {
+        if (!arrastada || arrastada === t || arrastada.parentNode !== t.parentNode) return;
+        e.preventDefault();
+        limpar();
+        t.classList.add('tm-alvo');
+      });
+      t.addEventListener('dragleave', () => t.classList.remove('tm-alvo'));
+      t.addEventListener('drop', e => {
+        e.preventDefault();
+        if (arrastada && arrastada !== t && arrastada.parentNode === t.parentNode) trocarTiles(arrastada, t);
+      });
+      t.querySelector('[data-tm-destacar]').onclick = () => { const p = t.parentNode.firstElementChild; if (p !== t) trocarTiles(t, p); };
+    });
+  }
+
   function ligarVivo(sec) {
     ligarAlarmes(sec);
+    ligarArrasto(sec);
+    ligarOrdemPadrao(sec);
+    sec.querySelector('[data-tm-agora]')?.addEventListener('click', abrirAgora);
     sec.querySelectorAll('[data-tm-vista]').forEach(b => b.onclick = () => { vista = b.dataset.tmVista; render(); });
     sec.querySelectorAll('[data-tm-paleta]').forEach(b => b.onclick = () => {
       paleta = b.dataset.tmPaleta;
