@@ -151,6 +151,11 @@ def api_termico_aparelho(payload: Dict[str, Any], user: Dict[str, Any] = Depends
                      str(payload.get("plataforma") or "android"))
 
 
+@router.post("/aparelhos/teste")
+def api_termico_aparelho_teste(payload: Dict[str, Any], user: Dict[str, Any] = Depends(current_user)) -> Dict[str, Any]:
+    return _executar(termico_avisos.testar, str(payload.get("token") or ""), int(user.get("id") or 0))
+
+
 @router.post("/aparelhos/sair")
 def api_termico_aparelho_sair(payload: Dict[str, Any]) -> Dict[str, Any]:
     return _executar(termico_avisos.esquecer, str(payload.get("token") or ""))

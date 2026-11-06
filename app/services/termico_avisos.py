@@ -233,6 +233,32 @@ def avisar_sem_resposta(tenant: str, alerta: Dict[str, Any]) -> Dict[str, int]:
     return res
 
 
+def testar(token: str, usuario_id: int) -> Dict[str, Any]:
+    """Botao Testar notificacao do app: toca so neste celular. So vale para o
+    aparelho da propria pessoa, neste cliente."""
+    tenant = get_current_tenant_slug()
+    token = _txt(token)
+    if not tenant:
+        raise PermissionError("Cliente não identificado.")
+    with db_store._conn() as c:
+        r = c.execute("SELECT id FROM termico_aparelhos WHERE tenant_slug=? AND token=? AND usuario_id=?",
+                      (tenant, token, int(usuario_id))).fetchone()
+    if not r:
+        raise LookupError("Este celular ainda não está registrado. Saia e entre de novo no app.")
+    try:
+        bearer, projeto = _bearer()
+        resp = requests.post(f"https://fcm.googleapis.com/v1/projects/{projeto}/messages:send", timeout=10,
+                             json=_mensagem(token, "Teste de notificação", "Se você ouviu a sirene, os alarmes vão chegar aqui.", {"tipo": "teste"}),
+                             headers={"Authorization": f"Bearer {bearer}"})
+    except Exception as exc:
+        logger.warning("termico: teste de notificacao falhou (%s): %s", tenant, exc)
+        raise ValueError("Não consegui falar com o serviço de notificação.")
+    if resp.status_code != 200:
+        logger.warning("termico: teste de notificacao %s: %s", resp.status_code, resp.text[:200])
+        raise ValueError("O serviço de notificação recusou o envio.")
+    return {"ok": True}
+
+
 def _anotar_falha(tenant: str, cam: Dict[str, Any], alerta_id: str, falhas: int) -> None:
     from app.services.termico_store import anotar_falha_aviso
     from app.services.zabbix_monitoring_service import enviar_termico_agora

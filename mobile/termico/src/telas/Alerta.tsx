@@ -114,7 +114,7 @@ export function AlertaTela() {
         <Regua a={a} />
         {a.videos?.termico ? <Video caminho={a.videos.termico} legenda="Térmica, depois do alarme" /> : null}
         {a.videos?.visivel ? <Video caminho={a.videos.visivel} legenda="Colorida, depois do alarme" /> : null}
-        <Link className="btn2" to={`/vivo/${a.camera_id}`}>Ver ao vivo</Link>
+        <Link className="btn2 com-icone" to={`/vivo/${a.camera_id}`}>{Icone.video}Ver ao vivo</Link>
         {a.situacao === 'novo' ? (
           <>
             <Deslizar ocupado={responder.isPending} aoConfirmar={() => responder.mutate({ id: a.id, tipo: 'ciente' })} />

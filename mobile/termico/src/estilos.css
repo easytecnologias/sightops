@@ -135,7 +135,6 @@ small { font-size: 12px; color: var(--apagado); }
 
 /* ronda */
 .mosaico { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
-.mosaico-item { position: relative; height: 112px; border-radius: 16px; overflow: hidden; background: var(--noite); }
 .mosaico-item.tem { box-shadow: 0 0 0 3px var(--alerta); }
 .mosaico-item .selo { top: 6px; left: 6px; font-size: 10px; padding: 3px 6px; }
 .mosaico-nome { position: absolute; left: 0; right: 0; bottom: 0; padding: 14px 8px 6px; background: linear-gradient(transparent, rgba(19, 37, 45, .85)); color: #fff; font-size: 11px; display: flex; justify-content: space-between; gap: 4px; }
@@ -163,11 +162,44 @@ small { font-size: 12px; color: var(--apagado); }
 /* nome da usina numa linha quando divide o topo com outro controle */
 .topo .linha .bt-usina { font-size: 18px; white-space: nowrap; overflow: hidden; flex: 1; min-width: 0; }
 
-.vivo-video { position: relative; height: 56vw; max-height: 60vh; background: #000; }
-.vivo-video video { width: 100%; height: 100%; object-fit: contain; display: block; }
-.vivo-video .selo { position: absolute; left: 12px; bottom: 12px; }
-.vivo-aviso { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 13px; }
-a.mosaico-item { display: block; color: inherit; text-decoration: none; }
 .video-grav { margin: 0; }
 .video-grav video { width: 100%; border-radius: 12px; background: #000; display: block; }
 .video-grav figcaption { font-size: 12px; opacity: .7; margin-top: 4px; }
+
+/* Ao vivo */
+.vivo { position: relative; background: #000; flex: none; padding-top: env(safe-area-inset-top, 0px); }
+.vivo-quadro { position: relative; width: 100%; background: var(--noite); overflow: hidden; }
+.video-vivo { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: fill; opacity: 0; transition: opacity .25s; }
+.video-vivo.on { opacity: 1; }
+.vivo-aviso { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); padding: 6px 12px; border-radius: 12px; background: rgba(19, 37, 45, .78); color: #fff; font-size: 12px; font-weight: 600; white-space: nowrap; }
+.vivo-topo { position: absolute; top: calc(12px + env(safe-area-inset-top, 0px)); left: 12px; right: 12px; display: flex; align-items: center; justify-content: space-between; }
+.vivo-marca { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; border-radius: 14px; background: rgba(19, 37, 45, .78); color: #fff; font-size: 11px; font-weight: 700; letter-spacing: .04em; }
+.vivo-marca i { width: 8px; height: 8px; border-radius: 50%; background: var(--alerta); animation: pisca 1.4s infinite; }
+@keyframes pisca { 50% { opacity: .35; } }
+.vivo-base { position: absolute; left: 12px; right: 12px; bottom: 12px; display: flex; align-items: center; justify-content: space-between; }
+.vivo-base .alternar button { height: 30px; padding: 0 12px; font-size: 12px; }
+.bt-redondo.escuro { background: rgba(19, 37, 45, .78); color: #fff; }
+.vivo.cheia { position: fixed; inset: 0; z-index: 60; padding: 0; display: flex; align-items: center; justify-content: center; }
+.vivo.cheia .vivo-quadro { max-width: 100%; max-height: 100%; }
+@media (orientation: landscape) { .vivo { position: fixed; inset: 0; z-index: 60; padding: 0; display: flex; align-items: center; justify-content: center; } .vivo-quadro { width: auto; height: 100%; max-width: 100%; } }
+.vivo-info { display: flex; flex-direction: column; gap: 12px; }
+.vivo-info small b { color: var(--texto); }
+.alternar.largo { background: var(--fundo); }
+.alternar.largo button { flex: 1; color: var(--apagado); }
+.alternar.largo button.on { background: var(--cor); color: #fff; }
+.fita { display: flex; gap: 10px; overflow-x: auto; margin: 0 -16px; padding: 0 16px 4px; scrollbar-width: none; }
+.fita-item { position: relative; flex: none; width: 132px; aspect-ratio: 4 / 3; border-radius: 14px; overflow: hidden; background: var(--noite); }
+.fita-item span { position: absolute; left: 0; right: 0; bottom: 0; padding: 12px 8px 5px; background: linear-gradient(transparent, rgba(19, 37, 45, .85)); color: #fff; font-size: 11px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* Mosaico ao vivo */
+.grupo { display: flex; flex-direction: column; gap: 8px; }
+.grupo small { color: var(--apagado); font-size: 12px; }
+a.mosaico-item { position: relative; display: block; border-radius: 16px; overflow: hidden; background: var(--noite); color: inherit; }
+.bolinha { position: absolute; top: 8px; right: 8px; width: 10px; height: 10px; border-radius: 50%; background: #9fb0b8; box-shadow: 0 0 0 2px rgba(19, 37, 45, .55); }
+.bolinha.ok { background: #2fd38a; }
+.bolinha.ruim { background: var(--alerta); }
+
+/* Pecas */
+a.btn2 { display: flex; align-items: center; justify-content: center; }
+.btn2.com-icone { gap: 8px; color: var(--cor); }
+.conta-aviso { display: flex; flex-direction: column; gap: 12px; }

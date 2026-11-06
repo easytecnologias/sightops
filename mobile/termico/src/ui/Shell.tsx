@@ -14,7 +14,7 @@ const ABAS = [
 export function Shell({ children }: { children: ReactNode }) {
   const online = useOnline();
   const { pathname } = useLocation();
-  const semBarra = pathname.startsWith('/alerta/');
+  const semBarra = pathname.startsWith('/alerta/') || pathname.startsWith('/vivo/');
   return (
     <div className="app">
       <main className="conteudo">{children}</main>

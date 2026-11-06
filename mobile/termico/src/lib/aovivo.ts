@@ -28,11 +28,11 @@ function juntar(bufs: ArrayBuffer[]): Uint8Array<ArrayBuffer> {
   return out;
 }
 
-export type Alvo = { ip: string; connector_id: string; tipo: 'termica' | 'colorida' };
+export type Alvo = { ip: string; connector_id: string; tipo: 'termica' | 'colorida'; hd?: boolean };
 
 /** Abre o video da camera no servidor e devolve o nome do stream. */
 async function registrar(a: Alvo): Promise<string> {
-  const r = await enviar<{ stream_name?: string }>('/api/termico/vivo', { ip: a.ip, connector_id: a.connector_id, tipo: a.tipo, alta: false });
+  const r = await enviar<{ stream_name?: string }>('/api/termico/vivo', { ip: a.ip, connector_id: a.connector_id, tipo: a.tipo, alta: !!a.hd });
   if (!r.stream_name) throw new Error('O servidor não devolveu o vídeo.');
   return r.stream_name;
 }

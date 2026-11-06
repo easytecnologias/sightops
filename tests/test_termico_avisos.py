@@ -186,3 +186,17 @@ def test_link_da_foto_nao_quebra_com_entrada_estranha(monkeypatch):
     monkeypatch.setattr("app.core.crypto._load_or_create_key", lambda: b"k" * 32)
     assert not A.foto_valida("cliente-a", "a" * 32, 10 ** 400, "x", agora=1000)
     assert not A.foto_valida("cliente-a", "a" * 32, 1100, "é", agora=1000)
+
+
+def test_testar_notificacao_so_no_proprio_celular(av, monkeypatch):
+    A = av
+    _u(1); _u(2)
+    A.registrar(T1, 1, "ana")
+    monkeypatch.setattr(A, "_bearer", lambda: ("oauth", "sightops"))
+    feitos = _posts(A, monkeypatch)
+    assert A.testar(T1, 1) == {"ok": True} and len(feitos) == 1 and feitos[0][1]["message"]["token"] == T1
+    with pytest.raises(LookupError):
+        A.testar(T1, 2)         # celular de outra pessoa
+    with pytest.raises(LookupError):
+        A.testar("x" * 100, 1)
+    assert len(feitos) == 1

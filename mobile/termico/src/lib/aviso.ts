@@ -11,6 +11,13 @@ import { apagar, pegar, salvar } from './storage';
 const CHAVE = 'termico.aparelho';
 let ligado = false;
 
+export const tokenDoAparelho = (): Promise<string | null> => pegar(CHAVE);
+
+export async function avisosLigados(): Promise<boolean> {
+  if (!Capacitor.isNativePlatform()) return false;
+  return (await PushNotifications.checkPermissions()).receive === 'granted';
+}
+
 export async function ligarAvisos(aoChegar: () => void): Promise<void> {
   if (!Capacitor.isNativePlatform()) return;
   const p = await PushNotifications.requestPermissions();
