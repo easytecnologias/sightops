@@ -549,3 +549,16 @@ def test_relatorio_conta_o_periodo_e_gera_pdf(store):
         R.gerar(de="2026-02-01", ate="2026-01-01")
     with _como("cliente-b"):
         assert R.gerar()["resumo"]["alarmes"] == 0
+
+
+def test_faixas_sao_validadas_e_voltam_na_regra(store):
+    cam = store.adicionar("10.0.0.81", "c1")
+    p = [{"de": "18:00", "ate": "06:00", "dif_min": 3, "pontos_min": 6, "lixo": 1}]
+    salvo = store.salvar_camera(cam["id"], {"regra": {"perfis": p}})
+    assert salvo["regra"]["perfis"] == [{"de": "18:00", "ate": "06:00", "dif_min": 3.0, "pontos_min": 6}]
+    assert store.regra_de({"regra": salvo["regra"]}).no_minuto(23 * 60).dif_min == 3.0
+    assert store.salvar_camera(cam["id"], {"regra": {"perfis": []}})["regra"]["perfis"] == []
+    for ruim in ([{"de": "18:00", "ate": "18:00"}], [{"de": "", "ate": "06:00"}], [{"de": "18:00", "ate": "06:00", "dif_min": 999}],
+                 [{"de": "18:00", "ate": "06:00", "dif_min": "x"}], "nao", [{"de": "01:00", "ate": "02:00"}] * 9):
+        with pytest.raises(ValueError):
+            store.salvar_camera(cam["id"], {"regra": {"perfis": ruim}})

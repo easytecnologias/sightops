@@ -254,3 +254,25 @@ def test_movimento_zero_aceita_parada():
     v = T.Vigia(T.Regra(movimento_min=0))
     v.processar(q, 0.0)
     assert any(_rodar(v, q, [_com_pessoa(q)] * 3))
+
+
+PERFIS = [{"de": "18:00", "ate": "06:00", "dif_min": 3, "pontos_min": 6},
+          {"de": "06:00", "ate": "10:00", "dif_min": 8, "quadros_seguidos": 3}]
+
+
+@pytest.mark.parametrize("hora,faixa,dif", [(23 * 60, "18:00-06:00", 3.0), (5 * 60 + 59, "18:00-06:00", 3.0), (6 * 60, "06:00-10:00", 8.0),
+                                            (9 * 60 + 59, "06:00-10:00", 8.0), (10 * 60, "", 5.0), (12 * 60, "", 5.0), (18 * 60, "18:00-06:00", 3.0)])
+def test_faixa_certa_em_cada_hora(hora, faixa, dif):
+    r = T.Regra(perfis=PERFIS).no_minuto(hora)
+    assert r.faixa == faixa and r.dif_min == dif and isinstance(r.dif_min, float)
+    assert isinstance(r.pontos_min, int) and isinstance(r.quadros_seguidos, int)
+
+
+def test_faixa_muda_a_deteccao_sem_perder_o_fundo():
+    q = _quadro("quadro1")
+    v = T.Vigia(T.Regra(perfis=[{"de": "06:00", "ate": "10:00", "dif_min": 40.0}], movimento_min=0, quadros_seguidos=1))
+    v.processar(q, 0.0, 8 * 60)
+    fundo = v.fundo
+    assert v.processar(_com_pessoa(q), 2.0, 8 * 60)[1] is None          # manha: exige 40 graus
+    _, d = v.processar(_com_pessoa(q), 4.0, 12 * 60)                    # meio-dia: regra normal
+    assert d is not None and v.fundo is fundo

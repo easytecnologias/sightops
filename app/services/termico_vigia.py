@@ -74,14 +74,15 @@ class VigiaTermico:
                 reset_current_tenant_slug(token)
         return total
 
-    def simular_pessoa(self, tenant: str, camera_id: str) -> Optional[Dict[str, Any]]:
+    def simular_pessoa(self, tenant: str, camera_id: str, minuto: Optional[int] = None) -> Optional[Dict[str, Any]]:
         """Roda sobre o ultimo quadro ja lido: nao faz nenhum pedido a camera."""
         est = self._estados.get((tenant, camera_id))
         v = est.vigia if est else None
         if not v or not v.ultimo_quadro or not v.fundo:
             return None
         from app.services.termico_deteccao import simular_pessoa
-        return simular_pessoa(v.ultimo_quadro, v.fundo, v.regra, v._vigiado)
+        regra = v.regra.no_minuto(minuto)
+        return {**simular_pessoa(v.ultimo_quadro, v.fundo, regra, v._vigiado), "faixa": regra.faixa}
 
     # ------------------------------------------------------------ rodada --
     def rodada(self, agora: Optional[float] = None) -> Dict[str, Any]:
@@ -189,7 +190,7 @@ class VigiaTermico:
             self._saude(cam, est, False, str(exc)[:300])
             return
 
-        manchas, disparo = est.vigia.processar(quadro, time.time())
+        manchas, disparo = est.vigia.processar(quadro, time.time(), termico_store.minuto_local())
         est.manchas, est.manchas_em = [m.como_dict() for m in manchas[:6]], time.time()
         fundo = est.vigia.fundo
         media_fundo = (sum(fundo.valores) / len(fundo.valores)) if fundo else None
@@ -206,6 +207,8 @@ class VigiaTermico:
                 visivel = b""
         mancha = disparo.mancha.como_dict()
         mancha["quadros"] = disparo.quadros
+        if est.vigia.faixa:
+            mancha["faixa"] = est.vigia.faixa
         alerta = termico_store.registrar_alerta(cam, mancha, {
             "termico.jpg": quadro.jpeg_termico, "visivel.jpg": visivel, "temps.bin": quadro.temps.tobytes()})
         alerta["mancha"] = mancha

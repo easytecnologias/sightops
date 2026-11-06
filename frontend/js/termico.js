@@ -117,6 +117,9 @@
   .tm-ignorar{border:2px dashed #ffb44d;background:rgba(19,37,45,.5)}
   .tm-mancha{border:2px solid #ff5a5a}
   .tm-cego{position:absolute;background:rgba(255,90,90,.28)}
+  .tm-perfil{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) minmax(0,1.2fr) minmax(0,.9fr) 32px;gap:8px;align-items:end}
+  .tm-perfil input,.tm-perfil select{min-width:0;width:100%;box-sizing:border-box}
+  @media (max-width:560px){.tm-perfil{grid-template-columns:repeat(2,minmax(0,1fr))}}
   .tm-tirar-reg{position:absolute;right:3px;top:3px;width:20px;height:20px;padding:0;border:0;border-radius:4px;background:rgba(19,37,45,.82);color:#fff;font-size:11px;cursor:pointer;pointer-events:auto}
   .tm-marco{position:absolute;width:22px;height:22px;margin:-11px 0 0 -11px;border-radius:50%;background:var(--primary);color:#fff;font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center}
   .tm-mira{position:absolute;left:50%;top:50%;width:26px;height:26px;margin:-13px 0 0 -13px;border:2px solid #fff;border-radius:50%;pointer-events:none}
@@ -675,6 +678,8 @@
     return n || 'Personalizada';
   }
 
+  const rotuloSens = r => (r?.perfis?.length ? 'Por horário' : sensDe(r));
+
   function pararPlayers() { players.forEach(p => { try { p.stop(); } catch (_) { /* ja parado */ } }); players.clear(); paredeChave = ''; }
   function pararGaveta() {
     gavPlayers.forEach(p => { try { p.stop(); } catch (_) { /* ja parado */ } });
@@ -729,7 +734,7 @@
         <span class="pdv-v-lbl tm-l-vivo"><i class="tm-vivo"></i>AO VIVO</span>
         <span class="pdv-v-lbl tm-l-temp" data-temp ${c.fundo_c == null ? 'hidden' : ''}>${c.fundo_c == null ? '' : `${num(c.fundo_c, 0)} °C`}</span>
       </button>
-      <div class="tm-tile-pe"><span data-pe>${c.ativo ? `${h(quandoDe(c))} · ${h(sensDe(c.regra))}` : 'Só vídeo'}</span>
+      <div class="tm-tile-pe"><span data-pe>${c.ativo ? `${h(quandoDe(c))} · ${h(rotuloSens(c.regra))}` : 'Só vídeo'}</span>
         <button type="button" class="pdv-l-link" data-tm-config="${h(idCam(c))}">${c.ativo || c.id ? 'Configurar' : 'Vigiar'}</button></div>
     </article>`;
   }
@@ -788,7 +793,7 @@
       const temp = t.querySelector('[data-temp]');
       if (temp) { temp.hidden = c.fundo_c == null; temp.textContent = c.fundo_c == null ? '' : `${num(c.fundo_c, 0)} °C`; }
       const pe = t.querySelector('[data-pe]');
-      if (pe) pe.textContent = c.ativo ? `${quandoDe(c)} · ${sensDe(c.regra)}` : 'Só vídeo';
+      if (pe) pe.textContent = c.ativo ? `${quandoDe(c)} · ${rotuloSens(c.regra)}` : 'Só vídeo';
     });
   }
 
@@ -883,12 +888,32 @@
       ${cfg.ignorar.map((r, i) => `<div class="tm-ignorar" style="${estilo(r)}"><span>Ignorar</span>${tirar('ignorar', i)}</div>`).join('')}`;
   }
 
+  // Faixa de horario: Variacao e o quanto a mancha precisa fugir do fundo, em graus.
+  const PERFIS_PADRAO = [['18:00', '06:00', 'Muita'], ['06:00', '10:00', 'Pouca'], ['10:00', '18:00', 'Normal']];
+  const perfilDe = (de, ate, nome) => ({ de, ate, dif_min: SENS[nome].dif_min, pontos_min: SENS[nome].pontos_min, quadros_seguidos: SENS[nome].quadros_seguidos });
+
+  function htmlPerfis() {
+    const linhas = cfg.perfis.map((p, i) => {
+      const s = sensDe(p);
+      return `<div class="tm-perfil" data-tm-p="${i}">
+        <label class="tm-campo">Das<input type="time" data-tm-pc="de" value="${h(p.de)}"></label>
+        <label class="tm-campo">Até<input type="time" data-tm-pc="ate" value="${h(p.ate)}"></label>
+        <label class="tm-campo">Sensibilidade<select data-tm-ps>${['Pouca', 'Normal', 'Muita'].map(n => `<option ${n === s ? 'selected' : ''}>${n}</option>`).join('')}${s === 'Personalizada' ? '<option selected>Personalizada</option>' : ''}</select></label>
+        <label class="tm-campo">Variação (°C)<input type="number" min="1" max="40" step="0.5" data-tm-pc="dif_min" value="${h(p.dif_min ?? 5)}"></label>
+        <button class="ghost-action" type="button" data-tm-ptira="${i}" aria-label="Tirar faixa">✕</button>
+      </div>`;
+    }).join('');
+    return `${linhas}<div><button class="secondary-action" type="button" data-tm-pmais>Adicionar faixa</button></div>
+      <span class="tm-sub">Variação é quanto a mancha precisa fugir do fundo. Fora das faixas vale ${h(cfg.sens === 'Personalizada' ? 'o ajuste avançado' : cfg.sens)}.</span>`;
+  }
+
   function perguntas() {
     const chips = (lista, atual, attr) => lista.map(n => `<button type="button" class="${n === atual ? 'on' : ''}" ${attr}="${h(n)}">${h(n)}</button>`).join('');
     return `<div class="tm-perg"><b>2. Quando vigiar?</b><div class="tm-chips">${chips(['Sempre', 'Só à noite', 'Escolher horário'], cfg.quando, 'data-tm-q')}</div>
         ${cfg.quando === 'Escolher horário' ? `<div class="tm-regra"><label class="tm-campo">Das<input type="time" id="tmDe" value="${h(cfg.de)}"></label><label class="tm-campo">até<input type="time" id="tmAte" value="${h(cfg.ate)}"></label><span></span></div>` : ''}</div>
-      <div class="tm-perg"><b>3. Com que sensibilidade?</b><div class="tm-chips">${chips(['Pouca', 'Normal', 'Muita'], cfg.sens, 'data-tm-s')}</div>
-        <span class="tm-sub">${h(SENS[cfg.sens]?.dica || 'Ajustada à mão em Ajustes avançados.')}</span></div>
+      <div class="tm-perg"><b>3. Com que sensibilidade?</b><div class="tm-chips">${chips(['Igual o dia todo', 'Muda por horário'], cfg.porHorario ? 'Muda por horário' : 'Igual o dia todo', 'data-tm-h')}</div>
+        ${cfg.porHorario ? htmlPerfis() : `<div class="tm-chips">${chips(['Pouca', 'Normal', 'Muita'], cfg.sens, 'data-tm-s')}</div>
+        <span class="tm-sub">${h(SENS[cfg.sens]?.dica || 'Ajustada à mão em Ajustes avançados.')}</span>`}</div>
       <details class="tm-avancado"><summary>Ajustes avançados</summary>
         <div class="tm-regra" style="margin-top:10px">${CAMPOS.map(([k, rot, passo]) => `<label class="tm-campo">${rot}<input type="number" step="${passo}" data-tm-campo="${k}" value="${h(cfg.regra[k])}"></label>`).join('')}</div></details>`;
   }
@@ -896,6 +921,21 @@
   function ligarPerguntas(g) {
     const box = g.querySelector('#tmPerguntas');
     box.querySelectorAll('[data-tm-q]').forEach(b => b.onclick = () => { lerAvancado(); cfg.quando = b.dataset.tmQ; pintarPerguntas(g); });
+    box.querySelectorAll('[data-tm-h]').forEach(b => b.onclick = () => {
+      lerAvancado();
+      cfg.porHorario = b.dataset.tmH === 'Muda por horário';
+      if (cfg.porHorario && !cfg.perfis.length) cfg.perfis = PERFIS_PADRAO.map(([de, ate, n]) => perfilDe(de, ate, n));
+      pintarPerguntas(g);
+    });
+    box.querySelectorAll('[data-tm-ps]').forEach(s => s.onchange = () => {
+      lerAvancado();
+      const i = Number(s.closest('[data-tm-p]').dataset.tmP);
+      if (SENS[s.value]) { const p = cfg.perfis[i]; cfg.perfis[i] = { ...p, ...perfilDe(p.de, p.ate, s.value) }; }
+      pintarPerguntas(g);
+    });
+    box.querySelectorAll('[data-tm-pc="dif_min"]').forEach(i => i.onchange = () => { lerAvancado(); pintarPerguntas(g); });
+    box.querySelectorAll('[data-tm-ptira]').forEach(b => b.onclick = () => { lerAvancado(); cfg.perfis.splice(Number(b.dataset.tmPtira), 1); if (!cfg.perfis.length) cfg.porHorario = false; pintarPerguntas(g); });
+    box.querySelector('[data-tm-pmais]')?.addEventListener('click', () => { lerAvancado(); cfg.perfis.push(perfilDe('', '', 'Normal')); pintarPerguntas(g); });
     box.querySelectorAll('[data-tm-s]').forEach(b => b.onclick = () => {
       cfg.sens = b.dataset.tmS;
       Object.assign(cfg.regra, { dif_min: SENS[cfg.sens].dif_min, pontos_min: SENS[cfg.sens].pontos_min, quadros_seguidos: SENS[cfg.sens].quadros_seguidos });
@@ -906,6 +946,10 @@
   function lerAvancado() {
     if ($('tmDe')) { cfg.de = $('tmDe').value; cfg.ate = $('tmAte').value; }
     $('tmGaveta')?.querySelectorAll('[data-tm-campo]').forEach(i => { if (i.value !== '') cfg.regra[i.dataset.tmCampo] = Number(i.value); });
+    $('tmGaveta')?.querySelectorAll('[data-tm-pc]').forEach(i => {
+      const p = cfg.perfis[Number(i.closest('[data-tm-p]').dataset.tmP)];
+      if (p) p[i.dataset.tmPc] = i.type === 'number' ? Number(i.value) : i.value;
+    });
     cfg.sens = sensDe(cfg.regra);
   }
 
@@ -947,6 +991,7 @@
     const r = c.regra || {};
     cfg = {
       cam: c, modo: 'area', regra: { ...r }, sens: c.id ? sensDe(r) : 'Normal',
+      perfis: (r.perfis || []).map(p => ({ ...p })), porHorario: !!r.perfis?.length,
       areas: (r.areas || []).map(ret), ignorar: (r.ignorar || []).map(ret),
       quando: c.id ? quandoDe(c) : 'Só à noite', de: c.armado_de || '', ate: c.armado_ate || '',
     };
@@ -988,6 +1033,7 @@
     const [de, ate] = q === 'Sempre' ? ['', ''] : q === 'Só à noite' ? NOITE : [cfg.de, cfg.ate];
     const regra = {};
     CAMPOS.forEach(([k]) => { if (cfg.regra[k] !== undefined && cfg.regra[k] !== '') regra[k] = Number(cfg.regra[k]); });
+    regra.perfis = cfg.porHorario ? cfg.perfis : [];
     regra.areas = cfg.areas.map(pol);
     regra.ignorar = cfg.ignorar.map(pol);
     return { armado_de: de, armado_ate: ate, regra };
@@ -1145,7 +1191,7 @@
     const d = r?.ok ? await r.json() : null;
     if (!d) { const e = r ? await r.json().catch(() => ({})) : {}; txt.textContent = e.detail || 'Não deu para simular agora.'; return; }
     if (box) box.innerHTML = d.cegos.map(c => `<div class="tm-cego" style="left:${c[0] * 100}%;top:${c[1] * 100}%;width:${c[2] * 100}%;height:${c[3] * 100}%"></div>`).join('');
-    txt.textContent = `Pessoa simulada a ${num(d.temp, 0)} °C, com a regra salva e o chão de agora (${num(d.cena.min, 0)} a ${num(d.cena.max, 0)} °C). Encontrada em: ${d.tamanhos.map(t => `${t.pct}% (${t.nome})`).join(', ')}. Em vermelho, onde a pessoa média não seria vista. É uma estimativa: só uma pessoa real confirma.`;
+    txt.textContent = `Pessoa simulada a ${num(d.temp, 0)} °C, com a regra salva${d.faixa ? ` da faixa ${h(d.faixa.replace('-', ' às '))}` : ''} e o chão de agora (${num(d.cena.min, 0)} a ${num(d.cena.max, 0)} °C). Encontrada em: ${d.tamanhos.map(t => `${t.pct}% (${t.nome})`).join(', ')}. Em vermelho, onde a pessoa média não seria vista. É uma estimativa: só uma pessoa real confirma.`;
   }
 
   // Testar agora: mostra sobre o video o que a deteccao ve, a cada 2 s.

@@ -28,7 +28,7 @@ from __future__ import annotations
 import json
 import re
 from array import array
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 Ponto = Tuple[float, float]
@@ -118,6 +118,15 @@ def ler_quadro(corpo: bytes, content_type: str) -> Quadro:
 
 
 # ------------------------------------------------------------------- regra --
+# O que cada faixa de horario pode trocar. Area e aprendizado sao da camera: o
+# fundo continua o mesmo quando a faixa muda.
+CAMPOS_PERFIL = ("dif_min", "contraste_min", "movimento_min", "pontos_min", "quadros_seguidos", "corpo_min", "corpo_max")
+
+
+def _minuto(hhmm: str) -> int:
+    return int(hhmm[:2]) * 60 + int(hhmm[3:5])
+
+
 @dataclass
 class Regra:
     """O que conta como pessoa numa camera. Os padroes sao o ponto de partida
@@ -134,6 +143,21 @@ class Regra:
     quadros_seguidos: int = 2     # quantas leituras seguidas a mancha precisa aparecer
     intervalo_alertas_s: float = 60.0
     aprendizado: float = 0.05     # quanto o fundo segue a cena a cada quadro (0..1)
+    # Faixas de horario com valores proprios: {"de": "18:00", "ate": "06:00", "dif_min": 3, ...}.
+    # Vale a primeira que contem a hora; fora de todas, a regra acima.
+    perfis: List[Dict] = field(default_factory=list)
+    faixa: str = ""               # a faixa em uso, para o registro do alarme
+
+    def no_minuto(self, minuto: Optional[int]) -> "Regra":
+        """A regra que vale agora. `minuto` e o minuto do dia no horario local."""
+        if minuto is None:
+            return self
+        for p in self.perfis:
+            de, ate = _minuto(p["de"]), _minuto(p["ate"])
+            if (de <= minuto < ate) if de < ate else (minuto >= de or minuto < ate):
+                novos = {k: type(getattr(self, k))(p[k]) for k in CAMPOS_PERFIL if k in p}
+                return replace(self, perfis=[], faixa=f"{p['de']}-{p['ate']}", **novos)
+        return self
 
 
 def _dentro(px: float, py: float, pol: Poligono) -> bool:
@@ -397,8 +421,9 @@ class Vigia:
         self._rastros: List[_Rastro] = []
         self.ultimo_alerta: float = -1e18
         self.ultimo_quadro: Optional[Quadro] = None
+        self.faixa = ""
 
-    def processar(self, quadro: Quadro, agora: float) -> Tuple[List[Mancha], Optional[Disparo]]:
+    def processar(self, quadro: Quadro, agora: float, minuto: Optional[int] = None) -> Tuple[List[Mancha], Optional[Disparo]]:
         """Devolve (manchas deste quadro, disparo ou None). O primeiro quadro
         so ensina o fundo e nunca dispara."""
         self.ultimo_quadro = quadro
@@ -408,7 +433,9 @@ class Vigia:
             self._rastros = []
             return [], None
 
-        manchas = detectar(quadro, self.fundo, self.regra, self._vigiado)
+        regra = self.regra.no_minuto(minuto)
+        self.faixa = regra.faixa
+        manchas = detectar(quadro, self.fundo, regra, self._vigiado)
 
         novos: List[_Rastro] = []
         melhor: Optional[Disparo] = None
@@ -420,12 +447,12 @@ class Vigia:
                         key=lambda r: (len(pontos & r.passado[-1][2]), r.n), default=None)
             passado = antes.passado if antes else []
             n = (antes.n if antes else 0) + 1
-            andou = bool(antes and antes.andou) or _andou(m, quadro.largura, passado, self.regra.movimento_min)
+            andou = bool(antes and antes.andou) or _andou(m, quadro.largura, passado, regra.movimento_min)
             cx, cy = _centro(m, quadro.largura)
             novos.append(_Rastro(m.caixa, n, (passado + [(cx, cy, pontos)])[-JANELA_MOVIMENTO:], andou))
             if n <= ABSORVER_LEITURAS or andou:
                 congelar.extend(m.indices)
-            if n >= self.regra.quadros_seguidos and andou and (melhor is None or m.pontos > melhor.mancha.pontos):
+            if n >= regra.quadros_seguidos and andou and (melhor is None or m.pontos > melhor.mancha.pontos):
                 melhor = Disparo(m, n)
         self._rastros = novos
 

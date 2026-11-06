@@ -19,7 +19,7 @@ from zoneinfo import ZoneInfo
 
 from app.core.tenant_context import get_current_tenant_slug, tenant_scoped_path
 from app.services import db_store
-from app.services.termico_deteccao import Regra
+from app.services.termico_deteccao import CAMPOS_PERFIL, Regra
 
 FUSO = ZoneInfo("America/Sao_Paulo")
 ID_RE = re.compile(r"^[0-9a-f]{32}$")
@@ -86,6 +86,7 @@ def chave(ip: Any, connector_id: Any) -> str:
 
 REMOVIDA = "removida"
 FALHAS_JANELA_H = 24     # aviso ou automacao que falhou fica no Zabbix por este tempo
+MAX_PERFIS = 8
 ESCALA_PADRAO = {"escalar_min": 10, "escalar_vezes": 2}
 ESCALA_JANELA_H = 6
 LEITURA_VELHA_S = 180     # desarmada le a cada 60 s; mais que isso parado = sem leitura
@@ -99,6 +100,7 @@ def regra_de(camera: Dict[str, Any]) -> Regra:
     for campo in LIMITES:
         if campo in dados:
             setattr(r, campo, type(getattr(r, campo))(dados[campo]))
+    r.perfis = dados.get("perfis") or []
     r.areas = [[tuple(p) for p in pol] for pol in dados.get("areas") or []]
     r.ignorar = [[tuple(p) for p in pol] for pol in dados.get("ignorar") or []]
     return r
@@ -126,6 +128,37 @@ def _poligonos(valor: Any, campo: str) -> List[List[List[float]]]:
     return saida
 
 
+def minuto_local() -> int:
+    agora = datetime.now(FUSO)
+    return agora.hour * 60 + agora.minute
+
+
+def _validar_perfis(valor: Any) -> List[Dict[str, Any]]:
+    if not isinstance(valor, list) or len(valor) > MAX_PERFIS:
+        raise ValueError(f"Use no máximo {MAX_PERFIS} faixas de horário.")
+    saida = []
+    for p in valor:
+        if not isinstance(p, dict):
+            raise ValueError("Faixa de horário inválida.")
+        de, ate = _txt(p.get("de")), _txt(p.get("ate"))
+        if not HORA_RE.match(de) or not HORA_RE.match(ate) or de == ate:
+            raise ValueError("Cada faixa precisa de um horário de início e outro de fim, diferentes.")
+        item: Dict[str, Any] = {"de": de, "ate": ate}
+        for campo in CAMPOS_PERFIL:
+            if campo not in p:
+                continue
+            lo, hi = LIMITES[campo]
+            try:
+                v = float(p[campo])
+            except (TypeError, ValueError):
+                raise ValueError(f"Faixa {de} a {ate}: {campo} inválido.")
+            if not lo <= v <= hi:
+                raise ValueError(f"Faixa {de} a {ate}: {campo} use de {lo} a {hi}.")
+            item[campo] = int(v) if isinstance(lo, int) else v
+        saida.append(item)
+    return saida
+
+
 def _validar_regra(dados: Dict[str, Any], atual: Dict[str, Any]) -> Dict[str, Any]:
     regra = dict(atual)
     for campo, (lo, hi) in LIMITES.items():
@@ -141,6 +174,8 @@ def _validar_regra(dados: Dict[str, Any], atual: Dict[str, Any]) -> Dict[str, An
     for campo in ("areas", "ignorar"):
         if campo in dados:
             regra[campo] = _poligonos(dados[campo], campo)
+    if "perfis" in dados:
+        regra["perfis"] = _validar_perfis(dados["perfis"])
     if float(regra.get("corpo_min", Regra.corpo_min)) >= float(regra.get("corpo_max", Regra.corpo_max)):
         raise ValueError("A temperatura mínima de corpo tem que ser menor que a máxima.")
     if int(regra.get("pontos_min", Regra.pontos_min)) >= int(regra.get("pontos_max", Regra.pontos_max)):
@@ -199,7 +234,7 @@ def _publica(c: Dict[str, Any]) -> Dict[str, Any]:
         "armado_ate": c.get("armado_ate") or "", "armado_agora": esta_armado(c),
         "leitura": c.get("leitura") or "", "leitura_erro": c.get("leitura_erro") or "",
         "leitura_at": c.get("leitura_at") or "", "fundo_c": c.get("fundo_c"),
-        "regra": {**{k: getattr(regra, k) for k in LIMITES}, "areas": regra.areas, "ignorar": regra.ignorar},
+        "regra": {**{k: getattr(regra, k) for k in LIMITES}, "areas": regra.areas, "ignorar": regra.ignorar, "perfis": regra.perfis},
     }
 
 
@@ -553,7 +588,7 @@ def simular_pessoa(camera_id: str) -> Dict[str, Any]:
     tenant = _tenant()
     with db_store._conn() as c:
         cam = _camera(c, tenant, camera_id)
-    res = vigia_global().simular_pessoa(tenant, cam["id"])
+    res = vigia_global().simular_pessoa(tenant, cam["id"], minuto_local())
     if res is None:
         raise ValueError("A câmera ainda não mandou nenhuma leitura. Tente em 1 minuto.")
     return res
