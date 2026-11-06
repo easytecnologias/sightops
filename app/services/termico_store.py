@@ -763,7 +763,11 @@ def config() -> Dict[str, int]:
 
 
 def salvar_config(dados: Dict[str, Any]) -> Dict[str, int]:
+    from app.core.permissions import sites_da_sessao
+
     tenant = _tenant()
+    if sites_da_sessao() is not None:       # vale para o cliente inteiro, inclusive usinas que ele nao ve
+        raise PermissionError("Só administrador sem restrição de site muda isso.")
     try:
         minutos, vezes = int(dados.get("escalar_min")), int(dados.get("escalar_vezes"))
     except (TypeError, ValueError):

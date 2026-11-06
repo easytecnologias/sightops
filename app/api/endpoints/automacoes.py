@@ -49,8 +49,9 @@ def api_speed_mover(payload: Dict[str, Any]) -> Dict[str, Any]:
 def api_speed_vivo(payload: Dict[str, Any]) -> Dict[str, Any]:
     from app.services import termico_store
 
-    return _rede(lambda: termico_store.abrir_vivo(str(payload.get("ip") or ""), str(payload.get("connector_id") or ""),
-                                                  "colorida", True, True))
+    ip, conector = str(payload.get("ip") or ""), str(payload.get("connector_id") or "")
+    _rede(automacao_acoes._speed_do_usuario, ip, conector)      # so speed, nunca outra camera
+    return _rede(lambda: termico_store.abrir_vivo(ip, conector, "colorida", True, True))
 
 
 @router.get("")
