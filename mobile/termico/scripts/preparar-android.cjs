@@ -56,4 +56,9 @@ fs.writeFileSync(path.join(res, 'values', 'strings.xml'), `<?xml version='1.0' e
 `);
 fs.writeFileSync(path.join(res, 'values', 'ic_launcher_background.xml'),
   `<?xml version="1.0" encoding="utf-8"?>\n<resources>\n    <color name="ic_launcher_background">${cfg.marca.cor}</color>\n</resources>\n`);
+// Firebase de cada cliente (notificacao). Sem o arquivo, o app sai sem push.
+const fb = path.join(raiz, 'clientes', cliente, 'google-services.json');
+const fbDestino = path.join(app, 'google-services.json');
+if (fs.existsSync(fb)) fs.copyFileSync(fb, fbDestino); else fs.rmSync(fbDestino, { force: true });
+
 console.log(`android preparado: ${cfg.appName} (${cfg.appId}) ${cfg.versionName}`);

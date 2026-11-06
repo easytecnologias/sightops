@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "593604204736",
+    "project_id": "sightops",
+    "storage_bucket": "sightops.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:593604204736:android:c644e9bb08c7b4665cf525",
+        "android_client_info": {
+          "package_name": "br.com.easytecnologias.termico.mega"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDrqx27Okq0C0O4Dnzkh7RvdeFRl8c-eu0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
