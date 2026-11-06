@@ -154,6 +154,12 @@ def api_termico_falso(alerta_id: str, payload: Dict[str, Any],
     return r
 
 
+@router.get("/alertas/{alerta_id}/video/{tipo}")
+def api_termico_video(alerta_id: str, tipo: str) -> FileResponse:
+    caminho = _executar(termico_store.caminho_video, alerta_id, tipo)
+    return FileResponse(caminho, media_type="video/mp4", headers={"Cache-Control": "private, max-age=86400"})
+
+
 @router.get("/alertas/{alerta_id}/foto/{tipo}")
 def api_termico_foto(alerta_id: str, tipo: str) -> FileResponse:
     caminho = _executar(termico_store.caminho_foto, alerta_id, tipo)

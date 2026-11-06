@@ -117,6 +117,7 @@
   .tm-ignorar{border:2px dashed #ffb44d;background:rgba(19,37,45,.5)}
   .tm-mancha{border:2px solid #ff5a5a}
   .tm-cego{position:absolute;background:rgba(255,90,90,.28)}
+  .tm-grav{width:100%;aspect-ratio:4/3;background:#000;border-radius:6px;display:block}
   .tm-mancha span{left:0;top:-22px;white-space:nowrap}
   .tm-area span,.tm-ignorar span,.tm-mancha span{position:absolute;left:4px;top:4px;padding:1px 6px;border-radius:4px;background:rgba(19,37,45,.82);color:#fff;font-size:11px;font-weight:600}
   .tm-dica{position:absolute;left:50%;top:10px;transform:translateX(-50%);padding:4px 12px;border-radius:14px;background:rgba(19,37,45,.82);color:#fff;font-size:12px;white-space:nowrap;pointer-events:none}
@@ -290,6 +291,14 @@
     return `left:${(Math.max(0, c[0] - m) * 100).toFixed(1)}%;top:${(Math.max(0, c[1] - m) * 100).toFixed(1)}%;width:${((c[2] + 2 * m) * 100).toFixed(1)}%;height:${((c[3] + 2 * m) * 100).toFixed(1)}%`;
   }
 
+  // Os segundos depois do alarme, gravados pelo servidor. So some se a camera nao respondeu.
+  function htmlVideos(a) {
+    const v = a.videos || {};
+    if (!v.termico && !v.visivel) return '';
+    const um = (src, rot) => src ? `<figure style="margin:0"><video class="tm-grav" src="${h(src)}" controls muted playsinline preload="metadata"></video><figcaption class="tm-legenda">${rot}</figcaption></figure>` : '';
+    return `<div><div class="tm-sub" style="margin-bottom:6px">Vídeo depois do alarme</div><div class="tm-fotos">${um(v.termico, 'Térmica')}${um(v.visivel, 'Colorida')}</div></div>`;
+  }
+
   function htmlDetalhe(a) {
     const [rot, cls] = SIT[a.situacao] || SIT.novo;
     const resp = a.situacao === 'novo' ? '' : `<div class="tm-sub">${a.situacao === 'falso' ? 'Falso alarme' : 'Ciente'} por ${h(a.visto_por || '—')} em ${h(dataHora(a.visto_at))}${a.motivo_falso ? ` · ${h((MOTIVOS.find(m => m[0] === a.motivo_falso) || ['', a.motivo_falso])[1])}` : ''}${a.comentario ? ` · “${h(a.comentario)}”` : ''}</div>`;
@@ -300,6 +309,7 @@
         <figure style="margin:0"><div class="tm-foto" id="tmFotoT"><div class="tm-vazio">Carregando…</div><div class="tm-caixa" style="${caixaCss(a)}"></div></div><figcaption class="tm-legenda">Térmica</figcaption></figure>
         <figure style="margin:0"><div class="tm-foto" id="tmFotoV"><div class="tm-vazio">${a.fotos.visivel ? 'Carregando…' : 'Sem foto colorida'}</div></div><figcaption class="tm-legenda">Colorida, mesmo instante</figcaption></figure>
       </div>
+      ${htmlVideos(a)}
       ${a.mancha?.teste ? `<div class="tm-sub">Gerado na tela para testar os avisos. Não houve detecção: as fotos são da câmera naquele momento.</div>` : `<div class="tm-medidas">
         <div><span>Mancha</span><strong style="color:var(--danger)">${num(a.temp_c)} °C</strong></div>
         <div><span>Fundo</span><strong>${num(a.fundo_c)} °C</strong></div>
@@ -766,6 +776,7 @@
         <div><div class="tm-sub" style="margin-bottom:6px">Momento do disparo</div>
           <div class="tm-fotos"><div class="tm-foto" id="tmFotoT"><div class="tm-vazio">Carregando…</div><div class="tm-caixa" style="${caixaCss(a)}"></div></div>
             <div class="tm-foto" id="tmFotoV"><div class="tm-vazio">${a.fotos.visivel ? 'Carregando…' : 'Sem foto colorida'}</div></div></div></div>
+        ${htmlVideos(a)}
         ${novo ? '' : `<div class="tm-sub">${a.situacao === 'falso' ? 'Falso alarme' : 'Ciente'} por ${h(a.visto_por || '—')} em ${h(dataHora(a.visto_at))}</div>`}
       </div>
       <div class="tm-gav-pe">${novo ? `<button class="primary-action" type="button" data-tm-gciente style="flex:1;justify-content:center">Ciente</button>

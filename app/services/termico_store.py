@@ -29,6 +29,9 @@ MODELO_TERMICO = re.compile(r"^(HM-T|DS-2TD|DS-2TP|DS-2TB)|THERMAL", re.I)
 SITUACOES = ("novo", "visto", "falso")
 MOTIVOS_FALSO = ("animal", "sol", "equipe", "mato", "veiculo", "outro")
 FOTOS = {"termico": "termico.jpg", "visivel": "visivel.jpg"}
+VIDEOS = {"termico": "termico.mp4", "visivel": "visivel.mp4"}
+VIDEO_S = 15                # 12 s no fluxo leve deram 85 KB na CAM P 03
+VIDEO_MAX_BYTES = 30_000_000
 
 # Limites do que a tela pode mandar na regra (fora disso e erro de digitacao).
 LIMITES = {
@@ -350,6 +353,7 @@ def _alerta_publico(r: Dict[str, Any]) -> Dict[str, Any]:
         "temp_c": r.get("temp_c"), "fundo_c": r.get("fundo_c"), "dif_c": r.get("dif_c"),
         "mancha": _json(r.get("mancha"), {}),
         "fotos": {k: (f"/api/termico/alertas/{r['id']}/foto/{k}" if v in fotos else "") for k, v in FOTOS.items()},
+        "videos": {k: (f"/api/termico/alertas/{r['id']}/video/{k}" if v in fotos else "") for k, v in VIDEOS.items()},
         "visto_por": r.get("visto_por") or "", "visto_at": r.get("visto_at") or "",
         "motivo_falso": r.get("motivo_falso") or "", "comentario": r.get("comentario") or "",
     }
@@ -585,17 +589,85 @@ def foto_do_aviso(tenant: str, alerta_id: str, expira: int, assinatura: str) -> 
 
 
 def caminho_foto(alerta_id: str, tipo: str) -> Path:
+    return _arquivo_do_alerta(alerta_id, tipo, FOTOS)
+
+
+def caminho_video(alerta_id: str, tipo: str) -> Path:
+    return _arquivo_do_alerta(alerta_id, tipo, VIDEOS)
+
+
+def _gravar_um_video(camera: Dict[str, Any], tipo: str, destino: Path) -> bool:
+    """Grava o que a camera ve agora pelo go2rtc, no fluxo leve. So le a camera."""
+    import requests
+    from app.services.live_stream_service import GO2RTC_BASE_URL
+
+    nome = abrir_vivo(camera["ip"], camera.get("connector_id") or "", tipo)["stream_name"]
+    parcial = destino.with_suffix(".parte")
+    total = 0
+    with requests.get(f"{GO2RTC_BASE_URL}/api/stream.mp4", params={"src": nome, "mp4": "all", "duration": str(VIDEO_S)},
+                      stream=True, timeout=VIDEO_S + 30) as r, parcial.open("wb") as arq:
+        r.raise_for_status()
+        for bloco in r.iter_content(65536):
+            total += len(bloco)
+            if total > VIDEO_MAX_BYTES:
+                break
+            arq.write(bloco)
+    if not total:
+        parcial.unlink(missing_ok=True)
+        return False
+    parcial.replace(destino)
+    return True
+
+
+def gravar_videos(tenant: str, camera: Dict[str, Any], alerta_id: str) -> List[str]:
+    """Os segundos seguintes ao alarme, termica e colorida. Roda em thread
+    propria: alarme nunca espera video, e falha aqui nao derruba nada."""
+    import logging
+    import threading
+    from app.core.tenant_context import reset_current_tenant_slug, set_current_tenant_slug
+
+    log = logging.getLogger(__name__)
+    pasta = tenant_scoped_path(f"termico/{camera['id']}/{alerta_id}", tenant)
+    salvos: List[str] = []
+
+    def gravar(tipo: str, arquivo: str) -> None:
+        token = set_current_tenant_slug(tenant)
+        try:
+            if _gravar_um_video(camera, tipo, pasta / arquivo):
+                salvos.append(arquivo)
+        except Exception as exc:
+            log.warning("termico: video %s do alerta %s nao gravou: %s", tipo, alerta_id, exc)
+        finally:
+            reset_current_tenant_slug(token)
+
+    linhas = [threading.Thread(target=gravar, args=a, daemon=True, name="termico-video")
+              for a in (("termica", VIDEOS["termico"]), ("colorida", VIDEOS["visivel"]))]
+    for t in linhas:
+        t.start()
+    for t in linhas:
+        t.join()
+    if salvos:
+        with db_store._conn() as c:
+            r = c.execute("SELECT fotos FROM termico_alertas WHERE tenant_slug=? AND id=?", (tenant, alerta_id)).fetchone()
+            if r:
+                atuais = _json(dict(r).get("fotos"), [])
+                c.execute("UPDATE termico_alertas SET fotos=? WHERE tenant_slug=? AND id=?",
+                          (json.dumps(atuais + [v for v in salvos if v not in atuais]), tenant, alerta_id))
+    return salvos
+
+
+def _arquivo_do_alerta(alerta_id: str, tipo: str, nomes: Dict[str, str]) -> Path:
     tenant = _tenant()
-    if tipo not in FOTOS or not ID_RE.match(alerta_id or ""):
+    if tipo not in nomes or not ID_RE.match(alerta_id or ""):
         raise LookupError("Foto não encontrada.")
     with db_store._conn() as c:
         r = c.execute("SELECT camera_id, site, fotos FROM termico_alertas WHERE tenant_slug=? AND id=?", (tenant, alerta_id)).fetchone()
     if not r or not _site_ok(dict(r).get("site")):
         raise LookupError("Foto não encontrada.")
     r = dict(r)
-    if FOTOS[tipo] not in _json(r.get("fotos"), []):
+    if nomes[tipo] not in _json(r.get("fotos"), []):
         raise LookupError("Foto não encontrada.")
-    caminho = tenant_scoped_path(f"termico/{r['camera_id']}/{alerta_id}", tenant) / FOTOS[tipo]
+    caminho = tenant_scoped_path(f"termico/{r['camera_id']}/{alerta_id}", tenant) / nomes[tipo]
     if not caminho.is_file():
         raise LookupError("Foto não encontrada.")
     return caminho

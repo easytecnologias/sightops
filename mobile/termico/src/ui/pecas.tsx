@@ -47,5 +47,16 @@ export function Foto({ caminho, alt, posicao, recarregar }: { caminho: string; a
   return <div className="foto-vazia">{erro ? 'Sem imagem' : 'Carregando…'}</div>;
 }
 
+export function Video({ caminho, legenda }: { caminho: string; legenda: string }) {
+  const [url, setUrl] = useState('');
+  useEffect(() => {
+    let vivo = true;
+    fotoUrl(caminho, 'video/mp4').then((u) => { if (vivo) setUrl(u); }).catch(() => undefined);
+    return () => { vivo = false; };
+  }, [caminho]);
+  if (!url) return null;
+  return <figure className="video-grav"><video src={url} controls muted playsInline /><figcaption>{legenda}</figcaption></figure>;
+}
+
 export function Carregando() { return <div className="vazio">Carregando…</div>; }
 export function Erro({ erro }: { erro: unknown }) { return <div className="vazio erro">{(erro as Error)?.message || 'Não deu para carregar.'}</div>; }

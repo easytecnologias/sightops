@@ -62,14 +62,14 @@ export const enviar = <T,>(c: string, corpo: unknown = {}) => pedir<T>('POST', c
 export const atualizar = <T,>(c: string, corpo: unknown) => pedir<T>('PUT', c, corpo);
 
 /** Foto protegida por token: vira data URL (APK) ou blob local (navegador). */
-export async function fotoUrl(caminho: string): Promise<string> {
+export async function fotoUrl(caminho: string, tipo = 'image/jpeg'): Promise<string> {
   if (Capacitor.isNativePlatform()) {
     const r = await CapacitorHttp.get({
       url: API_BASE + caminho, responseType: 'blob',
       headers: _token ? { Authorization: `Bearer ${_token}` } : {},
     });
     if (r.status !== 200) throw new ErroApi('Foto indisponível.', r.status);
-    return `data:image/jpeg;base64,${r.data}`;
+    return `data:${tipo};base64,${r.data}`;
   }
   const res = await fetch(API_BASE + caminho, { headers: cabecalhos(false) });
   if (!res.ok) throw new ErroApi('Foto indisponível.', res.status);

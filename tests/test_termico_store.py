@@ -462,3 +462,29 @@ def test_enviar_agora_roda_no_contexto_do_cliente(monkeypatch):
     visto = []
     monkeypatch.setattr(Z, "_enviar_termico_agora", lambda t, i, c: visto.append(get_current_tenant_slug()) or True)
     assert Z.enviar_termico_agora("cliente-a", "1.1.1.1", "c") is True and visto == ["cliente-a"]
+
+
+def test_video_do_alarme_grava_e_aparece_so_com_arquivo(store, monkeypatch):
+    from app.services import db_store
+    cam = store.adicionar("10.0.0.81", "c1")
+    with db_store._conn() as c:
+        linha = dict(c.execute("SELECT * FROM termico_cameras WHERE id=?", (cam["id"],)).fetchone())
+    a = store.registrar_alerta(linha, {"temp_media": 34}, {"termico.jpg": b"x"})
+    assert store.listar_alertas()["alertas"][0]["videos"] == {"termico": "", "visivel": ""}
+
+    def falso(camera, tipo, destino):
+        if tipo == "colorida":
+            raise RuntimeError("camera fora")
+        destino.write_bytes(b"mp4")
+        return True
+    monkeypatch.setattr(store, "_gravar_um_video", falso)
+    assert store.gravar_videos("cliente-a", linha, a["id"]) == ["termico.mp4"]
+    v = store.listar_alertas()["alertas"][0]
+    assert v["videos"]["termico"].endswith("/video/termico") and v["videos"]["visivel"] == ""
+    assert v["fotos"]["termico"]
+    assert store.caminho_video(a["id"], "termico").read_bytes() == b"mp4"
+    with pytest.raises(LookupError):
+        store.caminho_video(a["id"], "visivel")
+    with _como("cliente-b"):
+        with pytest.raises(LookupError):
+            store.caminho_video(a["id"], "termico")

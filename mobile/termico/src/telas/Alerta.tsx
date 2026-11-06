@@ -1,7 +1,7 @@
 import { useRef, useState, type PointerEvent } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { hora, num, useAlertas, useResponder, type Alerta } from '../lib/termico';
-import { Carregando, Erro, Foto, Icone } from '../ui/pecas';
+import { Carregando, Erro, Foto, Icone, Video } from '../ui/pecas';
 
 const MOTIVOS: [string, string][] = [['animal', 'Animal'], ['sol', 'Reflexo do sol'], ['equipe', 'Equipe da usina'], ['mato', 'Vento ou mato'], ['veiculo', 'Veículo'], ['outro', 'Outro']];
 
@@ -112,6 +112,8 @@ export function AlertaTela() {
           {a.situacao === 'novo' ? <span className="etq alerta">Novo</span> : <span className={`etq ${a.situacao === 'falso' ? 'aviso' : 'ok'}`}>{a.situacao === 'falso' ? 'Falso alarme' : 'Ciente'}</span>}
         </div>
         <Regua a={a} />
+        {a.videos?.termico ? <Video caminho={a.videos.termico} legenda="Térmica, depois do alarme" /> : null}
+        {a.videos?.visivel ? <Video caminho={a.videos.visivel} legenda="Colorida, depois do alarme" /> : null}
         <Link className="btn2" to={`/vivo/${a.camera_id}`}>Ver ao vivo</Link>
         {a.situacao === 'novo' ? (
           <>

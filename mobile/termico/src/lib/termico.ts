@@ -8,6 +8,7 @@ export type Alerta = {
   temp_c: number | null; fundo_c: number | null; dif_c: number | null;
   mancha: { pontos?: number; caixa?: [number, number, number, number]; teste?: boolean };
   fotos: { termico: string; visivel: string };
+  videos?: { termico: string; visivel: string };
   visto_por: string; visto_at: string; motivo_falso: string; comentario: string;
 };
 export type ListaAlertas = { alertas: Alerta[]; total: number; por_situacao: Record<string, number>; por_site: Record<string, number> };

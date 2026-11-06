@@ -168,3 +168,6 @@ small { font-size: 12px; color: var(--apagado); }
 .vivo-video .selo { position: absolute; left: 12px; bottom: 12px; }
 .vivo-aviso { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 13px; }
 a.mosaico-item { display: block; color: inherit; text-decoration: none; }
+.video-grav { margin: 0; }
+.video-grav video { width: 100%; border-radius: 12px; background: #000; display: block; }
+.video-grav figcaption { font-size: 12px; opacity: .7; margin-top: 4px; }
