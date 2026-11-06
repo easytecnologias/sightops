@@ -3,14 +3,17 @@ import { useQuery } from '@tanstack/react-query';
 import { enviar, obter } from '../lib/api';
 import { avisosLigados, tokenDoAparelho } from '../lib/aviso';
 import { MARCA } from '../lib/marca';
-import { Icone, Logo } from '../ui/pecas';
+import { pegar, salvar } from '../lib/storage';
+import { Logo } from '../ui/pecas';
 
 export function Conta({ aoSair }: { aoSair: () => void }) {
   const eu = useQuery({ queryKey: ['eu'], queryFn: () => obter<{ username?: string; nome?: string; role?: string }>('/api/auth/me') });
   const [ligados, setLigados] = useState<boolean | null>(null);
   const [msg, setMsg] = useState('');
   const [ocupado, setOcupado] = useState(false);
-  useEffect(() => { void avisosLigados().then(setLigados); }, []);
+  const [hd, setHd] = useState(false);
+  useEffect(() => { void avisosLigados().then(setLigados); void pegar('termico.hd').then((v) => setHd(v === '1')); }, []);
+  const mudarHd = (v: boolean) => { setHd(v); void salvar('termico.hd', v ? '1' : '0'); };
 
   async function testar() {
     setOcupado(true);
@@ -29,12 +32,11 @@ export function Conta({ aoSair }: { aoSair: () => void }) {
 
   return (
     <>
-      <header className="topo baixo"><span className="topo-anel" aria-hidden="true" /><small>{MARCA.empresa}</small><h1>Conta</h1></header>
+      <header className="fx">
+        <div className="fx-top"><Logo tam={36} /><span className="fx-nome grande">Conta</span></div>
+        <div className="est"><div><b>{eu.data?.nome || eu.data?.username || 'Sua conta'}</b><small>{MARCA.empresa}</small></div></div>
+      </header>
       <div className="pagina">
-        <section className="cartao status">
-          <span className="ic-status">{Icone.conta}</span>
-          <div className="cresce"><b>{eu.data?.nome || eu.data?.username || 'Sua conta'}</b><small>{eu.data?.username ? `usuário ${eu.data.username}` : MARCA.empresa}</small></div>
-        </section>
         <section className="cartao conta-aviso">
           <div className="linha">
             <div className="cresce"><b>Notificações</b>
@@ -43,6 +45,13 @@ export function Conta({ aoSair }: { aoSair: () => void }) {
           </div>
           <button type="button" className="btn" disabled={ocupado} onClick={() => void testar()}>{ocupado ? 'Enviando…' : 'Testar notificação'}</button>
           {msg ? <small>{msg}</small> : null}
+        </section>
+        <section className="cartao conta-aviso">
+          <div><b>Qualidade do vídeo</b><small className="bloco">SD gasta menos a internet da usina</small></div>
+          <div className="alternar largo" role="group" aria-label="Qualidade padrão">
+            <button type="button" className={hd ? '' : 'on'} onClick={() => mudarHd(false)}>SD</button>
+            <button type="button" className={hd ? 'on' : ''} onClick={() => mudarHd(true)}>HD</button>
+          </div>
         </section>
         <section className="cartao status"><Logo /><div className="cresce"><b>{MARCA.nome}</b><small>versão {MARCA.versao} · tecnologia SightOps</small></div></section>
         <button type="button" className="btn2" onClick={aoSair}>Sair</button>

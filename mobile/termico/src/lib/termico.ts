@@ -6,7 +6,7 @@ export type Situacao = 'novo' | 'visto' | 'falso';
 export type Alerta = {
   id: string; camera_id: string; site: string; camera_nome: string; criado_at: string; situacao: Situacao;
   temp_c: number | null; fundo_c: number | null; dif_c: number | null;
-  mancha: { pontos?: number; caixa?: [number, number, number, number]; teste?: boolean };
+  mancha: { pontos?: number; caixa?: [number, number, number, number]; teste?: boolean; contraste?: number };
   fotos: { termico: string; visivel: string };
   videos?: { termico: string; visivel: string };
   visto_por: string; visto_at: string; motivo_falso: string; comentario: string;

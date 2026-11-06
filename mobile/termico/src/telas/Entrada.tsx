@@ -41,7 +41,7 @@ export function Login({ aoEntrar }: { aoEntrar: () => void }) {
 
   return (
     <div className="entrada">
-      <div className="entrada-topo">
+      <div className="entrada-topo com-imagem">
         <Logo tam={80} />
         <h1>{MARCA.nome}</h1>
         <p>{MARCA.slogan}</p>

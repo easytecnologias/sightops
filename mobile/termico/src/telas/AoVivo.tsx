@@ -1,7 +1,9 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { hora, natural, num, useAlertas, useCameras } from '../lib/termico';
+import { pegar } from '../lib/storage';
 import { Carregando, Erro, Foto, Icone } from '../ui/pecas';
+import { alarmesHoje } from '../ui/Faixa';
 import { formatoDe, VideoVivo } from '../ui/VideoVivo';
 
 /** Uma camera ao vivo: termica ou colorida, SD ou HD, e as outras da usina logo abaixo. */
@@ -12,6 +14,7 @@ export function AoVivo() {
   const al = useAlertas();
   const [tipo, setTipo] = useState<'termica' | 'colorida'>('termica');
   const [hd, setHd] = useState(false);
+  useEffect(() => { void pegar('termico.hd').then((v) => setHd(v === '1')); }, []);
   const [cheia, setCheia] = useState(false);
   const [aviso, setAviso] = useState('Conectando…');
   const cam = cams.data?.cameras.find((c) => c.id === id);
@@ -26,7 +29,7 @@ export function AoVivo() {
   return (
     <>
       <div className={`vivo ${cheia ? 'cheia' : ''}`}>
-        <div className="vivo-quadro" style={{ aspectRatio: formatoDe(tipo) }}>
+        <div className={`vivo-quadro ${tipo === 'termica' ? 'ferro' : ''}`} style={{ aspectRatio: formatoDe(tipo) }}>
           <VideoVivo key={cam.id} cam={cam} tipo={tipo} hd={hd} aviso={setAviso} />
           {aviso ? <span className="vivo-aviso">{aviso}</span> : null}
         </div>
@@ -52,7 +55,11 @@ export function AoVivo() {
             <button type="button" role="tab" aria-selected={tipo === 'termica'} className={tipo === 'termica' ? 'on' : ''} onClick={() => setTipo('termica')}>Térmica</button>
             <button type="button" role="tab" aria-selected={tipo === 'colorida'} className={tipo === 'colorida' ? 'on' : ''} onClick={() => setTipo('colorida')}>Colorida</button>
           </div>
-          {cam.fundo_c === null ? null : <small>Temperatura da cena: <b>{num(cam.fundo_c, 0)} °C</b></small>}
+          <div className="tres">
+            <div className="m"><span>Cena</span><b>{cam.fundo_c === null ? '—' : `${num(cam.fundo_c, 0)} °C`}</b></div>
+            <div className="m"><span>Alarmes hoje</span><b>{alarmesHoje((al.data?.alertas || []).filter((a) => a.camera_id === cam.id)).length}</b></div>
+            <div className="m"><span>Horário</span><b>{cam.armado_de ? `${cam.armado_de}` : 'Sempre'}</b></div>
+          </div>
           {hd ? <small>HD gasta bem mais internet da usina. Se travar, volte para SD.</small> : null}
         </section>
         {alarmes.length ? <div className="titulo-sec">Últimos alarmes desta câmera</div> : null}
@@ -67,7 +74,7 @@ export function AoVivo() {
         {vizinhas.length ? (
           <div className="fita">
             {vizinhas.map((c) => (
-              <Link key={c.id} to={`/vivo/${c.id}`} replace className="fita-item">
+              <Link key={c.id} to={`/vivo/${c.id}`} replace className="fita-item ferro">
                 <Foto caminho={`/api/termico/cameras/${c.id}/agora/termica`} alt={c.nome} recarregar={15000} />
                 <span>{c.nome}</span>
               </Link>

@@ -36,10 +36,12 @@ function Usina({ nome, cams, alertas }: { nome: string; cams: Camera[]; alertas:
         <button type="button" role="switch" aria-checked={ligada} aria-label={`Armar ${nome}`} className={`chave ${ligada ? 'on' : ''}`}
           disabled={armar.isPending} onClick={() => armar.mutate({ cameras: cams, ligar: !ligada })}><i /></button>
       </div>
-      <div className={`estado ${ligada ? 'on' : 'off'}`}>
-        <b>{armar.isPending ? 'Salvando…' : ligada ? 'Vigiando' : 'Desarmada'}</b>
-        <small>{semLeitura ? `${semLeitura} sem medição` : `${hoje} alerta${hoje === 1 ? '' : 's'} hoje`}</small>
+      <div className="tres">
+        <div className="m"><span>Situação</span><b>{armar.isPending ? 'Salvando…' : ligada ? 'Vigiando' : 'Desligada'}</b></div>
+        <div className="m"><span>Medindo</span><b>{cams.filter((c) => c.ativo && c.leitura === 'ok').length} de {cams.length}</b></div>
+        <div className="m"><span>Alarmes hoje</span><b>{hoje}</b></div>
       </div>
+      {semLeitura ? <p className="msg-erro">{semLeitura} sem medição: nessas não há alerta de pessoa.</p> : null}
       <Dia alertas={alertas} ligada={ligada} />
       {armar.error ? <p className="msg-erro">{(armar.error as Error).message}</p> : null}
     </section>
@@ -56,10 +58,13 @@ export function Usinas() {
   }, [cams.data]);
   return (
     <>
-      <header className="topo baixo">
-        <span className="topo-anel" aria-hidden="true" />
-        <small>{usinas.length} usina{usinas.length === 1 ? '' : 's'}</small>
-        <h1>Usinas</h1>
+      <header className="fx">
+        <div className="fx-top"><span className="fx-nome grande">Usinas</span></div>
+        <div className="mets">
+          <div><span>Usinas</span><b>{usinas.length}</b></div>
+          <div><span>Medindo</span><b>{(cams.data?.cameras || []).filter((c) => c.ativo && c.leitura === 'ok').length} <em>de {(cams.data?.cameras || []).length}</em></b></div>
+          <div><span>Sem resposta</span><b>{(al.data?.alertas || []).filter((a) => a.situacao === 'novo').length}</b></div>
+        </div>
       </header>
       <div className="pagina">
         {cams.isLoading ? <Carregando /> : cams.error ? <Erro erro={cams.error} /> : null}

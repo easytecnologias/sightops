@@ -17,6 +17,7 @@ export const Icone = {
   escudo: <S><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /><path d="M9 12l2 2 4-4" /></S>,
   seta: <S><path d="M9 6l6 6-6 6" /></S>,
   ok: <S><path d="M5 12l5 5 9-10" /></S>,
+  fogo: <S tam={18}><path d="M12 3c1 4 5 6 5 11a5 5 0 0 1-10 0c0-2 1-3 2-4 0 2 1 3 2 3 1-3 0-6 1-10z" /></S>,
   cheia: <S tam={20}><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" /></S>,
 };
 

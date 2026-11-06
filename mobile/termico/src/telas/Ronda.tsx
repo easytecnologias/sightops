@@ -10,10 +10,11 @@ const MAX_VIDEOS = 6;
 function Tile({ c, tipo, video }: { c: Camera; tipo: 'termica' | 'colorida'; video: boolean }) {
   const lendo = c.ativo && c.leitura === 'ok';
   return (
-    <Link to={`/vivo/${c.id}`} className={`mosaico-item ${c.pendentes ? 'tem' : ''}`} style={{ aspectRatio: formatoDe(tipo) }}>
+    <Link to={`/vivo/${c.id}`} className={`mosaico-item ${tipo === 'termica' ? 'ferro' : ''} ${c.pendentes ? 'tem' : ''}`} style={{ aspectRatio: formatoDe(tipo) }}>
       {video ? <VideoVivo cam={c} tipo={tipo} /> : <Foto caminho={`/api/termico/cameras/${c.id}/agora/${tipo}`} alt={c.nome} recarregar={15000} />}
       {c.pendentes ? <span className="selo alerta">{c.pendentes} novo{c.pendentes === 1 ? '' : 's'}</span>
         : <span className={`bolinha ${lendo ? 'ok' : c.ativo ? 'ruim' : ''}`} aria-label={lendo ? 'Vigiando' : c.ativo ? 'Sem medição' : 'Só vídeo'} />}
+      {video && !c.pendentes ? <span className="hu a1 sobe"><span className="vv" />AO VIVO</span> : null}
       <span className="mosaico-nome"><b>{c.nome}</b><i>{c.fundo_c === null ? '' : `${num(c.fundo_c, 0)} °C`}</i></span>
     </Link>
   );
@@ -32,15 +33,12 @@ export function Ronda() {
   let videos = 0;
   return (
     <>
-      <header className="topo baixo">
-        <span className="topo-anel" aria-hidden="true" />
-        <small>Ao vivo · toque para ampliar</small>
-        <div className="linha">
-          <button type="button" className="bt-usina cresce" onClick={abrirSeletor}>{site || 'Todas as usinas'}{Icone.baixo}</button>
-          <div className="alternar claro" role="tablist">
-            <button type="button" role="tab" className={modo === 'termica' ? 'on' : ''} onClick={() => setModo('termica')}>Térmica</button>
-            <button type="button" role="tab" className={modo === 'colorida' ? 'on' : ''} onClick={() => setModo('colorida')}>Cor</button>
-          </div>
+      <header className="fx">
+        <div className="fx-top"><span className="fx-nome grande">Ao vivo</span>
+          <button type="button" className="fx-us" onClick={abrirSeletor}><span>{site || 'Todas as usinas'}</span>{Icone.baixo}</button></div>
+        <div className="alternar vidro" role="tablist" aria-label="Imagem">
+          <button type="button" role="tab" aria-selected={modo === 'termica'} className={modo === 'termica' ? 'on' : ''} onClick={() => setModo('termica')}>Térmica</button>
+          <button type="button" role="tab" aria-selected={modo === 'colorida'} className={modo === 'colorida' ? 'on' : ''} onClick={() => setModo('colorida')}>Colorida</button>
         </div>
       </header>
       <div className="pagina">
