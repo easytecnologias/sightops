@@ -552,6 +552,7 @@ def test_relatorio_conta_o_periodo_e_gera_pdf(store):
 
 
 def test_faixas_sao_validadas_e_voltam_na_regra(store):
+    import json
     cam = store.adicionar("10.0.0.81", "c1")
     p = [{"de": "18:00", "ate": "06:00", "dif_min": 3, "pontos_min": 6, "lixo": 1}]
     salvo = store.salvar_camera(cam["id"], {"regra": {"perfis": p}})
