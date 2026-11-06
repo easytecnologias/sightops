@@ -1,8 +1,9 @@
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { num, natural, useCameras, useSite } from '../lib/termico';
 import { Carregando, Erro, Foto, Icone } from '../ui/pecas';
 
-/** Fotos das cameras atualizando a cada 5 s (o video ao vivo entra depois). */
+/** Fotos das cameras a cada 5 s; tocar numa abre o video ao vivo. */
 export function Ronda() {
   const cams = useCameras();
   const { site, abrirSeletor } = useSite();
@@ -12,7 +13,7 @@ export function Ronda() {
     <>
       <header className="topo baixo">
         <span className="topo-anel" aria-hidden="true" />
-        <small>Ronda · foto a cada 5 s</small>
+        <small>Ronda · toque para ver ao vivo</small>
         <div className="linha">
           <button type="button" className="bt-usina cresce" onClick={abrirSeletor}>{site || 'Todas as usinas'}{Icone.baixo}</button>
           <div className="alternar claro" role="tablist">
@@ -26,11 +27,11 @@ export function Ronda() {
         {cams.data && !lista.length ? <div className="vazio">Nenhuma câmera térmica nesta usina.</div> : null}
         <div className="mosaico">
           {lista.map((c) => (
-            <div key={c.id} className={`mosaico-item ${c.pendentes ? 'tem' : ''}`}>
+            <Link key={c.id} to={`/vivo/${c.id}`} className={`mosaico-item ${c.pendentes ? 'tem' : ''}`}>
               <Foto caminho={`/api/termico/cameras/${c.id}/agora/${modo}`} alt={c.nome} recarregar={5000} />
               {c.pendentes ? <span className="selo alerta">{c.pendentes} novo{c.pendentes === 1 ? '' : 's'}</span> : null}
               <span className="mosaico-nome"><b>{c.nome}</b><i>{c.fundo_c === null ? '' : `${num(c.fundo_c, 0)} °C`}</i></span>
-            </div>
+            </Link>
           ))}
         </div>
       </div>

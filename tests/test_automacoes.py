@@ -153,3 +153,13 @@ def test_saida_que_nao_desliga_fica_no_historico(amb, monkeypatch):
     A._desligar_depois("cliente-a", r["acoes"][1], r["id"])
     assert len(tentativas) == 3
     assert S.listar()["execucoes"][0]["ok"] == 0 and "não desligou" in S.listar()["execucoes"][0]["resposta"]
+
+
+def test_saida_que_nao_desliga_fica_ligada_ao_alerta(monkeypatch):
+    from app.services import automacao_acoes as A
+    gravados = []
+    monkeypatch.setattr(A, "_saida_estado", lambda t, a, e: (False, "sem resposta"))
+    monkeypatch.setattr(A, "ESPERA_DESLIGAR_S", 0)
+    monkeypatch.setattr(A.automacao_store, "registrar_execucao", lambda *a: gravados.append(a))
+    A._desligar_depois("cliente-a", {"ip": "1.1.1.1"}, "regra", "alerta1")
+    assert gravados[0][1] == "alerta1" and gravados[0][4] is False

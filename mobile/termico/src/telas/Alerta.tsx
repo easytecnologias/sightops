@@ -108,10 +108,11 @@ export function AlertaTela() {
       </div>
       <div className="pagina folha-alerta">
         <div className="linha">
-          <div className="cresce"><h1>Pessoa detectada</h1><small>{a.camera_nome} · {a.site} · {hora(a.criado_at)}</small></div>
+          <div className="cresce"><h1>{a.mancha?.teste ? 'Alarme de teste' : 'Pessoa detectada'}</h1><small>{a.camera_nome} · {a.site} · {hora(a.criado_at)}</small></div>
           {a.situacao === 'novo' ? <span className="etq alerta">Novo</span> : <span className={`etq ${a.situacao === 'falso' ? 'aviso' : 'ok'}`}>{a.situacao === 'falso' ? 'Falso alarme' : 'Ciente'}</span>}
         </div>
         <Regua a={a} />
+        <Link className="btn2" to={`/vivo/${a.camera_id}`}>Ver ao vivo</Link>
         {a.situacao === 'novo' ? (
           <>
             <Deslizar ocupado={responder.isPending} aoConfirmar={() => responder.mutate({ id: a.id, tipo: 'ciente' })} />

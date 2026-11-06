@@ -11,6 +11,7 @@ import { Abertura, Login } from './telas/Entrada';
 import { Inicio } from './telas/Inicio';
 import { AlertaTela } from './telas/Alerta';
 import { Ronda } from './telas/Ronda';
+import { AoVivo } from './telas/AoVivo';
 import { Usinas } from './telas/Usinas';
 import { Conta } from './telas/Conta';
 
@@ -68,6 +69,7 @@ export function App() {
         <Shell>
           <Routes>
             <Route path="/" element={<Inicio />} />
+            <Route path="/vivo/:id" element={<AoVivo />} />
             <Route path="/alerta/:id" element={<AlertaTela />} />
             <Route path="/ronda" element={<Ronda />} />
             <Route path="/usinas" element={<Usinas />} />

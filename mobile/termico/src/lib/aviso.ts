@@ -4,8 +4,9 @@ import { enviar } from './api';
 import { apagar, pegar, salvar } from './storage';
 
 /**
- * Notificacao com o app fechado (Firebase). O canal "alertas" tem o mesmo nome
- * que o servidor manda em termico_avisos.py: importancia maxima, com som.
+ * Notificacao com o app fechado (Firebase). O canal "alarme" tem o mesmo nome
+ * que o servidor manda em termico_avisos.py: importancia maxima, com sirene.
+ * O Android nao deixa mudar o som de um canal ja criado: som novo, canal novo.
  */
 const CHAVE = 'termico.aparelho';
 let ligado = false;
@@ -16,9 +17,10 @@ export async function ligarAvisos(aoChegar: () => void): Promise<void> {
   if (p.receive !== 'granted') return;
   if (!ligado) {
     ligado = true;
+    await PushNotifications.deleteChannel({ id: 'alertas' }).catch(() => undefined);
     await PushNotifications.createChannel({
-      id: 'alertas', name: 'Alertas de pessoa', description: 'Pessoa detectada pelo calor',
-      importance: 5, visibility: 1, vibration: true,
+      id: 'alarme', name: 'Alarme de pessoa', description: 'Pessoa detectada pelo calor, com sirene',
+      importance: 5, visibility: 1, vibration: true, sound: 'sirene.wav',
     });
     await PushNotifications.addListener('registration', (t) => {
       void salvar(CHAVE, t.value);

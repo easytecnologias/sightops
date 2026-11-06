@@ -444,3 +444,21 @@ def test_falha_de_aviso_e_de_automacao_vai_ao_zabbix(store):
     assert list(store.resumo_para_zabbix("cliente-a").values())[0]["termico_falhas"] == 3
     store.anotar_falha_aviso("cliente-b", a["id"], 9)      # outro cliente nao mexe
     assert list(store.resumo_para_zabbix("cliente-a").values())[0]["termico_falhas"] == 3
+
+
+def test_camera_readicionada_e_parada_continua_no_zabbix(store):
+    cam = store.adicionar("10.0.0.81", "c1")
+    assert store.resumo_para_zabbix("cliente-a") == {}          # nunca leu: fica de fora
+    store.salvar_camera(cam["id"], {"ativo": True})
+    store.registrar_leitura(cam["id"], True, "", 40.0)
+    store.remover_camera(cam["id"])
+    store.adicionar("10.0.0.81", "c1")                          # voltou desligada
+    assert list(store.resumo_para_zabbix("cliente-a").values())[0]["termico_leitura"] == 2
+
+
+def test_enviar_agora_roda_no_contexto_do_cliente(monkeypatch):
+    from app.core.tenant_context import get_current_tenant_slug
+    from app.services import zabbix_monitoring_service as Z
+    visto = []
+    monkeypatch.setattr(Z, "_enviar_termico_agora", lambda t, i, c: visto.append(get_current_tenant_slug()) or True)
+    assert Z.enviar_termico_agora("cliente-a", "1.1.1.1", "c") is True and visto == ["cliente-a"]

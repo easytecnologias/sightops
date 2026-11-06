@@ -81,7 +81,7 @@ def _saida_estado(tenant: str, acao: Dict[str, Any], estado: str) -> Tuple[bool,
     return cod == 200, f"saída {acao['saida']} {estado}: HTTP {cod}" + ("" if cod == 200 else f" {txt[:120]}")
 
 
-def _desligar_depois(tenant: str, acao: Dict[str, Any], regra_id: str = "") -> None:
+def _desligar_depois(tenant: str, acao: Dict[str, Any], regra_id: str = "", alerta_id: str = "") -> None:
     """Sirene ligada para sempre e pior que nao tocar: tenta 3 vezes e, se nao
     conseguir, deixa a falha no historico da regra (nao so no log)."""
     token = set_current_tenant_slug(tenant)
@@ -98,14 +98,14 @@ def _desligar_depois(tenant: str, acao: Dict[str, Any], regra_id: str = "") -> N
                 time.sleep(ESPERA_DESLIGAR_S)
         logger.error("automacao: NAO desligou a saida de %s: %s", acao.get("ip"), msg)
         if regra_id:
-            automacao_store.registrar_execucao(regra_id, "", "valer", acao, False, f"não desligou a saída: {msg}")
+            automacao_store.registrar_execucao(regra_id, alerta_id, "valer", acao, False, f"não desligou a saída: {msg}")
     finally:
         reset_current_tenant_slug(token)
 
 
 def executar_acao(tenant: str, acao: Dict[str, Any], modo: str,
                   agendar: Callable[[float, Callable, tuple], Any] | None = None,
-                  regra_id: str = "") -> Tuple[bool, str]:
+                  regra_id: str = "", alerta_id: str = "") -> Tuple[bool, str]:
     if acao.get("tipo") == "saida":
         descr = f"ligar saída {acao.get('saida')} de {acao.get('nome')} por {acao.get('segundos')} s"
     else:
@@ -116,7 +116,7 @@ def executar_acao(tenant: str, acao: Dict[str, Any], modo: str,
         if acao.get("tipo") == "saida":
             ok, msg = _saida_estado(tenant, acao, "high")
             if ok:
-                (agendar or _timer)(float(acao["segundos"]), _desligar_depois, (tenant, acao, regra_id))
+                (agendar or _timer)(float(acao["segundos"]), _desligar_depois, (tenant, acao, regra_id, alerta_id))
             return ok, msg
         base, cred = _alvo(acao)
         voltar = int(acao.get("voltar_s") or 0)
@@ -155,7 +155,7 @@ def _dentro_do_intervalo(regra: Dict[str, Any]) -> bool:
 def rodar_regra(tenant: str, regra: Dict[str, Any], alerta_id: str = "", so_simular: bool = False) -> None:
     modo = "simular" if so_simular else regra["modo"]
     for acao in regra["acoes"]:
-        ok, msg = executar_acao(tenant, acao, modo, regra_id=regra["id"])
+        ok, msg = executar_acao(tenant, acao, modo, regra_id=regra["id"], alerta_id=alerta_id)
         automacao_store.registrar_execucao(regra["id"], alerta_id, modo, acao, ok, msg)
         if not ok:
             logger.warning("automacao %s (%s): %s", regra.get("nome"), tenant, msg)

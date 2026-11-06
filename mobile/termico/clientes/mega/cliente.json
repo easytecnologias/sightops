@@ -2,8 +2,8 @@
   "_sobre": "Mega Alarmes. Cores e nome PROVISORIOS ate o cliente mandar logo e identidade.",
   "appId": "br.com.easytecnologias.termico.mega",
   "appName": "Mega Vigia",
-  "versionCode": 2,
-  "versionName": "1.1.0",
+  "versionCode": 3,
+  "versionName": "1.2.0",
   "marca": { "nome": "Mega Vigia", "empresa": "Mega Alarmes", "sigla": "MA", "cor": "#0f2d52", "destaque": "#f76707", "alerta": "#e03131", "fonte": "Poppins" },
   "slogan": "Sua usina vigiada dia e noite"
 }

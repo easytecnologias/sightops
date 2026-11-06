@@ -162,3 +162,9 @@ small { font-size: 12px; color: var(--apagado); }
 
 /* nome da usina numa linha quando divide o topo com outro controle */
 .topo .linha .bt-usina { font-size: 18px; white-space: nowrap; overflow: hidden; flex: 1; min-width: 0; }
+
+.vivo-video { position: relative; height: 56vw; max-height: 60vh; background: #000; }
+.vivo-video video { width: 100%; height: 100%; object-fit: contain; display: block; }
+.vivo-video .selo { position: absolute; left: 12px; bottom: 12px; }
+.vivo-aviso { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 13px; }
+a.mosaico-item { display: block; color: inherit; text-decoration: none; }

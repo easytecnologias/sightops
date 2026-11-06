@@ -91,6 +91,13 @@ def api_termico_teste(camera_id: str) -> Dict[str, Any]:
         raise HTTPException(status_code=502, detail="A câmera não respondeu.")
 
 
+# Publica no middleware: quem baixa e o Android, sem login. O link e assinado.
+@router.get("/aviso-foto/{tenant}/{alerta_id}/{expira}/{assinatura}")
+def api_termico_aviso_foto(tenant: str, alerta_id: str, expira: int, assinatura: str) -> FileResponse:
+    arq = _executar(termico_store.foto_do_aviso, tenant, alerta_id, expira, assinatura)
+    return FileResponse(arq, media_type="image/jpeg", headers={"Cache-Control": "private, no-store"})
+
+
 @router.post("/cameras/{camera_id}/simular-pessoa")
 def api_termico_simular(camera_id: str) -> Dict[str, Any]:
     return _executar(termico_store.simular_pessoa, camera_id)

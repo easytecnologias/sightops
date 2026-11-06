@@ -12,6 +12,8 @@ chegando. O token e unico: aparelho que trocou de dono muda de linha.
 """
 from __future__ import annotations
 
+import hashlib
+import hmac
 import logging
 import os
 import threading
@@ -29,7 +31,10 @@ logger = logging.getLogger(__name__)
 
 CREDENCIAL_PADRAO = "/run/firebase/servico.json"
 ESCOPO = "https://www.googleapis.com/auth/firebase.messaging"
-CANAL = "alertas"
+CANAL = "alarme"           # mesmo nome de mobile/termico/src/lib/aviso.ts
+SOM = "sirene"             # res/raw/sirene.wav do app
+FOTO_VALE_S = 3600
+ROTA_FOTO = "/api/termico/aviso-foto"
 MODULO = "termico"
 _trava = threading.Lock()
 _cred: Any = None
@@ -131,17 +136,44 @@ def _bearer() -> Tuple[str, str]:
         return _cred.token, _projeto
 
 
-def _mensagem(token: str, titulo: str, corpo: str, dados: Dict[str, str]) -> Dict[str, Any]:
+def _mensagem(token: str, titulo: str, corpo: str, dados: Dict[str, str], imagem: str = "") -> Dict[str, Any]:
+    aviso: Dict[str, Any] = {"channel_id": CANAL, "notification_priority": "PRIORITY_MAX", "sound": SOM}
+    if imagem:
+        aviso["image"] = imagem
     return {"message": {
         "token": token,
         "notification": {"title": titulo, "body": corpo},
         "data": dados,
-        "android": {"priority": "HIGH", "ttl": "3600s",
-                    "notification": {"channel_id": CANAL, "notification_priority": "PRIORITY_MAX", "default_sound": True}},
+        "android": {"priority": "HIGH", "ttl": "3600s", "notification": aviso},
     }}
 
 
-def enviar_aviso(tenant: str, site: str, titulo: str, corpo: str, dados: Dict[str, str]) -> Dict[str, int]:
+def _assinar_foto(tenant: str, alerta_id: str, expira: int) -> str:
+    from app.core.crypto import _load_or_create_key
+
+    # Chave derivada so para isto: a do cofre nunca e usada direto.
+    chave = hashlib.sha256(b"sightops-aviso-foto|" + _load_or_create_key()).digest()
+    return hmac.new(chave, f"v1|{tenant}|{alerta_id}|{expira}".encode("utf-8"), hashlib.sha256).hexdigest()
+
+
+def link_foto(tenant: str, alerta_id: str, agora: Optional[float] = None) -> str:
+    """Endereco da foto termica para a notificacao: o Android baixa sem login,
+    entao o link e assinado, vale 1 h e abre so a foto deste alerta."""
+    base = os.environ.get("SIGHTOPS_PUBLIC_URL", "").rstrip("/")
+    if not base.startswith("https://") or not alerta_id:
+        return ""
+    expira = int((agora if agora is not None else time.time()) + FOTO_VALE_S)
+    return f"{base}{ROTA_FOTO}/{tenant}/{alerta_id}/{expira}/{_assinar_foto(tenant, alerta_id, expira)}"
+
+
+def foto_valida(tenant: str, alerta_id: str, expira: int, assinatura: str, agora: Optional[float] = None) -> bool:
+    momento = agora if agora is not None else time.time()
+    if expira < momento or expira - momento > FOTO_VALE_S + 5:
+        return False
+    return hmac.compare_digest(assinatura, _assinar_foto(tenant, alerta_id, expira))
+
+
+def enviar_aviso(tenant: str, site: str, titulo: str, corpo: str, dados: Dict[str, str], imagem: str = "") -> Dict[str, int]:
     """Manda para os celulares do cliente que podem ver o site. Nunca levanta erro."""
     res = {"enviados": 0, "falhas": 0, "removidos": 0}
     tokens: List[str] = []
@@ -158,7 +190,7 @@ def enviar_aviso(tenant: str, site: str, titulo: str, corpo: str, dados: Dict[st
     url = f"https://fcm.googleapis.com/v1/projects/{projeto}/messages:send"
     for token in tokens:
         try:
-            r = requests.post(url, json=_mensagem(token, titulo, corpo, dados), timeout=10,
+            r = requests.post(url, json=_mensagem(token, titulo, corpo, dados, imagem), timeout=10,
                               headers={"Authorization": f"Bearer {bearer}"})
             if r.status_code == 200:
                 res["enviados"] += 1
@@ -181,7 +213,8 @@ def avisar_pessoa(tenant: str, cam: Dict[str, Any], alerta: Dict[str, Any], manc
     titulo = "TESTE: alarme de teste" if (mancha or {}).get("teste") else "Pessoa detectada pelo calor"
     res = enviar_aviso(tenant, cam.get("site") or "", titulo,
                        f"{cam.get('nome')} · {cam.get('site')}{extra}",
-                       {"tipo": "termico", "alerta_id": str(alerta.get("id") or "")})
+                       {"tipo": "termico", "alerta_id": str(alerta.get("id") or "")},
+                       link_foto(tenant, str(alerta.get("id") or "")))
     logger.info("termico: notificacao %s (%s) em %.1fs: %s", alerta.get("id"), tenant, time.time() - inicio, res)
     if res["falhas"] and alerta.get("id"):
         _anotar_falha(tenant, cam, alerta["id"], res["falhas"])

@@ -288,6 +288,10 @@ class ApiAuthMiddleware(BaseHTTPMiddleware):
             return True
         if path.startswith("/api/connectors/agent/"):
             return True
+        # Foto da notificacao: o Android baixa sem login; o link e assinado e
+        # vale 1 h (app/services/termico_avisos.py).
+        if path.startswith("/api/termico/aviso-foto/"):
+            return True
         # App do botao de panico: autentica pelo token do aparelho dentro do
         # proprio endpoint (app/api/endpoints/alert.py), nao por usuario.
         if path.startswith("/api/alert/app/"):

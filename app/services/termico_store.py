@@ -23,6 +23,7 @@ from app.services.termico_deteccao import Regra
 
 FUSO = ZoneInfo("America/Sao_Paulo")
 ID_RE = re.compile(r"^[0-9a-f]{32}$")
+TENANT_RE = re.compile(r"^[a-z0-9_-]{1,64}$")
 HORA_RE = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
 MODELO_TERMICO = re.compile(r"^(HM-T|DS-2TD|DS-2TP|DS-2TB)|THERMAL", re.I)
 SITUACOES = ("novo", "visto", "falso")
@@ -562,6 +563,27 @@ def camera_do_alerta(alerta_id: str) -> Dict[str, str]:
     return {"tenant": tenant, "ip": dict(r)["ip"], "connector_id": dict(r)["connector_id"] or ""} if r else {}
 
 
+def foto_do_aviso(tenant: str, alerta_id: str, expira: int, assinatura: str) -> Path:
+    """Foto termica do link assinado da notificacao (sem sessao: rota publica)."""
+    from app.core.tenant_context import reset_current_tenant_slug, set_current_tenant_slug
+    from app.services.termico_avisos import foto_valida
+
+    if not TENANT_RE.match(tenant or "") or not ID_RE.match(alerta_id or "") or not foto_valida(tenant, alerta_id, expira, assinatura):
+        raise LookupError("Foto não encontrada.")
+    token = set_current_tenant_slug(tenant)
+    try:
+        with db_store._conn() as c:
+            r = c.execute("SELECT camera_id FROM termico_alertas WHERE tenant_slug=? AND id=?", (tenant, alerta_id)).fetchone()
+        if not r:
+            raise LookupError("Foto não encontrada.")
+        arq = tenant_scoped_path(f"termico/{dict(r)['camera_id']}/{alerta_id}", tenant) / FOTOS["termico"]
+    finally:
+        reset_current_tenant_slug(token)
+    if not arq.is_file():
+        raise LookupError("Foto não encontrada.")
+    return arq
+
+
 def caminho_foto(alerta_id: str, tipo: str) -> Path:
     tenant = _tenant()
     if tipo not in FOTOS or not ID_RE.match(alerta_id or ""):
@@ -617,7 +639,8 @@ def resumo_para_zabbix(tenant: str) -> Dict[str, Dict[str, Any]]:
     termico_leitura: 1 = lendo; 0 = sem leitura (erro OU leitura parada ha mais
     de LEITURA_VELHA_S -- laco morto ou thread presa nao pode parecer "ok");
     2 = desligada/removida do Alerta Termico (fecha o gatilho de sem medicao).
-    Camera que nunca leu fica de fora: nao cria item nem manda 0 enganoso.
+    Camera que nunca leu fica de fora: nao cria item nem manda 0 enganoso. A que
+    ja leu continua mesmo readicionada e parada, senao o gatilho nunca fecha.
     Pendentes vale tambem para desligada/removida: responder o alerta fecha o
     gatilho de pessoa."""
     with db_store._conn() as c:
@@ -631,9 +654,9 @@ def resumo_para_zabbix(tenant: str) -> Dict[str, Dict[str, Any]]:
     saida = {}
     for cam in cams:
         leitura = cam.get("leitura") or ""
-        if not leitura:
+        if not leitura and not cam.get("leitura_at"):
             continue
-        if not int(cam.get("ativo") or 0) or leitura == REMOVIDA:
+        if not leitura or not int(cam.get("ativo") or 0) or leitura == REMOVIDA:
             estado, fundo = 2, None
         elif leitura == "ok" and _segundos_desde(cam.get("leitura_at") or "") <= LEITURA_VELHA_S:
             estado, fundo = 1, cam.get("fundo_c")

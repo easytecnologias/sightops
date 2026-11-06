@@ -19,7 +19,7 @@ function Destaque({ a }: { a: Alerta }) {
       <div className="destaque-foto">
         <Foto caminho={a.fotos.termico} alt="Imagem térmica do alerta" />
         {c ? <span className="caixa" style={{ left: `${c[0] * 100}%`, top: `${c[1] * 100}%`, width: `${c[2] * 100}%`, height: `${c[3] * 100}%` }} /> : null}
-        <span className="selo alerta">PESSOA · {num(a.temp_c)} °C</span>
+        <span className="selo alerta">{a.mancha?.teste ? 'TESTE' : `PESSOA · ${num(a.temp_c)} °C`}</span>
         <span className="selo escuro dir">{haQuanto(a.criado_at)}</span>
       </div>
       <div className="destaque-texto">

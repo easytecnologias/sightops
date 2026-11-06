@@ -56,7 +56,7 @@ def test_so_recebe_quem_pode_ver_o_site(av, monkeypatch):
     assert u == "https://fcm.googleapis.com/v1/projects/sightops/messages:send" and h["Authorization"] == "Bearer oauth"
     m = corpo["message"]
     assert m["data"] == {"tipo": "termico", "alerta_id": "al1"} and m["android"]["priority"] == "HIGH"
-    assert m["android"]["notification"]["channel_id"] == "alertas" and "34,1 °C" in m["notification"]["body"]
+    assert m["android"]["notification"]["channel_id"] == "alarme" and "34,1 °C" in m["notification"]["body"]
 
 
 def test_desligado_ou_sem_modulo_para_de_receber_na_hora(av, monkeypatch):
@@ -155,3 +155,27 @@ def test_sem_chave_do_firebase_conta_como_falha(monkeypatch):
         raise RuntimeError("chave invalida")
     monkeypatch.setattr(A, "_bearer", sem_chave)
     assert A.enviar_aviso("cliente-a", "S", "t", "c", {})["falhas"] == 2
+
+
+def test_mensagem_leva_sirene_e_foto(monkeypatch):
+    from app.services import termico_avisos as A
+    a = A._mensagem("tk", "t", "c", {}, "https://x/foto")["message"]["android"]["notification"]
+    assert a["channel_id"] == "alarme" and a["sound"] == "sirene" and a["image"] == "https://x/foto"
+    assert "image" not in A._mensagem("tk", "t", "c", {})["message"]["android"]["notification"]
+
+
+def test_link_da_foto_e_assinado_preso_ao_alerta_e_vence(monkeypatch):
+    from app.services import termico_avisos as A
+    monkeypatch.setenv("SIGHTOPS_PUBLIC_URL", "https://sightops.exemplo")
+    monkeypatch.setattr("app.core.crypto._load_or_create_key", lambda: b"k" * 32)
+    aid = "a" * 32
+    partes = A.link_foto("cliente-a", aid, agora=1000).split("/")
+    expira, sig = int(partes[-2]), partes[-1]
+    assert partes[-4:-2] == ["cliente-a", aid] and expira == 1000 + A.FOTO_VALE_S
+    assert A.foto_valida("cliente-a", aid, expira, sig, agora=1000)
+    assert not A.foto_valida("cliente-b", aid, expira, sig, agora=1000)
+    assert not A.foto_valida("cliente-a", "b" * 32, expira, sig, agora=1000)
+    assert not A.foto_valida("cliente-a", aid, expira, sig, agora=expira + 1)
+    assert not A.foto_valida("cliente-a", aid, expira + 99999, sig, agora=1000)
+    monkeypatch.setenv("SIGHTOPS_PUBLIC_URL", "http://interno")
+    assert A.link_foto("cliente-a", aid) == ""

@@ -12,7 +12,7 @@ from urllib.parse import urlsplit, urlunsplit
 
 import requests
 
-from app.core.tenant_context import get_current_tenant_slug
+from app.core.tenant_context import get_current_tenant_slug, reset_current_tenant_slug, set_current_tenant_slug
 from app.services.db_store import _conn, load_app_settings
 from app.services.monitoring_service import list_entities_todas
 
@@ -629,6 +629,16 @@ def _juntar_termico(tenant: str, entities: List[Dict[str, Any]]) -> None:
 
 
 def enviar_termico_agora(tenant: str, ip: str, connector_id: str) -> bool:
+    # Roda em thread solta: sem o cliente no contexto, as configuracoes do Zabbix
+    # sairiam do cliente padrao.
+    token = set_current_tenant_slug(tenant)
+    try:
+        return _enviar_termico_agora(tenant, ip, connector_id)
+    finally:
+        reset_current_tenant_slug(token)
+
+
+def _enviar_termico_agora(tenant: str, ip: str, connector_id: str) -> bool:
     """Manda os campos do Alerta Termico de UMA camera ao Zabbix na hora (alerta
     novo ou respondido). O sync completo leva ate ~2 min por cliente -- para
     intruso numa usina e tarde. So empurra item que o sync ja criou; se ainda
