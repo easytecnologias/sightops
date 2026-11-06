@@ -36,7 +36,7 @@ VIDEO_MAX_BYTES = 30_000_000
 # Limites do que a tela pode mandar na regra (fora disso e erro de digitacao).
 LIMITES = {
     "corpo_min": (-10.0, 60.0), "corpo_max": (-10.0, 80.0), "dif_min": (1.0, 40.0),
-    "contraste_min": (0.0, 40.0),
+    "contraste_min": (0.0, 40.0), "movimento_min": (0.0, 60.0),
     "pontos_min": (2, 5000), "pontos_max": (10, 49152), "quadros_seguidos": (1, 10),
     "intervalo_alertas_s": (0, 3600), "aprendizado": (0.001, 0.5),
 }

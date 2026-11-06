@@ -26,7 +26,7 @@
   const SIT = { novo: ['Novo', 'danger'], visto: ['Visto', 'success'], falso: ['Falso alarme', 'amber'] };
   const MOTIVOS = [['animal', 'Animal'], ['sol', 'Reflexo do sol'], ['equipe', 'Equipe da usina'], ['mato', 'Vento ou mato'], ['veiculo', 'Veículo'], ['outro', 'Outro']];
   const CAMPOS = [
-    ['dif_min', 'Dif. do fundo (°C)', 0.5], ['contraste_min', 'Contraste c/ entorno (°C)', 0.5], ['corpo_min', 'Corpo mín. (°C)', 0.5], ['corpo_max', 'Corpo máx. (°C)', 0.5],
+    ['dif_min', 'Dif. do fundo (°C)', 0.5], ['contraste_min', 'Contraste c/ entorno (°C)', 0.5], ['movimento_min', 'Precisa andar (pontos, 0 = não)', 1], ['corpo_min', 'Corpo mín. (°C)', 0.5], ['corpo_max', 'Corpo máx. (°C)', 0.5],
     ['pontos_min', 'Tamanho mín. (pontos)', 1], ['quadros_seguidos', 'Leituras seguidas', 1], ['intervalo_alertas_s', 'Entre alertas (s)', 5],
   ];
 
@@ -117,6 +117,7 @@
   .tm-ignorar{border:2px dashed #ffb44d;background:rgba(19,37,45,.5)}
   .tm-mancha{border:2px solid #ff5a5a}
   .tm-cego{position:absolute;background:rgba(255,90,90,.28)}
+  .tm-tirar-reg{position:absolute;right:3px;top:3px;width:20px;height:20px;padding:0;border:0;border-radius:4px;background:rgba(19,37,45,.82);color:#fff;font-size:11px;cursor:pointer;pointer-events:auto}
   .tm-marco{position:absolute;width:22px;height:22px;margin:-11px 0 0 -11px;border-radius:50%;background:var(--primary);color:#fff;font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center}
   .tm-mira{position:absolute;left:50%;top:50%;width:26px;height:26px;margin:-13px 0 0 -13px;border:2px solid #fff;border-radius:50%;pointer-events:none}
   .tm-geral{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,420px),1fr));gap:20px}
@@ -694,9 +695,12 @@
         if (!r?.ok || !j?.stream_name) throw new Error(j?.detail || 'não consegui abrir o vídeo');
         return j.stream_name;
       },
-      onStatus: t => { if (aviso) { aviso.hidden = !t; if (t) aviso.textContent = t; } },
+      onStatus: t => { if (aviso) { aviso.hidden = !t; if (t) aviso.textContent = textoVideo(t); } },
     });
   }
+
+  // Erro cru do go2rtc tem endereco e senha de stream: nao vai para a tela.
+  const textoVideo = t => (String(t).length > 60 || /go2rtc|rtsp|dial tcp|error/i.test(t) ? 'Câmera sem resposta. Tentando de novo…' : t);
 
   function htmlFaixa() {
     const a = alertas.alertas.find(x => x.situacao === 'novo');
@@ -874,8 +878,9 @@
   const estilo = r => `left:${r.x0 * 100}%;top:${r.y0 * 100}%;width:${(r.x1 - r.x0) * 100}%;height:${(r.y1 - r.y0) * 100}%`;
 
   function desenhoHtml() {
-    return `${cfg.area ? `<div class="tm-area" style="${estilo(cfg.area)}"><span>Vigiar aqui</span></div>` : ''}
-      ${cfg.ignorar.map(r => `<div class="tm-ignorar" style="${estilo(r)}"><span>Ignorar</span></div>`).join('')}`;
+    const tirar = (tipo, i) => `<button type="button" class="tm-tirar-reg" data-tm-tira="${tipo}:${i}" aria-label="Tirar">✕</button>`;
+    return `${cfg.areas.map((r, i) => `<div class="tm-area" style="${estilo(r)}"><span>Área ${i + 1}</span>${tirar('areas', i)}</div>`).join('')}
+      ${cfg.ignorar.map((r, i) => `<div class="tm-ignorar" style="${estilo(r)}"><span>Ignorar</span>${tirar('ignorar', i)}</div>`).join('')}`;
   }
 
   function perguntas() {
@@ -913,7 +918,11 @@
       return { x: Math.min(1, Math.max(0, (e.clientX - b.left) / b.width)), y: Math.min(1, Math.max(0, (e.clientY - b.top) / b.height)) };
     };
     const atual = (e) => { const p = ponto(e); return { x0: Math.min(ini.x, p.x), y0: Math.min(ini.y, p.y), x1: Math.max(ini.x, p.x), y1: Math.max(ini.y, p.y) }; };
-    pl.onpointerdown = e => { ini = ponto(e); pl.setPointerCapture(e.pointerId); };
+    pl.onpointerdown = e => {
+      const x = e.target.closest('[data-tm-tira]');
+      if (x) { const [tipo, i] = x.dataset.tmTira.split(':'); cfg[tipo].splice(Number(i), 1); camada.innerHTML = desenhoHtml(); return; }
+      ini = ponto(e); pl.setPointerCapture(e.pointerId);
+    };
     pl.onpointermove = e => {
       if (!ini) return;
       camada.innerHTML = desenhoHtml() + `<div class="${cfg.modo === 'area' ? 'tm-area' : 'tm-ignorar'}" style="${estilo(atual(e))}"></div>`;
@@ -923,7 +932,7 @@
       const r = atual(e);
       ini = null;
       if (r.x1 - r.x0 > 0.03 && r.y1 - r.y0 > 0.03) {
-        if (cfg.modo === 'area') cfg.area = r; else cfg.ignorar.push(r);
+        (cfg.modo === 'area' ? cfg.areas : cfg.ignorar).push(r);
       }
       camada.innerHTML = desenhoHtml();
     };
@@ -931,14 +940,14 @@
       cfg.modo = b.dataset.tmModo;
       g.querySelectorAll('[data-tm-modo]').forEach(x => x.classList.toggle('on', x === b));
     });
-    g.querySelector('[data-tm-limpar]').onclick = () => { cfg.area = null; cfg.ignorar = []; camada.innerHTML = desenhoHtml(); };
+    g.querySelector('[data-tm-limpar]').onclick = () => { cfg.areas = []; cfg.ignorar = []; camada.innerHTML = desenhoHtml(); };
   }
 
   function abrirConfig(c) {
     const r = c.regra || {};
     cfg = {
       cam: c, modo: 'area', regra: { ...r }, sens: c.id ? sensDe(r) : 'Normal',
-      area: r.areas?.[0] ? ret(r.areas[0]) : null, ignorar: (r.ignorar || []).map(ret),
+      areas: (r.areas || []).map(ret), ignorar: (r.ignorar || []).map(ret),
       quando: c.id ? quandoDe(c) : 'Só à noite', de: c.armado_de || '', ate: c.armado_ate || '',
     };
     if (!c.id) Object.assign(cfg.regra, { dif_min: 5, pontos_min: 12, quadros_seguidos: 2, corpo_min: 25, corpo_max: 40, intervalo_alertas_s: 60 });
@@ -951,7 +960,7 @@
         <div class="tm-perg"><b>1. Onde vigiar?</b>
           <div class="tm-foto tm-desenho" id="tmDesenho"><video id="tmGvT" autoplay muted playsinline></video><span class="pdv-v-aviso" id="tmGaT">Conectando...</span>
             <div id="tmCamada" class="tm-camada">${desenhoHtml()}</div><div id="tmManchas" class="tm-camada"></div>
-            <span class="pdv-v-lbl tm-l-vivo"><i class="tm-vivo"></i>AO VIVO</span><span class="tm-dica">Arraste no vídeo para marcar</span></div>
+            <span class="pdv-v-lbl tm-l-vivo"><i class="tm-vivo"></i>AO VIVO</span><span class="tm-dica">Arraste no vídeo. Pode marcar várias áreas</span></div>
           <div class="tm-chips"><button type="button" class="on" data-tm-modo="area">Marcar área</button><button type="button" data-tm-modo="ignorar">Marcar o que ignorar</button><button type="button" data-tm-limpar>Imagem inteira</button></div>
         </div>
         <div id="tmPerguntas" style="display:flex;flex-direction:column;gap:14px">${perguntas()}</div>
@@ -979,7 +988,7 @@
     const [de, ate] = q === 'Sempre' ? ['', ''] : q === 'Só à noite' ? NOITE : [cfg.de, cfg.ate];
     const regra = {};
     CAMPOS.forEach(([k]) => { if (cfg.regra[k] !== undefined && cfg.regra[k] !== '') regra[k] = Number(cfg.regra[k]); });
-    regra.areas = cfg.area ? [pol(cfg.area)] : [];
+    regra.areas = cfg.areas.map(pol);
     regra.ignorar = cfg.ignorar.map(pol);
     return { armado_de: de, armado_ate: ate, regra };
   }

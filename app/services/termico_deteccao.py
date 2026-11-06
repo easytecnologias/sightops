@@ -12,7 +12,9 @@ ou seja, MAIS FRIA que o fundo. A noite inverte. O que nao muda e:
   3. tem tamanho de pessoa (minimo/maximo de pontos);
   4. destoa do que esta EM VOLTA agora: chao esfriando com sombra ou nuvem foge
      do fundo aprendido, mas fica igual ao entorno (alarmes falsos de 06/11);
-  5. aparece em quadros seguidos (tira pisca de reflexo).
+  5. aparece em quadros seguidos (tira pisca de reflexo);
+  6. ANDA: a marca fria que a sombra do poste deixa no chao tem tamanho e
+     temperatura de pessoa, mas fica no lugar (9 alarmes falsos em 20 min, 06/11).
 
 Medido na HM-TD2628-8/QA/BR (CAM P 03, UFV-RODOANEL, 05/11/2026 12:48):
 matriz 256x192 float32 little-endian; chao 32-63 °C ao meio-dia.
@@ -126,6 +128,7 @@ class Regra:
     corpo_max: float = 40.0
     dif_min: float = 5.0          # |temperatura - fundo| minima, °C
     contraste_min: float = 3.0    # |temperatura - entorno agora| minima, °C
+    movimento_min: float = 3.0    # pontos que a mancha precisa andar; 0 = aceita parada
     pontos_min: int = 12          # mancha menor que isso e ruido/bicho pequeno
     pontos_max: int = 4000        # maior que isso e sombra de nuvem/mudanca de cena
     quadros_seguidos: int = 2     # quantas leituras seguidas a mancha precisa aparecer
@@ -287,6 +290,11 @@ def detectar(quadro: Quadro, fundo: Fundo, regra: Regra, vigiado: Optional[bytea
     return manchas
 
 
+JANELA_MOVIMENTO = 6     # leituras comparadas (armada le a cada 2 s: 12 s)
+FORA_MIN = 0.35          # parte da mancha que precisa ter saido de onde estava
+ABSORVER_LEITURAS = 30   # mancha parada ha mais que isso (1 min) entra no fundo
+
+
 # ---------------------------------------------------------- pessoa simulada --
 TAMANHOS_SIMULADOS = (("pequena", 3, 6), ("média", 6, 14), ("grande", 8, 20))
 
@@ -340,10 +348,42 @@ def _sobrepoe(a: Tuple[float, float, float, float], b: Tuple[float, float, float
     return not (ax + aw + folga < bx or bx + bw + folga < ax or ay + ah + folga < by or by + bh + folga < ay)
 
 
+def _centro(m: Mancha, largura: int) -> Tuple[float, float]:
+    xs = [i % largura for i in m.indices]
+    ys = [i // largura for i in m.indices]
+    return sum(xs) / len(xs), sum(ys) / len(ys)
+
+
+@dataclass
+class _Rastro:
+    """Uma mancha acompanhada entre leituras."""
+    caixa: Tuple[float, float, float, float]
+    n: int
+    passado: List[Tuple[float, float, set]]     # centro e pontos das ultimas leituras
+    andou: bool = False
+
+
 @dataclass
 class Disparo:
     mancha: Mancha
     quadros: int
+
+
+def _andou(m: Mancha, largura: int, passado: List[Tuple[float, float, set]], minimo: float) -> bool:
+    """A borda de uma marca parada tremula e o centro oscila, mas ela fica dentro
+    do lugar que ja ocupou. Quem anda sai dele. Pede 3 leituras: entre 2, um
+    pedaco da borda sozinho ja parece ter pulado."""
+    if minimo <= 0:
+        return True
+    if len(passado) < 2:
+        return False
+    # So a metade mais antiga da janela: quem vem de frente anda pouco por leitura
+    # e so se descola do comeco do caminho, nao da leitura anterior.
+    velhos = passado[:max(1, len(passado) // 2)]
+    ocupado = set().union(*(p[2] for p in velhos))
+    fora = sum(1 for i in m.indices if i not in ocupado) / len(m.indices)
+    cx, cy = _centro(m, largura)
+    return fora >= FORA_MIN and ((cx - velhos[0][0]) ** 2 + (cy - velhos[0][1]) ** 2) ** 0.5 >= minimo
 
 
 class Vigia:
@@ -354,7 +394,7 @@ class Vigia:
         self.regra = regra
         self.fundo: Optional[Fundo] = None
         self._vigiado: Optional[bytearray] = None
-        self._seguidas: List[Tuple[Tuple[float, float, float, float], int]] = []
+        self._rastros: List[_Rastro] = []
         self.ultimo_alerta: float = -1e18
         self.ultimo_quadro: Optional[Quadro] = None
 
@@ -365,22 +405,30 @@ class Vigia:
         if self.fundo is None or self.fundo.largura != quadro.largura or self.fundo.altura != quadro.altura:
             self.fundo = Fundo(quadro)
             self._vigiado = mascara(quadro.largura, quadro.altura, self.regra)
-            self._seguidas = []
+            self._rastros = []
             return [], None
 
         manchas = detectar(quadro, self.fundo, self.regra, self._vigiado)
 
-        novas: List[Tuple[Tuple[float, float, float, float], int]] = []
+        novos: List[_Rastro] = []
         melhor: Optional[Disparo] = None
+        congelar: List[int] = []
         for m in manchas:
-            antes = max((n for c, n in self._seguidas if _sobrepoe(c, m.caixa)), default=0)
-            n = antes + 1
-            novas.append((m.caixa, n))
-            if n >= self.regra.quadros_seguidos and (melhor is None or m.pontos > melhor.mancha.pontos):
+            # O rastro de quem esta em cima: duas manchas vizinhas nao trocam de historia.
+            pontos = set(m.indices)
+            antes = max((r for r in self._rastros if _sobrepoe(r.caixa, m.caixa)),
+                        key=lambda r: (len(pontos & r.passado[-1][2]), r.n), default=None)
+            passado = antes.passado if antes else []
+            n = (antes.n if antes else 0) + 1
+            andou = bool(antes and antes.andou) or _andou(m, quadro.largura, passado, self.regra.movimento_min)
+            cx, cy = _centro(m, quadro.largura)
+            novos.append(_Rastro(m.caixa, n, (passado + [(cx, cy, pontos)])[-JANELA_MOVIMENTO:], andou))
+            if n <= ABSORVER_LEITURAS or andou:
+                congelar.extend(m.indices)
+            if n >= self.regra.quadros_seguidos and andou and (melhor is None or m.pontos > melhor.mancha.pontos):
                 melhor = Disparo(m, n)
-        self._seguidas = novas
+        self._rastros = novos
 
-        congelar = [i for m in manchas for i in m.indices]
         self.fundo.atualizar(quadro, self.regra.aprendizado, congelar)
 
         if melhor and agora - self.ultimo_alerta >= self.regra.intervalo_alertas_s:

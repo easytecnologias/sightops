@@ -116,7 +116,7 @@ def _vigia(monkeypatch, quadros):
 
 def test_vigia_grava_alerta_com_fotos_e_isola_cliente(store, monkeypatch):
     cam = store.adicionar("10.0.0.81", "c1")
-    store.salvar_camera(cam["id"], {"ativo": True, "regra": {"quadros_seguidos": 2}})
+    store.salvar_camera(cam["id"], {"ativo": True, "regra": {"quadros_seguidos": 2, "movimento_min": 0}})
     v = _vigia(monkeypatch, [_quadro(), _quadro(True), _quadro(True)])
     for t in (0, 2, 4):
         v.rodada(agora=t)

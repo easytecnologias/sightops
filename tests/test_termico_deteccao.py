@@ -78,7 +78,7 @@ def test_pessoa_mais_fria_que_o_chao_ao_sol_dispara():
     q = _quadro("quadro1")
     fundo_ali = sum(q.t(x, y) for y in range(90, 104) for x in range(170, 176)) / 84
     assert fundo_ali > 40          # estrada ao sol: a pessoa vai ser a mancha FRIA
-    v = T.Vigia(T.Regra(quadros_seguidos=1))
+    v = T.Vigia(T.Regra(quadros_seguidos=1, movimento_min=0))
     v.processar(q, 0)
     manchas, disparo = v.processar(_com_pessoa(_quadro("quadro2")), 2)
     assert disparo is not None
@@ -91,7 +91,7 @@ def test_pessoa_mais_fria_que_o_chao_ao_sol_dispara():
 
 
 def test_precisa_aparecer_em_quadros_seguidos():
-    v = T.Vigia(T.Regra(quadros_seguidos=2))
+    v = T.Vigia(T.Regra(quadros_seguidos=2, movimento_min=0))
     v.processar(_quadro("quadro1"), 0)
     _, d1 = v.processar(_com_pessoa(_quadro("quadro2")), 2)
     _, d2 = v.processar(_com_pessoa(_quadro("quadro2"), x0=172), 4)   # andou 2 pontos
@@ -139,7 +139,7 @@ def test_fora_da_area_vigiada_nao_dispara():
 
 
 def test_respeita_intervalo_entre_alertas():
-    v = T.Vigia(T.Regra(quadros_seguidos=1, intervalo_alertas_s=60))
+    v = T.Vigia(T.Regra(quadros_seguidos=1, intervalo_alertas_s=60, movimento_min=0))
     v.processar(_quadro("quadro1"), 0)
     _, d1 = v.processar(_com_pessoa(_quadro("quadro2")), 2)
     _, d2 = v.processar(_com_pessoa(_quadro("quadro2")), 4)
@@ -148,7 +148,7 @@ def test_respeita_intervalo_entre_alertas():
 
 
 def test_pessoa_parada_nao_vira_fundo():
-    v = T.Vigia(T.Regra(quadros_seguidos=1, intervalo_alertas_s=0, aprendizado=0.5))
+    v = T.Vigia(T.Regra(quadros_seguidos=1, intervalo_alertas_s=0, aprendizado=0.5, movimento_min=0))
     v.processar(_quadro("quadro1"), 0)
     disparos = [v.processar(_com_pessoa(_quadro("quadro2")), 2 * i)[1] for i in range(1, 8)]
     assert all(d is not None for d in disparos)
@@ -197,3 +197,60 @@ def test_simular_respeita_a_area_vigiada():
     r = T.simular_pessoa(q, T.Fundo(q), T.Regra(areas=area))
     t = T.simular_pessoa(q, T.Fundo(q), T.Regra())
     assert 0 < r["tamanhos"][1]["posicoes"] < t["tamanhos"][1]["posicoes"]
+
+
+def _rodar(vigia, q, quadros):
+    disparos = []
+    for n, f in enumerate(quadros):
+        _, d = vigia.processar(f, 1000.0 + n * 2)
+        disparos.append(d)
+    return disparos
+
+
+def test_marca_parada_no_chao_nao_dispara_nem_com_a_borda_tremendo():
+    q = _quadro("sombra2")
+    v = T.Vigia(T.Regra())
+    v.processar(q, 0.0)
+    # Mesma marca fria, com a borda oscilando 1 ponto, por 2 minutos de leituras.
+    marcas = [_com_pessoa(q, x0=185 + (n % 2), y0=115, larg=12, alt=8, temp=33.0) for n in range(60)]
+    assert not any(_rodar(v, q, marcas))
+
+
+def test_pessoa_andando_dispara():
+    q = _quadro("quadro1")
+    v = T.Vigia(T.Regra())
+    v.processar(q, 0.0)
+    passos = [_com_pessoa(q, x0=170 + 4 * n) for n in range(5)]
+    assert any(_rodar(v, q, passos))
+
+
+def test_pessoa_longe_e_devagar_dispara():
+    q = _quadro("quadro1")
+    v = T.Vigia(T.Regra())
+    v.processar(q, 0.0)
+    passos = [_com_pessoa(q, x0=170 + n, larg=3, alt=6) for n in range(7)]
+    assert any(_rodar(v, q, passos))
+
+
+def test_quem_chega_e_para_ja_contou_como_andou():
+    q = _quadro("quadro1")
+    v = T.Vigia(T.Regra(intervalo_alertas_s=0))
+    v.processar(q, 0.0)
+    assert any(_rodar(v, q, [_com_pessoa(q, x0=170 + 4 * n) for n in range(3)] + [_com_pessoa(q, x0=178)] * 3))
+
+
+def test_mancha_parada_entra_no_fundo_e_some():
+    q = _quadro("sombra2")
+    v = T.Vigia(T.Regra())
+    v.processar(q, 0.0)
+    marca = _com_pessoa(q, x0=185, y0=115, larg=12, alt=8, temp=33.0)
+    for n in range(T.ABSORVER_LEITURAS + 90):
+        manchas, _ = v.processar(marca, 2.0 * n)
+    assert manchas == []
+
+
+def test_movimento_zero_aceita_parada():
+    q = _quadro("quadro1")
+    v = T.Vigia(T.Regra(movimento_min=0))
+    v.processar(q, 0.0)
+    assert any(_rodar(v, q, [_com_pessoa(q)] * 3))
