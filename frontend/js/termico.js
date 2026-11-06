@@ -70,6 +70,14 @@
   .tm-regra{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
   .tm-linha{display:flex;align-items:center;justify-content:space-between;gap:12px}
   .tm-sub{font-size:12px;color:var(--muted)}
+  .tm-vazio-util{align-items:center;padding:40px 20px;gap:12px;text-align:center}
+  .tm-ic-ok{width:44px;height:44px;border-radius:50%;background:var(--primary-soft);color:var(--primary);display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:700}
+  .tm-teste-linha{display:flex;flex-wrap:wrap;justify-content:center;gap:8px;margin-top:8px}
+  .tm-teste-linha select{max-width:100%}
+  .tm-sugestoes{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,320px));justify-content:center;gap:12px;width:100%;margin-top:8px}
+  .tm-sugestao{display:flex;flex-direction:column;gap:4px;padding:14px;border:1px solid var(--border);border-radius:10px;background:var(--surface);text-align:left;cursor:pointer;font:inherit;color:var(--text)}
+  .tm-sugestao:hover{border-color:var(--primary)}
+  .tm-sugestao span{font-size:12px;color:var(--muted)}
   .tm-faixa{display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding:12px 16px;border-radius:10px;background:var(--primary-soft);color:#06573f;font-weight:600;margin-bottom:14px}
   .tm-faixa small{font-weight:400;font-size:12px}
   .tm-faixa.alarme{background:var(--danger);color:#fff;animation:tmFaixa 2s ease-in-out infinite}
@@ -211,15 +219,51 @@
       && (!q || `${a.camera_nome} ${a.site}`.toLowerCase().includes(q)));
   }
 
+  // Pagina vazia nao pode parecer quebrada: diz o que esta acontecendo e o que fazer.
+  function htmlSemAlarmes() {
+    const ativas = cams.cameras.filter(c => c.ativo);
+    const lendo = ativas.filter(c => c.leitura === 'ok').length;
+    const usinas = [...new Set(ativas.map(c => c.site))].sort(natural);
+    const txt = !ativas.length ? 'Nenhuma câmera vigiando ainda. Vá em Ao vivo e clique em Vigiar.'
+      : `${lendo} de ${ativas.length} câmera(s) lendo a temperatura agora${usinas.length ? ` em ${usinas.map(h).join(' e ')}` : ''}. Quando alguém passar, o alarme aparece aqui com as fotos e o vídeo.`;
+    return `<section class="tm-card tm-vazio-util">
+      <div class="tm-ic-ok">✓</div>
+      <h2>Nenhum alarme até agora</h2>
+      <p class="tm-sub" style="margin:0;max-width:560px;text-align:center">${txt}</p>
+      ${ativas.length ? `${htmlTeste('primary-action')}
+      <p class="tm-sub" style="margin:0">Cria um alarme marcado TESTE com a imagem de agora: avisa os celulares, abre problema no Zabbix até dar Ciente e roda as automações (para operador, só simula).</p>` : ''}
+    </section>`;
+  }
+
+  function htmlTeste(botao) {
+    const ativas = cams.cameras.filter(c => c.ativo).sort((a, b) => natural(a.site, b.site) || natural(a.nome, b.nome));
+    if (!ativas.length) return '';
+    return `<div class="tm-teste-linha"><select id="tmTesteCam" class="tm-sel" aria-label="Câmera do teste">${ativas.map(c => `<option value="${h(c.id)}">${h(c.site)} · ${h(c.nome)}</option>`).join('')}</select>
+      <button class="${botao}" type="button" data-tm-teste-alarme>Gerar alarme de teste</button></div>`;
+  }
+
+  async function gerarTeste(id) {
+    if (!id) return;
+    const r = await api(`/api/termico/cameras/${encodeURIComponent(id)}/teste-alarme`, { method: 'POST', body: '{}' });
+    if (!r || !r.ok) { const d = r ? await r.json().catch(() => ({})) : {}; toast(d.detail || 'Não deu para gerar o teste.', true); return; }
+    const { id: novo } = await r.json();
+    toast('Alarme de teste criado.');
+    await Promise.all([carregarAlertas(true), carregarCameras()]);
+    aba = 'alarmes';
+    aberto = alertas.alertas.find(a => a.id === novo) || null;
+    render();
+  }
+
   function htmlAlarmes() {
+    if (!alertas.total) return htmlSemAlarmes();
     const lista = alertasFiltrados();
     const sites = Object.keys(alertas.por_site || {}).sort(natural);
     const ps = alertas.por_situacao || {};
     const linhas = lista.map(a => {
       const [rot, cls] = SIT[a.situacao] || SIT.novo;
       return `<tr data-tm-alerta="${h(a.id)}" class="${aberto && aberto.id === a.id ? 'on' : ''}">
-        <td>${h(hora(a.criado_at))}</td><td title="${h(a.camera_nome)}" style="font-weight:${a.situacao === 'novo' ? 600 : 400}">${h(a.camera_nome)}</td>
-        <td title="${h(a.site)}">${h(a.site)}</td><td class="tm-num">${num(a.dif_c)} °C</td><td><span class="pill ${cls}">${rot}</span></td></tr>`;
+        <td>${h(hora(a.criado_at))}</td><td title="${h(a.camera_nome)}" style="font-weight:${a.situacao === 'novo' ? 600 : 400}">${h(a.camera_nome)}${a.mancha?.teste ? ' <span class="pill neutral">TESTE</span>' : ''}</td>
+        <td title="${h(a.site)}">${h(a.site)}</td><td class="tm-num">${a.dif_c == null ? '—' : `${num(a.dif_c)} °C`}</td><td><span class="pill ${cls}">${rot}</span></td></tr>`;
     }).join('') || `<tr><td colspan="5" style="text-align:center;color:var(--muted);height:80px">Nenhum alarme ${filtro.situacao || filtro.site || filtro.q ? 'com esse filtro' : 'ainda'}.</td></tr>`;
     return `<div class="tm-grid">
       <section class="tm-card">
@@ -233,13 +277,14 @@
           <colgroup><col style="width:56px"><col><col style="width:140px"><col style="width:96px"><col style="width:122px"></colgroup>
           <thead><tr><th>Hora</th><th>Câmera</th><th>Usina</th><th class="tm-num">Dif. fundo</th><th>Situação</th></tr></thead>
           <tbody>${linhas}</tbody></table></div>
+        ${htmlTeste('secondary-action')}
       </section>
       <section class="tm-card">${aberto ? htmlDetalhe(aberto) : '<div class="tm-vazio-card">Clique num alarme para ver as fotos e responder.</div>'}</section>
     </div>`;
   }
 
   function caixaCss(a) {
-    const c = a.mancha?.caixa; if (!c) return '';
+    const c = a.mancha?.caixa; if (!c) return 'display:none';
     const m = 0.02;   // folga para a caixa nao esconder a pessoa
     return `left:${(Math.max(0, c[0] - m) * 100).toFixed(1)}%;top:${(Math.max(0, c[1] - m) * 100).toFixed(1)}%;width:${((c[2] + 2 * m) * 100).toFixed(1)}%;height:${((c[3] + 2 * m) * 100).toFixed(1)}%`;
   }
@@ -249,17 +294,17 @@
     const resp = a.situacao === 'novo' ? '' : `<div class="tm-sub">${a.situacao === 'falso' ? 'Falso alarme' : 'Ciente'} por ${h(a.visto_por || '—')} em ${h(dataHora(a.visto_at))}${a.motivo_falso ? ` · ${h((MOTIVOS.find(m => m[0] === a.motivo_falso) || ['', a.motivo_falso])[1])}` : ''}${a.comentario ? ` · “${h(a.comentario)}”` : ''}</div>`;
     return `
       <div class="tm-linha"><div style="min-width:0"><h2 style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${h(a.camera_nome)} · ${h(a.site)}</h2>
-        <div class="tm-sub">Pessoa detectada pelo calor · ${h(dataHora(a.criado_at))}</div></div><span class="pill ${cls}">${rot}</span></div>
+        <div class="tm-sub">${a.mancha?.teste ? 'Alarme de teste' : 'Pessoa detectada pelo calor'} · ${h(dataHora(a.criado_at))}</div></div><span class="pill ${cls}">${rot}</span></div>
       <div class="tm-fotos">
         <figure style="margin:0"><div class="tm-foto" id="tmFotoT"><div class="tm-vazio">Carregando…</div><div class="tm-caixa" style="${caixaCss(a)}"></div></div><figcaption class="tm-legenda">Térmica</figcaption></figure>
         <figure style="margin:0"><div class="tm-foto" id="tmFotoV"><div class="tm-vazio">${a.fotos.visivel ? 'Carregando…' : 'Sem foto colorida'}</div></div><figcaption class="tm-legenda">Colorida, mesmo instante</figcaption></figure>
       </div>
-      <div class="tm-medidas">
+      ${a.mancha?.teste ? `<div class="tm-sub">Gerado na tela para testar os avisos. Não houve detecção: as fotos são da câmera naquele momento.</div>` : `<div class="tm-medidas">
         <div><span>Mancha</span><strong style="color:var(--danger)">${num(a.temp_c)} °C</strong></div>
         <div><span>Fundo</span><strong>${num(a.fundo_c)} °C</strong></div>
         <div><span>Diferença</span><strong>${num(a.dif_c)} °C</strong></div>
         <div><span>Tamanho</span><strong>${a.mancha?.pontos || '—'} pts</strong></div>
-      </div>
+      </div>`}
       ${a.situacao === 'novo' ? `<div class="tm-acoes">
         <button class="primary-action" type="button" data-tm-ciente>Ciente</button>
         <button class="secondary-action" type="button" data-tm-falso style="color:var(--amber)">Falso alarme</button>
@@ -291,6 +336,7 @@
     if ($('tmSite')) $('tmSite').onchange = e => { filtro.site = e.target.value; render(); };
     if ($('tmSit')) $('tmSit').onchange = e => { filtro.situacao = e.target.value; render(); };
     sec.querySelectorAll('[data-tm-alerta]').forEach(tr => tr.onclick = () => { aberto = alertas.alertas.find(a => a.id === tr.dataset.tmAlerta) || null; render(); });
+    sec.querySelector('[data-tm-teste-alarme]')?.addEventListener('click', () => gerarTeste($('tmTesteCam')?.value));
     sec.querySelector('[data-tm-ciente]')?.addEventListener('click', () => responder('ciente', {}));
     sec.querySelector('[data-tm-falso]')?.addEventListener('click', pedirMotivo);
     sec.querySelector('[data-tm-fechar]')?.addEventListener('click', () => { aberto = null; render(); });
@@ -350,6 +396,18 @@
       : `${a.nome}: preset ${a.preset}${a.voltar_s ? `, volta em ${a.voltar_s} s` : ''}`;
   }
 
+  function htmlSemAutomacao() {
+    const speeds = auto.equipamentos.filter(e => e.speed);
+    return `<section class="tm-card tm-vazio-util">
+      <h2>O que deve acontecer quando alguém for detectado?</h2>
+      <p class="tm-sub" style="margin:0;max-width:560px;text-align:center">As automações agem sozinhas no alarme. Toda automação começa em Simular: registra o que faria, sem mexer em nada.</p>
+      <div class="tm-sugestoes">
+        ${speeds.map(e => `<button type="button" class="tm-sugestao" data-tm-sug="${h(e.ip)}|${h(e.connector_id)}"><b>Apontar a ${h(e.nome)}</b><span>${h(e.site)} · vai ao preset e volta depois de 60 s</span></button>`).join('')}
+        <button type="button" class="tm-sugestao" data-tm-nova><b>Ligar refletor ou sirene</b><span>pela saída de alarme da câmera</span></button>
+      </div>
+    </section>`;
+  }
+
   function htmlAutomacoes() {
     const linhas = auto.automacoes.map(r => `<tr data-tm-regra="${h(r.id)}" class="${autoAberta && autoAberta.id === r.id ? 'on' : ''}">
         <td title="${h(r.nome)}" style="font-weight:600">${h(r.nome)}</td><td title="${h(nomeOrigem(r.origem_camera_id))}">${h(nomeOrigem(r.origem_camera_id))}</td>
@@ -363,6 +421,7 @@
         <td title="${h(e.resposta)}">${h(a.nome ? descrever(a) : e.resposta)}</td>
         <td><span class="pill ${!e.ok ? 'danger' : e.modo === 'valer' ? 'success' : 'neutral'}">${!e.ok ? 'Falhou' : e.modo === 'valer' ? 'Feito' : 'Simulado'}</span></td></tr>`;
     }).join('') || '<tr><td colspan="4" style="text-align:center;color:var(--muted);height:60px">Nada executado ainda.</td></tr>';
+    if (!auto.automacoes.length && !autoAberta) return htmlSemAutomacao();
     return `<div class="tm-grid">
       <div style="display:flex;flex-direction:column;gap:20px;min-width:0">
         <section class="tm-card">
@@ -445,6 +504,14 @@
 
   function ligarAuto(sec) {
     sec.querySelector('[data-tm-nova]')?.addEventListener('click', () => { autoAberta = novaRegra(); render(); });
+    sec.querySelectorAll('[data-tm-sug]').forEach(b => b.onclick = () => {
+      const e = auto.equipamentos.find(x => `${x.ip}|${x.connector_id}` === b.dataset.tmSug);
+      if (!e) return;
+      const cam = cams.cameras.find(c => c.site === e.site && c.ativo);
+      autoAberta = { ...novaRegra(), nome: `Apontar ${e.nome}`, origem_camera_id: cam?.id || '',
+        acoes: [{ tipo: 'speed_preset', ip: e.ip, connector_id: e.connector_id, nome: e.nome, preset: 1, voltar_s: 60 }] };
+      render();
+    });
     sec.querySelectorAll('[data-tm-regra]').forEach(tr => tr.onclick = () => {
       const r = auto.automacoes.find(x => x.id === tr.dataset.tmRegra);
       autoAberta = r ? JSON.parse(JSON.stringify(r)) : null; render();
@@ -552,7 +619,7 @@
   function htmlFaixa() {
     const a = alertas.alertas.find(x => x.situacao === 'novo');
     const ativas = cams.cameras.filter(c => c.ativo).length;
-    if (a) return `<div class="tm-faixa alarme"><span class="tm-ponto"></span>Pessoa detectada: ${h(a.camera_nome)} · ${h(a.site)} <small>${h(hora(a.criado_at))}, ${num(a.temp_c, 0)} °C num fundo de ${num(a.fundo_c, 0)} °C</small>
+    if (a) return `<div class="tm-faixa alarme"><span class="tm-ponto"></span>${a.mancha?.teste ? 'Alarme de teste' : 'Pessoa detectada'}: ${h(a.camera_nome)} · ${h(a.site)} <small>${h(hora(a.criado_at))}${a.mancha?.teste ? '' : `, ${num(a.temp_c, 0)} °C num fundo de ${num(a.fundo_c, 0)} °C`}</small>
       <button class="secondary-action" type="button" data-tm-ver-alarme="${h(a.id)}" style="margin-left:auto">Ver ao vivo</button></div>`;
     const ult = alertas.alertas[0];
     return `<div class="tm-faixa"><span class="tm-ponto"></span>${ativas ? 'Tudo tranquilo' : 'Nenhuma câmera vigiando'} <small>${ativas} térmica(s) vigiando · nenhum alarme sem resposta${ult ? ` · último alarme ${h(dataHora(ult.criado_at))}` : ''}</small></div>`;
@@ -680,7 +747,7 @@
     const speed = auto.automacoes.flatMap(r => (r.origem_camera_id === a.camera_id || !r.origem_camera_id) ? r.acoes : []).find(x => x.tipo === 'speed_preset');
     const novo = a.situacao === 'novo';
     const g = montarGaveta(`
-      <div class="tm-gav-cab"><div style="min-width:0;flex:1"><h2 style="color:var(--danger)">Pessoa detectada pelo calor</h2>
+      <div class="tm-gav-cab"><div style="min-width:0;flex:1"><h2 style="color:var(--danger)">${a.mancha?.teste ? 'Alarme de teste' : 'Pessoa detectada pelo calor'}</h2>
         <div class="tm-sub">${h(a.camera_nome)} · ${h(a.site)} · ${h(dataHora(a.criado_at))}</div></div>
         <button class="ghost-action" type="button" data-tm-gfechar aria-label="Fechar">✕</button></div>
       <div class="tm-gav-corpo">
@@ -689,12 +756,12 @@
           <div class="tm-foto"><video id="tmGvC" autoplay muted playsinline></video><span class="pdv-v-aviso" id="tmGaC">Conectando...</span><span class="pdv-v-lbl pdv-v-nome">Colorida</span><span class="pdv-v-lbl tm-l-vivo"><i class="tm-vivo"></i>AO VIVO</span></div>
         </div>
         ${speed ? `<div class="tm-foto"><video id="tmGvS" autoplay muted playsinline></video><span class="pdv-v-aviso" id="tmGaS">Conectando...</span><span class="pdv-v-lbl pdv-v-nome">${h(speed.nome)}</span><span class="pdv-v-lbl tm-l-vivo"><i class="tm-vivo"></i>AO VIVO</span></div>` : ''}
-        <div class="tm-medidas">
+        ${a.mancha?.teste ? `<div class="tm-sub">Gerado na tela para testar os avisos. Não houve detecção.</div>` : `<div class="tm-medidas">
           <div><span>Pessoa</span><strong style="color:var(--danger)">${num(a.temp_c)} °C</strong></div>
           <div><span>Fundo</span><strong>${num(a.fundo_c)} °C</strong></div>
           <div><span>Diferença</span><strong>${num(Math.abs(a.dif_c || 0))} °C</strong></div>
           <div><span>Tamanho</span><strong>${a.mancha?.pontos || '—'} pts</strong></div>
-        </div>
+        </div>`}
         <div><div class="tm-sub" style="margin-bottom:6px">Momento do disparo</div>
           <div class="tm-fotos"><div class="tm-foto" id="tmFotoT"><div class="tm-vazio">Carregando…</div><div class="tm-caixa" style="${caixaCss(a)}"></div></div>
             <div class="tm-foto" id="tmFotoV"><div class="tm-vazio">${a.fotos.visivel ? 'Carregando…' : 'Sem foto colorida'}</div></div></div></div>

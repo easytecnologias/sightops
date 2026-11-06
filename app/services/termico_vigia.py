@@ -199,7 +199,7 @@ def avisar_alerta(tenant: str, cam: Dict[str, Any], alerta: Dict[str, Any]) -> N
     from app.services.termico_avisos import avisar_pessoa
     from app.services.zabbix_monitoring_service import enviar_termico_agora
 
-    disparar_em_thread(tenant, cam["id"], alerta["id"])
+    disparar_em_thread(tenant, cam["id"], alerta["id"], bool(alerta.get("so_simular")))
     threading.Thread(target=avisar_pessoa, args=(tenant, cam, alerta, alerta.get("mancha")),
                      daemon=True, name="termico-push").start()
     enviar_termico_agora(tenant, cam.get("ip") or "", cam.get("connector_id") or "")

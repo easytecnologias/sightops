@@ -387,3 +387,42 @@ def test_preparar_so_muda_o_primeiro_enabled(monkeypatch):
     monkeypatch.setattr(C.requests, "get", lambda url, **k: _RespCam(xml if "basicParam" in url else ""))
     monkeypatch.setattr(C.requests, "put", lambda *a, **k: feitos.append(1))
     assert C.preparar_medicao("http://cam", "u", "s")["medicao"] == "ja_ligada" and feitos == []
+
+
+def test_alarme_de_teste_passa_pelo_caminho_inteiro(store, monkeypatch):
+    from app.services import camera_credentials, termico_camera, termico_vigia
+    monkeypatch.setattr(camera_credentials, "resolve_camera_credential", lambda m, s: {"username": "u", "password": "s"})
+    monkeypatch.setattr(termico_camera, "base_da_camera", lambda ip, p, c: "http://cam")
+    monkeypatch.setattr(termico_camera, "buscar_foto", lambda b, u, s, canal_video=1: b"jpg" + bytes([canal_video]))
+    avisos = []
+    monkeypatch.setattr(termico_vigia, "avisar_alerta", lambda t, c, a: avisos.append((t, c["id"], a["mancha"].get("teste"), a["so_simular"])))
+    from app.core import tenant_context
+    papel = {"role": "operator"}
+    monkeypatch.setattr(tenant_context, "get_current_user", lambda: papel)
+    cam = store.adicionar("10.0.0.81", "c1")
+    store.salvar_camera(cam["id"], {"ativo": True})
+    r = store.alarme_de_teste(cam["id"])
+    a = store.listar_alertas()["alertas"][0]
+    assert a["id"] == r["id"] and a["mancha"]["teste"] is True and a["situacao"] == "novo"
+    assert store.caminho_foto(a["id"], "termico").read_bytes() == b"jpg\x02"
+    assert avisos == [("cliente-a", cam["id"], True, True)]
+    papel["role"] = "admin"
+    store.alarme_de_teste(cam["id"])
+    assert avisos[-1][-1] is False
+    with _como("cliente-b"):
+        with pytest.raises(LookupError):
+            store.alarme_de_teste(cam["id"])
+
+
+def test_so_simular_nao_aciona_regra_valendo(monkeypatch):
+    from app.services import automacao_acoes as A
+    modos = []
+    regra = {"id": "r", "nome": "x", "modo": "valer", "acoes": [{"tipo": "saida"}]}
+    monkeypatch.setattr(A.automacao_store, "regras_da_camera", lambda c: [regra])
+    monkeypatch.setattr(A, "_dentro_do_intervalo", lambda r: False)
+    monkeypatch.setattr(A, "executar_acao", lambda t, a, m, regra_id="": (modos.append(m), (True, "ok"))[1])
+    monkeypatch.setattr(A.automacao_store, "registrar_execucao", lambda *a: modos.append(a[2]))
+    assert A.disparar("cliente-a", "c", "a", so_simular=True) == 1
+    assert modos == ["simular", "simular"]
+    assert A.disparar("cliente-a", "c", "a") == 1
+    assert modos[2:] == ["valer", "valer"]

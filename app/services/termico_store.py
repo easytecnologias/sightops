@@ -494,6 +494,39 @@ def preparar_camera(camera_id: str) -> Dict[str, Any]:
     return preparar_medicao(base, cred["username"], cred["password"], int(cam.get("canal") or 2))
 
 
+def alarme_de_teste(camera_id: str) -> Dict[str, Any]:
+    """Alarme marcado TESTE com a imagem de agora da camera: passa pelo caminho
+    inteiro (alerta, celular, Zabbix e automacoes), para ver funcionar sem
+    ninguem andando na usina. Automacao Valendo aciona de verdade so para admin
+    sem restricao de site, a mesma regra de testar a automacao; para os demais
+    ela simula: "Todas as termicas" alcanca sites que o usuario nao ve."""
+    from app.core.permissions import sites_da_sessao
+    from app.core.security import ROLE_RANK
+    from app.core.tenant_context import get_current_user
+    from app.services.camera_credentials import resolve_camera_credential
+    from app.services.connector_routing_vnat import set_olt_reach_connector
+    from app.services.termico_camera import base_da_camera, buscar_foto
+    from app.services.termico_vigia import avisar_alerta
+
+    tenant = _tenant()
+    with db_store._conn() as c:
+        cam = _camera(c, tenant, camera_id)
+    cred = resolve_camera_credential(cam.get("mac") or "", cam.get("site") or "")
+    if not cred:
+        raise ValueError("Sem usuário e senha salvos para esta câmera.")
+    set_olt_reach_connector("")
+    base = base_da_camera(cam["ip"], cam.get("porta") or 80, cam.get("connector_id") or "")
+    u, s = cred["username"], cred["password"]
+    mancha = {"teste": True, "fundo_medio": cam.get("fundo_c")}
+    alerta = registrar_alerta(cam, mancha, {"termico.jpg": buscar_foto(base, u, s, canal_video=2),
+                                            "visivel.jpg": buscar_foto(base, u, s, canal_video=1)})
+    alerta["mancha"] = mancha
+    papel = str((get_current_user() or {}).get("role") or "").strip().lower()
+    alerta["so_simular"] = ROLE_RANK.get(papel, 0) < ROLE_RANK["admin"] or sites_da_sessao() is not None
+    avisar_alerta(tenant, cam, alerta)
+    return {"id": alerta["id"]}
+
+
 def manchas_agora(camera_id: str) -> Dict[str, Any]:
     """O que a deteccao esta vendo nesta camera, para o Testar agora."""
     from app.services.termico_vigia import vigia_global

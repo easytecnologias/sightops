@@ -152,23 +152,25 @@ def _dentro_do_intervalo(regra: Dict[str, Any]) -> bool:
     return idade < int(regra.get("intervalo_s") or 120)
 
 
-def rodar_regra(tenant: str, regra: Dict[str, Any], alerta_id: str = "") -> None:
+def rodar_regra(tenant: str, regra: Dict[str, Any], alerta_id: str = "", so_simular: bool = False) -> None:
+    modo = "simular" if so_simular else regra["modo"]
     for acao in regra["acoes"]:
-        ok, msg = executar_acao(tenant, acao, regra["modo"], regra_id=regra["id"])
-        automacao_store.registrar_execucao(regra["id"], alerta_id, regra["modo"], acao, ok, msg)
+        ok, msg = executar_acao(tenant, acao, modo, regra_id=regra["id"])
+        automacao_store.registrar_execucao(regra["id"], alerta_id, modo, acao, ok, msg)
         if not ok:
             logger.warning("automacao %s (%s): %s", regra.get("nome"), tenant, msg)
 
 
-def disparar(tenant: str, camera_id: str, alerta_id: str) -> int:
-    """Roda as automacoes da camera. Devolve quantas regras rodaram."""
+def disparar(tenant: str, camera_id: str, alerta_id: str, so_simular: bool = False) -> int:
+    """Roda as automacoes da camera. Devolve quantas regras rodaram.
+    so_simular: nenhuma aciona equipamento, nem as que estao em Valendo."""
     token = set_current_tenant_slug(tenant)
     try:
         rodadas = 0
         for regra in automacao_store.regras_da_camera(camera_id):
             if _dentro_do_intervalo(regra):
                 continue
-            rodar_regra(tenant, regra, alerta_id)
+            rodar_regra(tenant, regra, alerta_id, so_simular)
             rodadas += 1
         return rodadas
     except Exception:
@@ -178,5 +180,5 @@ def disparar(tenant: str, camera_id: str, alerta_id: str) -> int:
         reset_current_tenant_slug(token)
 
 
-def disparar_em_thread(tenant: str, camera_id: str, alerta_id: str) -> None:
-    threading.Thread(target=disparar, args=(tenant, camera_id, alerta_id), daemon=True, name="automacao").start()
+def disparar_em_thread(tenant: str, camera_id: str, alerta_id: str, so_simular: bool = False) -> None:
+    threading.Thread(target=disparar, args=(tenant, camera_id, alerta_id, so_simular), daemon=True, name="automacao").start()

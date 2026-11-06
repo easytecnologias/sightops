@@ -175,7 +175,8 @@ def avisar_pessoa(tenant: str, cam: Dict[str, Any], alerta: Dict[str, Any], manc
     temp = (mancha or {}).get("temp_media")
     extra = f" · {temp:.1f} °C".replace(".", ",") if isinstance(temp, (int, float)) else ""
     inicio = time.time()
-    res = enviar_aviso(tenant, cam.get("site") or "", "Pessoa detectada pelo calor",
+    titulo = "TESTE: alarme de teste" if (mancha or {}).get("teste") else "Pessoa detectada pelo calor"
+    res = enviar_aviso(tenant, cam.get("site") or "", titulo,
                        f"{cam.get('nome')} · {cam.get('site')}{extra}",
                        {"tipo": "termico", "alerta_id": str(alerta.get("id") or "")})
     logger.info("termico: notificacao %s (%s) em %.1fs: %s", alerta.get("id"), tenant, time.time() - inicio, res)
