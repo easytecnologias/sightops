@@ -168,9 +168,9 @@ def link_foto(tenant: str, alerta_id: str, agora: Optional[float] = None) -> str
 
 def foto_valida(tenant: str, alerta_id: str, expira: int, assinatura: str, agora: Optional[float] = None) -> bool:
     momento = agora if agora is not None else time.time()
-    if expira < momento or expira - momento > FOTO_VALE_S + 5:
+    if not momento <= expira <= momento + FOTO_VALE_S + 5:
         return False
-    return hmac.compare_digest(assinatura, _assinar_foto(tenant, alerta_id, expira))
+    return hmac.compare_digest(assinatura.encode("utf-8"), _assinar_foto(tenant, alerta_id, expira).encode("utf-8"))
 
 
 def enviar_aviso(tenant: str, site: str, titulo: str, corpo: str, dados: Dict[str, str], imagem: str = "") -> Dict[str, int]:

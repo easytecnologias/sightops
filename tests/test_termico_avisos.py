@@ -179,3 +179,10 @@ def test_link_da_foto_e_assinado_preso_ao_alerta_e_vence(monkeypatch):
     assert not A.foto_valida("cliente-a", aid, expira + 99999, sig, agora=1000)
     monkeypatch.setenv("SIGHTOPS_PUBLIC_URL", "http://interno")
     assert A.link_foto("cliente-a", aid) == ""
+
+
+def test_link_da_foto_nao_quebra_com_entrada_estranha(monkeypatch):
+    from app.services import termico_avisos as A
+    monkeypatch.setattr("app.core.crypto._load_or_create_key", lambda: b"k" * 32)
+    assert not A.foto_valida("cliente-a", "a" * 32, 10 ** 400, "x", agora=1000)
+    assert not A.foto_valida("cliente-a", "a" * 32, 1100, "é", agora=1000)
