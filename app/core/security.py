@@ -203,7 +203,7 @@ class ApiAuthMiddleware(BaseHTTPMiddleware):
             # (permissions.e_exclusao).
             # Celular registrar para receber alerta nao altera nada do cliente.
             (("POST",), "/api/termico/aparelhos", "viewer"),
-            # Abrir o video e ver, como os outros ao vivo.
+            # So termica e speed de automacao (termico_store._video_liberado).
             (("POST",), "/api/termico/vivo", "viewer"),
             (("POST", "PUT", "DELETE"), "/api/termico/", "operator"),
             # Automacoes acionam sirene, refletor e speed no cliente: so admin.

@@ -437,6 +437,21 @@ def foto_agora(camera_id: str, tipo: str) -> bytes:
     return dado
 
 
+def _video_liberado(eq: Dict[str, Any]) -> bool:
+    """Esta rota vale para quem so tem o modulo termico: nao pode virar porta
+    para todo o CFTV do cliente. Abre termica e a speed de uma automacao."""
+    if MODELO_TERMICO.search(eq.get("modelo") or ""):
+        return True
+    tenant = _tenant()
+    with db_store._conn() as c:
+        rows = c.execute("SELECT acoes FROM automacoes WHERE tenant_slug=?", (tenant,)).fetchall()
+    for r in rows:
+        for a in _json(dict(r).get("acoes"), []):
+            if a.get("tipo") == "speed_preset" and a.get("ip") == eq["ip"] and (a.get("connector_id") or "") == eq["connector_id"]:
+                return True
+    return False
+
+
 def abrir_vivo(ip: str, connector_id: str, tipo: str, alta: bool = False) -> Dict[str, Any]:
     """Abre o video de uma camera do inventario do cliente e devolve o stream
     para o player. Termica: canal 2; colorida (e speed): canal 1. Parede usa o
@@ -451,7 +466,7 @@ def abrir_vivo(ip: str, connector_id: str, tipo: str, alta: bool = False) -> Dic
     if tipo not in ("termica", "colorida"):
         raise LookupError("Vídeo não encontrado.")
     eq = equipamento_do_inventario(ip, connector_id)
-    if not eq or not _site_ok(eq["site"]):
+    if not eq or not _site_ok(eq["site"]) or not _video_liberado(eq):
         raise LookupError("Câmera não encontrada.")
     cred = resolve_camera_credential(eq["mac"], eq["site"])
     if not cred:

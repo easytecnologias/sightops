@@ -5,6 +5,7 @@ virtual do conector (vnat). Camera atras de conector isolado so responde la.
 """
 from __future__ import annotations
 
+import re
 from typing import Any, Dict
 
 import requests
@@ -35,8 +36,13 @@ def preparar_medicao(base: str, usuario: str, senha: str, canal: int = 2) -> Dic
     atual = requests.get(url, auth=auth, timeout=10, verify=False)
     if atual.status_code != 200:
         raise ValueError(f"nao li a medicao da camera (HTTP {atual.status_code})")
-    if "<enabled>false</enabled>" in atual.text.split("<streamOverlay", 1)[0]:
-        r = _put_xml(url, usuario, senha, atual.text.replace("<enabled>false</enabled>", "<enabled>true</enabled>", 1))
+    # So o primeiro <enabled> e o da medicao: os outros sao de sub-blocos
+    # (saidas de alarme, filtros) e nao podem mudar.
+    primeiro = re.search(r"<enabled>(true|false)</enabled>", atual.text)
+    if primeiro is None:
+        raise ValueError("a camera nao informou se a medicao esta ligada")
+    if primeiro.group(1) == "false":
+        r = _put_xml(url, usuario, senha, atual.text[:primeiro.start()] + "<enabled>true</enabled>" + atual.text[primeiro.end():])
         if r.status_code != 200:
             raise ValueError(f"a camera recusou ligar a medicao (HTTP {r.status_code})")
         feito["medicao"] = "ligada"

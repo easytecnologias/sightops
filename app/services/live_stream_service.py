@@ -269,7 +269,11 @@ def register_recorder_stream(
 
 
 def camera_canal_stream_name(host: str, canal: int) -> str:
-    return f"cam_canal_{str(host).replace('.', '_')}_{int(canal)}"
+    """Leva o cliente: sem conector, dois clientes podem alcancar o mesmo IP."""
+    from app.core.tenant_context import get_current_tenant_slug
+
+    cliente = re.sub(r"[^a-z0-9]", "", str(get_current_tenant_slug() or "").lower())
+    return f"cam_canal_{cliente}_{str(host).replace('.', '_')}_{int(canal)}"
 
 
 def register_camera_canal_stream(*, host: str, user: str, password: str, canal: int, porta_rtsp: int = 554) -> str:
@@ -279,19 +283,20 @@ def register_camera_canal_stream(*, host: str, user: str, password: str, canal: 
     na limpeza de stream sem espectador. Idempotente como os outros."""
     nome = camera_canal_stream_name(host, canal)
     _registered_at[nome] = time.time()
-    marcar_dono(nome)
     user_q = quote(str(user or "admin"), safe="")
     pass_q = quote(str(password or ""), safe="")
     fontes = [f"rtsp://{user_q}:{pass_q}@{host}:{int(porta_rtsp or 554)}/Streaming/Channels/{int(canal)}", f"ffmpeg:{nome}#video=h264"]
     atuais = _fontes_registradas(nome)
-    if atuais == fontes:
-        return nome
-    if atuais is not None:
-        requests.delete(f"{GO2RTC_BASE_URL}/api/streams", params={"src": nome}, timeout=5)
-    put = requests.put(f"{GO2RTC_BASE_URL}/api/streams",
-                       params=[("name", nome)] + [("src", s) for s in fontes], timeout=8)
-    if put.status_code not in (200, 201, 204) and not _stream_registered_with_source(nome, fontes):
-        raise RuntimeError(f"go2rtc recusou registrar {nome}: HTTP {put.status_code} {put.text[:200]}")
+    if atuais != fontes:
+        if atuais is not None:
+            requests.delete(f"{GO2RTC_BASE_URL}/api/streams", params={"src": nome}, timeout=5)
+        put = requests.put(f"{GO2RTC_BASE_URL}/api/streams",
+                           params=[("name", nome)] + [("src", s) for s in fontes], timeout=8)
+        if put.status_code not in (200, 201, 204) and not _stream_registered_with_source(nome, fontes):
+            raise RuntimeError(f"go2rtc recusou registrar {nome}: HTTP {put.status_code} {put.text[:200]}")
+    # Dono so depois que a fonte certa esta la: antes, abrir o WS nessa janela
+    # podia ver a fonte anterior.
+    marcar_dono(nome)
     return nome
 
 

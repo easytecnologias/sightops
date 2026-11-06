@@ -313,7 +313,7 @@ def test_preparar_camera_ja_pronta_nao_escreve(monkeypatch):
 def test_vivo_abre_canal_certo_e_isola(store, monkeypatch):
     from app.services import automacao_store, camera_credentials, live_stream_service, termico_camera
     from app.core.tenant_context import get_current_tenant_slug
-    eq = {"ip": "10.0.0.81", "connector_id": "c1", "mac": "aa", "site": "UFV-RODOANEL", "porta": 80}
+    eq = {"ip": "10.0.0.81", "connector_id": "c1", "mac": "aa", "site": "UFV-RODOANEL", "porta": 80, "modelo": "HM-TD2628-8/QA/BR"}
     monkeypatch.setattr(automacao_store, "equipamento_do_inventario",
                         lambda ip, cid="": dict(eq) if get_current_tenant_slug() == "cliente-a" and ip == eq["ip"] and cid == "c1" else None)
     monkeypatch.setattr(camera_credentials, "resolve_camera_credential", lambda m, s: {"username": "u", "password": "s"})
@@ -346,3 +346,44 @@ def test_manchas_so_da_camera_do_cliente(store, monkeypatch):
     with _como("cliente-b"):
         with pytest.raises(LookupError):
             store.manchas_agora(cam["id"])
+
+
+def test_rota_de_video_nao_abre_cftv_comum(store, monkeypatch):
+    from app.services import automacao_store, camera_credentials, db_store, live_stream_service, termico_camera
+    comum = {"ip": "10.0.0.18", "connector_id": "c1", "mac": "bb", "site": "UFV-RODOANEL", "porta": 80, "modelo": "DS-2CD1047G2H-LIU"}
+    speed = {**comum, "ip": "10.0.0.10", "modelo": "DS-2DE7A432IW-AEB"}
+    monkeypatch.setattr(automacao_store, "equipamento_do_inventario", lambda ip, cid="": next((dict(e) for e in (comum, speed) if e["ip"] == ip), None))
+    monkeypatch.setattr(camera_credentials, "resolve_camera_credential", lambda m, s: {"username": "u", "password": "s"})
+    monkeypatch.setattr(termico_camera, "base_da_camera", lambda ip, p, c: f"http://{ip}")
+    monkeypatch.setattr(live_stream_service, "register_camera_canal_stream", lambda **k: "cam_canal_x")
+    with pytest.raises(LookupError):
+        store.abrir_vivo("10.0.0.18", "c1", "colorida")
+    with pytest.raises(LookupError):
+        store.abrir_vivo("10.0.0.10", "c1", "colorida")      # speed sem automacao
+    with db_store._conn() as c:
+        c.execute("INSERT INTO automacoes(id, tenant_slug, acoes) VALUES(?,?,?)",
+                  ("r" * 32, "cliente-a", '[{"tipo":"speed_preset","ip":"10.0.0.10","connector_id":"c1"}]'))
+    assert store.abrir_vivo("10.0.0.10", "c1", "colorida")["stream_name"] == "cam_canal_x"
+    with pytest.raises(LookupError):
+        store.abrir_vivo("10.0.0.18", "c1", "colorida")
+
+
+def test_stream_leva_o_cliente_e_o_dono_vem_depois_da_fonte(store, monkeypatch):
+    from app.services import live_stream_service as L
+    ordem = []
+    monkeypatch.setattr(L, "_fontes_registradas", lambda n: None)
+    monkeypatch.setattr(L, "marcar_dono", lambda n: ordem.append("dono"))
+    monkeypatch.setattr(L.requests, "put", lambda *a, **k: (ordem.append("put"), _RespCam())[1])
+    n = L.register_camera_canal_stream(host="200.1.1.1", user="u", password="s", canal=202)
+    assert n == "cam_canal_clientea_200_1_1_1_202" and ordem == ["put", "dono"]
+    with _como("cliente-b"):
+        assert L.camera_canal_stream_name("200.1.1.1", 202) != n
+
+
+def test_preparar_so_muda_o_primeiro_enabled(monkeypatch):
+    from app.services import termico_camera as C
+    feitos = []
+    xml = "<id>2</id><enabled>true</enabled><x><enabled>false</enabled></x>"
+    monkeypatch.setattr(C.requests, "get", lambda url, **k: _RespCam(xml if "basicParam" in url else ""))
+    monkeypatch.setattr(C.requests, "put", lambda *a, **k: feitos.append(1))
+    assert C.preparar_medicao("http://cam", "u", "s")["medicao"] == "ja_ligada" and feitos == []
