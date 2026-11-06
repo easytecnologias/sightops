@@ -1,10 +1,17 @@
 {
-  "appId": "br.com.easytecnologias.sightops.termico",
-  "appName": "SightOps Térmico",
+  "appId": "br.com.easytecnologias.termico.mega",
+  "appName": "Mega Vigia",
   "webDir": "dist",
-  "android": { "allowMixedContent": false, "adjustMarginsForEdgeToEdge": "force" },
-  "server": { "androidScheme": "https" },
+  "android": {
+    "allowMixedContent": false,
+    "adjustMarginsForEdgeToEdge": "force"
+  },
+  "server": {
+    "androidScheme": "https"
+  },
   "plugins": {
-    "CapacitorHttp": { "enabled": true }
+    "CapacitorHttp": {
+      "enabled": true
+    }
   }
 }

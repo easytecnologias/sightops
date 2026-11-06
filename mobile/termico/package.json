@@ -6,7 +6,8 @@
   "description": "App white-label do Alerta Termico: alerta de pessoa pelo calor, fotos, Ciente/Falso alarme, usinas e ronda. CLIENTE=mega escolhe a marca.",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build"
+    "build": "tsc -b && vite build",
+    "sync": "npm run build && npx cap sync android && node scripts/preparar-android.cjs"
   },
   "dependencies": {
     "@capacitor/android": "7.6.9",
