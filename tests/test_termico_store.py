@@ -280,3 +280,69 @@ def test_foto_agora_isola_cliente_e_segura_4_segundos(store, monkeypatch):
             store.foto_agora(cam["id"], "termica")
     with pytest.raises(LookupError):
         store.foto_agora(cam["id"], "outra")
+
+
+class _RespCam:
+    def __init__(self, text="", status=200):
+        self.text, self.status_code = text, status
+
+
+def test_preparar_so_escreve_o_que_precisa(monkeypatch):
+    from app.services import termico_camera as C
+    feitos = []
+    monkeypatch.setattr(C.requests, "get", lambda url, **k: _RespCam(
+        "<id>2</id><enabled>false</enabled><streamOverlay>true</streamOverlay><x><enabled>false</enabled></x>" if "basicParam" in url
+        else "<visiblePicEnabled>true</visiblePicEnabled>"))
+    monkeypatch.setattr(C.requests, "put", lambda url, data=None, **k: (feitos.append((url, data.decode())), _RespCam())[1])
+    r = C.preparar_medicao("http://cam", "u", "s")
+    assert r == {"medicao": "ligada", "foto_colorida": "desligada"}
+    assert "<id>2</id><enabled>true</enabled><streamOverlay>true</streamOverlay><x><enabled>false</enabled></x>" == feitos[0][1]
+    assert "<visiblePicEnabled>false</visiblePicEnabled>" == feitos[1][1]
+
+
+def test_preparar_camera_ja_pronta_nao_escreve(monkeypatch):
+    from app.services import termico_camera as C
+    feitos = []
+    monkeypatch.setattr(C.requests, "get", lambda url, **k: _RespCam(
+        "<enabled>true</enabled><streamOverlay>" if "basicParam" in url else "<visiblePicEnabled>false</visiblePicEnabled>"))
+    monkeypatch.setattr(C.requests, "put", lambda *a, **k: feitos.append(1))
+    assert C.preparar_medicao("http://cam", "u", "s") == {"medicao": "ja_ligada", "foto_colorida": "ja_desligada"}
+    assert feitos == []
+
+
+def test_vivo_abre_canal_certo_e_isola(store, monkeypatch):
+    from app.services import automacao_store, camera_credentials, live_stream_service, termico_camera
+    from app.core.tenant_context import get_current_tenant_slug
+    eq = {"ip": "10.0.0.81", "connector_id": "c1", "mac": "aa", "site": "UFV-RODOANEL", "porta": 80}
+    monkeypatch.setattr(automacao_store, "equipamento_do_inventario",
+                        lambda ip, cid="": dict(eq) if get_current_tenant_slug() == "cliente-a" and ip == eq["ip"] and cid == "c1" else None)
+    monkeypatch.setattr(camera_credentials, "resolve_camera_credential", lambda m, s: {"username": "u", "password": "s"})
+    monkeypatch.setattr(termico_camera, "base_da_camera", lambda ip, p, c: "http://10.208.128.81")
+    canais = []
+    monkeypatch.setattr(live_stream_service, "register_camera_canal_stream", lambda **k: (canais.append((k["host"], k["canal"])), f"cam_canal_{k['canal']}")[1])
+    assert store.abrir_vivo("10.0.0.81", "c1", "termica")["stream_name"] == "cam_canal_202"
+    store.abrir_vivo("10.0.0.81", "c1", "termica", True)
+    store.abrir_vivo("10.0.0.81", "c1", "colorida")
+    store.abrir_vivo("10.0.0.81", "c1", "colorida", True)
+    assert canais == [("10.208.128.81", 202), ("10.208.128.81", 201), ("10.208.128.81", 102), ("10.208.128.81", 101)]
+    with pytest.raises(LookupError):
+        store.abrir_vivo("10.0.0.81", "c1", "outra")
+    with _como("cliente-b"):
+        with pytest.raises(LookupError):
+            store.abrir_vivo("10.0.0.81", "c1", "termica")
+
+
+def test_manchas_so_da_camera_do_cliente(store, monkeypatch):
+    from app.services.termico_vigia import VigiaTermico
+    import app.services.termico_vigia as TV
+    cam = store.adicionar("10.0.0.81", "c1")
+    store.salvar_camera(cam["id"], {"ativo": True, "regra": {"quadros_seguidos": 1}})
+    v = _vigia(monkeypatch, [_quadro(), _quadro(True)])
+    monkeypatch.setattr(TV, "vigia_global", lambda: v)
+    v.rodada(agora=0)
+    v.rodada(agora=2)
+    r = store.manchas_agora(cam["id"])
+    assert r["lendo"] is True and r["manchas"][0]["pontos"] == 84
+    with _como("cliente-b"):
+        with pytest.raises(LookupError):
+            store.manchas_agora(cam["id"])

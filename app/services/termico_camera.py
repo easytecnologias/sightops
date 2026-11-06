@@ -5,7 +5,7 @@ virtual do conector (vnat). Camera atras de conector isolado so responde la.
 """
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Dict
 
 import requests
 from requests.auth import HTTPBasicAuth, HTTPDigestAuth
@@ -18,6 +18,34 @@ CAMINHO_MATRIZ = "/ISAPI/Thermal/channels/{canal}/thermometry/jpegPicWithAppendD
 
 def base_da_camera(host: str, porta: Any = 80, connector_id: str = "") -> str:
     return _base(host, porta, connector_id)
+
+
+def _put_xml(url: str, usuario: str, senha: str, corpo: str, timeout: float = 10.0) -> requests.Response:
+    return requests.put(url, data=corpo.encode("utf-8"), auth=HTTPDigestAuth(usuario, senha), timeout=timeout,
+                        verify=False, headers={"Content-Type": "application/xml"})
+
+
+def preparar_medicao(base: str, usuario: str, senha: str, canal: int = 2) -> Dict[str, Any]:
+    """Liga a medicao de temperatura e tira a foto colorida de cada leitura
+    (1,5 MB vira 200 KB, medido na CAM P 03). ESCREVE na camera: so chamar por
+    pedido explicito (botao Vigiar). So toca no campo que precisa mudar."""
+    auth = HTTPDigestAuth(usuario, senha)
+    feito: Dict[str, Any] = {"medicao": "ja_ligada", "foto_colorida": "ja_desligada"}
+    url = f"{base}/ISAPI/Thermal/channels/{int(canal)}/thermometry/basicParam"
+    atual = requests.get(url, auth=auth, timeout=10, verify=False)
+    if atual.status_code != 200:
+        raise ValueError(f"nao li a medicao da camera (HTTP {atual.status_code})")
+    if "<enabled>false</enabled>" in atual.text.split("<streamOverlay", 1)[0]:
+        r = _put_xml(url, usuario, senha, atual.text.replace("<enabled>false</enabled>", "<enabled>true</enabled>", 1))
+        if r.status_code != 200:
+            raise ValueError(f"a camera recusou ligar a medicao (HTTP {r.status_code})")
+        feito["medicao"] = "ligada"
+    url = f"{base}/ISAPI/Thermal/channels/{int(canal)}/thermometry/pixelToPixelParam"
+    atual = requests.get(url, auth=auth, timeout=10, verify=False)
+    if atual.status_code == 200 and "<visiblePicEnabled>true</visiblePicEnabled>" in atual.text:
+        r = _put_xml(url, usuario, senha, atual.text.replace("<visiblePicEnabled>true</visiblePicEnabled>", "<visiblePicEnabled>false</visiblePicEnabled>", 1))
+        feito["foto_colorida"] = "desligada" if r.status_code == 200 else f"recusado HTTP {r.status_code}"
+    return feito
 
 
 def buscar_foto(base: str, usuario: str, senha: str, canal_video: int = 1, timeout: float = 15.0) -> bytes:

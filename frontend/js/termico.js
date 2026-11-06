@@ -6,8 +6,7 @@
 // grava o alerta com foto termica + colorida. Aqui:
 //   - Alarmes: lista com filtro, o alarme aberto com as fotos, Ciente e
 //     Falso alarme (com motivo);
-//   - Cameras e regras: incluir camera do inventario, ligar, horario armado e
-//     a regra de deteccao;
+//   - Ao vivo: parede de videos; configurar e vigiar acontece na propria camera;
 //   - Automacoes: quando detectar, leva a speed ao preset ou liga saida de
 //     alarme. Nasce em Simular (ver app/services/automacao_store.py).
 // Fotos vem com o token (api) e viram blob local. CSS aqui, prefixo tm-.
@@ -31,11 +30,11 @@
     ['pontos_min', 'Tamanho mín. (pontos)', 1], ['quadros_seguidos', 'Leituras seguidas', 1], ['intervalo_alertas_s', 'Entre alertas (s)', 5],
   ];
 
-  let aba = 'alarmes';
+  let aba = 'vivo', carregando = false;
   let alertas = { alertas: [], total: 0, por_situacao: {}, por_site: {} };
   let cams = { cameras: [], no_inventario: [] };
   let filtro = { q: '', site: '', situacao: '' };
-  let aberto = null, camAberta = null, poll = null;
+  let aberto = null, poll = null;
   const fotos = {};   // url da api -> blob local
   let auto = { automacoes: [], execucoes: [], equipamentos: [] };
   let autoAberta = null;
@@ -71,6 +70,59 @@
   .tm-regra{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
   .tm-linha{display:flex;align-items:center;justify-content:space-between;gap:12px}
   .tm-sub{font-size:12px;color:var(--muted)}
+  .tm-faixa{display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding:12px 16px;border-radius:10px;background:var(--primary-soft);color:#06573f;font-weight:600;margin-bottom:14px}
+  .tm-faixa small{font-weight:400;font-size:12px}
+  .tm-faixa.alarme{background:var(--danger);color:#fff;animation:tmFaixa 2s ease-in-out infinite}
+  .tm-ponto{width:9px;height:9px;border-radius:50%;background:currentColor;box-shadow:0 0 0 4px rgba(8,127,91,.18)}
+  .tm-ferr{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:14px}
+  .tm-seg{display:inline-flex;border:1px solid var(--border);border-radius:6px;overflow:hidden;background:var(--surface)}
+  .tm-seg button{height:34px;padding:0 12px;border:0;background:none;color:var(--muted);cursor:pointer}
+  .tm-seg button.on{background:var(--blue-soft);color:var(--blue);font-weight:600}
+  .tm-sel{height:36px;border:1px solid var(--border);border-radius:6px;padding:0 8px;background:var(--surface);color:var(--text);font:inherit}
+  .tm-parede-grade{display:grid;grid-template-columns:minmax(0,1fr) 280px;gap:20px;align-items:start;margin-bottom:10px}
+  .tm-parede{display:flex;flex-direction:column;gap:18px;min-width:0}
+  .tm-usina{display:flex;flex-direction:column;gap:10px}
+  .tm-usina h2{margin:0;font-size:15px}
+  .tm-tiles{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
+  .tm-abrir{border:0;padding:0;width:100%;display:block;cursor:pointer}
+  .tm-tile-pe{display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:40px;padding:0 12px;font-size:12px;color:var(--muted)}
+  .tm-alarme{box-shadow:0 0 0 2px var(--danger),0 0 0 6px rgba(201,42,42,.14)!important;animation:tmPulsa 1.6s ease-in-out infinite}
+  .tm-l-vivo{bottom:10px;left:10px;font-size:11px}
+  .tm-l-temp{bottom:10px;right:10px}
+  .tm-vivo{width:7px;height:7px;border-radius:50%;background:#ff5a5a;animation:tmVivo 1.4s ease-in-out infinite}
+  .pdv-v-sit.tm-sit-ok{background:var(--primary)}.pdv-v-sit.tm-sit-alarme{background:var(--danger)}.pdv-v-sit.tm-sit-aviso{background:var(--amber)}.pdv-v-sit.tm-sit-fora{background:#4b5961}
+  .tm-lado{background:var(--surface);border-radius:10px;box-shadow:0 0 0 1px var(--border);padding:14px;display:flex;flex-direction:column;gap:8px}
+  .tm-lado h2{margin:0 0 4px;font-size:15px}
+  .tm-ev{display:grid;grid-template-columns:44px 1fr;gap:8px;padding:8px 0;border:0;border-top:1px solid var(--border);background:none;font-size:12px;text-align:left;cursor:pointer;color:var(--muted)}
+  .tm-ev b{display:block;color:var(--text);font-weight:600}
+  .tm-fundo{position:fixed;inset:0;background:rgba(19,37,45,.45);z-index:900}
+  .tm-gaveta{position:fixed;top:0;right:0;bottom:0;width:min(680px,100vw);background:var(--surface);z-index:901;box-shadow:-16px 0 42px rgba(23,32,38,.2);display:flex;flex-direction:column}
+  .tm-gaveta h2{margin:0;font-size:15px}
+  .tm-gav-cab{display:flex;align-items:center;gap:10px;padding:14px 18px;border-bottom:1px solid var(--border)}
+  .tm-gav-corpo{flex:1;overflow:auto;padding:16px 18px;display:flex;flex-direction:column;gap:14px}
+  .tm-gav-pe{display:flex;flex-wrap:wrap;gap:8px;padding:12px 18px;border-top:1px solid var(--border);background:var(--surface-soft)}
+  .tm-foto video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+  .tm-desenho{cursor:crosshair;touch-action:none;user-select:none;border-radius:8px}
+  .tm-camada{position:absolute;inset:0;pointer-events:none}
+  .tm-area,.tm-ignorar,.tm-mancha{position:absolute;border-radius:6px;box-sizing:border-box}
+  .tm-area{border:2px solid #3ddc97;background:rgba(61,220,151,.16)}
+  .tm-ignorar{border:2px dashed #ffb44d;background:rgba(19,37,45,.5)}
+  .tm-mancha{border:2px solid #ff5a5a}
+  .tm-mancha span{left:0;top:-22px;white-space:nowrap}
+  .tm-area span,.tm-ignorar span,.tm-mancha span{position:absolute;left:4px;top:4px;padding:1px 6px;border-radius:4px;background:rgba(19,37,45,.82);color:#fff;font-size:11px;font-weight:600}
+  .tm-dica{position:absolute;left:50%;top:10px;transform:translateX(-50%);padding:4px 12px;border-radius:14px;background:rgba(19,37,45,.82);color:#fff;font-size:12px;white-space:nowrap;pointer-events:none}
+  .tm-perg{display:flex;flex-direction:column;gap:8px}
+  .tm-chips{display:flex;flex-wrap:wrap;gap:8px}
+  .tm-chips button{min-height:36px;padding:0 14px;border:1px solid var(--border);border-radius:18px;background:var(--surface);cursor:pointer}
+  .tm-chips button.on{background:var(--primary-soft);border-color:var(--primary);color:#06573f;font-weight:600}
+  .tm-avancado summary{cursor:pointer;color:var(--blue);font-weight:600;font-size:12px}
+  .tm-alerta-msg{padding:8px 10px;border-radius:6px;background:var(--amber-soft);color:#8a5100;font-size:12px}
+  @keyframes tmVivo{50%{opacity:.25}}
+  @keyframes tmPulsa{50%{box-shadow:0 0 0 2px var(--danger),0 0 0 10px rgba(201,42,42,.05)}}
+  @keyframes tmFaixa{50%{background:#a51f1f}}
+  @media (prefers-reduced-motion:reduce){.tm-vivo,.tm-alarme,.tm-faixa.alarme{animation:none}}
+  @media (max-width:1180px){.tm-parede-grade{grid-template-columns:minmax(0,1fr)}.tm-tiles{grid-template-columns:repeat(2,minmax(0,1fr))}}
+  @media (max-width:640px){.tm-tiles{grid-template-columns:minmax(0,1fr)}}
   .tm-acao{border:1px solid var(--border);border-radius:8px;padding:12px;display:flex;flex-direction:column;gap:10px}
   .tm-modal-fundo{position:fixed;inset:0;background:rgba(19,37,45,.45);z-index:1000;display:flex;align-items:center;justify-content:center}
   .tm-modal{background:var(--surface);border-radius:10px;padding:20px;width:min(460px,92vw);display:flex;flex-direction:column;gap:14px;box-shadow:var(--shadow)}
@@ -87,8 +139,10 @@
   // ------------------------------------------------------------ carregar --
   window.loadTermico = async function () {
     injetarCss();
+    carregando = true;      // sem isso cada carga monta os videos e eles conectam duas vezes
+    await Promise.all([carregarAlertas(true), carregarCameras(), carregarAutomacoes()]);
+    carregando = false;
     render();
-    await Promise.all([carregarAlertas(), carregarCameras(), carregarAutomacoes()]);
     agendar();
   };
 
@@ -96,8 +150,8 @@
     clearTimeout(poll);
     poll = setTimeout(async () => {
       const sec = secao();
-      if (!sec || sec.classList.contains('hidden')) return;    // saiu da tela: para
-      await carregarAlertas(true);
+      if (!sec || sec.classList.contains('hidden')) { pararPlayers(); pararGaveta(); return; }    // saiu da tela: para
+      await Promise.all([carregarAlertas(true), carregarCameras()]);
       agendar();
     }, 10000);
   }
@@ -109,6 +163,13 @@
     alertas = await r.json();
     if (silencioso && (alertas.por_situacao?.novo || 0) > antes) toast('Novo alerta térmico.');
     if (aberto) aberto = alertas.alertas.find(a => a.id === aberto.id) || aberto;
+    atualizar();
+  }
+
+  // Na parede ao vivo so repinta; refaz a tela se mudou o conjunto de cameras.
+  function atualizar() {
+    if (carregando) return;
+    if (aba === 'vivo' && paredeChave && paredeChave === todasCams().map(idCam).join(',') + vista + filtroUsina) { pintarVivo(); return; }
     render();
   }
 
@@ -116,36 +177,31 @@
     const r = await api('/api/termico/cameras');
     if (!r || !r.ok) return;
     cams = await r.json();
-    if (camAberta) camAberta = cams.cameras.find(c => c.id === camAberta.id) || null;
-    render();
+    atualizar();
   }
 
   // -------------------------------------------------------------- render --
   function render() {
     const sec = secao(); if (!sec) return;
+    pararPlayers();
     const pend = alertas.por_situacao?.novo || 0;
     const ativas = cams.cameras.filter(c => c.ativo);
     const lendo = ativas.filter(c => c.leitura === 'ok').length;
     sec.innerHTML = `
       <div class="page-heading">
         <div><p class="eyebrow">Automações</p><h1>Câmeras térmicas</h1>
-          <p>Pessoa detectada pelo calor nas câmeras térmicas. ${ativas.length} câmera(s) vigiando · leitura a cada 2 s.</p></div>
-      </div>
-      <div class="rotas-kpis">
-        <article class="rotas-kpi"><span>Alarmes listados</span><strong>${alertas.total || 0}</strong></article>
-        <article class="rotas-kpi${pend ? ' is-danger' : ''}"><span>Sem resposta</span><strong style="color:${pend ? 'var(--danger)' : 'inherit'}">${pend}</strong></article>
-        <article class="rotas-kpi"><span>Câmeras ativas</span><strong>${ativas.length} <small>de ${cams.cameras.length}</small></strong></article>
-        <article class="rotas-kpi${ativas.length && lendo < ativas.length ? ' is-amber' : ''}"><span>Medindo temperatura</span><strong>${lendo} <small>de ${ativas.length}</small></strong></article>
+          <p>${ativas.length} de ${cams.cameras.length + (cams.no_inventario || []).length} câmera(s) vigiando pelo calor · ${lendo} medindo agora.</p></div>
       </div>
       <div class="tm-tabs" role="tablist">
+        <button type="button" role="tab" data-tm-aba="vivo" class="${aba === 'vivo' ? 'on' : ''}">Ao vivo</button>
         <button type="button" role="tab" data-tm-aba="alarmes" class="${aba === 'alarmes' ? 'on' : ''}">Alarmes ${pend ? `<span class="pill danger">${pend}</span>` : ''}</button>
-        <button type="button" role="tab" data-tm-aba="cameras" class="${aba === 'cameras' ? 'on' : ''}">Câmeras e regras</button>
         <button type="button" role="tab" data-tm-aba="automacoes" class="${aba === 'automacoes' ? 'on' : ''}">Automações</button>
       </div>
-      ${aba === 'alarmes' ? htmlAlarmes() : aba === 'cameras' ? htmlCameras() : htmlAutomacoes()}`;
+      ${aba === 'vivo' ? htmlVivo() : aba === 'alarmes' ? htmlAlarmes() : htmlAutomacoes()}`;
     ligar(sec);
     icones();
     if (aba === 'alarmes' && aberto) carregarFotos(aberto);
+    if (aba === 'vivo') { ligarVivo(sec); montarParede(); }
   }
 
   function alertasFiltrados() {
@@ -227,64 +283,6 @@
     if (pV) { const vz = pV.querySelector('.tm-vazio'); if (v) { vz?.remove(); pV.insertAdjacentHTML('afterbegin', `<img src="${v}" alt="Imagem colorida do alarme"><div class="tm-caixa" style="${caixaCss(a)}"></div>`); } else if (vz) vz.textContent = 'Sem foto colorida'; }
   }
 
-  // ------------------------------------------------------------ cameras --
-  function htmlCameras() {
-    const linhas = cams.cameras.map(c => {
-      const st = !c.ativo ? ['Desligada', 'neutral'] : c.leitura === 'erro' ? ['Sem medição', 'amber'] : c.leitura === 'ok' ? [c.armado_agora ? 'Vigiando' : 'Fora do horário', c.armado_agora ? 'success' : 'neutral'] : ['Aguardando', 'neutral'];
-      return `<tr data-tm-cam="${h(c.id)}" class="${camAberta && camAberta.id === c.id ? 'on' : ''}">
-        <td title="${h(c.nome)} · ${h(c.ip)}" style="font-weight:${c.pendentes ? 600 : 400}">${h(c.nome)} <span class="tm-sub">· ${h(c.ip)}</span></td>
-        <td title="${h(c.site)}">${h(c.site)}</td><td class="tm-num">${c.fundo_c == null ? '—' : num(c.fundo_c) + ' °C'}</td>
-        <td>${c.armado_de ? `${h(c.armado_de)}–${h(c.armado_ate)}` : '24 h'}</td><td><span class="pill ${st[1]}" title="${h(c.leitura_erro)}">${st[0]}</span></td></tr>`;
-    }).join('') || '<tr><td colspan="5" style="text-align:center;color:var(--muted);height:80px">Nenhuma câmera no Alerta Térmico ainda.</td></tr>';
-    const novas = cams.no_inventario.map(n => `<div class="tm-linha" style="border-top:1px solid var(--border);padding-top:10px">
-        <div style="min-width:0"><strong style="font-size:13px">${h(n.nome)}</strong><div class="tm-sub">${h(n.site)} · ${h(n.ip)} · ${h(n.modelo)}</div></div>
-        <button class="secondary-action" type="button" data-tm-incluir="${h(n.ip)}" data-tm-cid="${h(n.connector_id)}">Incluir</button></div>`).join('');
-    return `<div class="tm-grid">
-      <section class="tm-card">
-        <div class="tm-linha"><h2>Câmeras térmicas</h2><span class="tm-sub">ordem: usina, câmera</span></div>
-        <div class="table-wrap"><table class="tm-tab">
-          <colgroup><col><col style="width:150px"><col style="width:76px"><col style="width:96px"><col style="width:116px"></colgroup>
-          <thead><tr><th>Câmera</th><th>Usina</th><th class="tm-num">Fundo</th><th>Horário</th><th>Situação</th></tr></thead>
-          <tbody>${linhas}</tbody></table></div>
-        ${novas ? `<div><div class="tm-sub" style="margin-bottom:6px">Térmicas no inventário que ainda não estão aqui</div>${novas}</div>` : ''}
-      </section>
-      <section class="tm-card">${camAberta ? htmlRegra(camAberta) : '<div class="tm-vazio-card">Clique numa câmera para ligar e ajustar a regra.</div>'}</section>
-    </div>`;
-  }
-
-  function htmlRegra(c) {
-    const r = c.regra || {};
-    const area = (r.areas && r.areas[0]) || null;
-    const bx = area ? [Math.min(...area.map(p => p[0])), Math.max(...area.map(p => p[0])), Math.min(...area.map(p => p[1])), Math.max(...area.map(p => p[1]))] : [0, 1, 0, 1];
-    const pct = v => Math.round(v * 100);
-    return `
-      <div class="tm-linha"><div style="min-width:0"><h2>Regra · ${h(c.nome)}</h2><div class="tm-sub">${h(c.modelo)} · ${h(c.ip)} · ${h(c.site)}</div></div>
-        <label class="tm-linha" style="gap:8px;font-size:13px"><input type="checkbox" id="tmAtivo" ${c.ativo ? 'checked' : ''}> Ligada</label></div>
-      ${c.leitura === 'erro' ? `<div class="pill amber" style="white-space:normal;line-height:1.4;padding:8px 10px">Sem medição: ${h(c.leitura_erro)}</div>` : ''}
-      <div class="tm-regra">
-        ${CAMPOS.map(([k, rot, passo]) => `<label class="tm-campo">${rot}<input type="number" step="${passo}" data-tm-campo="${k}" value="${h(r[k])}"></label>`).join('')}
-        <label class="tm-campo">Armada das<input type="time" id="tmDe" value="${h(c.armado_de)}"></label>
-        <label class="tm-campo">até<input type="time" id="tmAte" value="${h(c.armado_ate)}"></label>
-        <div class="tm-campo">Horário<span style="height:34px;display:flex;align-items:center;color:var(--text);font-size:13px">${c.armado_de ? 'parcial' : '24 horas (vazio)'}</span></div>
-      </div>
-      <div>
-        <div class="tm-sub" style="margin-bottom:6px">Área vigiada (retângulo, % da imagem; 0–100 = imagem inteira)</div>
-        <div class="tm-regra">
-          <label class="tm-campo">Da esquerda (%)<input type="number" min="0" max="100" id="tmX0" value="${pct(bx[0])}"></label>
-          <label class="tm-campo">Até (%)<input type="number" min="0" max="100" id="tmX1" value="${pct(bx[1])}"></label>
-          <span></span>
-          <label class="tm-campo">Do topo (%)<input type="number" min="0" max="100" id="tmY0" value="${pct(bx[2])}"></label>
-          <label class="tm-campo">Até (%)<input type="number" min="0" max="100" id="tmY1" value="${pct(bx[3])}"></label>
-          <span class="tm-sub" style="align-self:end">${(r.ignorar || []).length} área(s) ignorada(s)</span>
-        </div>
-      </div>
-      <div class="tm-acoes">
-        <button class="primary-action" type="button" data-tm-salvar>Salvar</button>
-        <button class="secondary-action" type="button" data-tm-fechar-cam>Fechar</button>
-        <button class="secondary-action danger-action" type="button" data-tm-remover>Remover</button>
-      </div>`;
-  }
-
   // -------------------------------------------------------------- eventos --
   function ligar(sec) {
     sec.querySelectorAll('[data-tm-aba]').forEach(b => b.onclick = () => { aba = b.dataset.tmAba; render(); });
@@ -296,11 +294,6 @@
     sec.querySelector('[data-tm-ciente]')?.addEventListener('click', () => responder('ciente', {}));
     sec.querySelector('[data-tm-falso]')?.addEventListener('click', pedirMotivo);
     sec.querySelector('[data-tm-fechar]')?.addEventListener('click', () => { aberto = null; render(); });
-    sec.querySelectorAll('[data-tm-cam]').forEach(tr => tr.onclick = () => { camAberta = cams.cameras.find(c => c.id === tr.dataset.tmCam) || null; render(); });
-    sec.querySelectorAll('[data-tm-incluir]').forEach(b => b.onclick = () => incluir(b.dataset.tmIncluir, b.dataset.tmCid));
-    sec.querySelector('[data-tm-salvar]')?.addEventListener('click', salvarRegra);
-    sec.querySelector('[data-tm-fechar-cam]')?.addEventListener('click', () => { camAberta = null; render(); });
-    sec.querySelector('[data-tm-remover]')?.addEventListener('click', removerCamera);
     ligarAuto(sec);
   }
 
@@ -341,46 +334,12 @@
     };
   }
 
-  async function incluir(ip, cid) {
-    const n = cams.no_inventario.find(x => x.ip === ip && (x.connector_id || "") === (cid || ""));
-    const r = await api("/api/termico/cameras", { method: "POST", body: JSON.stringify({ ip, connector_id: n ? n.connector_id : cid }) });
-    if (!r || !r.ok) { const d = r ? await r.json().catch(() => ({})) : {}; toast(d.detail || 'Não deu para incluir.', true); return; }
-    camAberta = await r.json();
-    toast('Câmera incluída. Ajuste a regra e ligue.');
-    await carregarCameras();
-  }
-
-  async function salvarRegra() {
-    if (!camAberta) return;
-    const regra = {};
-    secao().querySelectorAll('[data-tm-campo]').forEach(i => { if (i.value !== '') regra[i.dataset.tmCampo] = Number(i.value); });
-    const v = id => Math.min(100, Math.max(0, Number($(id).value || 0))) / 100;
-    const [x0, x1, y0, y1] = [v('tmX0'), v('tmX1'), v('tmY0'), v('tmY1')];
-    if (x1 <= x0 || y1 <= y0) { toast('A área vigiada precisa ter largura e altura.', true); return; }
-    regra.areas = (x0 === 0 && x1 === 1 && y0 === 0 && y1 === 1) ? [] : [[[x0, y0], [x1, y0], [x1, y1], [x0, y1]]];
-    const corpo = { ativo: $('tmAtivo').checked, armado_de: $('tmDe').value, armado_ate: $('tmAte').value, regra };
-    const r = await api(`/api/termico/cameras/${encodeURIComponent(camAberta.id)}`, { method: 'PUT', body: JSON.stringify(corpo) });
-    if (!r || !r.ok) { const d = r ? await r.json().catch(() => ({})) : {}; toast(d.detail || 'Não deu para salvar.', true); return; }
-    camAberta = await r.json();
-    toast('Regra salva. Vale na próxima leitura.');
-    await carregarCameras();
-  }
-
-  async function removerCamera() {
-    if (!camAberta || !confirm(`Tirar ${camAberta.nome} do Alerta Térmico? Os alarmes antigos continuam guardados.`)) return;
-    const r = await api(`/api/termico/cameras/${encodeURIComponent(camAberta.id)}`, { method: 'DELETE', body: '' });
-    if (!r || !r.ok) { const d = r ? await r.json().catch(() => ({})) : {}; toast(d.detail || 'Não deu para remover.', true); return; }
-    camAberta = null;
-    toast('Câmera removida do Alerta Térmico.');
-    await carregarCameras();
-  }
-
   // ----------------------------------------------------------- automacoes --
   async function carregarAutomacoes() {
     const r = await api('/api/automacoes');
     if (!r || !r.ok) return;
     auto = await r.json();
-    render();
+    if (aba === 'automacoes') render();
   }
 
   const nomeOrigem = id => (id ? (cams.cameras.find(c => c.id === id)?.nome || 'câmera removida') : 'Todas as térmicas');
@@ -525,5 +484,449 @@
     if (!r || !r.ok) { const d = r ? await r.json().catch(() => ({})) : {}; toast(d.detail || 'Não deu para excluir.', true); return; }
     autoAberta = null;
     await carregarAutomacoes();
+  }
+
+  // -------------------------------------------------------------- ao vivo --
+  // Parede no padrao do PDV (.pdv-v-*), com o player do sistema. O laco de 10 s
+  // so troca textos e classes (pintarVivo): recriar a tela derrubaria os videos.
+  const SENS = {
+    Pouca: { dif_min: 8, pontos_min: 30, quadros_seguidos: 3, dica: 'Só avisa com pessoa bem visível. Menos alarme falso, pode perder quem passa longe.' },
+    Normal: { dif_min: 5, pontos_min: 12, quadros_seguidos: 2, dica: 'Pessoa inteira na área. Serve para quase todas as câmeras.' },
+    Muita: { dif_min: 3, pontos_min: 6, quadros_seguidos: 2, dica: 'Avisa também com pessoa pequena ou longe. Pode disparar com animal.' },
+  };
+  const NOITE = ['18:00', '06:00'];
+  const PAREDE_MAX_VIDEOS = 12;   // mais que isso pesa no link: os outros abrem ao clicar
+  const players = new Map();
+  let gavPlayers = [], testeTimer = null, escGaveta = null;
+  let vista = 'termica', filtroUsina = '', paredeChave = '';
+  let gaveta = null;   // { tipo: 'alarme'|'config', cam, alerta }
+  let cfg = null;      // formulario da gaveta de configurar
+
+  const idCam = c => `${c.ip}|${c.connector_id || ''}`;
+  const domId = c => idCam(c).replace(/[^a-zA-Z0-9]/g, '_');
+
+  function todasCams() {
+    const fora = (cams.no_inventario || []).map(n => ({ ...n, fora: true, ativo: false, pendentes: 0, leitura: '', fundo_c: null }));
+    return [...cams.cameras, ...fora]
+      .filter(c => !filtroUsina || c.site === filtroUsina)
+      .sort((a, b) => natural(a.site, b.site) || natural(a.nome, b.nome));
+  }
+
+  function situacao(c) {
+    if (c.pendentes) return ['PESSOA', 'tm-sit-alarme'];
+    if (!c.ativo) return ['Sem vigiar', 'tm-sit-fora'];
+    if (c.leitura === 'erro') return ['Sem medição', 'tm-sit-aviso'];
+    return c.armado_agora ? ['Vigiando', 'tm-sit-ok'] : ['Fora do horário', 'tm-sit-fora'];
+  }
+
+  const quandoDe = c => (!c.armado_de ? 'Sempre' : (c.armado_de === NOITE[0] && c.armado_ate === NOITE[1] ? 'Só à noite' : 'Escolher horário'));
+  function sensDe(r) {
+    const n = Object.keys(SENS).find(k => ['dif_min', 'pontos_min', 'quadros_seguidos'].every(f => Number(r?.[f]) === SENS[k][f]));
+    return n || 'Personalizada';
+  }
+
+  function pararPlayers() { players.forEach(p => { try { p.stop(); } catch (_) { /* ja parado */ } }); players.clear(); paredeChave = ''; }
+  function pararGaveta() {
+    gavPlayers.forEach(p => { try { p.stop(); } catch (_) { /* ja parado */ } });
+    gavPlayers = [];
+    clearInterval(testeTimer); testeTimer = null;
+    if (escGaveta) document.removeEventListener('keydown', escGaveta);
+    escGaveta = null;
+    $('tmGaveta')?.remove();
+  }
+
+  function tocar(video, c, tipo, alta, aviso) {
+    if (!video || typeof mountLiveStream !== 'function') return null;
+    return mountLiveStream(video, {
+      ip: c.ip, user: 'admin', pass: '', subtype: alta ? 0 : 1, connectorId: c.connector_id,
+      registrar: async () => {
+        const r = await api('/api/termico/vivo', { method: 'POST', body: JSON.stringify({ ip: c.ip, connector_id: c.connector_id, tipo, alta }) });
+        const j = await r?.json().catch(() => ({}));
+        if (!r?.ok || !j?.stream_name) throw new Error(j?.detail || 'não consegui abrir o vídeo');
+        return j.stream_name;
+      },
+      onStatus: t => { if (aviso) { aviso.hidden = !t; if (t) aviso.textContent = t; } },
+    });
+  }
+
+  function htmlFaixa() {
+    const a = alertas.alertas.find(x => x.situacao === 'novo');
+    const ativas = cams.cameras.filter(c => c.ativo).length;
+    if (a) return `<div class="tm-faixa alarme"><span class="tm-ponto"></span>Pessoa detectada: ${h(a.camera_nome)} · ${h(a.site)} <small>${h(hora(a.criado_at))}, ${num(a.temp_c, 0)} °C num fundo de ${num(a.fundo_c, 0)} °C</small>
+      <button class="secondary-action" type="button" data-tm-ver-alarme="${h(a.id)}" style="margin-left:auto">Ver ao vivo</button></div>`;
+    const ult = alertas.alertas[0];
+    return `<div class="tm-faixa"><span class="tm-ponto"></span>${ativas ? 'Tudo tranquilo' : 'Nenhuma câmera vigiando'} <small>${ativas} térmica(s) vigiando · nenhum alarme sem resposta${ult ? ` · último alarme ${h(dataHora(ult.criado_at))}` : ''}</small></div>`;
+  }
+
+  function htmlLado() {
+    const itens = alertas.alertas.slice(0, 6).map(a => `<button type="button" class="tm-ev" data-tm-ver-alarme="${h(a.id)}"><span>${h(hora(a.criado_at))}</span>
+      <span><b>${h((SIT[a.situacao] || SIT.novo)[0])}: ${h(a.camera_nome)}</b>${h(a.site)}</span></button>`).join('');
+    return `<h2>Acontecendo agora</h2>${itens || '<p class="tm-sub" style="margin:0">Nenhum alarme ainda. Quando a câmera detectar alguém, aparece aqui.</p>'}`;
+  }
+
+  function htmlTile(c, i) {
+    const [sit, cls] = situacao(c);
+    const id = domId(c);
+    return `<article class="pdv-v-tile ${c.pendentes ? 'tm-alarme' : ''}" id="tmT-${id}">
+      <button type="button" class="pdv-v-video tm-abrir" data-tm-abrir="${h(idCam(c))}" aria-label="Abrir ${h(c.nome)} ao vivo">
+        ${i < PAREDE_MAX_VIDEOS ? `<video id="tmV-${id}" autoplay muted playsinline></video>` : ''}
+        <span class="pdv-v-aviso" id="tmA-${id}">${i < PAREDE_MAX_VIDEOS ? 'Conectando...' : 'clique para ver ao vivo'}</span>
+        <span class="pdv-v-lbl pdv-v-nome">${h(c.nome)}</span>
+        <span class="pdv-v-lbl pdv-v-sit ${cls}" data-sit>${h(sit)}</span>
+        <span class="pdv-v-lbl tm-l-vivo"><i class="tm-vivo"></i>AO VIVO</span>
+        <span class="pdv-v-lbl tm-l-temp" data-temp ${c.fundo_c == null ? 'hidden' : ''}>${c.fundo_c == null ? '' : `${num(c.fundo_c, 0)} °C`}</span>
+      </button>
+      <div class="tm-tile-pe"><span data-pe>${c.ativo ? `${h(quandoDe(c))} · ${h(sensDe(c.regra))}` : 'Só vídeo'}</span>
+        <button type="button" class="pdv-l-link" data-tm-config="${h(idCam(c))}">${c.ativo || c.id ? 'Configurar' : 'Vigiar'}</button></div>
+    </article>`;
+  }
+
+  function htmlVivo() {
+    const lista = todasCams();
+    const sites = [...new Set([...cams.cameras, ...(cams.no_inventario || [])].map(c => c.site))].sort(natural);
+    const grupos = sites.filter(s => !filtroUsina || s === filtroUsina).map(s => {
+      const dela = lista.filter(c => c.site === s);
+      const paradas = dela.filter(c => !c.ativo);
+      return { s, dela, paradas };
+    });
+    let n = 0;
+    const blocos = grupos.map(g => `<section class="tm-usina">
+      <div class="tm-linha"><h2>${h(g.s || '(sem local)')} <span class="tm-sub" style="font-weight:400">· ${g.dela.length - g.paradas.length} vigiando${g.paradas.length ? ` · ${g.paradas.length} sem vigiar` : ''}</span></h2>
+        ${g.paradas.length ? `<button class="secondary-action pdv-mini" type="button" data-tm-vigiar-usina="${h(g.s)}">Vigiar as ${g.paradas.length} desta usina</button>` : ''}</div>
+      <div class="tm-tiles">${g.dela.map(c => htmlTile(c, n++)).join('')}</div></section>`).join('');
+    return `<div id="tmFaixa">${htmlFaixa()}</div>
+      <div class="tm-ferr">
+        <div class="tm-seg" role="tablist" aria-label="Imagem">
+          <button type="button" class="${vista === 'termica' ? 'on' : ''}" data-tm-vista="termica">Térmica</button>
+          <button type="button" class="${vista === 'colorida' ? 'on' : ''}" data-tm-vista="colorida">Colorida</button>
+        </div>
+        <select id="tmUsina" class="tm-sel" aria-label="Usina"><option value="">Todas as usinas (${sites.length})</option>${sites.map(s => `<option value="${h(s)}" ${s === filtroUsina ? 'selected' : ''}>${h(s)}</option>`).join('')}</select>
+      </div>
+      <div class="tm-parede-grade">
+        <div class="tm-parede">${blocos || '<div class="tm-vazio-card">Nenhuma câmera térmica no inventário deste cliente.</div>'}</div>
+        <aside class="tm-lado" id="tmLado" aria-label="Acontecendo agora">${htmlLado()}</aside>
+      </div>
+      <p class="tm-sub">Na parede o vídeo vai leve para poupar o link da usina. Clique numa câmera para ver grande.</p>`;
+  }
+
+  function montarParede() {
+    const lista = todasCams();
+    paredeChave = lista.map(idCam).join(',') + vista + filtroUsina;
+    lista.slice(0, PAREDE_MAX_VIDEOS).forEach(c => {
+      const id = domId(c);
+      const p = tocar($(`tmV-${id}`), c, vista, false, $(`tmA-${id}`));
+      if (p) players.set(id, p);
+    });
+  }
+
+  // so troca textos e classes: os videos continuam tocando
+  function pintarVivo() {
+    const faixa = $('tmFaixa');
+    if (faixa) { faixa.innerHTML = htmlFaixa(); ligarAlarmes(faixa); }
+    const lado = $('tmLado');
+    if (lado) { lado.innerHTML = htmlLado(); ligarAlarmes(lado); }
+    todasCams().forEach(c => {
+      const t = $(`tmT-${domId(c)}`);
+      if (!t) return;
+      const [sit, cls] = situacao(c);
+      t.classList.toggle('tm-alarme', !!c.pendentes);
+      const s = t.querySelector('[data-sit]');
+      if (s) { s.textContent = sit; s.className = `pdv-v-lbl pdv-v-sit ${cls}`; }
+      const temp = t.querySelector('[data-temp]');
+      if (temp) { temp.hidden = c.fundo_c == null; temp.textContent = c.fundo_c == null ? '' : `${num(c.fundo_c, 0)} °C`; }
+      const pe = t.querySelector('[data-pe]');
+      if (pe) pe.textContent = c.ativo ? `${quandoDe(c)} · ${sensDe(c.regra)}` : 'Só vídeo';
+    });
+  }
+
+  function ligarAlarmes(raiz) {
+    raiz.querySelectorAll('[data-tm-ver-alarme]').forEach(b => b.onclick = () => {
+      const a = alertas.alertas.find(x => x.id === b.dataset.tmVerAlarme);
+      if (a) abrirAlarme(a);
+    });
+  }
+
+  function ligarVivo(sec) {
+    ligarAlarmes(sec);
+    sec.querySelectorAll('[data-tm-vista]').forEach(b => b.onclick = () => { vista = b.dataset.tmVista; render(); });
+    if ($('tmUsina')) $('tmUsina').onchange = e => { filtroUsina = e.target.value; render(); };
+    const achar = k => [...cams.cameras, ...(cams.no_inventario || [])].find(c => idCam(c) === k);
+    sec.querySelectorAll('[data-tm-abrir]').forEach(b => b.onclick = () => {
+      const c = achar(b.dataset.tmAbrir);
+      if (!c) return;
+      const a = c.id && alertas.alertas.find(x => x.camera_id === c.id && x.situacao === 'novo');
+      if (a) abrirAlarme(a); else abrirConfig(c);
+    });
+    sec.querySelectorAll('[data-tm-config]').forEach(b => b.onclick = () => { const c = achar(b.dataset.tmConfig); if (c) abrirConfig(c); });
+    sec.querySelectorAll('[data-tm-vigiar-usina]').forEach(b => b.onclick = () => vigiarUsina(b.dataset.tmVigiarUsina));
+  }
+
+  function montarGaveta(html) {
+    pararGaveta();
+    const g = document.createElement('div');
+    g.id = 'tmGaveta';
+    g.innerHTML = `<div class="tm-fundo"></div><section class="tm-gaveta" role="dialog">${html}</section>`;
+    document.body.appendChild(g);
+    // Fecha so por X, Fechar ou Esc: clicar fora perderia o que foi feito.
+    escGaveta = e => { if (e.key === 'Escape') pararGaveta(); };
+    document.addEventListener('keydown', escGaveta);
+    g.querySelectorAll('[data-tm-gfechar]').forEach(b => b.onclick = pararGaveta);
+    return g;
+  }
+
+  // ------------------------------------------------------- gaveta do alarme
+  function abrirAlarme(a) {
+    const cam = cams.cameras.find(c => c.id === a.camera_id);
+    const speed = auto.automacoes.flatMap(r => (r.origem_camera_id === a.camera_id || !r.origem_camera_id) ? r.acoes : []).find(x => x.tipo === 'speed_preset');
+    const novo = a.situacao === 'novo';
+    const g = montarGaveta(`
+      <div class="tm-gav-cab"><div style="min-width:0;flex:1"><h2 style="color:var(--danger)">Pessoa detectada pelo calor</h2>
+        <div class="tm-sub">${h(a.camera_nome)} · ${h(a.site)} · ${h(dataHora(a.criado_at))}</div></div>
+        <button class="ghost-action" type="button" data-tm-gfechar aria-label="Fechar">✕</button></div>
+      <div class="tm-gav-corpo">
+        <div class="tm-fotos">
+          <div class="tm-foto"><video id="tmGvT" autoplay muted playsinline></video><span class="pdv-v-aviso" id="tmGaT">Conectando...</span><span class="pdv-v-lbl pdv-v-nome">Térmica</span><span class="pdv-v-lbl tm-l-vivo"><i class="tm-vivo"></i>AO VIVO</span></div>
+          <div class="tm-foto"><video id="tmGvC" autoplay muted playsinline></video><span class="pdv-v-aviso" id="tmGaC">Conectando...</span><span class="pdv-v-lbl pdv-v-nome">Colorida</span><span class="pdv-v-lbl tm-l-vivo"><i class="tm-vivo"></i>AO VIVO</span></div>
+        </div>
+        ${speed ? `<div class="tm-foto"><video id="tmGvS" autoplay muted playsinline></video><span class="pdv-v-aviso" id="tmGaS">Conectando...</span><span class="pdv-v-lbl pdv-v-nome">${h(speed.nome)}</span><span class="pdv-v-lbl tm-l-vivo"><i class="tm-vivo"></i>AO VIVO</span></div>` : ''}
+        <div class="tm-medidas">
+          <div><span>Pessoa</span><strong style="color:var(--danger)">${num(a.temp_c)} °C</strong></div>
+          <div><span>Fundo</span><strong>${num(a.fundo_c)} °C</strong></div>
+          <div><span>Diferença</span><strong>${num(Math.abs(a.dif_c || 0))} °C</strong></div>
+          <div><span>Tamanho</span><strong>${a.mancha?.pontos || '—'} pts</strong></div>
+        </div>
+        <div><div class="tm-sub" style="margin-bottom:6px">Momento do disparo</div>
+          <div class="tm-fotos"><div class="tm-foto" id="tmFotoT"><div class="tm-vazio">Carregando…</div><div class="tm-caixa" style="${caixaCss(a)}"></div></div>
+            <div class="tm-foto" id="tmFotoV"><div class="tm-vazio">${a.fotos.visivel ? 'Carregando…' : 'Sem foto colorida'}</div></div></div></div>
+        ${novo ? '' : `<div class="tm-sub">${a.situacao === 'falso' ? 'Falso alarme' : 'Ciente'} por ${h(a.visto_por || '—')} em ${h(dataHora(a.visto_at))}</div>`}
+      </div>
+      <div class="tm-gav-pe">${novo ? `<button class="primary-action" type="button" data-tm-gciente style="flex:1;justify-content:center">Ciente</button>
+        <button class="secondary-action" type="button" data-tm-gfalso style="color:var(--amber)">Falso alarme</button>` : ''}
+        <button class="secondary-action" type="button" data-tm-gfechar>Fechar</button></div>`);
+    aberto = a;
+    if (cam) {
+      gavPlayers.push(tocar($('tmGvT'), cam, 'termica', true, $('tmGaT')));
+      gavPlayers.push(tocar($('tmGvC'), cam, 'colorida', false, $('tmGaC')));
+    } else { $('tmGaT').textContent = 'câmera removida'; $('tmGaC').textContent = 'câmera removida'; }
+    if (speed) gavPlayers.push(tocar($('tmGvS'), speed, 'colorida', true, $('tmGaS')));
+    gavPlayers = gavPlayers.filter(Boolean);
+    carregarFotos(a);
+    g.querySelector('[data-tm-gciente]')?.addEventListener('click', async () => { await responder('ciente', {}); pararGaveta(); });
+    g.querySelector('[data-tm-gfalso]')?.addEventListener('click', pedirMotivo);
+  }
+
+  // ----------------------------------------------------- gaveta de configurar
+  const ret = p => {
+    const xs = p.map(q => q[0]), ys = p.map(q => q[1]);
+    return { x0: Math.min(...xs), y0: Math.min(...ys), x1: Math.max(...xs), y1: Math.max(...ys) };
+  };
+  const pol = r => [[r.x0, r.y0], [r.x1, r.y0], [r.x1, r.y1], [r.x0, r.y1]];
+  const estilo = r => `left:${r.x0 * 100}%;top:${r.y0 * 100}%;width:${(r.x1 - r.x0) * 100}%;height:${(r.y1 - r.y0) * 100}%`;
+
+  function desenhoHtml() {
+    return `${cfg.area ? `<div class="tm-area" style="${estilo(cfg.area)}"><span>Vigiar aqui</span></div>` : ''}
+      ${cfg.ignorar.map(r => `<div class="tm-ignorar" style="${estilo(r)}"><span>Ignorar</span></div>`).join('')}`;
+  }
+
+  function perguntas() {
+    const chips = (lista, atual, attr) => lista.map(n => `<button type="button" class="${n === atual ? 'on' : ''}" ${attr}="${h(n)}">${h(n)}</button>`).join('');
+    return `<div class="tm-perg"><b>2. Quando vigiar?</b><div class="tm-chips">${chips(['Sempre', 'Só à noite', 'Escolher horário'], cfg.quando, 'data-tm-q')}</div>
+        ${cfg.quando === 'Escolher horário' ? `<div class="tm-regra"><label class="tm-campo">Das<input type="time" id="tmDe" value="${h(cfg.de)}"></label><label class="tm-campo">até<input type="time" id="tmAte" value="${h(cfg.ate)}"></label><span></span></div>` : ''}</div>
+      <div class="tm-perg"><b>3. Com que sensibilidade?</b><div class="tm-chips">${chips(['Pouca', 'Normal', 'Muita'], cfg.sens, 'data-tm-s')}</div>
+        <span class="tm-sub">${h(SENS[cfg.sens]?.dica || 'Ajustada à mão em Ajustes avançados.')}</span></div>
+      <details class="tm-avancado"><summary>Ajustes avançados</summary>
+        <div class="tm-regra" style="margin-top:10px">${CAMPOS.map(([k, rot, passo]) => `<label class="tm-campo">${rot}<input type="number" step="${passo}" data-tm-campo="${k}" value="${h(cfg.regra[k])}"></label>`).join('')}</div></details>`;
+  }
+
+  function ligarPerguntas(g) {
+    const box = g.querySelector('#tmPerguntas');
+    box.querySelectorAll('[data-tm-q]').forEach(b => b.onclick = () => { lerAvancado(); cfg.quando = b.dataset.tmQ; pintarPerguntas(g); });
+    box.querySelectorAll('[data-tm-s]').forEach(b => b.onclick = () => {
+      cfg.sens = b.dataset.tmS;
+      Object.assign(cfg.regra, { dif_min: SENS[cfg.sens].dif_min, pontos_min: SENS[cfg.sens].pontos_min, quadros_seguidos: SENS[cfg.sens].quadros_seguidos });
+      pintarPerguntas(g);
+    });
+  }
+  function pintarPerguntas(g) { g.querySelector('#tmPerguntas').innerHTML = perguntas(); ligarPerguntas(g); }
+  function lerAvancado() {
+    if ($('tmDe')) { cfg.de = $('tmDe').value; cfg.ate = $('tmAte').value; }
+    $('tmGaveta')?.querySelectorAll('[data-tm-campo]').forEach(i => { if (i.value !== '') cfg.regra[i.dataset.tmCampo] = Number(i.value); });
+    cfg.sens = sensDe(cfg.regra);
+  }
+
+  function ligarDesenho(g) {
+    const pl = g.querySelector('#tmDesenho');
+    const camada = g.querySelector('#tmCamada');
+    let ini = null;
+    const ponto = e => {
+      const b = pl.getBoundingClientRect();
+      return { x: Math.min(1, Math.max(0, (e.clientX - b.left) / b.width)), y: Math.min(1, Math.max(0, (e.clientY - b.top) / b.height)) };
+    };
+    const atual = (e) => { const p = ponto(e); return { x0: Math.min(ini.x, p.x), y0: Math.min(ini.y, p.y), x1: Math.max(ini.x, p.x), y1: Math.max(ini.y, p.y) }; };
+    pl.onpointerdown = e => { ini = ponto(e); pl.setPointerCapture(e.pointerId); };
+    pl.onpointermove = e => {
+      if (!ini) return;
+      camada.innerHTML = desenhoHtml() + `<div class="${cfg.modo === 'area' ? 'tm-area' : 'tm-ignorar'}" style="${estilo(atual(e))}"></div>`;
+    };
+    pl.onpointerup = e => {
+      if (!ini) return;
+      const r = atual(e);
+      ini = null;
+      if (r.x1 - r.x0 > 0.03 && r.y1 - r.y0 > 0.03) {
+        if (cfg.modo === 'area') cfg.area = r; else cfg.ignorar.push(r);
+      }
+      camada.innerHTML = desenhoHtml();
+    };
+    g.querySelectorAll('[data-tm-modo]').forEach(b => b.onclick = () => {
+      cfg.modo = b.dataset.tmModo;
+      g.querySelectorAll('[data-tm-modo]').forEach(x => x.classList.toggle('on', x === b));
+    });
+    g.querySelector('[data-tm-limpar]').onclick = () => { cfg.area = null; cfg.ignorar = []; camada.innerHTML = desenhoHtml(); };
+  }
+
+  function abrirConfig(c) {
+    const r = c.regra || {};
+    cfg = {
+      cam: c, modo: 'area', regra: { ...r }, sens: c.id ? sensDe(r) : 'Normal',
+      area: r.areas?.[0] ? ret(r.areas[0]) : null, ignorar: (r.ignorar || []).map(ret),
+      quando: c.id ? quandoDe(c) : 'Só à noite', de: c.armado_de || '', ate: c.armado_ate || '',
+    };
+    if (!c.id) Object.assign(cfg.regra, { dif_min: 5, pontos_min: 12, quadros_seguidos: 2, corpo_min: 25, corpo_max: 40, intervalo_alertas_s: 60 });
+    const g = montarGaveta(`
+      <div class="tm-gav-cab"><div style="min-width:0;flex:1"><h2>${c.ativo ? 'Configurar' : 'Vigiar'} ${h(c.nome)}</h2>
+        <div class="tm-sub">${h(c.site)} · ${h(c.modelo || '')}</div></div>
+        <button class="ghost-action" type="button" data-tm-gfechar aria-label="Fechar">✕</button></div>
+      <div class="tm-gav-corpo">
+        ${c.leitura === 'erro' ? `<div class="tm-alerta-msg">Sem medição: ${h(c.leitura_erro)}</div>` : ''}
+        <div class="tm-perg"><b>1. Onde vigiar?</b>
+          <div class="tm-foto tm-desenho" id="tmDesenho"><video id="tmGvT" autoplay muted playsinline></video><span class="pdv-v-aviso" id="tmGaT">Conectando...</span>
+            <div id="tmCamada" class="tm-camada">${desenhoHtml()}</div><div id="tmManchas" class="tm-camada"></div>
+            <span class="pdv-v-lbl tm-l-vivo"><i class="tm-vivo"></i>AO VIVO</span><span class="tm-dica">Arraste no vídeo para marcar</span></div>
+          <div class="tm-chips"><button type="button" class="on" data-tm-modo="area">Marcar área</button><button type="button" data-tm-modo="ignorar">Marcar o que ignorar</button><button type="button" data-tm-limpar>Imagem inteira</button></div>
+        </div>
+        <div id="tmPerguntas" style="display:flex;flex-direction:column;gap:14px">${perguntas()}</div>
+        <div class="tm-sub" id="tmTesteTxt" hidden></div>
+      </div>
+      <div class="tm-gav-pe">
+        <button class="primary-action" type="button" data-tm-gsalvar style="flex:1;justify-content:center">${c.ativo ? 'Salvar' : 'Vigiar esta câmera'}</button>
+        ${c.ativo ? '<button class="secondary-action" type="button" data-tm-gteste>Testar agora</button><button class="secondary-action" type="button" data-tm-gcopiar>Copiar para a usina</button>' : ''}
+        ${c.id ? `<button class="secondary-action danger-action" type="button" data-tm-gparar>${c.ativo ? 'Parar de vigiar' : 'Remover'}</button>` : ''}
+      </div>`);
+    const p = tocar($('tmGvT'), c, 'termica', true, $('tmGaT'));
+    if (p) gavPlayers.push(p);
+    ligarDesenho(g);
+    ligarPerguntas(g);
+    g.querySelector('[data-tm-gsalvar]').onclick = salvarConfig;
+    g.querySelector('[data-tm-gteste]')?.addEventListener('click', e => alternarTeste(e.currentTarget));
+    g.querySelector('[data-tm-gcopiar]')?.addEventListener('click', copiarUsina);
+    g.querySelector('[data-tm-gparar]')?.addEventListener('click', pararDeVigiar);
+  }
+
+  function corpoRegra() {
+    lerAvancado();
+    const q = cfg.quando;
+    const [de, ate] = q === 'Sempre' ? ['', ''] : q === 'Só à noite' ? NOITE : [cfg.de, cfg.ate];
+    const regra = {};
+    CAMPOS.forEach(([k]) => { if (cfg.regra[k] !== undefined && cfg.regra[k] !== '') regra[k] = Number(cfg.regra[k]); });
+    regra.areas = cfg.area ? [pol(cfg.area)] : [];
+    regra.ignorar = cfg.ignorar.map(pol);
+    return { armado_de: de, armado_ate: ate, regra };
+  }
+
+  async function erroDe(r, padrao) {
+    const d = r ? await r.json().catch(() => ({})) : {};
+    toast(d.detail || padrao, true);
+  }
+
+  // Incluir (se preciso), salvar e, ao ligar agora, preparar a camera.
+  async function ligarCamera(c, corpo) {
+    let id = c.id;
+    if (!id) {
+      const r = await api('/api/termico/cameras', { method: 'POST', body: JSON.stringify({ ip: c.ip, connector_id: c.connector_id }) });
+      if (!r || !r.ok) { await erroDe(r, `Não deu para incluir ${c.nome}.`); return false; }
+      id = (await r.json()).id;
+    }
+    const r2 = await api(`/api/termico/cameras/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify({ ...corpo, ativo: true }) });
+    if (!r2 || !r2.ok) { await erroDe(r2, `Não deu para salvar ${c.nome}.`); return false; }
+    if (!c.ativo) {
+      const r3 = await api(`/api/termico/cameras/${encodeURIComponent(id)}/preparar`, { method: 'POST', body: '{}' });
+      if (!r3 || !r3.ok) { await erroDe(r3, `${c.nome}: a câmera não aceitou ligar a medição.`); return false; }
+    }
+    return true;
+  }
+
+  async function salvarConfig() {
+    const ok = await ligarCamera(cfg.cam, corpoRegra());
+    if (!ok) return;
+    toast(cfg.cam.ativo ? 'Regra salva. Vale na próxima leitura.' : `${cfg.cam.nome} vigiando.`);
+    pararGaveta();
+    await carregarCameras();
+  }
+
+  async function vigiarUsina(site) {
+    const paradas = todasCams().filter(c => c.site === site && !c.ativo);
+    if (!paradas.length) return;
+    if (!confirm(`Vigiar ${paradas.length} câmera(s) de ${site}? Isso liga a medição de temperatura em cada câmera. Padrão: só à noite, sensibilidade Normal.`)) return;
+    let certas = 0;
+    for (const c of paradas) {
+      const ok = await ligarCamera(c, { armado_de: NOITE[0], armado_ate: NOITE[1], regra: { dif_min: 5, pontos_min: 12, quadros_seguidos: 2 } });
+      if (ok) certas += 1;
+    }
+    toast(`${certas} de ${paradas.length} câmera(s) vigiando.`, certas < paradas.length);
+    await carregarCameras();
+  }
+
+  async function copiarUsina() {
+    const corpo = corpoRegra();
+    delete corpo.regra.areas; delete corpo.regra.ignorar;   // a area e de cada imagem
+    const outras = cams.cameras.filter(c => c.site === cfg.cam.site && c.id !== cfg.cam.id && c.ativo);
+    if (!outras.length) { toast('Nenhuma outra câmera vigiando nesta usina.'); return; }
+    if (!confirm(`Copiar horário e sensibilidade para ${outras.length} câmera(s) de ${cfg.cam.site}? A área de cada uma não muda.`)) return;
+    let certas = 0;
+    for (const c of outras) {
+      const r = await api(`/api/termico/cameras/${encodeURIComponent(c.id)}`, { method: 'PUT', body: JSON.stringify(corpo) });
+      if (r?.ok) certas += 1;
+    }
+    toast(`Copiado para ${certas} câmera(s).`, certas < outras.length);
+    await carregarCameras();
+  }
+
+  async function pararDeVigiar() {
+    const c = cfg.cam;
+    if (c.ativo) {
+      const r = await api(`/api/termico/cameras/${encodeURIComponent(c.id)}`, { method: 'PUT', body: JSON.stringify({ ativo: false }) });
+      if (!r || !r.ok) { await erroDe(r, 'Não deu para parar.'); return; }
+      toast(`${c.nome} parou de ser vigiada.`);
+    } else {
+      if (!confirm(`Tirar ${c.nome} das Câmeras térmicas? Os alarmes antigos continuam guardados.`)) return;
+      const r = await api(`/api/termico/cameras/${encodeURIComponent(c.id)}`, { method: 'DELETE', body: '' });
+      if (!r || !r.ok) { await erroDe(r, 'Não deu para remover.'); return; }
+    }
+    pararGaveta();
+    await carregarCameras();
+  }
+
+  // Testar agora: mostra sobre o video o que a deteccao ve, a cada 2 s.
+  function alternarTeste(bt) {
+    const txt = $('tmTesteTxt');
+    if (testeTimer) {
+      clearInterval(testeTimer); testeTimer = null;
+      bt.textContent = 'Testar agora'; txt.hidden = true; $('tmManchas').innerHTML = '';
+      return;
+    }
+    bt.textContent = 'Parar teste'; txt.hidden = false;
+    txt.textContent = 'Testando: peça para alguém passar na frente da câmera.';
+    const id = cfg.cam.id;
+    const ler = async () => {
+      const r = await api(`/api/termico/cameras/${encodeURIComponent(id)}/manchas`);
+      const d = r?.ok ? await r.json() : null;
+      const box = $('tmManchas');
+      if (!box || !d) return;
+      box.innerHTML = d.manchas.map(m => `<div class="tm-mancha" style="left:${m.caixa[0] * 100}%;top:${m.caixa[1] * 100}%;width:${m.caixa[2] * 100}%;height:${m.caixa[3] * 100}%"><span>${num(m.temp_media, 0)} °C</span></div>`).join('');
+      txt.textContent = !d.lendo ? 'A câmera não está sendo lida agora (fora do horário lê só 1 vez por minuto).'
+        : d.manchas.length ? `Detectando ${d.manchas.length} mancha(s) com temperatura de corpo.` : 'Lendo a câmera: nenhuma mancha com temperatura de corpo agora.';
+    };
+    ler();
+    testeTimer = setInterval(ler, 2000);
   }
 })();

@@ -437,6 +437,58 @@ def foto_agora(camera_id: str, tipo: str) -> bytes:
     return dado
 
 
+def abrir_vivo(ip: str, connector_id: str, tipo: str, alta: bool = False) -> Dict[str, Any]:
+    """Abre o video de uma camera do inventario do cliente e devolve o stream
+    para o player. Termica: canal 2; colorida (e speed): canal 1. Parede usa o
+    fluxo leve; `alta` so ao abrir a camera grande."""
+    from app.services.automacao_store import equipamento_do_inventario
+    from app.services.camera_credentials import resolve_camera_credential
+    from app.services.connector_routing_vnat import set_olt_reach_connector
+    from app.services.live_stream_service import register_camera_canal_stream
+    from app.services.termico_camera import base_da_camera
+
+    _tenant()
+    if tipo not in ("termica", "colorida"):
+        raise LookupError("Vídeo não encontrado.")
+    eq = equipamento_do_inventario(ip, connector_id)
+    if not eq or not _site_ok(eq["site"]):
+        raise LookupError("Câmera não encontrada.")
+    cred = resolve_camera_credential(eq["mac"], eq["site"])
+    if not cred:
+        raise ValueError("Sem usuário e senha salvos para esta câmera.")
+    set_olt_reach_connector("")
+    host = base_da_camera(eq["ip"], eq["porta"], eq["connector_id"]).split("//", 1)[1].split(":", 1)[0]
+    canal = (2 if tipo == "termica" else 1) * 100 + (1 if alta else 2)
+    return {"stream_name": register_camera_canal_stream(host=host, user=cred["username"], password=cred["password"], canal=canal)}
+
+
+def preparar_camera(camera_id: str) -> Dict[str, Any]:
+    """Botao Vigiar: deixa a camera medindo. Escreve na camera."""
+    from app.services.camera_credentials import resolve_camera_credential
+    from app.services.connector_routing_vnat import set_olt_reach_connector
+    from app.services.termico_camera import base_da_camera, preparar_medicao
+
+    tenant = _tenant()
+    with db_store._conn() as c:
+        cam = _camera(c, tenant, camera_id)
+    cred = resolve_camera_credential(cam.get("mac") or "", cam.get("site") or "")
+    if not cred:
+        raise ValueError("Sem usuário e senha salvos para esta câmera.")
+    set_olt_reach_connector("")
+    base = base_da_camera(cam["ip"], cam.get("porta") or 80, cam.get("connector_id") or "")
+    return preparar_medicao(base, cred["username"], cred["password"], int(cam.get("canal") or 2))
+
+
+def manchas_agora(camera_id: str) -> Dict[str, Any]:
+    """O que a deteccao esta vendo nesta camera, para o Testar agora."""
+    from app.services.termico_vigia import vigia_global
+
+    tenant = _tenant()
+    with db_store._conn() as c:
+        cam = _camera(c, tenant, camera_id)
+    return vigia_global().manchas_de(tenant, cam["id"])
+
+
 def camera_do_alerta(alerta_id: str) -> Dict[str, str]:
     """IP e conector da camera do alerta (para o envio imediato ao Zabbix)."""
     tenant = _tenant()

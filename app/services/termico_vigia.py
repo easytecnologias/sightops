@@ -37,6 +37,8 @@ class _Estado:
         self.ultimo_ok: Optional[bool] = None
         self.cred: Optional[Dict[str, str]] = None
         self.cred_em = 0.0
+        self.manchas: List[Dict[str, Any]] = []
+        self.manchas_em = 0.0
 
 
 class VigiaTermico:
@@ -47,6 +49,12 @@ class VigiaTermico:
         self._pool = ThreadPoolExecutor(max_workers=MAX_LEITURAS_JUNTAS, thread_name_prefix="termico")
         self._avisar = avisar
         self.ultima_rodada: Dict[str, Any] = {}
+
+    def manchas_de(self, tenant: str, camera_id: str) -> Dict[str, Any]:
+        est = self._estados.get((tenant, camera_id))
+        if not est or time.time() - est.manchas_em > 15:
+            return {"lendo": False, "manchas": []}
+        return {"lendo": True, "manchas": est.manchas}
 
     # ------------------------------------------------------------ rodada --
     def rodada(self, agora: Optional[float] = None) -> Dict[str, Any]:
@@ -155,6 +163,7 @@ class VigiaTermico:
             return
 
         manchas, disparo = est.vigia.processar(quadro, time.time())
+        est.manchas, est.manchas_em = [m.como_dict() for m in manchas[:6]], time.time()
         fundo = est.vigia.fundo
         media_fundo = (sum(fundo.valores) / len(fundo.valores)) if fundo else None
         self._saude(cam, est, True, fundo=media_fundo)

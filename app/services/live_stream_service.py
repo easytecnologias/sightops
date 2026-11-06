@@ -268,6 +268,33 @@ def register_recorder_stream(
     return nome
 
 
+def camera_canal_stream_name(host: str, canal: int) -> str:
+    return f"cam_canal_{str(host).replace('.', '_')}_{int(canal)}"
+
+
+def register_camera_canal_stream(*, host: str, user: str, password: str, canal: int, porta_rtsp: int = 554) -> str:
+    """Canal RTSP exato de uma camera Hikvision. A camera termica tem dois
+    sensores: 101/102 sao o colorido e 201/202 o termico, e `register_stream`
+    so conhece o primeiro. O nome comeca com `cam_`: entra na regra de dono e
+    na limpeza de stream sem espectador. Idempotente como os outros."""
+    nome = camera_canal_stream_name(host, canal)
+    _registered_at[nome] = time.time()
+    marcar_dono(nome)
+    user_q = quote(str(user or "admin"), safe="")
+    pass_q = quote(str(password or ""), safe="")
+    fontes = [f"rtsp://{user_q}:{pass_q}@{host}:{int(porta_rtsp or 554)}/Streaming/Channels/{int(canal)}", f"ffmpeg:{nome}#video=h264"]
+    atuais = _fontes_registradas(nome)
+    if atuais == fontes:
+        return nome
+    if atuais is not None:
+        requests.delete(f"{GO2RTC_BASE_URL}/api/streams", params={"src": nome}, timeout=5)
+    put = requests.put(f"{GO2RTC_BASE_URL}/api/streams",
+                       params=[("name", nome)] + [("src", s) for s in fontes], timeout=8)
+    if put.status_code not in (200, 201, 204) and not _stream_registered_with_source(nome, fontes):
+        raise RuntimeError(f"go2rtc recusou registrar {nome}: HTTP {put.status_code} {put.text[:200]}")
+    return nome
+
+
 def unregister_recorder_stream(*, host: str, canal: int, alta: bool = True) -> None:
     nome = recorder_stream_name(host, canal, alta)
     requests.delete(f"{GO2RTC_BASE_URL}/api/streams", params={"src": nome}, timeout=5)

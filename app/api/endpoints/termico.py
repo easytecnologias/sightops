@@ -60,6 +60,32 @@ def api_termico_remover(camera_id: str) -> Dict[str, Any]:
     return _executar(termico_store.remover_camera, camera_id)
 
 
+@router.post("/vivo")
+def api_termico_vivo(payload: Dict[str, Any]) -> Dict[str, Any]:
+    try:
+        return _executar(termico_store.abrir_vivo, str(payload.get("ip") or ""), str(payload.get("connector_id") or ""),
+                         str(payload.get("tipo") or "termica"), bool(payload.get("alta")))
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=502, detail="Não consegui abrir o vídeo.")
+
+
+@router.post("/cameras/{camera_id}/preparar")
+def api_termico_preparar(camera_id: str) -> Dict[str, Any]:
+    try:
+        return _executar(termico_store.preparar_camera, camera_id)
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=502, detail="A câmera não respondeu.")
+
+
+@router.get("/cameras/{camera_id}/manchas")
+def api_termico_manchas(camera_id: str) -> Dict[str, Any]:
+    return _executar(termico_store.manchas_agora, camera_id)
+
+
 @router.get("/cameras/{camera_id}/agora/{tipo}")
 def api_termico_foto_agora(camera_id: str, tipo: str) -> Response:
     try:
