@@ -30,8 +30,13 @@ export function useAutomacoes() {
 }
 
 // Criar e mudar e so de administrador (como na web); cena qualquer operador executa.
+// O /api/auth/me devolve o usuario dentro de "user" (lido fora dele, todo mundo virava nao-admin).
+export type Eu = { role?: string; username?: string; nome?: string; display_name?: string };
 export function useEu() {
-  return useQuery({ queryKey: ['eu'], queryFn: () => obter<{ role?: string; username?: string; nome?: string }>('/api/auth/me'), staleTime: 300_000 });
+  return useQuery({
+    queryKey: ['eu'], staleTime: 300_000,
+    queryFn: async () => { const r = await obter<{ user?: Eu } & Eu>('/api/auth/me'); return r.user ?? r; },
+  });
 }
 const RANK: Record<string, number> = { viewer: 10, operator: 20, admin: 30, owner: 40 };
 export const ehAdmin = (role?: string) => (RANK[(role || '').toLowerCase()] || 0) >= 30;

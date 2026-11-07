@@ -1,13 +1,13 @@
 import { useEffect, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { enviar, obter } from '../lib/api';
+import { enviar } from '../lib/api';
+import { useEu } from '../lib/automacoes';
 import { avisosLigados, tokenDoAparelho } from '../lib/aviso';
 import { MARCA } from '../lib/marca';
 import { pegar, salvar } from '../lib/storage';
 import { Logo } from '../ui/pecas';
 
 export function Conta({ aoSair }: { aoSair: () => void }) {
-  const eu = useQuery({ queryKey: ['eu'], queryFn: () => obter<{ username?: string; nome?: string; role?: string }>('/api/auth/me') });
+  const eu = useEu();
   const [ligados, setLigados] = useState<boolean | null>(null);
   const [msg, setMsg] = useState('');
   const [ocupado, setOcupado] = useState(false);
@@ -34,7 +34,7 @@ export function Conta({ aoSair }: { aoSair: () => void }) {
     <>
       <header className="fx">
         <div className="fx-top"><Logo tam={36} /><span className="fx-nome grande">Conta</span></div>
-        <div className="est"><div><b>{eu.data?.nome || eu.data?.username || 'Sua conta'}</b><small>{MARCA.empresa}</small></div></div>
+        <div className="est"><div><b>{eu.data?.display_name || eu.data?.nome || eu.data?.username || 'Sua conta'}</b><small>{MARCA.empresa}</small></div></div>
       </header>
       <div className="pagina">
         <section className="cartao conta-aviso">
