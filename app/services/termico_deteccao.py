@@ -32,6 +32,7 @@ from dataclasses import dataclass, field, replace
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 Ponto = Tuple[float, float]
+TEMP_MIN, TEMP_MAX = -40.0, 200.0   # alem da faixa da camera (-20 a 150): so lixo passa disto
 Poligono = Sequence[Ponto]
 
 
@@ -51,6 +52,11 @@ class Quadro:
     def resumo(self) -> Dict[str, float]:
         ts = self.temps
         return {"min": round(min(ts), 1), "max": round(max(ts), 1), "media": round(sum(ts) / len(ts), 1)}
+
+
+class QuadroCorrompido(ValueError):
+    """Dois pedidos ao mesmo tempo na camera quebram a matriz (medido em 06/11):
+    parte dos pontos vem como 1e38. Um quadro assim envenena o fundo."""
 
 
 def _partes_multipart(corpo: bytes, content_type: str) -> List[Tuple[str, bytes]]:
@@ -111,6 +117,8 @@ def ler_quadro(corpo: bytes, content_type: str) -> Quadro:
     import sys
     if sys.byteorder != "little":
         temps.byteswap()
+    if any(not TEMP_MIN <= t <= TEMP_MAX for t in temps):
+        raise QuadroCorrompido("matriz com pontos fora da faixa da camera")
     # Ordem das imagens: a termica vem antes da visivel (jpegPicLen < visiblePicLen).
     termico = jpegs[0] if jpegs else b""
     visivel = jpegs[1] if len(jpegs) > 1 else b""
@@ -314,6 +322,7 @@ def detectar(quadro: Quadro, fundo: Fundo, regra: Regra, vigiado: Optional[bytea
     return manchas
 
 
+SEGUNDOS_POR_LEITURA = 2.0   # ritmo para o qual `aprendizado` foi medido
 JANELA_MOVIMENTO = 6     # leituras comparadas (armada le a cada 2 s: 12 s)
 FORA_MIN = 0.35          # parte da mancha que precisa ter saido de onde estava
 ABSORVER_LEITURAS = 30   # mancha parada ha mais que isso (1 min) entra no fundo
@@ -422,6 +431,7 @@ class Vigia:
         self.ultimo_alerta: float = -1e18
         self.ultimo_quadro: Optional[Quadro] = None
         self.faixa = ""
+        self.ultimo_t: float = 0.0
 
     def processar(self, quadro: Quadro, agora: float, minuto: Optional[int] = None) -> Tuple[List[Mancha], Optional[Disparo]]:
         """Devolve (manchas deste quadro, disparo ou None). O primeiro quadro
@@ -431,6 +441,7 @@ class Vigia:
             self.fundo = Fundo(quadro)
             self._vigiado = mascara(quadro.largura, quadro.altura, self.regra)
             self._rastros = []
+            self.ultimo_t = agora
             return [], None
 
         regra = self.regra.no_minuto(minuto)
@@ -447,7 +458,8 @@ class Vigia:
                         key=lambda r: (len(pontos & r.passado[-1][2]), r.n), default=None)
             passado = antes.passado if antes else []
             n = (antes.n if antes else 0) + 1
-            andou = bool(antes and antes.andou) or _andou(m, quadro.largura, passado, regra.movimento_min)
+            # Vale so o que andou agora: se ficasse marcado, mancha parada alarmaria para sempre.
+            andou = _andou(m, quadro.largura, passado, regra.movimento_min)
             cx, cy = _centro(m, quadro.largura)
             novos.append(_Rastro(m.caixa, n, (passado + [(cx, cy, pontos)])[-JANELA_MOVIMENTO:], andou))
             if n <= ABSORVER_LEITURAS or andou:
@@ -456,7 +468,11 @@ class Vigia:
                 melhor = Disparo(m, n)
         self._rastros = novos
 
-        self.fundo.atualizar(quadro, self.regra.aprendizado, congelar)
+        # Fora do horario le 1 vez por minuto: o fundo precisa andar pelo tempo
+        # passado, senao fica para tras e o chao esfriando no por do sol vira mancha.
+        passadas = max(1.0, (agora - self.ultimo_t) / SEGUNDOS_POR_LEITURA)
+        self.ultimo_t = agora
+        self.fundo.atualizar(quadro, 1 - (1 - self.regra.aprendizado) ** passadas, congelar)
 
         if melhor and agora - self.ultimo_alerta >= self.regra.intervalo_alertas_s:
             self.ultimo_alerta = agora

@@ -169,6 +169,7 @@ class VigiaTermico:
         from app.services import termico_store
         from app.services.camera_credentials import resolve_camera_credential
         from app.services.termico_camera import base_da_camera, buscar_quadro, buscar_foto
+        from app.services.termico_deteccao import QuadroCorrompido
 
         pode, motivo = destino_permitido(tenant, cam["ip"], exigir_dono=False)
         if not pode:
@@ -184,6 +185,9 @@ class VigiaTermico:
         base = base_da_camera(cam["ip"], cam.get("porta") or 80, cam.get("connector_id") or "")
         try:
             quadro = buscar_quadro(base, est.cred["username"], est.cred["password"], int(cam.get("canal") or 2))
+        except QuadroCorrompido:
+            logger.warning("termico: quadro corrompido ignorado (%s)", cam.get("ip"))
+            return
         except Exception as exc:
             if "credencial" in str(exc):
                 est.cred = None      # senha pode ter mudado: rele na proxima

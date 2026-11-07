@@ -276,3 +276,34 @@ def test_faixa_muda_a_deteccao_sem_perder_o_fundo():
     assert v.processar(_com_pessoa(q), 2.0, 8 * 60)[1] is None          # manha: exige 40 graus
     _, d = v.processar(_com_pessoa(q), 4.0, 12 * 60)                    # meio-dia: regra normal
     assert d is not None and v.fundo is fundo
+
+
+def test_quadro_corrompido_nao_entra():
+    import json
+    info = {"jpegPicWidth": 2, "jpegPicHeight": 1, "temperatureDataLength": 4}
+    for lixo in (2.5e38, float("nan"), -48.5 - 1000):
+        corpo = _multipart(json.dumps({"JpegPictureWithAppendData": info}).encode(), b"\xff\xd8", array("f", [30.0, lixo]).tobytes())
+        with pytest.raises(T.QuadroCorrompido):
+            T.ler_quadro(corpo, "multipart/form-data; boundary=boundary")
+
+
+def test_mancha_que_parou_nao_alarma_de_novo():
+    q = _quadro("quadro1")
+    v = T.Vigia(T.Regra(intervalo_alertas_s=0))
+    v.processar(q, 0.0)
+    andando = [_com_pessoa(q, x0=170 + 4 * n) for n in range(4)]
+    assert any(_rodar(v, q, andando))
+    parado = [_com_pessoa(q, x0=182)] * 40
+    disparos = [v.processar(f, 100.0 + 2 * n)[1] for n, f in enumerate(parado)]
+    assert not any(disparos[8:])      # depois da janela de movimento, para
+
+
+def test_fundo_acompanha_a_cena_quando_le_devagar():
+    q = _quadro("quadro1")
+    v = T.Vigia(T.Regra())
+    v.processar(q, 0.0)
+    frio = T.Quadro(W, H, array("f", [t - 10 for t in q.temps]))
+    for n in range(1, 21):                       # 20 min lendo 1 vez por minuto
+        v.processar(frio, 60.0 * n)
+    assert abs(v.fundo.valores[5000] - frio.temps[5000]) < 0.5
+    assert v.processar(frio, 60.0 * 21 + 2)[0] == []
