@@ -155,3 +155,19 @@ def test_laco_so_remede_quem_esta_velho(banco):
     assert r["medidos"] == 1  # so o PDV 02, nunca medido
     caixas = {c["nome"]: c for c in S.listar_caixas()}
     assert caixas["PDV 01"]["relogio_dvr_offset_s"] == -2 and caixas["PDV 02"]["relogio_dvr_offset_s"] == -1
+
+
+def test_lote_atrasado_nao_vira_caixa_atrasado(banco):
+    cx = _caixa("PDV 01", 1)
+    caixa = S.autenticar(cx["id"], cx["token"])
+    seq = iter(range(1, 100))
+
+    def enviar(atraso_s):
+        rel = (datetime.now() - timedelta(seconds=atraso_s)).strftime("%Y-%m-%d %H:%M:%S")
+        S.receber_lote(caixa, {"versao": "t", "relogio": rel,
+                               "lotes": [{"arquivo": "Teclas", "dia": "2026-10-27", "linhas": [[next(seq), "x"]]}]})
+        return S.listar_caixas()[0]["relogio_pdv_offset_s"]
+
+    assert enviar(1) == -1
+    assert enviar(7) == -1   # lote que demorou a subir: ignorado
+    assert enviar(1) == -1

@@ -13,6 +13,7 @@ import re
 import secrets
 import threading
 import uuid
+from collections import deque
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
@@ -28,6 +29,12 @@ _DIA_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _lock = threading.RLock()
 _estado: Dict[Tuple[str, str, str], ProcessadorDia] = {}
 _MAX_ESTADOS = 200  # caixas x dias em memoria; o mais antigo sai primeiro
+# Hora do caixa: o maior valor das ultimas amostras. Lote que demora a subir
+# (roteador da loja carregado) so faz o caixa parecer ATRASADO, nunca adiantado:
+# a amostra mais alta e a que chegou mais rapido. Uma amostra de -6 s no meio de
+# -1 s estragava a calibracao do video.
+RELOGIO_CAIXA_AMOSTRAS = 20
+_offsets_caixa: Dict[Tuple[str, str], Any] = {}
 
 
 def _agora() -> str:
@@ -325,6 +332,10 @@ def receber_lote(caixa: Dict[str, Any], payload: Dict[str, Any], agora: Optional
         for (t, cx, dia), pr in list(_estado.items()):
             if t == tenant and cx == caixa_id and pr.pendentes and dia not in por_dia:
                 _gravar_saida(c, tenant, caixa_id, dia, pr.receber(agora=agora))
+        if offset is not None:
+            fila = _offsets_caixa.setdefault((tenant, caixa_id), deque(maxlen=RELOGIO_CAIXA_AMOSTRAS))
+            fila.append(offset)
+            offset = max(fila)
         sets, vals = ["ultimo_contato=?", "coletor_versao=?"], [agora_txt, _texto(payload.get("versao"), 40)]
         if ultimo_ts:
             sets.append("ultimo_evento=?")
