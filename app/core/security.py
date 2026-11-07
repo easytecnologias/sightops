@@ -275,6 +275,8 @@ class ApiAuthMiddleware(BaseHTTPMiddleware):
         # perfil e nos dois modos de permissao.
         self._platform_admin_rules = [
             (("GET", "HEAD"), "/api/backup/export"),
+            # Maquina, banco e rotas de todos os clientes.
+            (("GET", "HEAD"), "/api/monitoring/saude"),
             (("POST",), "/api/backup/import"),
             # Init/migracao do banco e do armazenamento (com force, apaga o de
             # todos os clientes).

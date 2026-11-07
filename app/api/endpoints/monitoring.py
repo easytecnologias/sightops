@@ -195,6 +195,21 @@ def api_notificacoes_vincular_status(codigo: str) -> Dict[str, Any]:
     return {"ok": True, **N.situacao_codigo(get_current_tenant_slug(), codigo)}
 
 
+@router.get("/saude")
+def api_saude_sistema(request: Request, janela: int = 60) -> Dict[str, Any]:
+    """Saude da plataforma inteira: so o dono ve, nunca um cliente."""
+    from app.services.saude_service import fotografia
+
+    usuario = _notif_usuario(request)
+    # Operando como cliente a sessao continua is_platform_admin: aqui ela veria
+    # a plataforma inteira de dentro de um cliente.
+    if not usuario.get("is_platform_admin") or usuario.get("acting_as"):
+        raise HTTPException(status_code=403, detail="somente o dono da plataforma")
+    if janela not in (60, 1440):
+        raise HTTPException(status_code=400, detail="janela deve ser 60 ou 1440 minutos")
+    return {"ok": True, **fotografia(janela)}
+
+
 @router.get("/notificacoes/robo-easy")
 def api_notificacoes_robo_get(request: Request) -> Dict[str, Any]:
     from app.services import notificacoes_service as N

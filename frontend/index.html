@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=1793300001">
+  <link rel="stylesheet" href="styles.css?v=1793410202">
   <link rel="stylesheet" href="acesso/acesso.css?v=1792600213">
 </head>
 <body>
@@ -172,6 +172,7 @@
         <div id="navOwnerMode" hidden>
           <button class="nav-item active" data-view="owner-overview"><i data-lucide="layout-dashboard"></i><span>Visão geral</span></button>
           <div class="nav-section-label">Administração SaaS</div>
+          <button class="nav-item" data-view="owner-health"><i data-lucide="activity"></i><span>Saúde do sistema</span></button>
           <button class="nav-item" data-view="owner-clients"><i data-lucide="building-2"></i><span>Clientes</span></button>
           <button class="nav-item" data-view="owner-plans"><i data-lucide="package"></i><span>Planos e licenças</span></button>
           <button class="nav-item" data-view="owner-audit"><i data-lucide="history"></i><span>Auditoria</span></button>
@@ -4605,6 +4606,37 @@
         </div>
       </section>
 
+      <!-- --- VIEW: PAINEL DO DONO / SAUDE DO SISTEMA --- -->
+      <section class="workspace hidden" id="viewOwnerHealth">
+        <div class="page-heading">
+          <div><p class="eyebrow">Administração da plataforma</p><h1>Saúde do sistema</h1><p>O que está acontecendo na plataforma agora.</p></div>
+          <div class="saude-acoes">
+            <select id="saudeJanela" aria-label="Período"><option value="60">Última hora</option><option value="1440">Últimas 24 horas</option></select>
+            <button class="secondary-action" id="btnOwnerHealthRefresh" type="button"><i data-lucide="refresh-cw"></i> Atualizar</button>
+          </div>
+        </div>
+        <div id="saudeFaixa"><div class="saude-faixa saude-faixa-ok"><div class="saude-faixa-texto"><small>Situação agora</small><h2>Carregando…</h2></div></div></div>
+        <div class="saude-grade">
+          <div class="panel"><div class="panel-header"><div><h2>Máquina</h2></div></div><div id="saudeMaquina"></div></div>
+          <div class="panel"><div class="panel-header"><div><h2>Serviços</h2></div></div><div id="saudeServicos"></div></div>
+        </div>
+        <div class="panel saude-bloco"><div class="panel-header"><div><h2>Discos agora</h2></div></div><div class="table-wrap" id="saudeDiscos"></div></div>
+        <div class="panel saude-bloco">
+          <div class="panel-header">
+            <div><h2>Tempo de resposta por rota</h2><p id="saudeRotasResumo">Carregando.</p></div>
+            <div class="saude-acoes">
+              <input id="saudeRotasBusca" type="search" placeholder="Buscar rota" aria-label="Buscar rota">
+              <select id="saudeRotasOrdem" aria-label="Ordenar"><option value="p95_ms">Mais lentas</option><option value="requisicoes">Mais usadas</option><option value="erros_5xx">Com mais erros</option><option value="rota">Por nome</option></select>
+            </div>
+          </div>
+          <div class="table-wrap"><table class="data-table saude-tabela saude-rotas-tabela">
+            <thead><tr><th>Rota</th><th class="saude-num">Requisições</th><th class="saude-num">Média</th><th class="saude-num">95%</th><th class="saude-num">Máximo</th><th class="saude-num">Lentas</th><th class="saude-num">Erros</th></tr></thead>
+            <tbody id="saudeRotasBody"></tbody>
+          </table></div>
+        </div>
+        <div class="panel saude-bloco"><div class="panel-header"><div><h2>Erros recentes</h2></div></div><div class="table-wrap" id="saudeErros"></div></div>
+      </section>
+
       <!-- --- VIEW: PAINEL DO DONO / CLIENTES --- -->
       <section class="workspace hidden" id="viewOwnerClients">
         <div class="page-heading">
@@ -8170,7 +8202,7 @@
        trechos do app.js original na sequencia em que estavam, entao carregar
        fora de ordem muda o comportamento. Ao adicionar um arquivo novo, entre
        antes de bootstrap.js, que e quem liga os botoes no DOMContentLoaded. -->
-  <script src="js/core.js?v=1793410004"></script>
+  <script src="js/core.js?v=1793410201"></script>
   <script src="js/licencas.js?v=1792600103"></script>
   <script src="js/configuracoes.js?v=1793400008"></script>
   <script src="js/notificacoes.js?v=1792600139"></script>
@@ -8221,6 +8253,7 @@
   <script src="js/maquete.js?v=1793400014"></script>
   <script src="js/termico.js?v=1793410015"></script>
   <script src="js/tr069.js?v=1791000212"></script>
+  <script src="js/saude.js?v=1793410200"></script>
   <script src="js/bootstrap.js?v=1793400005"></script>
 </body>
 </html>

@@ -691,6 +691,7 @@ const VIEW_META = {
   backup:          { title: 'Backup',            sub: 'Exportação e importação' },
   settings:        { title: 'Configurações',     sub: '' },
   'owner-overview':{ title: 'Visão geral',       sub: 'Administração da plataforma' },
+  'owner-health':  { title: 'Saúde do sistema',  sub: 'O que acontece na plataforma agora' },
   'owner-clients': { title: 'Clientes',          sub: 'Organizações SaaS' },
   'owner-plans':   { title: 'Planos e licenças', sub: 'O que cada cliente pode usar' },
   'owner-audit':   { title: 'Auditoria',         sub: 'Eventos de todos os clientes' },
@@ -747,6 +748,7 @@ const VIEW_ID_MAP = {
   monitoring:       'viewMonitoring',
   settings:         'viewSettings',
   'owner-overview': 'viewOwnerOverview',
+  'owner-health':   'viewOwnerHealth',
   'owner-clients':  'viewOwnerClients',
   'owner-plans':    'viewOwnerPlans',
   'owner-audit':    'viewOwnerAudit',
@@ -755,7 +757,7 @@ const VIEW_ID_MAP = {
 function navigateTo(view) {
   // Painel do Dono e reservado a admin de plataforma -- se alguem tentar
   // (ex: digitando no console) sem ser, cai no Dashboard normal.
-  if (String(view).startsWith('owner-') && !_currentUser?.is_platform_admin) view = 'dashboard';
+  if (String(view).startsWith('owner-') && (!_currentUser?.is_platform_admin || _currentUser?.acting_as)) view = 'dashboard';
   if (DISABLED_VIEWS.has(view) || isStaffOnlyView(view)) view = 'dashboard';
   // Controle de Acesso (22/10/2026): o Painel e a tela unica, com as abas
   // como submenus do menu Controle de Acesso. As telas antigas (Acesso ao
@@ -880,6 +882,7 @@ function loadView(view) {
       loadSettings();
       break;
     case 'owner-overview': loadOwnerOverview(); break;
+    case 'owner-health':   loadOwnerHealth();   break;
     case 'owner-clients':  loadOwnerClients();  break;
     case 'owner-plans':    loadOwnerPlans();    break;
     case 'owner-audit':    loadOwnerAudit();    break;

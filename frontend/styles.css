@@ -14580,3 +14580,52 @@ button.pdv-cl-linha:hover { background: var(--surface-soft); }
   .pdv-mom-valor { width: auto; }
   .pdv-mom-lista .pdv-hora { width: 34px; }
 }
+
+/* === Painel do Dono: Saude do sistema =================================== */
+.saude-acoes { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.saude-acoes select, .saude-acoes input { height: 36px; padding: 0 10px; font-size: 12px; color: var(--text);
+  background: var(--surface); border: 1px solid var(--border); border-radius: 8px; }
+.saude-faixa { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 16px 20px; padding: 18px 20px;
+  color: #fff; background: var(--sidebar); border-radius: 8px; }
+.saude-faixa-atencao { border-left: 6px solid var(--amber); }
+.saude-faixa-critico { background: var(--danger); }
+.saude-faixa-texto { min-width: 0; }
+.saude-faixa-texto small, .saude-faixa-metricas small { display: block; font-size: 11px; color: rgba(255, 255, 255, .72); }
+.saude-faixa-texto h2 { margin: 4px 0 6px; font-size: 18px; font-weight: 700; color: #fff; }
+.saude-faixa-texto p { margin: 0; font-size: 12px; color: rgba(255, 255, 255, .84); }
+.saude-faixa-texto ul { margin: 0; padding: 0 0 0 16px; font-size: 12px; color: rgba(255, 255, 255, .9); }
+.saude-faixa-metricas { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; align-items: start; }
+.saude-faixa-metricas strong { display: block; margin-top: 4px; font-size: 22px; font-weight: 700; color: #fff; white-space: nowrap; }
+.saude-grafico { grid-column: 1 / -1; display: flex; gap: 2px; align-items: flex-end; height: 56px; }
+.saude-grafico i { flex: 1 1 0; min-width: 1px; background: rgba(255, 255, 255, .55); border-radius: 1px 1px 0 0; }
+.saude-grafico i.lenta { background: #ffc069; }
+.saude-grafico i.erro { background: #ff8787; }
+.saude-grade { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; margin-top: 20px; align-items: stretch; }
+.saude-grade .panel { margin: 0; }
+.saude-bloco { margin-top: 20px; }
+.saude-tabela { width: 100%; font-size: 12px; }
+.saude-num, .saude-tabela th.saude-num { text-align: right; white-space: nowrap; }
+/* A regra global do celular poe 1040px com !important em toda .data-table. */
+#saudeMaquina table.data-table, #saudeServicos table.data-table { width: 100% !important; min-width: 0 !important; table-layout: fixed; }
+#saudeDiscos table.data-table { min-width: 620px !important; }
+#saudeErros table.data-table { min-width: 520px !important; }
+table.data-table.saude-rotas-tabela { min-width: 720px !important; }
+.saude-col-valor { width: 34%; }
+.saude-col-barra { width: 30%; }
+.saude-rota { max-width: 0; width: 46%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.saude-rota b { font-weight: 600; color: var(--muted); }
+.saude-barra { display: block; height: 6px; overflow: hidden; background: var(--surface-soft); border-radius: 3px; }
+.saude-barra i { display: block; height: 100%; background: var(--primary); }
+.saude-barra.saude-atencao i { background: var(--amber); }
+.saude-barra.saude-critico i { background: var(--danger); }
+span.saude-atencao { color: var(--amber); font-weight: 600; }
+span.saude-critico, td.saude-critico { color: var(--danger); font-weight: 600; }
+.saude-ponto { display: inline-block; width: 8px; height: 8px; margin-right: 8px; border-radius: 50%; background: var(--muted); }
+.saude-ponto.ok { background: var(--primary); }
+.saude-ponto.erro { background: var(--danger); }
+.saude-vazio { margin: 0; padding: 12px; font-size: 12px; color: var(--muted); text-align: center; }
+@media (max-width: 900px) {
+  .saude-faixa, .saude-grade { grid-template-columns: minmax(0, 1fr); }
+  .saude-faixa-metricas { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  #saudeMaquina .saude-num, #saudeServicos .saude-num { white-space: normal; }
+}
