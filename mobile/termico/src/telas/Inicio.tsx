@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { Sino } from './Alertas';
 import { Link } from 'react-router-dom';
 import { MARCA } from '../lib/marca';
 import { haQuanto, hora, num, useAlertas, useCameras, useSite, type Alerta, type Camera, type Situacao } from '../lib/termico';
@@ -68,7 +69,7 @@ export function Inicio() {
   return (
     <>
       <header className={`fx ${alarme ? 'al' : ''}`}>
-        <div className="fx-top"><Logo tam={36} /><span className="fx-nome">{MARCA.nome}</span>
+        <div className="fx-top"><Logo tam={36} /><span className="fx-nome">{MARCA.nome}</span><Sino />
           <button type="button" className="fx-us" onClick={abrirSeletor}><span>{site || 'Todas as usinas'}</span>{Icone.baixo}</button></div>
         <div className="est"><span className="pul"><i /></span><div><b>{frase[0]}</b><small>{frase[1]}</small></div></div>
         <div className="mets">

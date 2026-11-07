@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Sino } from './Alertas';
 import { enviar } from '../lib/api';
 import { useEu } from '../lib/automacoes';
 import { avisosLigados, tokenDoAparelho } from '../lib/aviso';
@@ -33,7 +34,7 @@ export function Conta({ aoSair }: { aoSair: () => void }) {
   return (
     <>
       <header className="fx">
-        <div className="fx-top"><Logo tam={36} /><span className="fx-nome grande">Conta</span></div>
+        <div className="fx-top"><Logo tam={36} /><span className="fx-nome grande">Conta</span><Sino /></div>
         <div className="est"><div><b>{eu.data?.display_name || eu.data?.nome || eu.data?.username || 'Sua conta'}</b><small>{MARCA.empresa}</small></div></div>
       </header>
       <div className="pagina">

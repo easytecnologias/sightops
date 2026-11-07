@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import { Sino } from './Alertas';
 import { natural, num, useAlertas, useArmar, useCameras, type Alerta, type Camera } from '../lib/termico';
 import { Carregando, Erro } from '../ui/pecas';
 
@@ -59,7 +60,7 @@ export function Usinas() {
   return (
     <>
       <header className="fx">
-        <div className="fx-top"><span className="fx-nome grande">Usinas</span></div>
+        <div className="fx-top"><span className="fx-nome grande">Usinas</span><Sino /></div>
         <div className="mets">
           <div><span>Usinas</span><b>{usinas.length}</b></div>
           <div><span>Medindo</span><b>{(cams.data?.cameras || []).filter((c) => c.ativo && c.leitura === 'ok').length} <em>de {(cams.data?.cameras || []).length}</em></b></div>

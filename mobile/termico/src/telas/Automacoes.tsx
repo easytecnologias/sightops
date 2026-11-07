@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Sino } from './Alertas';
 import { Link, useNavigate } from 'react-router-dom';
 import { ehAdmin, ICONE, textoAcao, textoGatilho, useAutomacoes, useEu, useExecutarCena, useLigarRegra, type Regra } from '../lib/automacoes';
 import { natural, useCameras, useSite } from '../lib/termico';
@@ -43,7 +44,7 @@ export function Automacoes() {
   return (
     <>
       <header className="fx">
-        <div className="fx-top"><span className="fx-nome grande">Automações</span>
+        <div className="fx-top"><span className="fx-nome grande">Automações</span><Sino />
           <button type="button" className="fx-us" onClick={abrirSeletor}><span>{site || 'Todas as usinas'}</span>{Icone.baixo}</button></div>
         <div className="alternar vidro" role="tablist" aria-label="Tipo">
           <button type="button" role="tab" aria-selected={aba === 'cenas'} className={aba === 'cenas' ? 'on' : ''} onClick={() => setAba('cenas')}>Cenas</button>

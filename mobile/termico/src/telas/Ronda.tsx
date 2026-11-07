@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { Sino } from './Alertas';
 import { Link } from 'react-router-dom';
 import { natural, num, useCameras, useSite, type Camera } from '../lib/termico';
 import { Carregando, Erro, Foto, Icone } from '../ui/pecas';
@@ -34,7 +35,7 @@ export function Ronda() {
   return (
     <>
       <header className="fx">
-        <div className="fx-top"><span className="fx-nome grande">Ao vivo</span>
+        <div className="fx-top"><span className="fx-nome grande">Ao vivo</span><Sino />
           <button type="button" className="fx-us" onClick={abrirSeletor}><span>{site || 'Todas as usinas'}</span>{Icone.baixo}</button></div>
         <div className="alternar vidro" role="tablist" aria-label="Imagem">
           <button type="button" role="tab" aria-selected={modo === 'termica'} className={modo === 'termica' ? 'on' : ''} onClick={() => setModo('termica')}>Térmica</button>
