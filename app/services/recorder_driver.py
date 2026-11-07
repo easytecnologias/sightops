@@ -286,7 +286,11 @@ class Gravador:
 
     # --------------------------------------------------------------- leitura
     def relogio(self) -> Dict[str, Any]:
-        agora = datetime.now()
+        # A hora do gravador e comparada com o MEIO da ida e volta: pelo tunel a
+        # leitura leva segundos (digest = 2 viagens) e anotar so antes contava essa
+        # demora como gravador adiantado (PDV-01 da VITAL: +6 s medido, real -2 s,
+        # video do evento abria ~8 s depois do momento).
+        antes = datetime.now()
         if self.marca == "hikvision":
             txt = self._get("/ISAPI/System/time")
             m = re.search(r"<localTime>(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d)", txt)
@@ -297,8 +301,12 @@ class Gravador:
             do_gravador = datetime.strptime(bruto, FMT)
         except ValueError as exc:
             raise ErroDriver(f"relogio ilegivel: {bruto[:40]!r}") from exc
+        depois = datetime.now()
+        agora = antes + (depois - antes) / 2
+        # o gravador manda segundos inteiros (truncados): +0,5 s e o meio do segundo dele
+        dif = (do_gravador - agora).total_seconds() + 0.5
         return {"gravador": do_gravador.strftime(FMT), "servidor": agora.strftime(FMT),
-                "diferenca_s": int((do_gravador - agora).total_seconds())}
+                "diferenca_s": int(round(dif)), "latencia_s": round((depois - antes).total_seconds(), 2)}
 
     def ler_config(self, *tabelas: str) -> Dict[str, str]:
         self._so_intelbras("leitura de configuracao")
