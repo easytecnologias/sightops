@@ -4,6 +4,7 @@ from datetime import datetime
 from typing import Any, Dict
 
 from fastapi import APIRouter, HTTPException, Request
+from starlette.concurrency import run_in_threadpool
 
 from app.core.tenant_context import reset_current_tenant_slug, set_current_tenant_slug
 from app.services import pdv_store
@@ -33,7 +34,10 @@ def _hoje() -> str:
 
 @router.post("/coletor/lote")
 async def api_pdv_coletor_lote(request: Request) -> Dict[str, Any]:
-    caixa = pdv_store.autenticar(
+    # Rota async (le o corpo cru), mas o banco e sincrono: tudo que toca o banco
+    # vai para thread. Rodando no laco, cada lote (~1/s, ate 2 s) parava a API inteira.
+    caixa = await run_in_threadpool(
+        pdv_store.autenticar,
         str(request.headers.get("x-pdv-caixa") or "").strip(),
         str(request.headers.get("x-pdv-token") or "").strip(),
     )
@@ -49,6 +53,12 @@ async def api_pdv_coletor_lote(request: Request) -> Dict[str, Any]:
         raise HTTPException(status_code=400, detail="json invalido")
     if not isinstance(payload, dict):
         raise HTTPException(status_code=400, detail="json invalido")
+    return await run_in_threadpool(_receber_lote_do_caixa, caixa, payload)
+
+
+def _receber_lote_do_caixa(caixa: Dict[str, Any], payload: Dict[str, Any]) -> Dict[str, Any]:
+    # O cliente e definido dentro da thread que grava: nao depende de o contexto
+    # do laco ser copiado para ela.
     tok = set_current_tenant_slug(caixa["tenant_slug"])
     try:
         return _executar(pdv_store.receber_lote, caixa, payload)
