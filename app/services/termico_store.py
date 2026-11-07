@@ -89,6 +89,7 @@ FALHAS_JANELA_H = 24     # aviso ou automacao que falhou fica no Zabbix por este
 MAX_PERFIS = 8
 ESCALA_PADRAO = {"escalar_min": 10, "escalar_vezes": 2}
 ESCALA_JANELA_H = 6
+OFFLINE_ESPERA_S = 180   # queda de segundos nao vira aviso
 LEITURA_VELHA_S = 180     # desarmada le a cada 60 s; mais que isso parado = sem leitura
 
 
@@ -239,6 +240,7 @@ def _publica(c: Dict[str, Any]) -> Dict[str, Any]:
         "armado_ate": c.get("armado_ate") or "", "armado_agora": esta_armado(c),
         "leitura": c.get("leitura") or "", "leitura_erro": c.get("leitura_erro") or "",
         "leitura_at": c.get("leitura_at") or "", "fundo_c": c.get("fundo_c"),
+        "offline_desde": c.get("offline_desde") or "",
         "regra": {**{k: getattr(regra, k) for k in LIMITES}, "areas": regra.areas, "ignorar": regra.ignorar, "perfis": regra.perfis},
     }
 
@@ -353,12 +355,21 @@ def cameras_ativas() -> List[Dict[str, Any]]:
 
 def registrar_leitura(camera_id: str, ok: bool, erro: str = "", fundo_c: Optional[float] = None) -> None:
     tenant = _tenant()
+    agora = _agora()
     with db_store._conn() as c:
         # ativo=1: leitura atrasada de camera recem-removida nao a "ressuscita".
         c.execute(
             "UPDATE termico_cameras SET leitura=?, leitura_erro=?, leitura_at=?, fundo_c=? WHERE tenant_slug=? AND id=? AND ativo=1",
-            ("ok" if ok else "erro", "" if ok else _txt(erro)[:300], _agora(),
+            ("ok" if ok else "erro", "" if ok else _txt(erro)[:300], agora,
              round(fundo_c, 1) if (ok and fundo_c is not None) else None, tenant, camera_id))
+        # Desde quando esta sem medir. Depois do aviso, so o verificador limpa:
+        # ele precisa saber quanto tempo ficou fora para avisar a volta.
+        if ok:
+            c.execute("UPDATE termico_cameras SET offline_desde='' WHERE tenant_slug=? AND id=? AND offline_avisado=0",
+                      (tenant, camera_id))
+        else:
+            c.execute("UPDATE termico_cameras SET offline_desde=? WHERE tenant_slug=? AND id=? AND offline_desde=''",
+                      (agora, tenant, camera_id))
 
 
 def registrar_alerta(camera: Dict[str, Any], mancha: Dict[str, Any], arquivos: Dict[str, bytes]) -> Dict[str, Any]:
@@ -846,6 +857,60 @@ def a_escalar(agora: Optional[datetime] = None) -> List[Dict[str, Any]]:
                       (momento.strftime(f), tenant, r["id"]))
             saida.append(r)
     return saida
+
+
+# ---------------------------------------------------------- camera offline
+
+FORA_DA_REDE = ("timed out", "unreachable", "no route", "connection", "conexao", "conexão", "destino")
+
+
+def offline_a_avisar(agora: Optional[datetime] = None) -> List[Dict[str, Any]]:
+    """Avisos de camera parada e de volta, ja agrupados. Marca na hora: reiniciar
+    o servidor nao repete aviso. Usina com todas as cameras paradas vira um aviso
+    so (conector caido), como a de Demerval em 06/11."""
+    tenant = _tenant()
+    momento = agora or datetime.now(timezone.utc)
+    f = "%Y-%m-%dT%H:%M:%SZ"
+    limite = (momento - timedelta(seconds=OFFLINE_ESPERA_S)).strftime(f)
+    with db_store._conn() as c:
+        cams = [dict(r) for r in c.execute(
+            "SELECT id, nome, site, leitura, leitura_erro, offline_desde, offline_avisado FROM termico_cameras "
+            "WHERE tenant_slug=? AND ativo=1", (tenant,)).fetchall()]
+        caiu = [x for x in cams if not int(x.get("offline_avisado") or 0) and x.get("leitura") == "erro"
+                and _txt(x.get("offline_desde")) and _txt(x.get("offline_desde")) <= limite]
+        voltou = [x for x in cams if int(x.get("offline_avisado") or 0) and x.get("leitura") == "ok"]
+        for x in caiu:
+            c.execute("UPDATE termico_cameras SET offline_avisado=1 WHERE tenant_slug=? AND id=?", (tenant, x["id"]))
+        for x in voltou:
+            c.execute("UPDATE termico_cameras SET offline_avisado=0, offline_desde='' WHERE tenant_slug=? AND id=?", (tenant, x["id"]))
+    avisos: List[Dict[str, Any]] = []
+    por_site: Dict[str, List[Dict[str, Any]]] = {}
+    for x in cams:
+        por_site.setdefault(_txt(x.get("site")), []).append(x)
+    for tipo, lista in (("caiu", caiu), ("voltou", voltou)):
+        sites: Dict[str, List[Dict[str, Any]]] = {}
+        for x in lista:
+            sites.setdefault(_txt(x.get("site")), []).append(x)
+        for site, dela in sorted(sites.items()):
+            desde = min(_txt(x.get("offline_desde")) for x in dela) or momento.strftime(f)
+            minutos = int(max(0, (momento - datetime.strptime(desde, f).replace(tzinfo=timezone.utc)).total_seconds()) // 60)
+            if len(dela) > 1 and len(dela) == len(por_site.get(site, [])):
+                avisos.append({"tipo": f"usina_{tipo}", "site": site, "cameras": len(dela), "desde": desde, "minutos": minutos})
+                continue
+            for x in dela:
+                rede = any(p in _txt(x.get("leitura_erro")).lower() for p in FORA_DA_REDE)
+                avisos.append({"tipo": f"camera_{tipo}", "site": site, "camera": _txt(x.get("nome")), "camera_id": x["id"],
+                               "fora_da_rede": rede, "desde": desde, "minutos": minutos})
+    return avisos
+
+
+def armar_site(site: str, ligar: bool) -> int:
+    """Automacao "vigiar ou desligar usina": liga/desliga todas as cameras do site."""
+    tenant = _tenant()
+    with db_store._conn() as c:
+        cur = c.execute("UPDATE termico_cameras SET ativo=?, updated_at=? WHERE tenant_slug=? AND site=? AND leitura<>?",
+                        (1 if ligar else 0, _agora(), tenant, site, REMOVIDA))
+        return int(getattr(cur, "rowcount", 0) or 0)
 
 
 def anotar_falha_aviso(tenant: str, alerta_id: str, falhas: int) -> None:

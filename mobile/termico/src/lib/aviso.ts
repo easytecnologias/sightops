@@ -25,6 +25,11 @@ export async function ligarAvisos(aoChegar: () => void): Promise<void> {
   if (!ligado) {
     ligado = true;
     await PushNotifications.deleteChannel({ id: 'alertas' }).catch(() => undefined);
+    // Camera parada: so para administradores, som comum. Sirene fica so para pessoa.
+    await PushNotifications.createChannel({
+      id: 'sistema', name: 'Câmera parada', description: 'Câmera ou usina sem comunicação, e quando volta',
+      importance: 4, visibility: 1, vibration: true,
+    });
     await PushNotifications.createChannel({
       id: 'alarme', name: 'Alarme de pessoa', description: 'Pessoa detectada pelo calor, com sirene',
       importance: 5, visibility: 1, vibration: true, sound: 'sirene.wav',
@@ -35,8 +40,9 @@ export async function ligarAvisos(aoChegar: () => void): Promise<void> {
     });
     await PushNotifications.addListener('pushNotificationReceived', () => aoChegar());
     await PushNotifications.addListener('pushNotificationActionPerformed', (a) => {
-      const id = (a.notification.data as { alerta_id?: string })?.alerta_id;
-      if (id) window.location.hash = `#/alerta/${encodeURIComponent(id)}`;
+      const d = (a.notification.data || {}) as { alerta_id?: string; tipo?: string };
+      if (d.alerta_id) window.location.hash = `#/alerta/${encodeURIComponent(d.alerta_id)}`;
+      else if (d.tipo === 'offline') window.location.hash = '#/usinas';
     });
   }
   // A cada login: o aparelho passa a ser da conta que entrou.

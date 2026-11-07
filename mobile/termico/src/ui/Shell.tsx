@@ -6,6 +6,7 @@ import { useOnline } from '../lib/rede';
 const ABAS = [
   { para: '/', nome: 'Início', icone: Icone.casa },
   { para: '/ronda', nome: 'Ao vivo', icone: Icone.video },
+  { para: '/automacoes', nome: 'Automações', icone: Icone.raio },
   { para: '/usinas', nome: 'Usinas', icone: Icone.sol },
   { para: '/conta', nome: 'Conta', icone: Icone.conta },
 ];
@@ -14,7 +15,7 @@ const ABAS = [
 export function Shell({ children }: { children: ReactNode }) {
   const online = useOnline();
   const { pathname } = useLocation();
-  const semBarra = pathname.startsWith('/alerta/') || pathname.startsWith('/vivo/');
+  const semBarra = pathname.startsWith('/alerta/') || pathname.startsWith('/vivo/') || pathname.startsWith('/automacao/');
   return (
     <div className="app">
       <main className="conteudo">{children}</main>

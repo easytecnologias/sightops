@@ -59,7 +59,8 @@ class VigiaTermico:
     def escalar(self) -> int:
         """Alarme que ninguem respondeu avisa de novo (Visao geral > Se ninguem responder)."""
         from app.services import termico_store
-        from app.services.termico_avisos import avisar_sem_resposta
+        from app.services.automacao_acoes import disparar_evento, rodar_agendadas
+        from app.services.termico_avisos import avisar_offline, avisar_sem_resposta
 
         total = 0
         for tenant in termico_store.tenants_com_cameras_ativas():
@@ -68,6 +69,13 @@ class VigiaTermico:
                 for alerta in termico_store.a_escalar():
                     total += 1
                     threading.Thread(target=avisar_sem_resposta, args=(tenant, alerta), daemon=True, name="termico-push").start()
+                for aviso in termico_store.offline_a_avisar():
+                    threading.Thread(target=avisar_offline, args=(tenant, aviso), daemon=True, name="termico-push").start()
+                    if aviso["tipo"] in ("camera_caiu", "usina_caiu"):
+                        tipo = "offline" if aviso["tipo"] == "camera_caiu" else "usina_offline"
+                        threading.Thread(target=disparar_evento, args=(tenant, tipo, aviso.get("camera_id", ""), aviso["site"]),
+                                         daemon=True, name="automacao").start()
+                rodar_agendadas(tenant)
             except Exception:
                 logger.exception("termico: falha ao escalar alarmes de %s", tenant)
             finally:

@@ -150,7 +150,7 @@ def test_sair_ou_encerrar_sessoes_para_de_receber(av):
 
 def test_sem_chave_do_firebase_conta_como_falha(monkeypatch):
     from app.services import termico_avisos as A
-    monkeypatch.setattr(A, "_destinos", lambda t, s: ["a", "b"])
+    monkeypatch.setattr(A, "_destinos", lambda t, s, p="": ["a", "b"])
     def sem_chave():
         raise RuntimeError("chave invalida")
     monkeypatch.setattr(A, "_bearer", sem_chave)
@@ -200,3 +200,26 @@ def test_testar_notificacao_so_no_proprio_celular(av, monkeypatch):
     with pytest.raises(LookupError):
         A.testar("x" * 100, 1)
     assert len(feitos) == 1
+
+
+def test_aviso_de_camera_parada_so_para_admin_e_sem_sirene(av, monkeypatch):
+    A = av
+    _u(1); _u(2)
+    A.registrar(T1, 1, "ana")
+    A.registrar(T2, 2, "bia")
+    papeis = {1: "admin", 2: "operator"}
+    import app.services.auth_store as S
+    original = S.usuario_para_aviso
+    def com_papel(uid):
+        u = original(uid)
+        if u:
+            u["role"] = papeis[uid]
+        return u
+    monkeypatch.setattr(S, "usuario_para_aviso", com_papel)
+    monkeypatch.setattr(A, "_bearer", lambda: ("oauth", "sightops"))
+    feitos = _posts(A, monkeypatch)
+    A.avisar_offline("cliente-a", {"tipo": "usina_caiu", "site": CAM["site"], "cameras": 5, "desde": "2026-11-06T12:12:00Z", "minutos": 4})
+    assert [f[1]["message"]["token"] for f in feitos] == [T1]
+    m = feitos[0][1]["message"]
+    assert m["android"]["notification"]["channel_id"] == "sistema" and "sound" not in m["android"]["notification"]
+    assert m["notification"]["title"].endswith("sem comunicação") and "09:12" in m["notification"]["body"]

@@ -140,7 +140,7 @@ def test_usuario_restrito_nao_ve_nem_aciona_regra_de_outro_site(amb, monkeypatch
 def test_restrito_nao_cria_regra_para_todas_as_termicas(amb, monkeypatch):
     _, S, _ = amb
     _restringir(monkeypatch, ["UFV-RODOANEL"])
-    with pytest.raises(ValueError, match="câmera de origem"):
+    with pytest.raises(ValueError, match="Escolha a câmera"):
         S.salvar(REGRA)
 
 
@@ -210,3 +210,56 @@ def test_seguir_vai_para_a_posicao_do_alarme_e_volta(monkeypatch):
     feitos.clear()
     ok, msg = A.executar_acao("cliente-a", acao, "simular", ponto=(0.5, 0.5))
     assert ok and msg.startswith("simulado") and feitos == []
+
+
+# ----------------------------------------------------- Se... entao... -----
+def test_regra_antiga_vira_gatilho_pessoa_e_continua_disparando(amb):
+    A, S, _ = amb
+    r = S.salvar({"nome": "antiga", "origem_camera_id": "", "acoes": [{"tipo": "aguardar", "segundos": 2}]})
+    assert r["gatilhos"] == [{"tipo": "pessoa", "camera_id": ""}] and not r["cena"]
+    assert [x["id"] for x in S.regras_da_camera("qualquer")] == [r["id"]]
+
+
+def test_gatilhos_novos_e_cena(amb):
+    A, S, _ = amb
+    cena = S.salvar({"nome": "Sirene", "gatilhos": [{"tipo": "manual"}], "acoes": [{"tipo": "avisar", "texto": "oi"}]})
+    assert cena["cena"]
+    h = S.salvar({"nome": "18h", "gatilhos": [{"tipo": "horario", "hora": "18:00", "dias": [0, 1, 2, 3, 4, 5, 6]}],
+                  "acoes": [{"tipo": "executar_regra", "regra_id": cena["id"]}]})
+    assert h["gatilhos"][0]["hora"] == "18:00"
+    for ruim in ([{"tipo": "horario", "hora": "25:00"}], [{"tipo": "x"}], [{"tipo": "sol", "evento": "por", "site": "NAO"}]):
+        with pytest.raises(ValueError):
+            S.salvar({"nome": "r", "gatilhos": ruim, "acoes": [{"tipo": "aguardar", "segundos": 1}]})
+    with pytest.raises(ValueError):
+        S.salvar({"nome": "laço", "gatilhos": [{"tipo": "manual"}], "acoes": [{"tipo": "executar_regra", "regra_id": h["id"]}]}, h["id"])
+
+
+def test_horario_dispara_uma_vez_por_dia(amb):
+    from datetime import datetime, timezone
+    A, S, _ = amb
+    r = S.salvar({"nome": "18h", "gatilhos": [{"tipo": "horario", "hora": "18:00"}], "acoes": [{"tipo": "aguardar", "segundos": 1}]})
+    as_18h02 = datetime(2026, 11, 7, 21, 2, tzinfo=timezone.utc)        # 18:02 em Fortaleza
+    assert [x["id"] for x in S.agendadas_agora(as_18h02)] == [r["id"]]
+    assert S.agendadas_agora(as_18h02) == []
+    assert S.agendadas_agora(datetime(2026, 11, 7, 20, 50, tzinfo=timezone.utc)) == []
+
+
+def test_periodo_que_vira_a_noite():
+    from app.services import automacao_store as S
+    r = {"periodo": {"de": "18:00", "ate": "06:00"}}
+    assert S.no_periodo(r, 23 * 60) and S.no_periodo(r, 5 * 60) and not S.no_periodo(r, 12 * 60) and S.no_periodo({}, 0)
+
+
+def test_sol_em_teresina():
+    from datetime import date
+    from app.services.sol import nascer_por
+    n, p = nascer_por(-5.09, -42.80, date(2026, 11, 7))
+    local = lambda d: (d.hour - 3) * 60 + d.minute
+    assert 5 * 60 - 20 < local(n) < 5 * 60 + 30 and 17 * 60 + 15 < local(p) < 18 * 60
+
+
+def test_acoes_simples_simuladas_nao_esperam_nem_avisam(monkeypatch):
+    from app.services import automacao_acoes as A
+    monkeypatch.setattr(A.time, "sleep", lambda s: (_ for _ in ()).throw(AssertionError("dormiu")))
+    assert A.executar_acao("cliente-a", {"tipo": "aguardar", "segundos": 30}, "simular")[1].startswith("simulado")
+    assert A.executar_acao("cliente-a", {"tipo": "avisar", "texto": "oi", "site": ""}, "simular")[1].startswith("simulado")

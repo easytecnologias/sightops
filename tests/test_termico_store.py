@@ -570,3 +570,70 @@ def test_faixa_contraditoria_e_recusada(store):
     for ruim in ({"corpo_min": 50, "corpo_max": 30}, {"pontos_min": 5000}, {"corpo_min": 45}):
         with pytest.raises(ValueError, match="Faixa 18:00 a 06:00"):
             store.salvar_camera(cam["id"], {"regra": {"perfis": [{"de": "18:00", "ate": "06:00", **ruim}]}})
+
+
+def _cam_ativa(store, ip, site_patch=None):
+    from app.services import db_store
+    cam = store.adicionar(ip, "c1")
+    store.salvar_camera(cam["id"], {"ativo": True})
+    if site_patch:
+        with db_store._conn() as c:
+            c.execute("UPDATE termico_cameras SET site=? WHERE id=?", (site_patch, cam["id"]))
+    return cam
+
+
+def _envelhecer(store, cam_id, minutos):
+    from datetime import datetime, timedelta, timezone
+    from app.services import db_store
+    v = (datetime.now(timezone.utc) - timedelta(minutes=minutos)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    with db_store._conn() as c:
+        c.execute("UPDATE termico_cameras SET offline_desde=? WHERE id=?", (v, cam_id))
+
+
+def _tres_cameras(monkeypatch):
+    from app.services import termico_store
+    base = dict(INVENTARIO["cliente-a"][0])
+    lista = [{**base, "ip": f"10.0.0.{i}", "mac": f"a4:4c:62:30:18:{i:02x}"} for i in (81, 82, 83)]
+    monkeypatch.setattr(termico_store, "_inventario_termico", lambda tenant: [dict(x) for x in lista] if tenant == "cliente-a" else [])
+
+
+def test_camera_parada_avisa_uma_vez_e_avisa_a_volta(store, monkeypatch):
+    _tres_cameras(monkeypatch)
+    a = _cam_ativa(store, "10.0.0.81")
+    _cam_ativa(store, "10.0.0.82")
+    store.registrar_leitura(a["id"], False, "Connection to 10.210.66.83 timed out")
+    assert store.offline_a_avisar() == []                       # menos de 3 min
+    _envelhecer(store, a["id"], 5)
+    avs = store.offline_a_avisar()
+    assert len(avs) == 1 and avs[0]["tipo"] == "camera_caiu" and avs[0]["fora_da_rede"] and avs[0]["minutos"] >= 5
+    store.registrar_leitura(a["id"], False, "timed out")
+    assert store.offline_a_avisar() == []                       # nao repete
+    store.registrar_leitura(a["id"], True, "", 30.0)
+    v = store.offline_a_avisar()
+    assert len(v) == 1 and v[0]["tipo"] == "camera_voltou" and v[0]["minutos"] >= 5
+    assert store.offline_a_avisar() == []
+    assert store.listar_cameras()["cameras"][0]["offline_desde"] == ""
+
+
+def test_usina_inteira_parada_vira_um_aviso_so(store, monkeypatch):
+    _tres_cameras(monkeypatch)
+    cams = [_cam_ativa(store, f"10.0.0.{i}") for i in (81, 82, 83)]
+    for c in cams:
+        store.registrar_leitura(c["id"], False, "No route to host")
+        _envelhecer(store, c["id"], 10)
+    avs = store.offline_a_avisar()
+    assert [x["tipo"] for x in avs] == ["usina_caiu"] and avs[0]["cameras"] == 3
+    with _como("cliente-b"):
+        assert store.offline_a_avisar() == []
+
+
+def test_leitura_que_volta_antes_de_3_min_nao_avisa(store):
+    a = _cam_ativa(store, "10.0.0.81")
+    store.registrar_leitura(a["id"], False, "timed out")
+    store.registrar_leitura(a["id"], True, "", 30.0)
+    _envelhecer(store, a["id"], 0)
+    from app.services import db_store
+    with db_store._conn() as c:
+        assert dict(c.execute("SELECT offline_desde FROM termico_cameras WHERE id=?", (a["id"],)).fetchone())["offline_desde"]
+        c.execute("UPDATE termico_cameras SET offline_desde='' WHERE id=?", (a["id"],))
+    assert store.offline_a_avisar() == []

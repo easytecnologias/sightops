@@ -60,6 +60,7 @@ async function pedir<T>(metodo: string, caminho: string, corpo?: unknown): Promi
 export const obter = <T,>(c: string) => pedir<T>('GET', c);
 export const enviar = <T,>(c: string, corpo: unknown = {}) => pedir<T>('POST', c, corpo);
 export const atualizar = <T,>(c: string, corpo: unknown) => pedir<T>('PUT', c, corpo);
+export const pedirExcluir = <T,>(c: string) => pedir<T>('DELETE', c);
 
 /** Foto protegida por token: vira data URL (APK) ou blob local (navegador). */
 export async function fotoUrl(caminho: string, tipo = 'image/jpeg'): Promise<string> {

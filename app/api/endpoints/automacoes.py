@@ -74,9 +74,22 @@ def api_automacoes_excluir(regra_id: str) -> Dict[str, Any]:
     return _executar(automacao_store.excluir, regra_id)
 
 
+@router.post("/cenas/{regra_id}/executar")
+def api_automacoes_cena(regra_id: str) -> Dict[str, Any]:
+    """Toque no app. Operador pode: cena so faz o que o admin montou."""
+    return _executar(automacao_acoes.executar_cena, regra_id)
+
+
+@router.put("/{regra_id}/ligar")
+def api_automacoes_ligar(regra_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    return _executar(automacao_store.ligar, regra_id, bool(payload.get("ativo")))
+
+
 @router.post("/{regra_id}/testar")
 def api_automacoes_testar(regra_id: str) -> Dict[str, Any]:
-    """Roda agora, no modo da regra (em 'valer' aciona o equipamento de verdade)."""
+    """Roda agora, no modo da regra (em 'valer' aciona o equipamento de verdade).
+    Numa thread: "aguardar" nao pode segurar a resposta."""
+    import threading
     regra = _executar(automacao_store.obter, regra_id)
-    automacao_acoes.rodar_regra(get_current_tenant_slug(), regra)
+    threading.Thread(target=automacao_acoes._rodar_isolada, args=(get_current_tenant_slug(), regra), daemon=True).start()
     return _executar(automacao_store.listar)

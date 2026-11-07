@@ -31,6 +31,7 @@ logger = logging.getLogger(__name__)
 
 CREDENCIAL_PADRAO = "/run/firebase/servico.json"
 ESCOPO = "https://www.googleapis.com/auth/firebase.messaging"
+CANAL_SISTEMA = "sistema"  # camera parada: so administradores, sem sirene
 CANAL = "alarme"           # mesmo nome de mobile/termico/src/lib/aviso.ts
 SOM = "sirene"             # res/raw/sirene.wav do app
 FOTO_VALE_S = 3600
@@ -84,7 +85,7 @@ def esquecer_usuario(usuario_id: int) -> None:
         c.execute("DELETE FROM termico_aparelhos WHERE usuario_id=?", (int(usuario_id),))
 
 
-def pode_receber(usuario_id: int, tenant: str, site: str) -> bool:
+def pode_receber(usuario_id: int, tenant: str, site: str, papel_minimo: str = "") -> bool:
     """Cadastro de agora. Admin que operava como outro cliente nao mora nele:
     fica de fora. Qualquer erro de leitura = nao manda."""
     from app.core import permissions as P
@@ -96,6 +97,10 @@ def pode_receber(usuario_id: int, tenant: str, site: str) -> bool:
             return False
         if not P.modulo_no_plano(MODULO, user.get("effective_enabled_modules")) or not P.pode(user, MODULO, "ver"):
             return False
+        if papel_minimo:
+            from app.core.security import ROLE_RANK
+            if ROLE_RANK.get(_txt(user.get("role")).lower(), 0) < ROLE_RANK[papel_minimo]:
+                return False
         # Direto no cadastro: sites_da_sessao depende do modo e de haver sessao.
         sites = P.sites_do_usuario(user)
         return not sites or _txt(site).upper() in {_txt(s).upper() for s in sites}
@@ -104,11 +109,11 @@ def pode_receber(usuario_id: int, tenant: str, site: str) -> bool:
         return False
 
 
-def _destinos(tenant: str, site: str) -> List[str]:
+def _destinos(tenant: str, site: str, papel_minimo: str = "") -> List[str]:
     with db_store._conn() as c:
         linhas = [dict(r) for r in c.execute(
             "SELECT token, usuario_id FROM termico_aparelhos WHERE tenant_slug=?", (tenant,)).fetchall()]
-    return [r["token"] for r in linhas if pode_receber(r.get("usuario_id") or 0, tenant, site)]
+    return [r["token"] for r in linhas if pode_receber(r.get("usuario_id") or 0, tenant, site, papel_minimo)]
 
 
 def _apagar_token(token: str) -> None:
@@ -136,8 +141,10 @@ def _bearer() -> Tuple[str, str]:
         return _cred.token, _projeto
 
 
-def _mensagem(token: str, titulo: str, corpo: str, dados: Dict[str, str], imagem: str = "") -> Dict[str, Any]:
-    aviso: Dict[str, Any] = {"channel_id": CANAL, "notification_priority": "PRIORITY_MAX", "sound": SOM}
+def _mensagem(token: str, titulo: str, corpo: str, dados: Dict[str, str], imagem: str = "", sistema: bool = False) -> Dict[str, Any]:
+    # Aviso de sistema (camera parada) tem canal proprio, som comum: sirene so para pessoa.
+    aviso: Dict[str, Any] = ({"channel_id": CANAL_SISTEMA, "notification_priority": "PRIORITY_DEFAULT", "default_sound": True}
+                             if sistema else {"channel_id": CANAL, "notification_priority": "PRIORITY_MAX", "sound": SOM})
     if imagem:
         aviso["image"] = imagem
     return {"message": {
@@ -173,12 +180,13 @@ def foto_valida(tenant: str, alerta_id: str, expira: int, assinatura: str, agora
     return hmac.compare_digest(assinatura.encode("utf-8"), _assinar_foto(tenant, alerta_id, expira).encode("utf-8"))
 
 
-def enviar_aviso(tenant: str, site: str, titulo: str, corpo: str, dados: Dict[str, str], imagem: str = "") -> Dict[str, int]:
+def enviar_aviso(tenant: str, site: str, titulo: str, corpo: str, dados: Dict[str, str], imagem: str = "",
+                 sistema: bool = False) -> Dict[str, int]:
     """Manda para os celulares do cliente que podem ver o site. Nunca levanta erro."""
     res = {"enviados": 0, "falhas": 0, "removidos": 0}
     tokens: List[str] = []
     try:
-        tokens = _destinos(tenant, site)
+        tokens = _destinos(tenant, site, "admin" if sistema else "")
         if not tokens:
             return res
         bearer, projeto = _bearer()
@@ -190,7 +198,7 @@ def enviar_aviso(tenant: str, site: str, titulo: str, corpo: str, dados: Dict[st
     url = f"https://fcm.googleapis.com/v1/projects/{projeto}/messages:send"
     for token in tokens:
         try:
-            r = requests.post(url, json=_mensagem(token, titulo, corpo, dados, imagem), timeout=10,
+            r = requests.post(url, json=_mensagem(token, titulo, corpo, dados, imagem, sistema), timeout=10,
                               headers={"Authorization": f"Bearer {bearer}"})
             if r.status_code == 200:
                 res["enviados"] += 1
@@ -231,6 +239,37 @@ def avisar_sem_resposta(tenant: str, alerta: Dict[str, Any]) -> Dict[str, int]:
         from app.services.termico_store import anotar_falha_aviso
         anotar_falha_aviso(tenant, str(alerta.get("id") or ""), res["falhas"])
     return res
+
+
+def _hora_local(iso: str) -> str:
+    from app.services.termico_store import FUSO
+    try:
+        return datetime.strptime(iso, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc).astimezone(FUSO).strftime("%H:%M")
+    except (TypeError, ValueError):
+        return ""
+
+
+def _duracao(minutos: int) -> str:
+    return f"{minutos} min" if minutos < 60 else f"{minutos // 60} h {minutos % 60:02d} min"
+
+
+def texto_offline(a: Dict[str, Any]) -> Tuple[str, str]:
+    desde = _hora_local(a.get("desde") or "")
+    if a["tipo"] == "usina_caiu":
+        return f"{a['site']} sem comunicação", f"{a['cameras']} câmeras paradas desde {desde}. Sem alarme de pessoa nelas."
+    if a["tipo"] == "usina_voltou":
+        return f"{a['site']} voltou", f"{a['cameras']} câmeras medindo de novo, depois de {_duracao(a['minutos'])}."
+    if a["tipo"] == "camera_caiu":
+        oque = "está fora da rede" if a.get("fora_da_rede") else "parou de medir"
+        return f"{a['camera']} {oque}", f"{a['site']} · desde {desde}. Sem alarme de pessoa nela."
+    return f"{a['camera']} voltou", f"{a['site']} · ficou {_duracao(a['minutos'])} fora."
+
+
+def avisar_offline(tenant: str, a: Dict[str, Any]) -> Dict[str, int]:
+    titulo, corpo = texto_offline(a)
+    return enviar_aviso(tenant, a.get("site") or "", titulo, corpo,
+                        {"tipo": "offline", "camera_id": str(a.get("camera_id") or ""), "site": str(a.get("site") or "")},
+                        sistema=True)
 
 
 def testar(token: str, usuario_id: int) -> Dict[str, Any]:

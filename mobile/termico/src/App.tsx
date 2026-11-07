@@ -12,6 +12,8 @@ import { Inicio } from './telas/Inicio';
 import { AlertaTela } from './telas/Alerta';
 import { Ronda } from './telas/Ronda';
 import { AoVivo } from './telas/AoVivo';
+import { Automacoes } from './telas/Automacoes';
+import { AutoEditar } from './telas/AutoEditar';
 import { Usinas } from './telas/Usinas';
 import { Conta } from './telas/Conta';
 
@@ -73,6 +75,8 @@ export function App() {
             <Route path="/alerta/:id" element={<AlertaTela />} />
             <Route path="/ronda" element={<Ronda />} />
             <Route path="/usinas" element={<Usinas />} />
+            <Route path="/automacoes" element={<Automacoes />} />
+            <Route path="/automacao/:id" element={<AutoEditar />} />
             <Route path="/conta" element={<Conta aoSair={() => void sair()} />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>

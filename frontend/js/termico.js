@@ -577,10 +577,32 @@
   const nomeOrigem = id => (id ? (cams.cameras.find(c => c.id === id)?.nome || 'câmera removida') : 'Todas as térmicas');
   const novaRegra = () => ({ nome: '', ativo: true, modo: 'simular', origem_camera_id: '', intervalo_s: 120, acoes: [] });
 
+  const nomeRegra = id => auto.automacoes.find(r => r.id === id)?.nome || 'outra automação';
   function descrever(a) {
-    return a.tipo === 'saida' ? `${a.nome}: saída ${a.saida} por ${a.segundos} s`
-      : `${a.nome}: preset ${a.preset}${a.voltar_s ? `, volta em ${a.voltar_s} s` : ''}`;
+    switch (a.tipo) {
+      case 'saida': return `${a.nome}: saída ${a.saida} por ${a.segundos} s`;
+      case 'speed_seguir': return `${a.nome}: segue o alarme`;
+      case 'aguardar': return `Aguardar ${a.segundos} s`;
+      case 'avisar': return `Avisar celulares: "${a.texto}"`;
+      case 'vigiar_usina': return `${a.ligar ? 'Vigiar' : 'Desligar'} ${a.site}`;
+      case 'executar_regra': return `Executar ${nomeRegra(a.regra_id)}`;
+      case 'ligar_regra': return `${a.ligar ? 'Ligar' : 'Desligar'} ${nomeRegra(a.regra_id)}`;
+      default: return `${a.nome}: preset ${a.preset}${a.voltar_s ? `, volta em ${a.voltar_s} s` : ''}`;
+    }
   }
+  const DIAS = ['seg', 'ter', 'qua', 'qui', 'sex', 'sáb', 'dom'];
+  function descreverGatilho(g) {
+    switch (g.tipo) {
+      case 'pessoa': return ['Pessoa detectada', nomeOrigem(g.camera_id)];
+      case 'offline': return ['Câmera offline', nomeOrigem(g.camera_id)];
+      case 'usina_offline': return ['Usina sem comunicação', g.site];
+      case 'horario': return [`Às ${g.hora}`, (g.dias || []).length === 7 ? 'todos os dias' : (g.dias || []).map(d => DIAS[d]).join(', ')];
+      case 'sol': return [g.evento === 'por' ? 'Pôr do sol' : 'Nascer do sol', `${g.site}${g.minutos ? ` · ${g.minutos > 0 ? '+' : ''}${g.minutos} min` : ''}`];
+      default: return ['Toque no app', 'cena'];
+    }
+  }
+  // Regra feita no app (outros gatilhos ou varios): a web mostra e nao mexe no "Se".
+  const soPessoa = r => (r.gatilhos || []).length <= 1 && (r.gatilhos || [{ tipo: 'pessoa' }]).every(g => g.tipo === 'pessoa');
 
   function htmlSemAutomacao() {
     const speeds = auto.equipamentos.filter(e => e.speed);
@@ -596,7 +618,7 @@
 
   function htmlAutomacoes() {
     const linhas = auto.automacoes.map(r => `<tr data-tm-regra="${h(r.id)}" class="${autoAberta && autoAberta.id === r.id ? 'on' : ''}">
-        <td title="${h(r.nome)}" style="font-weight:600">${h(r.nome)}</td><td title="${h(nomeOrigem(r.origem_camera_id))}">${h(nomeOrigem(r.origem_camera_id))}</td>
+        <td title="${h(r.nome)}" style="font-weight:600">${h(r.nome)}</td><td title="${h(descreverGatilho((r.gatilhos || [])[0] || { tipo: 'pessoa', camera_id: r.origem_camera_id }).join(' · '))}">${h(nomeOrigem(r.origem_camera_id))}</td>
         <td class="tm-num">${r.acoes.length}</td><td><span class="pill ${r.modo === 'valer' ? 'danger' : 'neutral'}">${r.modo === 'valer' ? 'Valendo' : 'Simulando'}</span></td>
         <td>${r.ativo ? 'Ligada' : 'Desligada'}</td></tr>`).join('')
       || '<tr><td colspan="5" style="text-align:center;color:var(--muted);height:80px">Nenhuma automação ainda.</td></tr>';
@@ -609,7 +631,7 @@
     }).join('') || '<tr><td colspan="4" style="text-align:center;color:var(--muted);height:60px">Nada executado ainda.</td></tr>';
     if (!auto.automacoes.length && !autoAberta) return htmlSemAutomacao();
     const itens = auto.automacoes.map(r => `<button type="button" class="tm-regra-item ${autoAberta && autoAberta.id === r.id ? 'on' : ''}" data-tm-regra="${h(r.id)}">
-        <span style="min-width:0"><b title="${h(r.nome)}">${h(r.nome)}</b><small>${h(nomeOrigem(r.origem_camera_id))} · ${r.acoes.length} ação(ões)${r.ativo ? '' : ' · desligada'}</small></span>
+        <span style="min-width:0"><b title="${h(r.nome)}">${h(r.nome)}</b><small>${h(descreverGatilho((r.gatilhos || [])[0] || { tipo: 'pessoa', camera_id: r.origem_camera_id }).join(' · '))} · ${r.acoes.length} ação(ões)${r.ativo ? '' : ' · desligada'}</small></span>
         <span class="pill ${r.modo === 'valer' ? 'danger' : 'neutral'}">${r.modo === 'valer' ? 'Valendo' : 'Simulando'}</span></button>`).join('')
       || '<div class="tm-vazio-card">Nenhuma automação ainda.</div>';
     return `<div class="tm-doze">
@@ -635,13 +657,17 @@
     const depois = a.tipo === 'saida' ? ['Desliga a saída', `Em ${a.segundos ?? 30} s`] : (a.voltar_s ?? 60) ? ['Volta à posição', `Em ${a.voltar_s ?? 60} s`] : ['Fica apontada', 'Até mover à mão'];
     const faz = a.tipo === 'speed_seguir' ? 'Aponta para o alarme' : a.tipo === 'saida' ? `Liga a saída ${a.saida ?? 1}` : `Vai ao preset ${a.preset ?? 1}`;
     return `<div class="tm-fluxo">
-      <div class="tm-no q"><span>QUANDO</span><b>Pessoa detectada</b><small>${h(nomeOrigem(r.origem_camera_id))}</small></div><div class="tm-liga"></div>
+      <div class="tm-no q"><span>QUANDO</span><b>${h(descreverGatilho((r.gatilhos || [])[0] || { tipo: 'pessoa', camera_id: r.origem_camera_id })[0])}${(r.gatilhos || []).length > 1 ? ` e mais ${r.gatilhos.length - 1}` : ''}</b><small>${h(descreverGatilho((r.gatilhos || [])[0] || { tipo: 'pessoa', camera_id: r.origem_camera_id })[1])}${r.periodo?.de ? ` · ${r.periodo.de} às ${r.periodo.ate}` : ''}</small></div><div class="tm-liga"></div>
       <div class="tm-no"><span>FAZ</span><b title="${h(a.nome || '')}">${h(a.nome || 'Escolha o equipamento')}</b><small>${h(faz + mais)}</small></div><div class="tm-liga"></div>
       <div class="tm-no"><span>DEPOIS</span><b>${h(depois[0])}</b><small>${h(depois[1])}</small></div>
     </div>`;
   }
 
   function htmlAcao(a, i) {
+    if (!['saida', 'speed_preset', 'speed_seguir'].includes(a.tipo)) {
+      return `<div class="tm-acao" data-tm-acao="${i}"><div class="tm-linha"><strong style="font-size:13px">Ação ${i + 1}: ${h(descrever(a))}</strong>
+        <button class="ghost-action" type="button" data-tm-tirar="${i}" aria-label="Tirar ação ${i + 1}">✕</button></div><span class="tm-sub">Feita no app.</span></div>`;
+    }
     const lista = auto.equipamentos.filter(e => (a.tipo.startsWith('speed') ? e.speed : true));
     const valor = `${a.ip || ''}|${a.connector_id || ''}`;
     const opcoes = lista.map(e => `<option value="${h(e.ip)}|${h(e.connector_id)}" ${`${e.ip}|${e.connector_id}` === valor ? 'selected' : ''}>${h(e.site)} · ${h(e.nome)}</option>`).join('');
@@ -667,7 +693,8 @@
       ${htmlFluxo(r)}
       <label class="tm-campo">Nome<input id="tmRNome" maxlength="120" value="${h(r.nome)}" placeholder="Ex.: Speed olha a cerca"></label>
       <div class="tm-regra" style="grid-template-columns:minmax(0,2fr) minmax(0,1fr)">
-        <label class="tm-campo">Quando detectar em<select id="tmROrigem"><option value="">Todas as térmicas</option>${cams.cameras.map(c => `<option value="${h(c.id)}" ${c.id === r.origem_camera_id ? 'selected' : ''}>${h(c.site)} · ${h(c.nome)}</option>`).join('')}</select></label>
+        ${soPessoa(r) ? '' : `<div class="tm-campo">Quando<div class="tm-sub" style="padding:9px 0">${h((r.gatilhos || []).map(g => descreverGatilho(g).join(': ')).join(' · '))}. Feito no app: mude por lá.</div></div>`}
+        <label class="tm-campo" ${soPessoa(r) ? '' : 'hidden'}>Quando detectar em<select id="tmROrigem"><option value="">Todas as térmicas</option>${cams.cameras.map(c => `<option value="${h(c.id)}" ${c.id === r.origem_camera_id ? 'selected' : ''}>${h(c.site)} · ${h(c.nome)}</option>`).join('')}</select></label>
         <label class="tm-campo">Intervalo (s)<input type="number" min="10" max="3600" id="tmRIntervalo" value="${h(r.intervalo_s)}"></label>
       </div>
       ${r.acoes.map(htmlAcao).join('')}
@@ -688,6 +715,7 @@
     autoAberta.ativo = $('tmRAtivo').checked;
     autoAberta.modo = $('tmRModo').value;
     autoAberta.origem_camera_id = $('tmROrigem').value;
+    if (soPessoa(autoAberta)) autoAberta.gatilhos = [{ tipo: 'pessoa', camera_id: autoAberta.origem_camera_id }];
     autoAberta.intervalo_s = Number($('tmRIntervalo').value || 120);
     secao().querySelectorAll('[data-tm-acao]').forEach(box => {
       const a = autoAberta.acoes[Number(box.dataset.tmAcao)];

@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { MARCA } from '../lib/marca';
-import { hora, num, useAlertas, useCameras, useSite, type Alerta, type Situacao } from '../lib/termico';
+import { haQuanto, hora, num, useAlertas, useCameras, useSite, type Alerta, type Camera, type Situacao } from '../lib/termico';
 import { Carregando, Erro, Foto, Icone, Logo } from '../ui/pecas';
 import { alarmesHoje, Horas } from '../ui/Faixa';
 import { VideoVivo } from '../ui/VideoVivo';
@@ -16,6 +16,31 @@ function Linha({ a }: { a: Alerta }) {
       <div className="cresce"><b>{a.camera_nome}</b><small>{a.site} · {hora(a.criado_at)}</small></div>
       <span className={`etq ${ROTULO[a.situacao][1]}`}>{ROTULO[a.situacao][0]}</span>
     </Link>
+  );
+}
+
+/** Camera ou usina sem medir: some quando volta. Usina toda parada vira uma linha so. */
+function Problemas({ cams }: { cams: Camera[] }) {
+  const paradas = cams.filter((c) => c.ativo && c.leitura === 'erro');
+  if (!paradas.length) return null;
+  const porSite = new Map<string, Camera[]>();
+  for (const c of cams.filter((x) => x.ativo)) porSite.set(c.site, [...(porSite.get(c.site) || []), c]);
+  const linhas: { chave: string; titulo: string; sub: string }[] = [];
+  for (const [site, todas] of porSite) {
+    const p = todas.filter((c) => c.leitura === 'erro');
+    if (!p.length) continue;
+    const desde = p.map((c) => c.offline_desde || '').filter(Boolean).sort()[0];
+    if (p.length === todas.length && todas.length > 1) linhas.push({ chave: site, titulo: `${site} sem comunicação`, sub: `${p.length} câmeras${desde ? ` · ${haQuanto(desde)}` : ''}` });
+    else p.forEach((c) => linhas.push({ chave: c.id, titulo: `${c.nome} sem medir`, sub: `${site}${c.offline_desde ? ` · ${haQuanto(c.offline_desde)}` : ''}` }));
+  }
+  return (
+    <section className="prob" aria-label="Problemas agora">
+      <div className="prob-cab"><b>Problemas agora</b><small>{linhas.length}</small></div>
+      {linhas.map((l) => (
+        <Link key={l.chave} to="/usinas" className="item2 sem-borda"><span className="ic cz" aria-hidden="true">{Icone.raio}</span>
+          <span className="t"><b>{l.titulo}</b><small>{l.sub}</small></span></Link>
+      ))}
+    </section>
   );
 }
 
@@ -63,6 +88,7 @@ export function Inicio() {
             {destaque.fundo_c === null ? null : <span className="hu a4">{num(destaque.fundo_c, 0)} °C</span>}
           </Link>
         ) : null}
+        <Problemas cams={camsSite} />
         <div className="chips">
           {FILTROS.map(([s, nome]) => (
             <button key={s} type="button" className={filtro === s ? 'on' : ''} onClick={() => setFiltro(s)}>{nome} · {conta(s)}</button>

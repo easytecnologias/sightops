@@ -13,7 +13,7 @@ export type Alerta = {
 };
 export type ListaAlertas = { alertas: Alerta[]; total: number; por_situacao: Record<string, number>; por_site: Record<string, number> };
 export type Camera = {
-  id: string; ip: string; connector_id: string; site: string; nome: string; modelo: string; ativo: boolean; armado_de: string; armado_ate: string;
+  id: string; ip: string; connector_id: string; site: string; nome: string; modelo: string; offline_desde?: string; ativo: boolean; armado_de: string; armado_ate: string;
   armado_agora: boolean; leitura: string; leitura_erro: string; leitura_at: string; fundo_c: number | null; pendentes: number;
 };
 

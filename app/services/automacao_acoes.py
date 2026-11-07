@@ -141,6 +141,8 @@ def _desligar_depois(tenant: str, acao: Dict[str, Any], regra_id: str = "", aler
 def executar_acao(tenant: str, acao: Dict[str, Any], modo: str,
                   agendar: Callable[[float, Callable, tuple], Any] | None = None,
                   regra_id: str = "", alerta_id: str = "", ponto: Tuple[float, float] = (0.5, 0.5)) -> Tuple[bool, str]:
+    if acao.get("tipo") not in automacao_store.COM_EQUIPAMENTO:
+        return _acao_simples(tenant, acao, modo)
     if acao.get("tipo") == "speed_seguir":
         descr = f"apontar {acao.get('nome')} para o alarme"
     elif acao.get("tipo") == "saida":
@@ -181,6 +183,56 @@ def executar_acao(tenant: str, acao: Dict[str, Any], modo: str,
         return False, f"{descr}: {exc}"[:300]
 
 
+PROFUNDIDADE_MAX = 3   # cena chamando cena: corta laco entre regras
+
+
+def _acao_simples(tenant: str, acao: Dict[str, Any], modo: str) -> Tuple[bool, str]:
+    t = acao["tipo"]
+    valer = modo == "valer"
+    try:
+        if t == "aguardar":
+            if valer:
+                time.sleep(int(acao["segundos"]))
+            return True, f"aguardou {acao['segundos']} s" if valer else f"simulado: aguardar {acao['segundos']} s"
+        if t == "avisar":
+            if not valer:
+                return True, f"simulado: avisar \"{acao['texto']}\""
+            from app.services.termico_avisos import enviar_aviso
+            r = enviar_aviso(tenant, acao.get("site") or "", "Automação", acao["texto"], {"tipo": "automacao"})
+            return not r["falhas"], f"aviso para {r['enviados']} celular(es)" + (f", {r['falhas']} falha(s)" if r["falhas"] else "")
+        if t == "vigiar_usina":
+            if not valer:
+                return True, f"simulado: {'vigiar' if acao['ligar'] else 'desligar'} {acao['site']}"
+            from app.services import termico_store
+            n = termico_store.armar_site(acao["site"], acao["ligar"])
+            return True, f"{'vigiando' if acao['ligar'] else 'desligou'} {n} câmera(s) em {acao['site']}"
+        if t == "ligar_regra":
+            if not valer:
+                return True, f"simulado: {'ligar' if acao['ligar'] else 'desligar'} outra automação"
+            automacao_store.ligar(acao["regra_id"], acao["ligar"])
+            return True, f"{'ligou' if acao['ligar'] else 'desligou'} outra automação"
+        if t == "executar_regra":
+            if _profundidade.n >= PROFUNDIDADE_MAX:
+                return False, "cena chamando cena demais: parou para não entrar em laço"
+            outra = automacao_store.obter(acao["regra_id"])
+            _profundidade.n += 1
+            try:
+                rodar_regra(tenant, outra, so_simular=not valer)
+            finally:
+                _profundidade.n -= 1
+            return True, f"executou {outra['nome']}"
+    except Exception as exc:
+        return False, f"{t}: {exc}"[:300]
+    return False, "ação desconhecida"
+
+
+class _Prof(threading.local):
+    n = 0
+
+
+_profundidade = _Prof()
+
+
 def _timer(segundos: float, fn: Callable, args: tuple) -> None:
     t = threading.Timer(segundos, fn, args=args)
     t.daemon = True
@@ -211,14 +263,70 @@ def rodar_regra(tenant: str, regra: Dict[str, Any], alerta_id: str = "", so_simu
             logger.warning("automacao %s (%s): %s", regra.get("nome"), tenant, msg)
 
 
+def disparar_evento(tenant: str, tipo: str, camera_id: str = "", site: str = "") -> int:
+    """Camera offline, usina sem comunicacao: as regras com esse gatilho."""
+    from app.services.termico_store import minuto_local
+
+    token = set_current_tenant_slug(tenant)
+    try:
+        n = 0
+        for regra in automacao_store.regras_por_evento(tipo, camera_id, site):
+            if automacao_store.no_periodo(regra, minuto_local()) and not _dentro_do_intervalo(regra):
+                rodar_regra(tenant, regra)
+                n += 1
+        return n
+    except Exception:
+        logger.exception("automacao: falha no evento %s (%s)", tipo, tenant)
+        return 0
+    finally:
+        reset_current_tenant_slug(token)
+
+
+def rodar_agendadas(tenant: str) -> int:
+    from app.services.termico_store import minuto_local
+
+    token = set_current_tenant_slug(tenant)
+    try:
+        regras = automacao_store.agendadas_agora()
+        for regra in regras:
+            if automacao_store.no_periodo(regra, minuto_local()):
+                threading.Thread(target=_rodar_isolada, args=(tenant, regra), daemon=True, name="automacao").start()
+        return len(regras)
+    finally:
+        reset_current_tenant_slug(token)
+
+
+def _rodar_isolada(tenant: str, regra: Dict[str, Any], so_simular: bool = False) -> None:
+    token = set_current_tenant_slug(tenant)
+    try:
+        rodar_regra(tenant, regra, so_simular=so_simular)
+    except Exception:
+        logger.exception("automacao: falha em %s (%s)", regra.get("nome"), tenant)
+    finally:
+        reset_current_tenant_slug(token)
+
+
+def executar_cena(regra_id: str) -> Dict[str, Any]:
+    """Toque no app. Roda numa thread: cena com "aguardar" nao segura a tela."""
+    from app.core.tenant_context import get_current_tenant_slug
+
+    regra = automacao_store.obter(regra_id)
+    if not regra["cena"]:
+        raise ValueError("Só cenas rodam pelo toque.")
+    tenant = get_current_tenant_slug()
+    threading.Thread(target=_rodar_isolada, args=(tenant, regra), daemon=True, name="automacao").start()
+    return {"ok": True, "modo": regra["modo"]}
+
+
 def disparar(tenant: str, camera_id: str, alerta_id: str, so_simular: bool = False) -> int:
     """Roda as automacoes da camera. Devolve quantas regras rodaram.
     so_simular: nenhuma aciona equipamento, nem as que estao em Valendo."""
     token = set_current_tenant_slug(tenant)
     try:
         rodadas = 0
+        from app.services.termico_store import minuto_local
         for regra in automacao_store.regras_da_camera(camera_id):
-            if _dentro_do_intervalo(regra):
+            if _dentro_do_intervalo(regra) or not automacao_store.no_periodo(regra, minuto_local()):
                 continue
             rodar_regra(tenant, regra, alerta_id, so_simular)
             rodadas += 1

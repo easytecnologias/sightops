@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 import re
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 from app.core.tenant_context import get_current_tenant_slug
@@ -20,7 +20,11 @@ from app.services import db_store
 
 ID_RE = re.compile(r"^[0-9a-f]{32}$")
 MODOS = ("simular", "valer")
-TIPOS = ("saida", "speed_preset", "speed_seguir")
+TIPOS = ("saida", "speed_preset", "speed_seguir", "aguardar", "avisar", "vigiar_usina", "executar_regra", "ligar_regra")
+COM_EQUIPAMENTO = ("saida", "speed_preset", "speed_seguir")
+GATILHOS = ("pessoa", "offline", "usina_offline", "horario", "sol", "manual")
+HORA_RE = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
+MAX_GATILHOS = 6
 MAX_ACOES = 8
 MAX_SEGUNDOS = 600
 
@@ -74,6 +78,9 @@ def _validar_acoes(acoes: Any) -> List[Dict[str, Any]]:
     for a in acoes:
         if not isinstance(a, dict) or a.get("tipo") not in TIPOS:
             raise ValueError("Tipo de ação inválido.")
+        if a["tipo"] not in COM_EQUIPAMENTO:
+            saida.append(_acao_simples(a))
+            continue
         eq = equipamento_do_inventario(_txt(a.get("ip")), _txt(a.get("connector_id")))
         if not eq or not _site_ok(eq["site"]):
             raise ValueError(f"O equipamento {_txt(a.get('ip'))} não está no inventário deste cliente.")
@@ -107,6 +114,131 @@ def _validar_acoes(acoes: Any) -> List[Dict[str, Any]]:
     return saida
 
 
+def _acao_simples(a: Dict[str, Any]) -> Dict[str, Any]:
+    """Acoes sem equipamento: aguardar, avisar, vigiar usina, outra regra."""
+    t = a["tipo"]
+    if t == "aguardar":
+        try:
+            seg = int(a.get("segundos") or 5)
+        except (TypeError, ValueError):
+            raise ValueError("Aguardar: informe os segundos.")
+        if not 1 <= seg <= MAX_SEGUNDOS:
+            raise ValueError(f"Aguardar: use de 1 a {MAX_SEGUNDOS} segundos.")
+        return {"tipo": t, "segundos": seg}
+    if t == "avisar":
+        texto = _txt(a.get("texto"))[:160]
+        if not texto:
+            raise ValueError("Avisar celulares: escreva a mensagem.")
+        return {"tipo": t, "texto": texto, "site": _site_da_acao(a)}
+    if t == "vigiar_usina":
+        return {"tipo": t, "site": _site_da_acao(a, obrigatorio=True), "ligar": bool(a.get("ligar", True))}
+    regra_id = _txt(a.get("regra_id"))
+    if not ID_RE.match(regra_id):
+        raise ValueError("Escolha a automação.")
+    item = {"tipo": t, "regra_id": regra_id}
+    if t == "ligar_regra":
+        item["ligar"] = bool(a.get("ligar", True))
+    return item
+
+
+def _site_da_acao(a: Dict[str, Any], obrigatorio: bool = False) -> str:
+    site = _txt(a.get("site"))
+    if obrigatorio and not site:
+        raise ValueError("Escolha a usina.")
+    if site and (site not in sites_do_cliente() or not _site_ok(site)):
+        raise ValueError("Usina não encontrada.")
+    return site
+
+
+def sites_do_cliente() -> List[str]:
+    tenant = _tenant()
+    with db_store._conn() as c:
+        return sorted({_txt(dict(r)["site"]) for r in c.execute(
+            "SELECT DISTINCT site FROM termico_cameras WHERE tenant_slug=? AND leitura<>'removida'", (tenant,)).fetchall()} - {""})
+
+
+def _validar_gatilhos(gatilhos: Any) -> List[Dict[str, Any]]:
+    if not isinstance(gatilhos, list) or not gatilhos:
+        raise ValueError("Escolha pelo menos um gatilho.")
+    if len(gatilhos) > MAX_GATILHOS:
+        raise ValueError(f"No máximo {MAX_GATILHOS} gatilhos.")
+    tenant = _tenant()
+    saida = []
+    with db_store._conn() as c:
+        cams = {dict(r)["id"]: dict(r) for r in c.execute(
+            "SELECT id, site FROM termico_cameras WHERE tenant_slug=? AND leitura<>'removida'", (tenant,)).fetchall()}
+    for g in gatilhos:
+        if not isinstance(g, dict) or g.get("tipo") not in GATILHOS:
+            raise ValueError("Gatilho inválido.")
+        t = g["tipo"]
+        item: Dict[str, Any] = {"tipo": t}
+        if t in ("pessoa", "offline"):
+            cam = _txt(g.get("camera_id"))
+            if cam and (cam not in cams or not _site_ok(cams[cam]["site"])):
+                raise ValueError("Câmera do gatilho não encontrada.")
+            if not cam and _restrito():
+                raise ValueError("Escolha a câmera: \"todas\" inclui sites fora do seu acesso.")
+            item["camera_id"] = cam
+        elif t == "usina_offline":
+            item["site"] = _site_da_acao(g, obrigatorio=True)
+        elif t == "horario":
+            hora = _txt(g.get("hora"))
+            if not HORA_RE.match(hora):
+                raise ValueError("Horário inválido.")
+            dias = sorted({int(d) for d in (g.get("dias") or range(7)) if str(d).isdigit() and 0 <= int(d) <= 6})
+            item.update(hora=hora, dias=dias or list(range(7)))
+        elif t == "sol":
+            if g.get("evento") not in ("nascer", "por"):
+                raise ValueError("Escolha nascer ou pôr do sol.")
+            try:
+                minutos = int(g.get("minutos") or 0)
+            except (TypeError, ValueError):
+                minutos = 999
+            if not -180 <= minutos <= 180:
+                raise ValueError("Sol: use de 180 min antes a 180 min depois.")
+            site = _site_da_acao(g, obrigatorio=True)
+            if not coordenadas_do_site(site):
+                raise ValueError(f"A usina {site} não tem coordenadas no inventário: use horário fixo.")
+            item.update(evento=g["evento"], minutos=minutos, site=site)
+        saida.append(item)
+    return saida
+
+
+def _validar_periodo(p: Any) -> Dict[str, str]:
+    if not p:
+        return {}
+    de, ate = _txt((p or {}).get("de")), _txt((p or {}).get("ate"))
+    if not de and not ate:
+        return {}
+    if not HORA_RE.match(de) or not HORA_RE.match(ate) or de == ate:
+        raise ValueError("Período: informe início e fim diferentes.")
+    return {"de": de, "ate": ate}
+
+
+def coordenadas_do_site(site: str) -> Optional[tuple]:
+    """Media da latitude/longitude das cameras da usina no inventario."""
+    from app.services.inventory_json import load_inventory_json
+
+    pts = []
+    for modo in ("switch", "olt"):
+        try:
+            linhas = load_inventory_json(mode=modo)
+        except Exception:
+            linhas = []
+        for row in linhas or []:
+            if _txt(row.get("site") or row.get("local")) != site:
+                continue
+            try:
+                lat, lon = float(row.get("lat")), float(row.get("lon"))
+            except (TypeError, ValueError):
+                continue
+            if -90 <= lat <= 90 and -180 <= lon <= 180 and (lat or lon):
+                pts.append((lat, lon))
+    if not pts:
+        return None
+    return sum(p[0] for p in pts) / len(pts), sum(p[1] for p in pts) / len(pts)
+
+
 def equipamentos() -> List[Dict[str, Any]]:
     """O que pode ser alvo de acao: Hikvision/HikMicro do inventario do cliente.
     `speed` = aceita preset. Saida de alarme: camera ou gravador."""
@@ -133,14 +265,26 @@ def equipamentos() -> List[Dict[str, Any]]:
     return sorted(vistos.values(), key=lambda e: (e["site"], e["nome"]))
 
 
-def _publica(r: Dict[str, Any]) -> Dict[str, Any]:
+def _json(v: Any, padrao: Any) -> Any:
     try:
-        acoes = json.loads(r.get("acoes") or "[]")
+        return json.loads(v) if v else padrao
     except Exception:
-        acoes = []
+        return padrao
+
+
+def _gatilhos_de(r: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Regra antiga (so camera de origem) vira o gatilho "pessoa"."""
+    g = _json(r.get("gatilhos"), [])
+    return g or [{"tipo": "pessoa", "camera_id": r.get("origem_camera_id") or ""}]
+
+
+def _publica(r: Dict[str, Any]) -> Dict[str, Any]:
+    gatilhos = _gatilhos_de(r)
     return {"id": r["id"], "nome": r.get("nome") or "", "ativo": bool(int(r.get("ativo") or 0)),
             "modo": r.get("modo") or "simular", "origem_camera_id": r.get("origem_camera_id") or "",
-            "intervalo_s": int(r.get("intervalo_s") or 120), "acoes": acoes}
+            "intervalo_s": int(r.get("intervalo_s") or 120), "acoes": _json(r.get("acoes"), []),
+            "gatilhos": gatilhos, "periodo": _json(r.get("periodo"), {}),
+            "cena": all(g["tipo"] == "manual" for g in gatilhos)}
 
 
 def _restrito() -> bool:
@@ -185,7 +329,7 @@ def listar() -> Dict[str, Any]:
     vistas = {r["id"] for r in rows}
     hist = [h for h in hist if h.get("automacao_id") in vistas]
     rows.sort(key=lambda r: (r.get("nome") or "").lower())
-    return {"automacoes": [_publica(r) for r in rows], "execucoes": hist, "equipamentos": equipamentos()}
+    return {"automacoes": [_publica(r) for r in rows], "execucoes": hist, "equipamentos": equipamentos(), "sites": [s for s in sites_do_cliente() if _site_ok(s)]}
 
 
 def salvar(dados: Dict[str, Any], regra_id: str = "") -> Dict[str, Any]:
@@ -203,28 +347,103 @@ def salvar(dados: Dict[str, Any], regra_id: str = "") -> Dict[str, Any]:
         raise ValueError("Intervalo inválido.")
     if not 10 <= intervalo <= 3600:
         raise ValueError("Intervalo: use de 10 a 3600 segundos.")
-    origem = _txt(dados.get("origem_camera_id"))
-    if not origem and any(a["tipo"] == "speed_seguir" for a in acoes):
-        raise ValueError("Seguir o alarme vale para uma câmera: escolha em Quando detectar em.")
+    # Tela antiga manda so a camera de origem; a nova manda os gatilhos.
+    gatilhos = _validar_gatilhos(dados.get("gatilhos") if dados.get("gatilhos")
+                                 else [{"tipo": "pessoa", "camera_id": _txt(dados.get("origem_camera_id"))}])
+    periodo = _validar_periodo(dados.get("periodo"))
+    pessoas = [g for g in gatilhos if g["tipo"] == "pessoa"]
+    origem = pessoas[0]["camera_id"] if len(pessoas) == 1 else ""
+    if any(a["tipo"] == "speed_seguir" for a in acoes) and not origem:
+        raise ValueError("Seguir o alarme vale para um gatilho de pessoa numa câmera só.")
+    for a in acoes:
+        if a["tipo"] in ("executar_regra", "ligar_regra") and a["regra_id"] == regra_id:
+            raise ValueError("A automação não pode chamar a si mesma.")
     agora = _agora()
     ativo = 1 if dados.get("ativo", True) else 0
     with db_store._conn() as c:
-        if origem:
-            cam = c.execute("SELECT site FROM termico_cameras WHERE tenant_slug=? AND id=?", (tenant, origem)).fetchone()
-            if not cam or not _site_ok(dict(cam).get("site")):
-                raise ValueError("Câmera de origem não encontrada.")
-        elif _restrito():
-            raise ValueError("Escolha a câmera de origem: \"Todas as térmicas\" inclui sites fora do seu acesso.")
-        valores = (nome, ativo, modo, origem, intervalo, json.dumps(acoes, ensure_ascii=False), agora)
+        for a in acoes:
+            if a["tipo"] in ("executar_regra", "ligar_regra"):
+                _regra(c, tenant, a["regra_id"])
+        valores = (nome, ativo, modo, origem, intervalo, json.dumps(acoes, ensure_ascii=False),
+                   json.dumps(gatilhos, ensure_ascii=False), json.dumps(periodo), agora)
         if regra_id:
             _regra(c, tenant, regra_id)
-            c.execute("UPDATE automacoes SET nome=?, ativo=?, modo=?, origem_camera_id=?, intervalo_s=?, acoes=?, updated_at=? "
+            c.execute("UPDATE automacoes SET nome=?, ativo=?, modo=?, origem_camera_id=?, intervalo_s=?, acoes=?, gatilhos=?, periodo=?, updated_at=? "
                       "WHERE tenant_slug=? AND id=?", valores + (tenant, regra_id))
         else:
             regra_id = uuid.uuid4().hex
-            c.execute("INSERT INTO automacoes(nome, ativo, modo, origem_camera_id, intervalo_s, acoes, updated_at, id, tenant_slug, created_at) "
-                      "VALUES(?,?,?,?,?,?,?,?,?,?)", valores + (regra_id, tenant, agora))
+            c.execute("INSERT INTO automacoes(nome, ativo, modo, origem_camera_id, intervalo_s, acoes, gatilhos, periodo, updated_at, id, tenant_slug, created_at) "
+                      "VALUES(?,?,?,?,?,?,?,?,?,?,?,?)", valores + (regra_id, tenant, agora))
         return _publica(_regra(c, tenant, regra_id))
+
+
+def ligar(regra_id: str, ativo: bool) -> Dict[str, Any]:
+    tenant = _tenant()
+    with db_store._conn() as c:
+        _regra(c, tenant, regra_id)
+        c.execute("UPDATE automacoes SET ativo=?, updated_at=? WHERE tenant_slug=? AND id=?", (1 if ativo else 0, _agora(), tenant, regra_id))
+        return _publica(_regra(c, tenant, regra_id))
+
+
+def regras_por_evento(tipo: str, camera_id: str = "", site: str = "") -> List[Dict[str, Any]]:
+    """Regras ligadas com um gatilho deste evento. Sem sessao (motor): ve todas."""
+    tenant = _tenant()
+    with db_store._conn() as c:
+        rows = [dict(r) for r in c.execute("SELECT * FROM automacoes WHERE tenant_slug=? AND ativo=1", (tenant,)).fetchall()]
+    saida = []
+    for r in rows:
+        for g in _gatilhos_de(r):
+            if g["tipo"] != tipo:
+                continue
+            if tipo in ("pessoa", "offline") and g.get("camera_id") not in ("", camera_id):
+                continue
+            if tipo == "usina_offline" and g.get("site") != site:
+                continue
+            saida.append(_publica(r))
+            break
+    return saida
+
+
+def no_periodo(regra: Dict[str, Any], minuto: int) -> bool:
+    p = regra.get("periodo") or {}
+    if not p.get("de"):
+        return True
+    de, ate = (int(p[k][:2]) * 60 + int(p[k][3:5]) for k in ("de", "ate"))
+    return de <= minuto < ate if de < ate else (minuto >= de or minuto < ate)
+
+
+def agendadas_agora(momento: Optional[datetime] = None) -> List[Dict[str, Any]]:
+    """Regras de horario e de sol cuja hora chegou e que ainda nao rodaram hoje.
+    Marca antes de devolver: o laco roda a cada 30 s e o servidor pode reiniciar."""
+    from app.services.sol import nascer_por
+    from app.services.termico_store import FUSO
+
+    tenant = _tenant()
+    agora = (momento or datetime.now(timezone.utc)).astimezone(FUSO)
+    hoje = agora.date().isoformat()
+    saida = []
+    with db_store._conn() as c:
+        rows = [dict(r) for r in c.execute("SELECT * FROM automacoes WHERE tenant_slug=? AND ativo=1 AND gatilhos<>''", (tenant,)).fetchall()]
+        for r in rows:
+            agenda = _json(r.get("agenda"), {})
+            disparou = False
+            for i, g in enumerate(_gatilhos_de(r)):
+                quando = None
+                if g["tipo"] == "horario" and agora.weekday() in g.get("dias", list(range(7))):
+                    quando = agora.replace(hour=int(g["hora"][:2]), minute=int(g["hora"][3:]), second=0, microsecond=0)
+                elif g["tipo"] == "sol":
+                    coord = coordenadas_do_site(g["site"])
+                    sol = nascer_por(coord[0], coord[1], agora.date()) if coord else None
+                    if sol:
+                        quando = (sol[0] if g["evento"] == "nascer" else sol[1]).astimezone(FUSO) + timedelta(minutes=g.get("minutos", 0))
+                if quando is None or agenda.get(str(i)) == hoje or not quando <= agora < quando + timedelta(minutes=5):
+                    continue
+                agenda[str(i)] = hoje
+                disparou = True
+            if disparou:
+                c.execute("UPDATE automacoes SET agenda=? WHERE tenant_slug=? AND id=?", (json.dumps(agenda), tenant, r["id"]))
+                saida.append(_publica({**r, "agenda": json.dumps(agenda)}))
+    return saida
 
 
 def excluir(regra_id: str) -> Dict[str, Any]:
@@ -236,12 +455,7 @@ def excluir(regra_id: str) -> Dict[str, Any]:
 
 
 def regras_da_camera(camera_id: str) -> List[Dict[str, Any]]:
-    tenant = _tenant()
-    with db_store._conn() as c:
-        rows = [dict(r) for r in c.execute(
-            "SELECT * FROM automacoes WHERE tenant_slug=? AND ativo=1 AND (origem_camera_id='' OR origem_camera_id=?)",
-            (tenant, camera_id)).fetchall()]
-    return [_publica(r) for r in rows]
+    return regras_por_evento("pessoa", camera_id)
 
 
 def obter(regra_id: str) -> Dict[str, Any]:

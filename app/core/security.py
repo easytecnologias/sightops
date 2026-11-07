@@ -209,6 +209,8 @@ class ApiAuthMiddleware(BaseHTTPMiddleware):
             (("PUT",), "/api/termico/config", "admin"),
             (("POST", "PUT", "DELETE"), "/api/termico/", "operator"),
             # Automacoes acionam sirene, refletor e speed no cliente: so admin.
+            # Cena: so executa o que o admin montou. Criar e mudar segue so admin.
+            (("POST",), "/api/automacoes/cenas/", "operator"),
             (("POST", "PUT", "DELETE"), "/api/automacoes", "admin"),
             # Ponto de venda: caixa, token do coletor e reprocessar o dia
             # mexem na configuracao do cliente -- so administrador.
