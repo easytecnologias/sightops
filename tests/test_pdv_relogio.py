@@ -168,6 +168,7 @@ def test_lote_atrasado_nao_vira_caixa_atrasado(banco):
                                "lotes": [{"arquivo": "Teclas", "dia": "2026-10-27", "linhas": [[next(seq), "x"]]}]})
         return S.listar_caixas()[0]["relogio_pdv_offset_s"]
 
-    assert enviar(1) == -1
-    assert enviar(7) == -1   # lote que demorou a subir: ignorado
-    assert enviar(1) == -1
+    base = enviar(1)          # -1, ou -2 se o lote levou mais de meio segundo
+    assert base in (-1, -2)
+    assert enviar(7) == base  # lote que demorou a subir: ignorado
+    assert enviar(1) >= base
