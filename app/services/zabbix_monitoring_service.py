@@ -564,12 +564,47 @@ def _garantir_gatilhos_switch_provedor(url: str, auth: str, technical_names: Dic
         return 0
 
 
+GATILHO_PDV_RELOGIO_GRAVADOR = "Relogio do gravador desencontrado do caixa ({HOST.NAME})"
+GATILHO_PDV_RELOGIO_CAIXA = "Relogio do caixa errado: horario dos cupons fora ({HOST.NAME})"
+GATILHO_PDV_CALIBRACAO = "Relogio do caixa sem calibrar: video do evento pode abrir fora do ponto ({HOST.NAME})"
+
+
+def _gatilhos_pdv_desejados(nome: str) -> List[Dict[str, Any]]:
+    st = f"/{nome}/sightops.status"
+    grav = f"/{nome}/sightops.pdv_relogio_gravador_s"
+    cx = f"/{nome}/sightops.pdv_relogio_caixa_s"
+    med = f"/{nome}/sightops.pdv_relogio_medido_s"
+    return [
+        {"chave": "sightops.status", "description": GATILHO_PDV_CAIU, "expression": f"last({st})=0",
+         "recovery_expression": f"last({st})=1", "priority": 3,
+         "comments": "O coletor do caixa nao manda nada ha mais de 3 min (caixa desligado, sem rede ou "
+                     "servico parado). Enquanto isso as vendas desse caixa nao sao auditadas. No caixa: "
+                     "systemctl status sightops-pdv-coletor."},
+        {"chave": "sightops.pdv_relogio_gravador_s", "description": GATILHO_PDV_RELOGIO_GRAVADOR,
+         "expression": f"abs(last({grav}))>5", "recovery_expression": f"abs(last({grav}))<=3", "priority": 2,
+         "comments": "Gravador e caixa com mais de 5 s de diferenca. O video do evento e compensado pela "
+                     "calibracao, mas o horario do gravador esta errado para quem usa a gravacao: acerte o NTP "
+                     "do gravador e do caixa (o SightOps nao altera o gravador)."},
+        {"chave": "sightops.pdv_relogio_caixa_s", "description": GATILHO_PDV_RELOGIO_CAIXA,
+         "expression": f"abs(avg({cx},10m))>60", "recovery_expression": f"abs(avg({cx},10m))<=30", "priority": 2,
+         "comments": "O relogio do caixa esta mais de 1 min longe do servidor: cupons e eventos saem com horario "
+                     "errado. Acerte o NTP do caixa."},
+        {"chave": "sightops.pdv_relogio_medido_s", "description": GATILHO_PDV_CALIBRACAO,
+         "expression": f"last({med})>7200 and min({st},15m)=1",
+         "recovery_expression": f"last({med})<=7200 or last({st})<>1", "priority": 2,
+         "comments": "Caixa com coletor ativo ha 15 min e o relogio do gravador sem medida ha mais de 2 h, "
+                     "ou nunca medido (gravador sem resposta, conector/IP virtual errado, coletor sem hora). "
+                     "Sem calibrar, o video do evento pode abrir fora do momento."},
+    ]
+
+
 def _garantir_gatilhos_pdv(url: str, auth: str, technical_names: Dict[str, Dict[str, Any]],
                            host_ids: Dict[str, str], item_by_host_key: Dict[Any, str],
                            falhas: Dict[str, int] | None = None) -> int:
-    """Caixa (PDV) cujo coletor parou de mandar sinal (status 0 depois do limite
-    do perfil). Dado faltando e pior que nenhum dado: sem isto o caixa parava de
-    ser auditado e ninguem sabia. Falha aqui nao derruba o sync."""
+    """Caixa (PDV): coletor parado e medidor de horario (relogio do caixa, do
+    gravador e calibracao parada). Dado faltando e pior que nenhum dado: sem
+    isto o caixa parava de ser auditado e ninguem sabia. Gatilho so nasce com o
+    item existindo. Falha aqui nao derruba o sync."""
     alvos = {}
     for nome, row in technical_names.items():
         hostid = host_ids.get(nome, "")
@@ -578,16 +613,19 @@ def _garantir_gatilhos_pdv(url: str, auth: str, technical_names: Dict[str, Dict[
     if not alvos:
         return 0
     try:
+        descricoes = [g["description"] for g in _gatilhos_pdv_desejados("x")]
         existentes = _call(url, "trigger.get", {
-            "output": ["triggerid"], "selectHosts": ["hostid"], "hostids": list(alvos),
-            "filter": {"description": [GATILHO_PDV_CAIU]}}, auth, 150) or []
-        tem = {_text(h.get("hostid")) for t in existentes for h in (t.get("hosts") or [])}
-        novos = [{"description": GATILHO_PDV_CAIU, "expression": f"last(/{nome}/sightops.status)=0",
-                  "recovery_mode": 1, "recovery_expression": f"last(/{nome}/sightops.status)=1", "priority": 3,
-                  "comments": "O coletor do caixa nao manda nada ha mais de 3 min (caixa desligado, sem rede ou "
-                              "servico parado). Enquanto isso as vendas desse caixa nao sao auditadas. No caixa: "
-                              "systemctl status sightops-pdv-coletor."}
-                 for hostid, nome in alvos.items() if hostid not in tem]
+            "output": ["triggerid", "description"], "selectHosts": ["hostid"], "hostids": list(alvos),
+            "filter": {"description": descricoes}}, auth, 150) or []
+        tem = {(_text(h.get("hostid")), _text(t.get("description"))) for t in existentes for h in (t.get("hosts") or [])}
+        novos = []
+        for hostid, nome in alvos.items():
+            for g in _gatilhos_pdv_desejados(nome):
+                if (hostid, g["description"]) in tem or not item_by_host_key.get((hostid, g["chave"])):
+                    continue
+                novos.append({"description": g["description"], "expression": g["expression"], "recovery_mode": 1,
+                              "recovery_expression": g["recovery_expression"], "priority": g["priority"],
+                              "comments": g["comments"]})
         for i, lote in enumerate(_chunks(novos)):
             _call(url, "trigger.create", lote, auth, 151 + i)
         return len(novos)
@@ -976,6 +1014,7 @@ def _sync_monitoring_to_zabbix(entity_types: tuple[str, ...]) -> Dict[str, Any]:
                    "sightops.link_in_bps", "sightops.link_out_bps", "sightops.link_erros",
                    "sightops.sfp_rx_dbm", "sightops.sfp_tx_dbm",
                    "sightops.pdv_contato_s", "sightops.pdv_evento_s",
+                   "sightops.pdv_relogio_caixa_s", "sightops.pdv_relogio_gravador_s", "sightops.pdv_relogio_medido_s",
                    "sightops.termico_pendentes", "sightops.termico_leitura", "sightops.termico_fundo_c",
                    "sightops.termico_falhas"]
     items = _call(
@@ -1014,6 +1053,10 @@ def _sync_monitoring_to_zabbix(entity_types: tuple[str, ...]) -> Dict[str, Any]:
         "sightops.sfp_tx_dbm": ("SightOps - Sinal da fibra enviado", 0, "Potencia optica enviada pelo SFP da porta do provedor, em dBm"),
         "sightops.pdv_contato_s": ("SightOps - Coletor do caixa: ultimo contato", 3, "Segundos desde o ultimo envio do coletor do PDV (sinal de vida a cada 30 s)"),
         "sightops.pdv_evento_s": ("SightOps - Caixa: ultima venda lida", 3, "Segundos desde o ultimo evento do Espiao recebido (cresce a noite e com o caixa fechado)"),
+        # float: diferenca de relogio pode ser negativa (tipo 3 e sem sinal)
+        "sightops.pdv_relogio_caixa_s": ("SightOps - Relogio do caixa x servidor", 0, "Segundos que o relogio do caixa esta a frente (+) ou atras (-) do servidor; erra os horarios dos cupons"),
+        "sightops.pdv_relogio_gravador_s": ("SightOps - Relogio do gravador x caixa", 0, "Segundos que o gravador esta a frente (+) ou atras (-) do caixa; o video do evento ja e compensado por esta medida"),
+        "sightops.pdv_relogio_medido_s": ("SightOps - Relogio: idade da calibracao", 3, "Segundos desde a ultima medida do relogio do gravador (o SightOps mede a cada 30 min, so leitura)"),
         "sightops.termico_pendentes": ("SightOps - Termica: pessoas detectadas sem resposta", 3, "Alertas de pessoa pelo calor ainda sem Ciente/Falso alarme (Alerta Termico)"),
         "sightops.termico_leitura": ("SightOps - Termica: medicao de temperatura", 3, "1 = o SightOps le a temperatura da camera; 0 = sem leitura (medicao desligada, senha, rede, leitura parada); 2 = camera desligada/removida do Alerta Termico"),
         "sightops.termico_fundo_c": ("SightOps - Termica: temperatura media da cena", 0, "Media do fundo aprendido pela deteccao, em graus C"),
@@ -1058,7 +1101,8 @@ def _sync_monitoring_to_zabbix(entity_types: tuple[str, ...]) -> Dict[str, Any]:
         "switch_provedor": ["sightops.ports_up", "sightops.ports_total"],
         # Caixa (PDV): o coletor manda sinal de vida; a idade do ultimo evento
         # mostra caixa "vivo" que parou de ler o Espiao.
-        "pdv": ["sightops.pdv_contato_s", "sightops.pdv_evento_s"],
+        "pdv": ["sightops.pdv_contato_s", "sightops.pdv_evento_s", "sightops.pdv_relogio_caixa_s",
+                "sightops.pdv_relogio_gravador_s", "sightops.pdv_relogio_medido_s"],
         # Camera termica no Alerta Termico (_juntar_termico). Camera comum nao
         # traz esses campos: so_se_presente impede item vazio nela.
         "camera": ["sightops.termico_pendentes", "sightops.termico_leitura", "sightops.termico_fundo_c",
@@ -1146,6 +1190,9 @@ def _sync_monitoring_to_zabbix(entity_types: tuple[str, ...]) -> Dict[str, Any]:
             ("sightops.sfp_tx_dbm", _number(detail.get("sfp_tx_dbm"))),
             ("sightops.pdv_contato_s", _number(detail.get("contato_s"))),
             ("sightops.pdv_evento_s", _number(detail.get("evento_s"))),
+            ("sightops.pdv_relogio_caixa_s", _number(detail.get("relogio_caixa_s"))),
+            ("sightops.pdv_relogio_gravador_s", _number(detail.get("relogio_gravador_s"))),
+            ("sightops.pdv_relogio_medido_s", _number(detail.get("relogio_medido_s"))),
             ("sightops.termico_pendentes", _number(detail.get("termico_pendentes"))),
             ("sightops.termico_leitura", _number(detail.get("termico_leitura"))),
             ("sightops.termico_fundo_c", _number(detail.get("termico_fundo_c"))),

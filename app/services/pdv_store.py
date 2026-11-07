@@ -298,6 +298,10 @@ def receber_lote(caixa: Dict[str, Any], payload: Dict[str, Any], agora: Optional
                 raise ValueError("seq comeca em 1")
             alvo.append((seq, texto))
 
+    # Hora do caixa comparada NA CHEGADA, antes da fila de gravacao: comparada
+    # depois do _lock, a espera (ate 16 s logo apos um restart, com os caixas
+    # descarregando) virava "caixa atrasado" e estragava a calibracao do video.
+    offset = _offset_relogio(payload.get("relogio"))
     agora_txt = _agora()
     aceito: Dict[str, int] = {}
     ultimo_ts = ""
@@ -321,7 +325,6 @@ def receber_lote(caixa: Dict[str, Any], payload: Dict[str, Any], agora: Optional
         for (t, cx, dia), pr in list(_estado.items()):
             if t == tenant and cx == caixa_id and pr.pendentes and dia not in por_dia:
                 _gravar_saida(c, tenant, caixa_id, dia, pr.receber(agora=agora))
-        offset = _offset_relogio(payload.get("relogio"))
         sets, vals = ["ultimo_contato=?", "coletor_versao=?"], [agora_txt, _texto(payload.get("versao"), 40)]
         if ultimo_ts:
             sets.append("ultimo_evento=?")
@@ -356,6 +359,62 @@ def registrar_relogio_dvr(caixa_id: str, gravador_menos_servidor_s: int) -> Dict
         c.execute("UPDATE pdv_caixas SET relogio_dvr_offset_s=?, relogio_dvr_medido_em=? WHERE tenant_slug=? AND id=?",
                   (dif, _agora(), tenant, caixa_id))
     return {"ok": True, "gravador_menos_caixa_s": dif}
+
+
+RELOGIO_AMOSTRAS = 3
+RELOGIO_CAIXA_FRESCO_S = 120  # a hora do caixa so vale se o coletor mandou ha pouco
+RELOGIO_NUNCA_MEDIDO_S = 999999  # idade mandada ao Zabbix quando o gravador nunca foi medido
+
+
+def ler_relogio_gravador(host: str, connector_id: Any) -> Dict[str, Any]:
+    """Hora do gravador (so leitura, getCurrentTime), pelo IP virtual do conector.
+    Algumas leituras; fica a de ida e volta mais curta, a que menos erra pelo tunel."""
+    from app.api.endpoints.recorder_driver import _abrir
+    g = _abrir(host, 80, connector_id)
+    return min((g.relogio() for _ in range(RELOGIO_AMOSTRAS)), key=lambda m: m.get("latencia_s", 0))
+
+
+def calibrar_relogios(ler: Any = None, agora: Optional[datetime] = None, idade_min_s: int = 0) -> Dict[str, Any]:
+    """Calibrador: mede o gravador de cada caixa ativo do cliente e guarda
+    gravador - caixa (o que acerta o video do evento). Le cada gravador uma vez
+    (varios caixas no mesmo). Nunca escreve no gravador. Caixa sem contato
+    recente fica de fora: a hora dele guardada esta velha. `idade_min_s`: so
+    remede o caixa cuja ultima medida e mais velha que isso (o laco roda a cada
+    5 min e recalibra a cada 30: o caixa que liga de manha e medido logo)."""
+    import contextvars
+
+    from app.services.recorder_media_service import sem_senha
+    ler = ler or ler_relogio_gravador
+    agora = agora or datetime.now(timezone.utc)
+    with db_store._conn() as c:
+        caixas = _rows(c, "SELECT * FROM pdv_caixas WHERE tenant_slug=? AND ativo=1 ORDER BY numero, nome", (_tenant(),))
+    leituras: Dict[Tuple[Any, Any], Any] = {}
+    out: Dict[str, Any] = {"medidos": 0, "pulados": 0, "falhas": []}
+    for cx in caixas:
+        if not cx.get("gravador_host"):
+            continue
+        contato = _segundos_desde(cx.get("ultimo_contato") or "", agora)
+        if contato is None or contato > RELOGIO_CAIXA_FRESCO_S or cx.get("relogio_pdv_offset_s") is None:
+            out["pulados"] += 1
+            continue
+        idade = _segundos_desde(cx.get("relogio_dvr_medido_em") or "", agora)
+        if idade_min_s and idade is not None and idade < idade_min_s:
+            continue
+        chave = (cx["gravador_host"], cx.get("connector_id"))
+        if chave not in leituras:
+            try:
+                # contexto proprio por gravador: o conector que _abrir deixa no
+                # contexto (vnat) nao pode valer para o gravador seguinte
+                leituras[chave] = contextvars.copy_context().run(ler, *chave)
+            except Exception as exc:  # gravador fora: os outros caixas seguem
+                leituras[chave] = exc
+        m = leituras[chave]
+        if isinstance(m, Exception):
+            out["falhas"].append("%s: %s" % (cx.get("nome"), sem_senha(str(m))[:160]))
+            continue
+        registrar_relogio_dvr(cx["id"], int(m["diferenca_s"]))
+        out["medidos"] += 1
+    return out
 
 
 def janela_video(caixa_id: str, ts: str, antes: int = 20, depois: int = 20) -> Dict[str, Any]:
@@ -998,6 +1057,18 @@ def entidades_monitoramento(agora: Optional[datetime] = None) -> List[Dict[str, 
             "detail": {"contato_s": contato, "evento_s": evento, "coletor_versao": r.get("coletor_versao"),
                        "gravador": r.get("gravador_host"), "canal": r.get("gravador_canal"),
                        "relogio_pdv_offset_s": r.get("relogio_pdv_offset_s"),
-                       "relogio_dvr_offset_s": r.get("relogio_dvr_offset_s")},
+                       "relogio_dvr_offset_s": r.get("relogio_dvr_offset_s"),
+                       # medidor de horario (Zabbix): caixa x servidor, gravador x caixa e
+                       # idade da ultima calibracao (o laco calibra a cada 30 min)
+                       # hora do caixa so com o coletor falando: a guardada de caixa
+                       # desligado nao e medida de agora
+                       "relogio_caixa_s": (r.get("relogio_pdv_offset_s")
+                                           if contato is not None and contato <= OFFLINE_APOS_S else None),
+                       "relogio_gravador_s": r.get("relogio_dvr_offset_s"),
+                       # gravador configurado e nunca medido = idade enorme: e o caso
+                       # mais grave (vnat/conector errado) e nao pode ficar mudo
+                       "relogio_medido_s": ((_segundos_desde(r.get("relogio_dvr_medido_em") or "", agora)
+                                             if r.get("relogio_dvr_medido_em") else RELOGIO_NUNCA_MEDIDO_S)
+                                            if r.get("gravador_host") else None)},
         })
     return out

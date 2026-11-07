@@ -830,6 +830,49 @@ async def _rack_links_loop() -> None:
         await asyncio.sleep(RACK_LINKS_INTERVAL_S)
 
 
+PDV_RELOGIO_INTERVAL_S = 300    # passa a cada 5 min...
+PDV_RELOGIO_RECALIBRAR_S = 1800  # ...e remede o caixa com medida de mais de 30 min
+
+
+def _calibrar_pdv_tenant(tenant_slug: str) -> dict:
+    from app.services.pdv_store import calibrar_relogios
+
+    token = set_current_tenant_slug(tenant_slug)
+    try:
+        return calibrar_relogios(idade_min_s=PDV_RELOGIO_RECALIBRAR_S)
+    finally:
+        reset_current_tenant_slug(token)
+
+
+async def _pdv_relogio_loop() -> None:
+    """Calibrador do relogio do PDV: a cada 30 min (caixa que liga: em ate 5) le a hora de cada gravador
+    (so leitura) e guarda gravador - caixa, que acerta o video do evento. Medida
+    unica a mao envelhecia (PDV-01 da VITAL ficou 8 s fora). A idade da medida e
+    as diferencas vao ao Zabbix pela entidade pdv."""
+    await asyncio.sleep(120)
+    while True:
+        resumo: dict[str, object] = {}
+        try:
+            for tenant_slug in await asyncio.to_thread(list_monitoring_tenants):
+                try:
+                    r = await asyncio.to_thread(_calibrar_pdv_tenant, tenant_slug)
+                except Exception as exc:  # noqa: BLE001 - um cliente nao para os outros
+                    resumo[tenant_slug] = {"ok": False, "error": f"{type(exc).__name__}: {exc}"[:300]}
+                    logger.exception("pdv relogio: falhou para %s", tenant_slug)
+                    continue
+                if r.get("medidos") or r.get("falhas"):
+                    resumo[tenant_slug] = r
+                if r.get("falhas"):
+                    logger.warning("pdv relogio %s: %s", tenant_slug, "; ".join(r["falhas"])[:500])
+            app.state.pdv_relogio_last = {"ok": True, "interval_s": PDV_RELOGIO_INTERVAL_S, "tenants": resumo}
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            app.state.pdv_relogio_last = {"ok": False, "error": str(exc)}
+            logger.exception("pdv relogio loop failed")
+        await asyncio.sleep(PDV_RELOGIO_INTERVAL_S)
+
+
 async def _live_stream_cleanup_loop() -> None:
     from app.services.live_stream_service import reap_idle_streams
 
@@ -896,6 +939,7 @@ async def startup_events() -> None:
     app.state.rack_links_task = asyncio.create_task(_rack_links_loop(), name="rack-links-loop")
     app.state.telegram_bot_task = asyncio.create_task(_telegram_bot_loop(), name="telegram-bot-loop")
     app.state.termico_task = asyncio.create_task(_termico_loop(), name="termico-loop")
+    app.state.pdv_relogio_task = asyncio.create_task(_pdv_relogio_loop(), name="pdv-relogio-loop")
 
 
 @app.on_event("shutdown")
@@ -915,6 +959,7 @@ async def shutdown_events() -> None:
         "rack_links_task",
         "telegram_bot_task",
         "termico_task",
+        "pdv_relogio_task",
     ):
         task = getattr(app.state, task_name, None)
         if task:

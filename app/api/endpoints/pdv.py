@@ -205,7 +205,6 @@ def api_pdv_video(caixa_id: str, ts: str, antes: int = 20, depois: int = 20) -> 
 @router.post("/relogio/{caixa_id}")
 def api_pdv_medir_relogio(caixa_id: str) -> Dict[str, Any]:
     """Le a hora do gravador (so leitura, getCurrentTime) e guarda a diferenca para o caixa."""
-    from app.api.endpoints.recorder_driver import _abrir
     from app.services.recorder_driver import ErroDriver
     from app.services.recorder_media_service import sem_senha
 
@@ -215,11 +214,9 @@ def api_pdv_medir_relogio(caixa_id: str) -> Dict[str, Any]:
     if not cx["gravador_host"]:
         raise HTTPException(status_code=400, detail="Este caixa ainda não tem gravador configurado.")
     try:
-        g = _abrir(cx["gravador_host"], 80, cx["connector_id"])
+        medida = pdv_store.ler_relogio_gravador(cx["gravador_host"], cx["connector_id"])
     except ValueError as exc:  # conector recusado pelo vnat: nega com motivo, nao 500
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    try:
-        medida = g.relogio()
     except ErroDriver as exc:
         raise HTTPException(status_code=502, detail=sem_senha(str(exc))) from exc
     return {**_executar(pdv_store.registrar_relogio_dvr, caixa_id, medida["diferenca_s"]), "leitura": medida}
